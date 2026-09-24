@@ -581,7 +581,7 @@ B5 通知模板文案定稿（表结构已在 §7.2 给出）
 B6 枚举与结构登记表 → **已交付** `PRD-phase1-enums-and-schemas.md`：28 项硬编码枚举 + `activity_log.action` 全清单 + `trigger_config`/`action_config`/`extra_condition` schema + `scope_key` 归一化与 8 条单测向量。配置表数量封在 5 张
 B7 当事人敏感字段加密与脱敏 → 方案已在权限草案 §7.3 给出（AES-256-GCM + HMAC 索引列 + `key_version` 预留），剩密钥托管与轮换细则
 B8 删除语义（与 §6.3 `is_deleted` 占位对应；注意 §6.1 节点 FK 已定 `ON DELETE CASCADE`，与软删策略需统一，见 §12.4）
-D 转案件字段映射矩阵（1:N 时的金额拆分、名称派生、当事人引用 vs 复制、事务边界与补偿）
+D 转案件字段映射矩阵 → **已交付** `PRD-phase1-risk-to-case-mapping.md`：逐字段映射（继承/重填/留空/引用）、金额不分摊、描述与附件不复制、当事人引用+角色落关联表、单事务 + `event_outbox` 派发 `risk_converted`、撤销前置条件
 F 缺失原型补齐：风险事项详情页、当事人管理、5 类配置后台、通知中心、已归档视图（§5 已定需加「包含已归档」开关）、批量导入、全局搜索。（案例列表/详情/检索随模块后移）
 G 非功能需求：数据量预估、并发、留存期、备份、部署形态（当前为 0）
 
