@@ -125,6 +125,28 @@ schema 真相    packages/db/schema/*.ts        （Drizzle，供类型安全查�
 
 有一处实现细节需要你安排在 T7 之前拍掉：Drizzle 的 schema DSL 对 **partial index（`WHERE is_enabled`）、表级 `CHECK`、生成列** 的支持程度随版本变化，我不替你断言。安排 **0.5 天 spike**：拿三张最难的表实跑一次 `drizzle-kit generate`——`automation_rule`（partial unique）、`matter_node`（生成列 + CHECK）、`status_config`（三个条件唯一索引）。**若产出明显残缺，就退到纯 SQL-first**（`node-pg-migrate` 或 umzug 手写 .sql，Drizzle 只当查询器）。这个决定越早越便宜，它会连带改变 §5 的 `packages/db` 结构。
 
+### 3.2c 迁移的执行方案（与框架无关，两条路线通用）
+
+```text
+时机     不在 app 启动时跑
+         deploy/compose 增加一次性服务：
+           migrator: command: npx drizzle-kit migrate , restart: "no"
+           app:      depends_on: { migrator: { condition: service_completed_successfully } }
+         → 多副本抢跑迁移的问题结构性消失
+并发保护 migrator 入口先 SELECT pg_advisory_lock(<固定常量>) 再执行
+         手工在多主机上重复执行时也只会有一个赢家，其余等锁后见空库即返回
+分类     schema 迁移：drizzle-kit 生成 + 尾部手写 SQL 补丁
+         数据迁移：seed 与回填，手写编号 SQL，幂等 ON CONFLICT DO NOTHING
+         两类同目录、编号连续、按文件名序执行；数据迁移必须在自己编号段内可重放
+命名     drizzle-kit 产出的是内容哈希文件名，不利 review。
+         不改名（改名会破坏 _journal 映射），改为在 docs/migrations.md 记
+         「编号 → 意图 → 影响的表」，review 看这份索引而不是看哈希
+回滚     第一期只随附 down 脚本、不自动执行；线上问题一律 forward-fix
+         （理由：自动回滚会连带回滚数据迁移，而数据迁移常常不可逆）
+一致性 CHECK 取值与 packages/shared 的值数组由一条集合比较测试把关
+         （枚举表 §5.1 已把 codegen 改为手写 + 测试）
+```
+
 ### 3.3 前端：AntD 与 Tailwind/shadcn 混用
 
 你这个意见戳到一个真实矛盾：**shadcn/Tailwind 对 agent 友好，但它在数据密集的后台管理页恰好是短板**。两者拿不了满分，所以按控件分类切，而不是整体选一边。
@@ -301,4 +323,51 @@ T1 定稿后依次：
 3. **§3.2b 规定 1**：共享环境禁用 `drizzle-kit push`，只走编号 SQL 迁移。有没有现存流程冲突。
 4. **§3.1b 表格**：三类 CPU 阻塞活（逐行解密、大文件 hash、导出）是否接受"worker 线程 + 异步导出"这个处理强度，还是第一期就把导出砍到 P1（我在 §9 已放到 P1）。
 5. **§9 切法**：把自动化规则配置页推到 P1、只硬编码 2 条内置提醒，能不能接受。这是本期最大的省时间来源。
+7. **§11 路线选择**：Nuxt 全栈 vs §2 的 Nest + React。我改判推荐前者，但先跑 S1–S3。
 6. **§3.1b 连接池那条**：如果部署要上 transaction-mode pgbouncer，advisory lock 与 `SET LOCAL` 都得改走 session-mode 直连，需要你确认部署形态。
+
+---
+
+## 11. 备选路线：Nuxt 全栈（改判推荐）
+
+### 11.1 先把反对理由逐条结算，别让错论证进决策
+
+| 原理由 | 结算 |
+|---|---|
+| ① 多一个 SSR 运行时是纯成本 | **撤回**。`ssr:false` 或按路由关，成本不成立 |
+| ② 换 Nuxt 实质是换 Vue 生态，不比现方案省 | 成立，但**不是缺点**：Element Plus 的 Table/Form/Upload/DatePicker 与 AntD 同档 |
+| ③ admin 模板的权限是菜单级，帮不上行级数据范围 | 成立，但打的是**模板**，不是 Nuxt。Nuxt 全栈 ≠ 套别人的 admin 模板 |
+| 对 Nest 的偏好："横切约束有唯一落点" | **说过满**。显式 `withScope(event, handler)` 同样可强制、可 grep，agent 读起来比装饰器 + 隐式 DI 更直白 |
+
+### 11.2 真实差异
+
+| 轴 | Nest + React 双 app | Nuxt 全栈 |
+|---|---|---|
+| 部署单元 | 2 个：dev 代理、CORS、同域 cookie 都要配 | 1 个：同源，session cookie 天然成立 |
+| 枚举/DTO 单一事实源 | 跨 package，需 workspace + 构建链 | `shared/` + `#shared` 两侧直接可用（需 Nuxt ≥3.14，列入 spike S1） |
+| 定时任务 | `@nestjs/schedule` | Nitro scheduled tasks（进程内 cron）+ advisory lock |
+| 横切约束 | Guard / Interceptor 装饰器 | 显式包装函数 + `server/middleware` |
+| OpenAPI | `@nestjs/swagger` 从装饰器推 | 需从 Zod 生成（`zod-openapi`） |
+| DI 与单测脚手架 | 容器注入，成熟 | 函数式自组织，靠显式传参 |
+| 团队心智 | "企业后端"预期，交接顺 | 前后端同在一人名下，小团队快 |
+| 前端生态 | React，agent 语料更多 | Vue，Element Plus 的 admin 范式成熟 |
+
+### 11.3 推荐
+
+**若"快速上线 / agent 实现 / 单或小团队"的权重高于"未来大团队交接"，选 Nuxt 全栈。** 我判断本项目落在这个区间，故改判。§2 的表格在路线定目前维持 Nest+React 原样，避免文档自相矛盾。
+
+切换成本诚实列出：
+
+- §3.1 / §3.3 两节结论需重写；Trellis spec 的 backend/frontend 边界从"两个 app"变成"同一 app 的 `server/` 与 `app/`"。
+- 前端目前零投入，**现在是成本最低的切换时点**，之后只会更高。
+- 失去 `@nestjs/swagger` 自动 OpenAPI，T8 的 API 契约改由 Zod 生成。
+
+### 11.4 三个前置 spike（拍路线前必跑，合计约 1 天）
+
+| # | 验什么 | 不通的后果 |
+|---|---|---|
+| S1 | `shared/` 与 `#shared` 在你的 Nuxt 版本能否被 `server/api` 直接 import | 枚举单一事实源要退回跨 package 手工同步，Nuxt 的主要优势削掉一半 |
+| S2 | Nitro scheduled task 内能否拿到与主应用同一套 PG 连接、并在多副本下靠 advisory lock 单飞 | 扫描与 outbox 需要独立进程跑，"一个部署单元"的优势也随之削掉 |
+| S3 | Element Plus Table 是否满足受控分页 + 服务端排序 + 多筛选 + 批量选择 + 列配置 | **连锁点**：若不通，前端要退回 AntD React，那就等于回到 Nest+React，Nuxt 路线整体作废 |
+
+S3 是真正的胜负手——这个系统的重心就是那张密集的表格与转案件动态表单，其余差异都不足以决定路线。
