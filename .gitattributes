@@ -1,3 +1,7 @@
+# Normalize line endings: store LF in the repo regardless of each dev's
+# core.autocrlf, so text diffs stay stable across Windows and Linux CI.
+* text=auto eol=lf
+
 # Trellis: append-only developer journals should merge cleanly across
 # parallel sessions/worktrees — each session only appends a new block, so
 # there is nothing to actually conflict on.
