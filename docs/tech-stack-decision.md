@@ -1,6 +1,8 @@
-# MatterNest 第一期技术选型（T1）v2
+# MatterNest 第一期技术选型（T1）v3
 
-> 状态：**v2，待你评审**。v1 定 NestJS + Drizzle + React/AntD；v2 按你的三点意见调整——补 NestJS 并发与数据库版本管理的实质论证（§3.1b、§3.2b），前端改为 **AntD 5 与 Tailwind/shadcn 混用**（§3.3），并新增「快速上线切法」（§9）。
+> 状态：**v3 —— §12 已按一手核验定稿为全栈 Nuxt，取代 §2 框架行与 §3.1/§3.3 结论**；§2–§11 其余章节继续有效。
+> 核验依据：`research-nuxt-fullstack-nitro.md`（Nuxt 4.5.2 / nitropack 2.13.4 / drizzle-orm 0.45.3）。
+> 版本沿革：v1 定 NestJS + Drizzle + React/AntD；v2 补 NestJS 并发与数据库版本管理的实质论证（§3.1b、§3.2b），前端改 AntD 5 与 Tailwind/shadcn 混用（§3.3），新增快速上线切法（§9），并就 Nuxt 全栈改判（§11）；v3 以核验结果定稿路线（§12）。
 > 本文是决策记录，不是教程。T2 阶段把 `.trellis/spec/` 的 12 个空模板按本文填成项目约定。
 
 ---
@@ -371,3 +373,44 @@ T1 定稿后依次：
 | S3 | Element Plus Table 是否满足受控分页 + 服务端排序 + 多筛选 + 批量选择 + 列配置 | **连锁点**：若不通，前端要退回 AntD React，那就等于回到 Nest+React，Nuxt 路线整体作废 |
 
 S3 是真正的胜负手——这个系统的重心就是那张密集的表格与转案件动态表单，其余差异都不足以决定路线。
+
+---
+
+## 12. 全栈 Nuxt 路线（S1–S3 核验后定稿）
+
+一手核验结果见 `research-nuxt-fullstack-nitro.md`（531 行，版本基线 Nuxt 4.5.2 / nitropack 2.13.4 / h3 1.15.11 / drizzle-orm 0.45.3 / drizzle-kit 0.31.11）。**本节取代 §2 的框架行与 §3.1、§3.3 的结论**；§3.2b、§3.2c、§3.4、§3.5、§3.6、§5、§6、§9 全部继续有效。
+
+### 12.1 核验后的路线判定
+
+Nuxt 全栈成立，不阻塞。7 项主张：VERIFIED 5 项、PARTIALLY 2 项、NOT SUPPORTED 2 项（都不是阻塞项）。上一版标为"胜负手"的 S3 不在这次核验范围内，仍然待验。
+
+### 12.2 由核验强制产生的四项设计变更
+
+| # | 发现 | 变更 |
+|---|---|---|
+| C1 | Nitro 调度器是 **per-process croner**，N 副本 = 触发 N 次（源码级确认）；且 tasks 仍挂在 `nitro.experimental.tasks` 后 | §3.5 的 `pg_try_advisory_lock` 从"保险起见"升级为**功能正确性前提**（outbox 双派 = 双发通知）。所有 task 必须包在 `withSingleFlight()` 内，不允许裸挂 cron |
+| C2 | `nitro run-task` 实为 `nitro task run` 且 **dev-only**，`/_nitro/tasks*` 同样只在 dev | 运维补跑路径要自建：鉴权后的 `server/api/tasks/[name].post.ts` → `runTask()`，或 one-off 容器命令。不得假设框架给了生产手动触发口 |
+| C3 | `readMultipartFormData` **全量 `Buffer.concat` 进内存**，且 Nitro/h3 层无任何 body size 限制 | **改附件上传方案**：客户端向服务端申请 **MinIO 预签名 PUT** 直传，服务端只登记元数据 + 事后异步校验 hash。这反而比原设计更干净——后端不再中转 50MB 文件流，§7.1 的"签 60s URL"保留，多一条"签 PUT URL" |
+| C4 | Nuxt/Nitro **无第一方 session 模块**（`nuxt-session` 停更于 2018）；h3 `useSession` 只做密封 cookie，不管吊销与枚举 | §3.4 的自建 session 表维持不变。文档与 spec 里禁止出现"用 Nuxt 官方 session"这类表述 |
+
+### 12.3 必须写进 `.trellis/spec/` 的六条禁令
+
+1. **`shared/` 只放纯 TS**：不得 import Vue、Nitro runtime、Node API（Nuxt 官方明写两个独立 bundle）；且只有 `shared/utils`、`shared/types` 会被自动导入，子目录需显式配 `imports.dirs` + `nitro.imports.dirs`。
+2. **Drizzle partial index 的 `.where()` 只用 `sql` 模板，禁用 `eq()/and()`**——0.45.3 实测会生成非法的 `$1`（open issue #4790）。锁 `drizzle-orm`/`drizzle-kit` 精确版本，升级时复验。
+3. **生成列写法**：`generatedAlwaysAs(sql\`…\`)` 或回调形式，**pg 侧没有 `.stored()`**（会抛 TypeError）；PG 只有 STORED，生成列不可进 PK/FK/unique、不可引用其他生成列。
+4. **schema 演进只用 `generate` + `migrate`，开发期也不用 `push`**——官方 FAQ 明写 `push` 检测不到已有索引的 `.where()`/表达式变化，而软删 partial unique 正是权限模型骨架，用 push 会出现"代码改了、库没改、CI 还绿"的静默漂移。
+5. **所有 API 落 `/api/**`**：Nitro 的错误 payload 形状不是已保证的稳定契约，且 `/api/**` 才确定走 JSON（其余按 `Accept`/`User-Agent` 可能返回 HTML）；权限模型依赖"不可见一律 404"，必须是可编程解析的 JSON。
+6. **`ssr:false` 需补 `app/spa-loading-template.html`**，并明确"鉴权跳转只发生在客户端"——SPA 首屏无服务端内容，未登录时不存在服务端重定向。
+
+### 12.4 未证实项（不得当作既有能力写进设计）
+
+- `node:worker_threads` 在 Nuxt+Nitro 文档中**零命中**，只确认 `node-server` preset 是普通 Node 进程。§3.1b 里"逐行解密/大文件 hash 放 worker 线程"因此是**待 spike 项，不是已定方案**。缓解：C3 落地后，50MB 文件的 hash 与解密压力本身已大幅下降。
+- Nitro 升到 3（当前 beta）会同时改变包名、`defineTask` 导入路径、h3 1.x→2.x 的 body/session API。届时 `readMultipartFormData`、`createError` 字段、prod error payload、`scheduledTasks` 四项需重新核验。
+
+### 12.5 缓存：20 人规模不引入任何缓存组件
+
+判据不是性能，是安全：本系统每次读取都带行级数据范围谓词，**任何跨用户共享的响应缓存都是泄露面**。因此 HTTP 层缓存、反代缓存、查询结果缓存一律不做。需要缓存的三处全用现成机制：配置字典与用户权限集走进程内 `Map`（权限以 `userId:token_version` 为键，版本变更天然失效），列表详情走客户端 TanStack Query 的 `staleTime`。
+
+连接池设 10，**不引入 pgbouncer**——顺带消除了 §3.1b 提到的 transaction-mode pooling 与 advisory lock / `SET LOCAL` 的冲突。
+
+将来触发加缓存的可观测信号：单查询 p95 > 200ms 且 `EXPLAIN` 显示索引已最优；副本 > 2 且出现必须跨进程共享的状态；附件需要 CDN（那时加在对象存储侧，仍不是 Redis）。

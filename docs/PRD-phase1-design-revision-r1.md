@@ -432,6 +432,7 @@ CREATE INDEX ix_node_host ON matter_node (matter_id, sort_order);
 约定：
 - 字段表中的 `attachments` / `attachment_ids` 一律标注 `[input]`（写入）或 `[derived]`（读取），主表不再有数组/JSON 列。
 - 下载走短期签名 URL，签发时按权限草案 §7.3 逐条判定宿主可见性；上传白名单：pdf/doc/docx/xls/xlsx/png/jpg/jpeg/zip，单文件 ≤50MB，单宿主 ≤100 个。
+- **上传改走预签名 PUT 直传对象存储**（技术选型 §12.2 C3）：客户端向服务端申请 PUT URL 直传 MinIO，服务端只登记元数据、事后异步校验 hash，不中转文件流。依据是核验发现 Nitro/h3 的 `readMultipartFormData` 会把整个文件缓冲进内存，且框架层无 body size 上限。
 - 宿主转 `archived` 后附件只读、不可删；`is_deleted` 保留对象以便审计追溯，物理清理由 B 组定义。
 - 案件详情页 Tab 增加「附件」（原文 4.2 缺，判决书/合同原件此前无处上传，只能塞进进展）。
 
