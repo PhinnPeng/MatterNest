@@ -1,7 +1,8 @@
 # MatterNest 第一期设计交付物 — 枚举与结构登记表（B6）
 
-> 状态：**定稿**。闭合 `PRD-phase1-design-revision-r1.md` §10 的 B6 项，并一并关掉 §11 遗留风险 1（`scope_key` 归一化）与 §6.3 各行的"枚举闭合"占位。
-> 本文件是**取值权威源**。另两份文档中的枚举与本表冲突时，以本表为准并回改本表以外的文件。
+> 状态：**定稿 v2**（2026-09-26）。闭合 `PRD-phase1-design-revision-r1.md` §10 的 B6 项，并一并关掉 §11 遗留风险 1（`scope_key` 归一化）与 §6.3 各行的"枚举闭合"占位。
+> 本文件是**取值权威源**。其余各份文档（修订稿 / 权限草案 / 转案件矩阵 / 基线 / master）中的枚举与本表冲突时，以本表为准并回改本表以外的文件。
+> **v2 变更**：补登 E29–E33（通知与 outbox 三个枚举此前只在修订稿散落，权威源反而缺记）；§3.2 补 `UNCONVERT`；E09 的默认值口径与修订稿 §3.1 统一；§4.2 白名单按宿主分列并回改了修订稿 §2.5。
 
 ---
 
@@ -34,7 +35,7 @@
 | E06 | `*_party.party_role` | 见 E12 | — | 复用诉讼地位取值 |
 | E07 | `*_party.represented` | `true` `false` | — | 是否我方代理。**与 party_role 正交**：同一案件可有多个 `represented=true` 的当事人，角色各异（本诉原告 + 反诉被告） |
 | E08 | `status_config.host_type` | `matter` `risk_matter` | — | |
-| E09 | `status_config.semantics` | `open` `in_progress` `closed` `archived` `custom` | `custom` | 修订稿 §3.1。**新建状态只能选 `custom`**，四个内置语义由 seed 持有且不可授予 |
+| E09 | `status_config.semantics` | `open` `in_progress` `closed` `archived` `custom` | `custom`（**仅 DDL 兜底**） | 修订稿 §3.1。**新建状态只能选 `custom`**，四个内置语义由 seed 持有且不可授予。API 层该字段**保存时必填**，DB 默认值不构成"可以不给 semantics"——两处口径以此为准 |
 | E10 | `node_type_config.host_type` | `matter` `risk_matter` | — | 取代原 `applicable_type` 三值 |
 | E11 | `node_type_config.time_type` | `point` `range` | `point` | 时间点 / 时间段 |
 
@@ -59,6 +60,13 @@
 | E26 | `attachment.category` | `evidence` `complaint` `judgment` `contract` `internal_doc` `other` | 否 | 证据/起诉状/判决书/合同/内部文书/其他。第一期不做配置表 |
 | E27 | 通用 `currency` | `CNY`（唯一值） | `CNY` | `char(3)`。列先留、值锁死，避免日后加币种时改 `numeric` 精度 |
 | E28 | `risk_matter.conversion_status` | `0` 未转案件 `1` 已转案件 | `0` | `smallint`，非枚举语义。修订稿 §3.4 |
+| E29 | `notification_event.event_type` | `status_changed` `node_due_start` `node_due_end` `stale_30d` `mention` `new_comment` `risk_converted` | — | 7 值。原 `expense_added` 已删（2026-09-26 裁定第一期不做费用通知）。修订稿 §7.2 |
+| E30 | `notification_event.source_type` | `node_remind` `custom_reminder` `auto_rule` | — | 三条投递来源，去重与排障按它分流 |
+| E31 | `notification_delivery.status` | `pending` `sent` `failed` `void` | `pending` | **与 E23 不同**：投递层用 `void`（收件人不可见而静默丢弃，权限草案 §8），提醒任务层用 `cancelled`（用户主动撤销）。不要合并成一套 |
+| E32 | `event_outbox.event_type` | `risk_converted` `comment_added` | — | outbox 只承载"提交后派发"的领域事件，与 E33 同值域 |
+| E33 | `trigger_config.event`（`event_occurred` 用） | `risk_converted` `comment_added` | — | 第一期两个值；规则 7 / 规则 8 各引一个（修订稿 §2.3） |
+
+> E29–E33 是 2026-09-26 补登：本表 §5.1 早已声明 `notify.ts` 要承载 `notification_event.event_type` 与 `source_type`，但取值一直只在修订稿 §7.2 的表里散落，权威源反而没记——这正是"单一事实源"最容易被绕过的形态。
 
 ---
 
@@ -90,6 +98,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 | `UNARCHIVED` | 必填 | 需 `can_unarchive` |
 | `OWNER_CHANGED` | 选填 | 与 `*_staff.owner` 同事务 |
 | `CONVERTED_TO_CASE` | 选填 | 转案件确认，载荷含 `case_ids[]` |
+| `UNCONVERT` | **必填** | 撤销转案件关联，载荷含 `case_id` + 剩余 `converted_case_count`。原清单漏登，但映射矩阵 §5.1 已在用它写审计——补上才算"取值闭合" |
 | `NODE_COMPLETED` | 选填 | |
 | `NODE_CANCELLED` | 必填 | 取消原因已在列 `cancel_reason`，日志与列同值 |
 
@@ -112,7 +121,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 | `REMINDER_SENT` | `{reminder_id, channel}` |
 | `REMINDER_FAILED` | 同上 + `error` |
 
-> 修订稿 §3.6 原把规则结果塞进 `field_diffs`，现改用 `payload jsonb` 列（见 §5.4），`field_diffs` 回归"字段差异"本义。
+> 基线原文 3.6（规则执行结果一节；基线副本无对应段落，见 `PRD-phase1-baseline-v0.md` §B）原把规则结果塞进 `field_diffs`，现改用 `payload jsonb` 列（见 §5.4），`field_diffs` 回归"字段差异"本义。
 
 ---
 
@@ -133,11 +142,12 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 // node_before_end —— 触发实体 = 节点表；仅 time_type=range 且 end_time 非空
 { "days": 3 }
 
-// event_occurred —— 第一期唯一事件
+// event_occurred —— 第一期两个事件（E33）
 { "event": "risk_converted" }
+{ "event": "comment_added" }
 ```
 
-校验：未知键拒绝；`days` 为 `1..365` 整数；`status_code` 必须存在于当前启用配置且不被停用（修订稿 §2.2）。
+校验：未知键拒绝；`days` 为 `1..365` 整数；`status_code` 必须存在于当前启用配置且不被停用（修订稿 §2.2）；`event` 取值限 E33。
 
 ### 4.2 `extra_condition`（第一期能力边界）
 
@@ -155,7 +165,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 | 逻辑算子 | 只有根节点 `and`。**不支持 `or` / 取反 / 子查询 / 聚合** |
 | 比较算子 | `eq` `ne` `in` `not_in` `gt` `lt` `is_empty` `not_empty` |
 | 字段白名单 | 案件：`level` `case_type` `procedure` `litigation_role` `owner_id` `tag_ids` `amount` `court`<br>事项：`level` `type` `source` `owner_id` `tag_ids` `amount` |
-| 字段名解析 | 存 `code` 不是列名，白名单外的 key 直接拒绝保存 |
+| 字段名解析 | 存 `code` 不是列名，白名单外的 key 直接拒绝保存。**按宿主分列**：案件含 `litigation_role`/`court` 无 `source`；事项含 `source` 无 `case_type`/`procedure`/`litigation_role`/`court`（修订稿 §2.5 的扁平白名单是旧版，已按本表回改） |
 
 > 规则 4「30 天无更新」的"无更新"判断**不在此表达**，内置在动作实现里（修订稿 §2.5）。这是第一期把引擎限定为"5 种内置触发 + 可配参数"的直接后果，需在配置页对用户明示。
 
@@ -167,7 +177,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 
 // notify
 { "receivers": ["owner", "follower"],          // owner|co_owner|follower|custom
-  "template_code": "case_closed",
+  "template_code": "status_changed",
   "custom_user_ids": [],                        // 仅 receivers 含 custom 时允许非空
   "once_per_target": false,
   "cooldown_days": 0 }                          // once_per_target=true 时必须 >=1
@@ -229,16 +239,16 @@ packages/domain/enums/
 ├── targets.ts       # E03
 ├── status.ts        # E09 + 内置 semantics 行为映射
 ├── business.ts      # E12–E22, E26–E28
-├── notify.ts        # E23–E25 + notification_event.event_type + source_type
-├── audit.ts         # §3 action 清单
-└── automation.ts    # §4 的 trigger_type / action_type / 算子 / 字段白名单
+├── notify.ts        # E23–E25 + E29–E32（event_type / source_type / delivery.status / outbox.event_type）
+├── audit.ts         # §3 action 清单（含补登的 UNCONVERT）
+└── automation.ts    # §4 的 trigger_type / action_type / 算子 / 字段白名单 + E33
 ```
 
 每个文件同时导出 TS 联合类型、值数组、中文名字典。
 
 `CHECK` 约束**在迁移 SQL 里手写**，但配一条一致性测试兜底：读 `role_permission` 式的值数组与迁移文件里的 `CHECK` 取值做集合比较，不一致即 CI 失败。
 
-> 这一条是我改的，原稿写的是"由值数组在迁移生成期产出、不手写 SQL 取值列表"。理由：生成 CHECK 要建一条 codegen 管线（读 TS → 产 SQL → 写进迁移文件），而本表 28 项枚举变更频率极低（一期只增不改），管线收益抵不过成本；同时技术选型 §3.2b 已定"迁移 SQL 文件是唯一事实、须可人审"，生成器往迁移里插内容会让迁移不再是稳定产物。集合一致性测试能抓住同一个错误（枚举与库约束不同步），代价是一个测试文件。
+> 这一条是我改的，原稿写的是"由值数组在迁移生成期产出、不手写 SQL 取值列表"。理由：生成 CHECK 要建一条 codegen 管线（读 TS → 产 SQL → 写进迁移文件），而本表 33 项（E01–E33）变更频率极低（一期只增不改），管线收益抵不过成本；同时技术选型 §3.2b 已定"迁移 SQL 文件是唯一事实、须可人审"，生成器往迁移里插内容会让迁移不再是稳定产物。集合一致性测试能抓住同一个错误（枚举与库约束不同步），代价是一个测试文件。
 
 ### 5.2 三条约束模板
 
@@ -294,5 +304,13 @@ ALTER TABLE activity_log ADD COLUMN payload jsonb;   -- §3 的结构化载荷
 | 修订稿 §11 遗留风险 1（`scope_key` 归一化） | 关闭，§4.4 含 8 条单测向量 |
 | 修订稿 §6.3 各"枚举闭合"行 | 取值统一以本表为准，修订稿保留语义说明 |
 | 修订稿 §2.5 引擎能力边界 | §4.2 具体化为 schema + 白名单 |
-| 修订稿 §3.6 `field_diffs` 语义污染 | §3.4 + §5.4 用 `payload` 分离 |
+| 原文 3.6 `field_diffs` 语义污染（基线副本无此节，指针已纠正） | §3.4 + §5.4 用 `payload` 分离 |
 | 权限草案 §7.3 明文读取 | E `SENSITIVE_FIELD_READ` |
+| 映射矩阵 §5.1 `UNCONVERT` 用了未登记动作 | §3.2 补登，含 reason 必填与载荷口径 |
+| 修订稿 §6.1 `source_kind=preset_p1/rule_p2` | E22 为 `preset`/`rule`，修订稿已回改 |
+| 修订稿 §6.2 / §8.1 `matter_party.role` | E06 为 `party_role`，修订稿已回改（UK 并补 `represented` 说明） |
+| 修订稿 §2.3 seed 的 `template:` 键 | §4.3 schema 键为 `template_code`，seed 已回改；`create_node` 亦补齐 `offset_days_from`/`offset_days` |
+| 修订稿 §2.5 扁平 `extra_condition` 白名单 | §4.2 按宿主分列为权威，修订稿已回改 |
+| 修订稿 §7.2 未登记的 `event_type`/`source_type`/`delivery.status` | E29–E31 补登；`expense_added` 按 2026-09-26 裁定删除 |
+| 映射矩阵 §4.1 `event_outbox.event_type` | E32 补登 |
+| 修订稿 §2.3 规则 8 的 `event_occurred` 新事件 | E33 + §4.1 校验行 |

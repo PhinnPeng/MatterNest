@@ -29,7 +29,7 @@
 | 领域命名 | **不改名**：案件 = `Matter`，事项 = `RiskMatter`；但枚举值一律用全称 `risk_matter`，**禁止 `risk`**。原歧义来自 `{matter, risk}` 并列，拆表 + 全称后自然消解 | 零表名改动；见 §8.3 |
 | 数据库 | **PostgreSQL 15+** | 部分唯一索引、`timestamptz`、`integer[]`/`jsonb`、`ON CONFLICT` 序号生成器，见 §12 |
 | 案例模块 | **`case_study` 移出第一期**（清单#10 → 第二期） | 删 1.3 字段表、2.3 状态机、`TargetType` 的 case_study 行、§12.5 中文分词整节 |
-| 组织维度 | **第一期不引入部门/组织**，权限仅「用户 + 角色」 | 权限草案 v3；`dept_id` 一类占位列一律不留 |
+| 组织维度 | **第一期不引入部门/组织**，权限仅「用户 + 角色」 | 权限草案 v4；`dept_id` 一类占位列一律不留 |
 | 「已转案件」表达方式 | **不占状态位**，事项表加 `conversion_status smallint` | 状态机保持案件/事项同构 4 态；规则 7 改用 `event_occurred`；`event_occurred` 从"扩展位"升为第一期必装，见 §3、§2.5 |
 | MCP 授权页（4.5） | **移出第一期**，清单#13 改「第二期」 | 删 4.5 原型；外部"案例库服务"随之外移；CaseStudy 第一期只承载内部案例 |
 
@@ -93,7 +93,7 @@
 
 ### 2.1 替换原文 3.3「动作白名单与唯一性」
 
-原「全局唯一」不成立：5 种动作最多支撑 5 条启用规则，而预置清单需要 7 条同时在线（其中「发送通知」被 4 条规则使用）。改为按**触发域**判定：
+原「全局唯一」不成立：5 种动作最多支撑 5 条启用规则，而预置清单需要 8 条同时在线（其中「发送通知」被 5 条规则使用）。改为按**触发域**判定：
 
 > **动作唯一性：在同一触发域（`scope_key`）内，同一 `action_type` 至多一条启用规则。**
 
@@ -102,7 +102,7 @@
 ```
 scope_key = sha1_12(
     trigger_type
-  + trigger_target_type            // matter | risk_matter | matter_node
+  + trigger_target_type            // matter | risk_matter | matter_node | risk_matter_node
   + normalized(trigger_config)     // 键排序、值取 code 而非 id、去空白
 )
 ```
@@ -138,19 +138,22 @@ CREATE UNIQUE INDEX ux_rule_enabled_action
 
 ### 2.3 预置规则 seed（A1/A2/A4/A8 合并结果）
 
-7 条预置规则在**当前配置下均可同时启用**（动作唯一性按域判定，已复核）：
+8 条预置规则在**当前配置下均可同时启用**（动作唯一性按域判定，已复核）：
 
 | # | 规则名 | host_type | trigger_type | trigger_target | trigger_config | action | action_config | priority | 默认启用 | 唯一性域复核 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 结案自动归档 | all | `status_changed` | 宿主 | `{status_code:"closed"}` | `archive` | `{}` | 10 | **否** | 与规则 2 同域、动作不同 → 允许 |
-| 2 | 结案通知关注人 | all | `status_changed` | 宿主 | `{status_code:"closed"}` | `notify` | `{receivers:["follower"],template:"case_closed"}` | 20 | 是 | 同上 |
-| 3 | 进入进行中创建节点 | all | `status_changed` | 宿主 | `{status_code:"in_progress"}` | `create_node` | `{template_code:"matter_in_progress"}` | 10 | 是 | 独立域 |
-| 4 | 长期未更新提醒 | all | `time_no_progress` | 宿主 | `{days:30}` | `notify` | `{receivers:["owner"],template:"stale_30d",once_per_target:true,cooldown_days:30}` | 10 | 是 | 独立域 |
-| 5 | 节点开始提醒 | all | `node_before_start` | 节点表 | `{days:3}` | `notify` | `{receivers:["owner","follower"],template:"node_start"}` | 10 | 是 | 独立域；实现内同时扫两张节点表 |
-| 6 | 节点截止提醒 | all | `node_before_end` | 节点表 | `{days:3}` | `notify` | `{receivers:["owner","follower"],template:"node_end"}` | 20 | 是 | 独立域；同上 |
+| 1 | 结案自动归档 | all | `status_changed` | 宿主 | `{status_code:"closed"}` | `archive` | `{}` | 10 | **否** | 与规则 2 域不同（本条含 `status_code`），动作也不同 |
+| 2 | 状态变更通知关注人 | all | `status_changed` | 宿主 | `{}`（任意状态变更） | `notify` | `{receivers:["follower"],template_code:"status_changed"}` | 20 | 是 | 独立域：`trigger_config` 为空对象，与规则 1/3 均不同 key |
+| 3 | 进入进行中创建节点 | all | `status_changed` | 宿主 | `{status_code:"in_progress"}` | `create_node` | `{template_code:"matter_in_progress",offset_days_from:"status_changed_at",offset_days:0}` | 10 | 是 | 独立域 |
+| 4 | 长期未更新提醒 | all | `time_no_progress` | 宿主 | `{days:30}` | `notify` | `{receivers:["owner"],template_code:"stale_30d",once_per_target:true,cooldown_days:30}` | 10 | 是 | 独立域 |
+| 5 | 节点开始提醒 | all | `node_before_start` | 节点表 | `{days:3}` | `notify` | `{receivers:["owner","follower"],template_code:"node_start"}` | 10 | 是 | 独立域；实现内同时扫两张节点表 |
+| 6 | 节点截止提醒 | all | `node_before_end` | 节点表 | `{days:3}` | `notify` | `{receivers:["owner","follower"],template_code:"node_end"}` | 20 | 是 | 独立域；同上 |
 | 7 | 转案件后归档 | risk_matter | **`event_occurred`** | 宿主 | `{event:"risk_converted"}` | `archive` | `{}` | 10 | 是 | 触发类型不同 → 与规则 1 天然不同域 |
+| 8 | 新评论通知关注人 | all | **`event_occurred`** | 宿主 | `{event:"comment_added"}` | `notify` | `{receivers:["follower"],template_code:"comment_new"}` | 20 | 是 | 与规则 7 同触发类型但 `event` 不同 → 不同域 |
 
-规则 7 的触发条件按本轮决策改写：**不再依赖「已转案件」状态**，改由 `risk_matter_case` 写入成功后发出的 `risk_converted` 领域事件触发（见 §3.2）。代价是 `event_occurred` 从"扩展位"升为**第一期必装触发类型**——原文 3.2 的"事件发生"这一类由此落地，`trigger_config` 需增 `event` 枚举（第一期仅 `risk_converted` 一个值）。
+> 规则 2/8 是 2026-09-26 裁定（P0-5）的结果：基线 9.1「任何更新自动通知关注人」这条承诺**缩为两类**——新评论与状态变更。节点/进展/费用/字段编辑一律不再向关注人推送，否则与 §7.2 的聚合去重初衷相背。`mention`（@提及）不经规则引擎，由评论服务直接发事件。
+
+规则 7 的触发条件按本轮决策改写：**不再依赖「已转案件」状态**，改由 `risk_matter_case` 写入成功后发出的 `risk_converted` 领域事件触发（见 §3.2）。代价是 `event_occurred` 从"扩展位"升为**第一期必装触发类型**——原文 3.2 的"事件发生"这一类由此落地，`trigger_config` 需增 `event` 枚举（第一期两个值：`risk_converted`、`comment_added`，见枚举 E33）。
 
 规则 5/6 的扫描器跨 `matter_node` + `risk_matter_node` 两张表：在动作实现内 `UNION ALL`，**不**为规则引入跨宿主统一节点视图。
 
@@ -162,7 +165,7 @@ CREATE UNIQUE INDEX ux_rule_enabled_action
 
 | seed 类别 | 内容 |
 |---|---|
-| 通知模板 | `case_closed`、`case_archived`、`node_start`、`node_end`、`stale_30d`、`mention`、`comment_new`（7 条；「转案件归档」无独立模板，复用 `case_archived`。表结构见 §7.2） |
+| 通知模板 | `status_changed`、`case_archived`、`node_start`、`node_end`、`stale_30d`、`mention`、`comment_new`（7 条；「转案件归档」无独立模板，复用 `case_archived`。原 `case_closed` 已被 `status_changed` 取代——规则 2 现覆盖任意状态变更，结案文案由模板内"旧状态 → 新状态"分支渲染。表结构见 §7.2，文案定稿属 B5） |
 | 节点模板 | `matter_in_progress`（举证/开庭/判决）、`risk_matter_default`（受理/核查/反馈，对应清单#3「事项默认 3 个」） |
 | 状态配置 | 案件 4 + 事项 4，**同构**（转案件不再占状态位），见 §3 |
 | 节点类型 | 立案/举证/开庭/判决/调解/核查/反馈，按 `host_type` 分列（后台统一页维护） |
@@ -176,7 +179,7 @@ CREATE UNIQUE INDEX ux_rule_enabled_action
 
 第一期**不实现**通用规则引擎，而是「5 种内置动作 + 可配参数 + 可配启停 + 可新建同结构规则」：
 
-- `extra_condition` 第一期只支持字段级 AND 比较，操作符 `eq / ne / in / not_in / is_empty / gt / lt`，字段白名单：`level`,`case_type`,`procedure`,`owner_id`,`tag_ids`,`amount`,`source`。**不支持** OR / 嵌套 / 子查询 / 聚合。
+- `extra_condition` 第一期只支持字段级 AND 比较（根 `and`，不可嵌套）。比较算子：`eq / ne / in / not_in / gt / lt / is_empty / not_empty`。**字段白名单按宿主分列**（取值权威源 = 枚举表 §4.2）：案件 `level` `case_type` `procedure` `litigation_role` `owner_id` `tag_ids` `amount` `court`；事项 `level` `type` `source` `owner_id` `tag_ids` `amount`。注意 `source` 只属于事项（案件无此列，映射矩阵 §2.2），旧版把两者混成一张扁平表已废。**不支持** OR / 嵌套 / 子查询 / 聚合。
 - 因此规则 4「30 天无更新」的比较逻辑（近 30 天无 ActivityLog 中的实质进展）是**动作实现内置的**，不通过 `extra_condition` 表达。原文档未区分，是 D2 的根因。
 - 「用户自由组合新触发类型」不在第一期范围。新建规则只能在上述 5 个 `trigger_type` 内选参数。
 
@@ -195,7 +198,7 @@ CREATE UNIQUE INDEX ux_rule_enabled_action
 | name | varchar(50) | 是 | — | 展示名，可改 |
 | color | varchar(20) | 是 | — | |
 | host_type | 枚举 | 是 | — | `matter` / `risk_matter` |
-| **semantics** | 枚举 | 是 | — | 见下表，**必填，决定系统行为** |
+| **semantics** | 枚举 | 是 | `custom`（仅 DDL 兜底） | 见下表，**决定系统行为**。API 层该字段**保存时必填**，且值域只有 `custom`——四个内置语义由 seed 持有、不可授予新建状态。DB 默认值只为 seed 与手写 SQL 兜底，不构成"可以不给 semantics" |
 | is_system | boolean | 是 | false | true = seed 内置，可改名/改色/排序，不可删 |
 | is_archive_status | boolean | 是 | false | 由 `semantics='archived'` 推导，只读生成列 |
 | is_initial_status | boolean | 是 | false | 新建默认态，每 host_type 恰好一个 |
@@ -319,7 +322,7 @@ CREATE UNIQUE INDEX ux_status_code     ON status_config (host_type, code);
 | code | varchar(32) | 是 | — | 供模板与规则引用；同 host_type 内唯一 |
 | name | varchar(50) | 是 | — | |
 | **host_type** | 枚举 | 是 | — | `matter` / `risk_matter`，取代原 `applicable_type` 三值；"通用"改为两张宿主各一行 |
-| time_type | 枚举 | 是 | 时间点 | 时间点 / 时间段 |
+| time_type | 枚举 | 是 | `point` | `point` 时间点 / `range` 时间段（取值以枚举 E11 为准，中文名只在前端字典） |
 | **preset_on_create** | boolean | 是 | false | P1 开关 |
 | **template_code** | varchar(32) | 否 | null | P2 归组码，规则 3 按它批量取模板节点 |
 | sort_order | integer | 是 | 0 | P1 生成顺序 |
@@ -352,14 +355,14 @@ P1 生成规则：宿主创建成功 → 取 `is_enabled AND host_type = 宿主�
 | matter_id / risk_matter_id | bigint | **是** | — | `REFERENCES matter(id) ON DELETE RESTRICT` / 同构（删除策略见 §12.4）；不再有 `matter_type` discriminator 列 |
 | node_type_id | bigint | 是 | — | FK → `node_type_config(id)`，应用层再加 `host_type` 匹配校验 |
 | start_time | timestamptz | **否** | null | 可空 = 时间待定；空或 `is_time_confirmed=false` 时不参与提醒扫描、不自动转进行中 |
-| end_time | timestamptz | 否 | null | `time_type=时间段` 且 `is_time_confirmed=true` 时必填，且 ≥ start_time |
+| end_time | timestamptz | 否 | null | `time_type='range'` 且 `is_time_confirmed=true` 时必填，且 ≥ start_time |
 | **is_time_confirmed** | boolean | 是 | false | 时间是否已确认；4.2 原型「判决 待定」即 `false` |
 | **deadline_time** | timestamptz | 是 | 生成列 | `GENERATED ALWAYS AS (COALESCE(end_time, start_time)) STORED`（时间段取 end，时间点取 start）；用于排序与临期筛选 |
 | **remind_days** | integer[] | 否 | `'{7,3,1}'` | 提醒唯一配置入口（A8/A9 后无第二处）；由 jsonb 改为数组，扫描器直接 `unnest` |
-| status | 枚举 | 是 | 未开始 | 未开始/进行中/已完成/已取消 |
+| status | 枚举 | 是 | `not_started` | `not_started` / `in_progress` / `completed` / `cancelled`（枚举 E21） |
 | completed_at / completed_by | timestamptz / bigint | 否 | null | 新增，闭环节点完成口径 |
 | cancel_reason | varchar(200) | 否 | null | 新增，`status='cancelled'` 时必填 |
-| source_kind | 枚举 | 是 | manual | `manual` / `preset_p1` / `rule_p2`，新增，标明节点从哪条路径来 |
+| source_kind | 枚举 | 是 | manual | `manual` / `preset` / `rule`，新增，标明节点从哪条路径来（P1/P2 路径本身由 `source_ref` 区分；取值以枚举 E22 为准，原 `preset_p1`/`rule_p2` 命名作废） |
 | source_ref | varchar(64) | 否 | null | P2 时存 `rule_id`，便于规则回滚批量清理 |
 
 配套索引（两张节点表各建一份）：
@@ -380,7 +383,7 @@ CREATE INDEX ix_node_host ON matter_node (matter_id, sort_order);
 | 案件 `party_ids` | 必填=是，默认 `[]`，说明"至少 1 个" | 存储层无此列，`[input]` 数组写入 `matter_party`；校验时机 = `提交动作时:创建案件 / 转案件确认`，≥1 行；创建后不得清空至 0 |
 | 事项 `party_ids` | 否 | `[input]` 数组写入 `risk_matter_party`；校验时机 = `不校验` |
 
-`party_roles` JSON 列**删除**，角色落到中间表列（`matter_party.role` / `risk_matter_party.role`，见 §8.1）——一个案件里我方可能同时是本诉原告、反诉被告，案件级单值 `litigation_role` 承载不了；`litigation_role` 保留为"案件主诉地位"的概览字段，详情页展示以 `matter_party.role` 为准。
+`party_roles` JSON 列**删除**，角色落到中间表列（`matter_party.party_role` / `risk_matter_party.party_role`，见 §8.1；列名以枚举 E06 为准）——一个案件里我方可能同时是本诉原告、反诉被告，案件级单值 `litigation_role` 承载不了；`litigation_role` 保留为"案件主诉地位"的概览字段，详情页展示以 `matter_party.party_role` 为准。
 
 ### 6.3 其余字段表补漏（顺手修，属 A 组证据链）
 
@@ -394,7 +397,7 @@ CREATE INDEX ix_node_host ON matter_node (matter_id, sort_order);
 | 1.5 `MatterProgress` | 保持**案件专属**（拆表决策下不给事项加 `risk_matter_progress`，第一期事项无进展沉淀入口，需在文档明示）；`progress_type` 枚举闭合：日常推进/法院动作/对方动作/客户反馈/内部决议/材料提交；`node_id` 改为真 FK → `matter_node(id)` 可空；补 `next_plan`、`updated_at`、`is_deleted` |
 | 1.6 `MatterExpense` | 同为案件专属；`status` 枚举闭合：`pending_pay`/`paid`/`void`（第一期无审批，不含 approved）；`amount` → `numeric(18,2) CHECK (amount >= 0)`；补 `currency`、`payer_id`、`updated_at`；详情页展示 `SUM(amount)` 合计（属明细统计，不违反清单#14「不做报表」） |
 | 1.7 `Comment` | 补 `attachment_ids [derived]`（→ `attachment` 横切表）、`updated_at`、`is_edited`、`deleted_by`、`deleted_at`；`parent_id` 限制**最多 1 层嵌套**（`CHECK parent_id IS NULL OR (SELECT ...) IS NOT NULL` 由服务层保证，DB 侧加 `idx_parent`） |
-| 1.8 `ActivityLog` | 新增 `reason varchar(500)`（A2 偏离确认原因）；`action` 枚举闭合表待补（B6）；补 `matter_id` / `risk_matter_id` 双列（其一非空，`CHECK` 约束）以支撑"我的关注"与"我相关活动"的跨目标 feed |
+| 1.8 `ActivityLog` | 新增 `reason varchar(500)`（A2 偏离确认原因）；`action` 枚举闭合表见枚举表 §3（B6 已交付，含后补的 `UNCONVERT`）；补 `matter_id` / `risk_matter_id` 双列（其一非空，`CHECK` 约束）以支撑"我的关注"与"我相关活动"的跨目标 feed |
 | 1.9 `CustomReminder` | `is_sent` 单布尔无法支撑 `repeat_type` → 替换为 `status 枚举(pending/sent/cancelled/failed)` + `next_remind_time` + `sent_at` + `failure_reason`；`remind_channels` 统一到 §7.2 的 `notify_channel`；投递明细落 `notification_delivery`，不放本表 |
 | 1.10 `Party` | `type` 改为存储约束=是（自然人/法人/非法人组织，决定 `id_number` 校验规则）；`id_number`/`phone`/`address` 标注**加密存储 + 默认脱敏展示**，另存 `id_number_hash char(64)` 做精确查重索引（细则属 B7）；补 `created_by`、`is_deleted` |
 
@@ -457,7 +460,7 @@ notification_delivery 投递层：按 (event × user × channel) 一行，各自
 |---|---|---|
 | dedupe_key | varchar(120) | 聚合键，见下；`UNIQUE` |
 | event_batch_id | uuid | 一次业务操作；同批只合并"完全同键"事件 |
-| event_type | 枚举 | `status_changed`/`node_due_start`/`node_due_end`/`stale_30d`/`mention`/`new_comment`/`risk_converted`/`expense_added` |
+| event_type | 枚举 | `status_changed`/`node_due_start`/`node_due_end`/`stale_30d`/`mention`/`new_comment`/`risk_converted`（7 值，取值权威见枚举 E29。原 `expense_added` 已删：2026-09-26 裁定第一期不做费用通知，基线 9.5「费用待支付超期→负责人」一并作废） |
 | source_type | 枚举 | `node_remind` / `custom_reminder` / `auto_rule` |
 | source_rule_id | bigint | 否 | 排障回溯 |
 | target_type / target_id | varchar(32) / bigint | 指向业务对象 |
@@ -503,7 +506,7 @@ scheduled 类: event_type + ":" + target_id + ":" + date_key(扫描日期)
 | `matter_node` / `risk_matter_node` | `matter_id`/`risk_matter_id` FK（RESTRICT，见 §12.4）、`node_type_id` FK、§6.1 全列 | 原 1.4 `matter_id`+`matter_type` 多态 |
 | `matter_tag` / `risk_matter_tag` | (owner_id, tag_id) UK，各自 FK | 1.1/1.2 `tag_ids` |
 | `party_tag` | (party_id, tag_id) UK | 1.10 `tag_ids` |
-| `matter_party` / `risk_matter_party` | (host_id, party_id, **role**, role_seq) UK，FK → 宿主与 `party` | 1.2 `party_ids` + `party_roles` JSON |
+| `matter_party` / `risk_matter_party` | (host_id, party_id, **party_role**, role_seq) UK，FK → 宿主与 `party`；`represented boolean` 随行（是否我方代理，与角色正交，见枚举 E07） | 1.2 `party_ids` + `party_roles` JSON |
 | `matter_staff` / `risk_matter_staff` | (host_id, user_id, **staff_role**) UK，FK 双向 | 1.1/1.2 `co_owner_ids`、`follower_ids` |
 
 **横切单表**（统一管线，不拆）：
@@ -551,14 +554,14 @@ scheduled 类: event_type + ":" + target_id + ":" + date_key(扫描日期)
 
 ---
 
-## 9. 交付确认清单（原文第六部分）需改的 5 条
+## 9. 交付确认清单（原文第六部分）需改的 7 条（原写"5 条"与实列 7 行不符，一并校正）
 
 | # | 原文 | 修订后 |
 |---|---|---|
 | 2 | 状态模型（4 个固定，案件/事项共用） | ✅ 状态配置驱动、案件可自定义（`semantics=custom` 无系统行为）；案件与事项**状态同构 4 态**；转案件改由独立 `conversion_status` 表达，不占状态位 |
 | 3 | 节点模型（案件完整，事项默认 3 个可自定义） | ✅ 两条互斥生成路径：P1 创建时预设（`preset_on_create`，事项 3 个）、P2 状态变更规则（规则 3）；取消 `default_node_template`；节点表按宿主拆两张 |
 | 5 | 归档（= 状态变更为已归档，立即执行） | ✅ 归档即时生效；**「结案→归档」不内置**，由默认禁用的规则 1 承载；归档终态，仅管理员可撤销 |
-| 6 | 自动化规则约束（动作一对一…） | ✅ 唯一性作用域由「全局」改为「**同触发域（scope_key）内同动作唯一**」，7 条预置规则现可共存；禁止状态变更、不级联维持；触发类型闭集 5 种，`event_occurred` 第一期必装 |
+| 6 | 自动化规则约束（动作一对一…） | ✅ 唯一性作用域由「全局」改为「**同触发域（scope_key）内同动作唯一**」，8 条预置规则现可共存（2026-09-26 由 7 增至 8）；禁止状态变更、不级联维持；触发类型闭集 5 种，`event_occurred` 第一期必装（两个事件：`risk_converted`/`comment_added`） |
 | 8 | 关注/收藏/提醒机制 | ✅ 拆为 `*_staff.follower`（业务关注人）+ `user_watch.watch_type=favorite`（个人收藏）+ `last_read_at`（未读）；提醒单一来源 = `node.remind_days` |
 | 10 | 一案件一案例 | ⏭ **移出第一期**，改为「第二期」。PRD 1.3 字段表、2.3 案例状态机、案例检索原型整体后移；连带去掉对 PG 中文分词扩展的依赖（§12.5 作废） |
 | 13 | MCP 授权页 | ⏭ **移出第一期**，改为「第二期」。删 4.5 原型；外部「案例库服务」随之外移（案例模块本身亦已后移，见 #10） |
@@ -571,17 +574,23 @@ scheduled 类: event_type + ":" + target_id + ":" + date_key(扫描日期)
 | 16 | 领域命名 | **不改名**（案件 `Matter` / 事项 `RiskMatter`），靠**拆表**消除 `matter_type` 歧义；枚举值一律全称 `risk_matter` |
 | 17 | 数据库 | **PostgreSQL 15+**，落地要点见 §12 |
 | 18 | MCP 授权页 | **移出第一期** |
+| 19 | 编号日界（§12.3） | **写死业务时区 `Asia/Shanghai`**，并要求 DB 会话 `SET TIME ZONE 'UTC'`。2026-09-26 裁定 |
+| 20 | 关注人通知范围（基线 9.1/9.5「任何更新通知关注人」） | **缩为两类：新评论 + 状态变更**（预置规则 2 泛化 + 新增规则 8）；费用超期提醒第一期**不做**（`expense_added` 已从 event_type 删除）。2026-09-26 裁定 |
+| 21 | 外部/访客只读账号（基线 1.3 / 十） | **第一期不支持**，列 Out of Scope。权限草案 v3 无只读档（可见即可操作），"只读"要么改模型要么由 `self_operator` + 不加参与人来近似。2026-09-26 裁定 |
+| 22 | 报表（基线六，8 张） | **第一期只做 2 张**：`案件/事项总览`（状态·等级计数）与 `案程节点到期`，且以列表页顶部统计卡形态出现，**不建报表页、不进菜单**；其余 6 张后移。2026-09-26 裁定 |
 
 ---
 
 ## 10. 本修订未覆盖（B 组，下一步）
 
-B1 权限与数据范围 → 草案 `PRD-phase1-permission-design-draft.md` **v3 定稿**：无组织维度；三档数据范围按「我与记录的关系」；角色按功能机制划分（`sys_admin`/`full_admin`/`full_operator`/`joined_operator`/`self_operator`，不用岗位名）；可见即可操作 + 4 特权开关 + 2 归属护栏 + 禁止自助提权。无开放问题
+> 基线《PRD 第一期完整设计交付物》已于 2026-09-26 入仓为 `PRD-phase1-baseline-v0.md`，本文件所有「原文 X.Y」按该文件 §B 对照表落地；目标 / 故事 / 功能清单 / 四类图集见 `PRD-phase1-master.md`。
+
+B1 权限与数据范围 → 草案 `PRD-phase1-permission-design-draft.md` **v4 定稿**：无组织维度；三档数据范围按「我与记录的关系」；角色按功能机制划分（`sys_admin`/`full_admin`/`full_operator`/`joined_operator`/`self_operator`，不用岗位名）；可见即可操作 + 4 特权开关 + 2 归属护栏 + 禁止自助提权。2026-09-26 追加三条：加参与人须落**操作者可见用户集**（草案 §4.1）、基线"外部/访客只读"第一期不做、§9 报表格误引已纠。唯一未决 = 主表业务字段编辑归谁（草案 §2.2 注）
 B2 附件鉴权细则 → 判定流程已在权限草案 §7.3 给出；剩签名参数与病毒扫描策略
 B5 通知模板文案定稿（表结构已在 §7.2 给出）
-B6 枚举与结构登记表 → **已交付** `PRD-phase1-enums-and-schemas.md`：28 项硬编码枚举 + `activity_log.action` 全清单 + `trigger_config`/`action_config`/`extra_condition` schema + `scope_key` 归一化与 8 条单测向量。配置表数量封在 5 张
+B6 枚举与结构登记表 → **已交付** `PRD-phase1-enums-and-schemas.md`：E01–E33 取值登记（其中 30 项为真实枚举，E01 说明"无此列"、E06 复用 E12、E07 为布尔）+ `activity_log.action` 全清单（含补登的 `UNCONVERT`）+ `trigger_config`/`action_config`/`extra_condition` schema + `scope_key` 归一化与 8 条单测向量。配置表数量封在 5 张
 B7 当事人敏感字段加密与脱敏 → 方案已在权限草案 §7.3 给出（AES-256-GCM + HMAC 索引列 + `key_version` 预留），剩密钥托管与轮换细则
-B8 删除语义（与 §6.3 `is_deleted` 占位对应；注意 §6.1 节点 FK 已定 `ON DELETE CASCADE`，与软删策略需统一，见 §12.4）
+B8 删除语义（与 §6.3 `is_deleted` 占位对应。原写"§6.1 节点 FK 已定 `ON DELETE CASCADE`"是笔误：§6.1 与 §12.4 定的都是 `RESTRICT`，节点不随宿主硬删。仍开放的是**用户可见的删除入口、软删记录能否恢复、被引用父行删除时子表怎么处理**）
 D 转案件字段映射矩阵 → **已交付** `PRD-phase1-risk-to-case-mapping.md`：逐字段映射（继承/重填/留空/引用）、金额不分摊、描述与附件不复制、当事人引用+角色落关联表、单事务 + `event_outbox` 派发 `risk_converted`、撤销前置条件
 F 缺失原型补齐：风险事项详情页、当事人管理、5 类配置后台、通知中心、已归档视图（§5 已定需加「包含已归档」开关）、批量导入、全局搜索。（案例列表/详情/检索随模块后移）
 G 非功能需求：数据量预估、并发、留存期、备份、部署形态（当前为 0）
@@ -592,7 +601,7 @@ G 非功能需求：数据量预估、并发、留存期、备份、部署形态
 
 | 项 | 修订后是否自洽 | 复核要点 |
 |---|---|---|
-| A1 | ✅ | 7 条 seed 在新唯一性作用域下可全部启用；「发送通知」4 次但域各不同；规则 1/7 同为 `archive` 但一个 `status_changed:closed`、一个 `event_occurred:risk_converted` |
+| A1 | ✅ | 8 条 seed 在新唯一性作用域下可全部启用；「发送通知」被 5 条规则使用（2/4/5/6/8）但域各不同；规则 1/7 同为 `archive` 但一个 `status_changed:closed`、一个 `event_occurred:risk_converted` |
 | A2 | ✅ | 状态机不再被引用为"已转案件"；规则 7 由 `conversion_status 0→1` 的事件驱动；撤销路径已定义（§3.4） |
 | A3 | ✅ | `default_node_template` 已删；P1/P2 时机互斥，不再重复建节点 |
 | A4 | ✅ | 规则 1 默认禁用 → 4.1 的「已结案」行成立；补「包含已归档」筛选 |
@@ -606,7 +615,7 @@ G 非功能需求：数据量预估、并发、留存期、备份、部署形态
 **遗留风险**：
 1. ~~A1 的 `scope_key` 依赖 `trigger_config` 归一化函数稳定~~ → 已闭合，见 `PRD-phase1-enums-and-schemas.md` §4.4（含 8 条必过单测向量）。
 2. 拆表后 `matter_node` / `risk_matter_node` 等同构表对约 5 组，**服务层代码复用与 schema 漂移**是新风险：迁移脚本必须成对改动，建议用同一迁移文件 + 契约测试（两表列集合 diff 必须为空）。
-3. ~~B1 未定，`conversion_status`、`user_watch`、`attachment` 三处的可见性判定是悬空引用~~ → 已由 `PRD-phase1-permission-design-draft.md` 接管（分别对应其 §6.2、§6.3、§6.4）。但该草案 §11 尚有 5 点待裁定，未裁定前这三处的实现仍是开放的。
+3. ~~B1 未定，`conversion_status`、`user_watch`、`attachment` 三处的可见性判定是悬空引用~~ → 已由 `PRD-phase1-permission-design-draft.md` 接管，分别对应其 **§7.2**（徽标与总数按当前用户可见计）、**§7.1**（`user_watch` / 通知的降级与实时鉴权）、**§7.3**（附件下载与导出逐条重判）。草案 §11 三项（P-1/P-2/P-3）均已裁定，**本条关闭**。（原文曾误写"接管处为 §6.2/§6.3/§6.4"——草案 §6 无子节；亦误写"§11 尚有 5 点待裁定"——草案是 3 项且已全关。）
 
 ---
 
@@ -620,7 +629,7 @@ G 非功能需求：数据量预估、并发、留存期、备份、部署形态
 |---|---|---|
 | 规则动作同域唯一（§2.1） | partial unique index `WHERE is_enabled` | MySQL 需生成列 + 唯一键，`trigger_config` 一改就要重建列 |
 | 列表恒过滤未删+未归档（§8.2） | partial index | MySQL 只能把布尔塞进索引前缀，选择性差 |
-| `next_status_codes`、`remind_days`、`remind_channels` | `text[]` / `integer[]` + GIN | MySQL 需 jsonb 模拟 + 多值索引（8.0.17+，限制多） |
+| `next_status_codes`、`remind_days`、`notify_channel[]` | `text[]` / `integer[]` + GIN | MySQL 需 jsonb 模拟 + 多值索引（8.0.17+，限制多） |
 | 编号生成器（§12.3） | `INSERT ... ON CONFLICT ... RETURNING` 单语句原子自增 | MySQL 需 `SELECT FOR UPDATE` 两段式 |
 
 ### 12.2 类型与迁移基线
@@ -637,7 +646,7 @@ G 非功能需求：数据量预估、并发、留存期、备份、部署形态
 
 ```sql
 CREATE TABLE code_seq (
-  day_key   date        NOT NULL,      -- 服务器 UTC 日
+  day_key   date        NOT NULL,      -- 业务时区（Asia/Shanghai）日，见下条定稿
   prefix    varchar(4)  NOT NULL,      -- FX | AJ | AL
   last_seq  integer     NOT NULL DEFAULT 0,
   PRIMARY KEY (day_key, prefix)
@@ -645,14 +654,15 @@ CREATE TABLE code_seq (
 
 -- 单语句原子取号，天然处理并发与跨日边界
 INSERT INTO code_seq (day_key, prefix, last_seq)
-VALUES (CURRENT_DATE, 'AJ', 1)
+VALUES ((date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai'))::date, 'AJ', 1)
 ON CONFLICT (day_key, prefix)
   DO UPDATE SET last_seq = code_seq.last_seq + 1
 RETURNING last_seq;
 ```
 
 - 序号 3 位、每日上限 999 → **必须定义溢出行为**：溢出时扩为 4 位（`AJ-20261015-1000`）而非报错。原文未定义，这是会在线上首次遇到的故障。
-- 时区：`day_key` 用 UTC 还是所内时区（Asia/Shanghai）必须**写死一种并在文档标注**。法律案号按"立案日"编号，建议用业务时区 `CURRENT_DATE AT TIME ZONE 'Asia/Shanghai'`，否则晚上立案会归到后一天。
+- 时区：**已定稿（2026-09-26）用业务时区 `Asia/Shanghai` 日界**，法律案号按"立案日"编号，用 UTC 会让晚上立案归到后一天。上式即实现口径，不再留"二选一"。
+- **前提（易漏，必须写死）**：应用连接会话须 `SET TIME ZONE 'UTC'`。`now() AT TIME ZONE 'Asia/Shanghai'` 的语义是"把 timestamptz 转成该时区的本地时间"，若会话时区本身已是 +08，`now()` 落库与读出会整体再偏 8 小时，日界跟着错。技术选型落地时把这条挂在连接池参数上。
 - 号可跳不可复：事务回滚会留下空洞，接受（不要试图复用，复用会引入锁竞争）。
 
 ### 12.4 软删与 FK CASCADE 的冲突（新发现，需决策）

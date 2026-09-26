@@ -26,7 +26,7 @@
 
 | 轴 | 选定 | 关键理由 |
 |---|---|---|
-| 语言 | **TypeScript 全栈** | 枚举与 DTO 在前后端共用一份（枚举表 §5.1 的单一事实源要求），这是唯一能让 28 项枚举不出现两份实现的方案 |
+| 语言 | **TypeScript 全栈** | 枚举与 DTO 在前后端共用一份（枚举表 §5.1 的单一事实源要求），这是唯一能让 30 项枚举取值（枚举表 E01–E33）不出现两份实现的方案 |
 | 运行时 | Node.js 22 LTS（当前机器 24 可跑，CI 锁 22） | 部署基线用 LTS；开发机不必降版本 |
 | 后端框架 | **NestJS 10 + Fastify 适配器** | 见 §3.1 |
 | ORM / 查询 | **Drizzle ORM** + `postgres`(pg) 驱动 | 见 §3.2 |
@@ -223,7 +223,7 @@ SELECT pg_try_advisory_lock(hashtext('matternest:reminder-scan'))
 
 | 设计约束 | 落在哪 |
 |---|---|
-| 枚举单一事实源（枚举表 §5.1） | `packages/domain/enums/*` + 迁移期由值数组生成 `CHECK` |
+| 枚举单一事实源（枚举表 §5.1） | `packages/domain/enums/*` 导出值数组 + TS 类型；`CHECK` **手写进迁移 SQL**，由一条集合比较测试把关（本行原写"迁移期由值数组生成 `CHECK`"是枚举表 v2 之前的旧口径，已同步纠正） |
 | ScopeResolver + 禁止裸表访问 | `packages/db` 仓储基类断言 + Nest Guard；CI 检查无裸 `select()` |
 | 404 而非 403 | 全局 exception filter 统一映射 |
 | `activity_log` 自动落审计 | Interceptor + 显式 `reason` 参数（偏离路径必填那类走服务层校验） |
