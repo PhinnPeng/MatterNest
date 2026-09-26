@@ -84,13 +84,15 @@
 
 | 表 | 关键列 |
 |---|---|
-| `app_user` | id, username, name, is_enabled, **is_admin**, **token_version bigint**, 认证字段（外置 IdP 或本地） |
+| `app_user` | id, username, name, is_enabled, **is_admin**, **token_version bigint**, **activation_status(`pending`/`active`, E37)**；**不带任何认证列**——凭据外挂 `app_user_credential`（本地密码，1:0..1）、`app_user_external_identity`（云之家 eid/openId，UK(provider, external_id)），会话表 `auth_session.auth_via` 记这次从哪条通道进来（技术选型 §3.4） |
 | `role` | id, code, name, **data_scope 枚举(L1–L3)**, `can_unarchive` / `can_manage_config` / `can_manage_user` / `can_read_plain` 四布尔, is_builtin, is_enabled |
 | `user_role` | (user_id, role_id) UK |
 
 - **无 `department`、无 `matter.dept_id`、无 `permission`/`role_permission`**（v3 删除项）。
 - 用户表**不留可空 dept_id 占位**（本轮已定）。若将来出现分所隔离需求，那是模型重写，不是补列——不为此预留。
 - `is_admin` 独立于角色，是绕过范围的最后开关，仅 1–2 人，防止误删角色导致无人可管。
+- **登录双通道不改变权限判定**（2026-09-26 裁定：云之家 + 本地密码，细节见技术选型 §3.4）：判定只看 `user_role.data_scope` + 特权 + 护栏，`auth_via` 只进审计。**云之家在职同步只写 `is_enabled`，不得把部门/岗位落库、不得参与任何谓词**——这是"第一期无组织维度"这条决策的守门处，通讯录一进来最容易顺手破。
+- 离职回收是**安全边界而非便利功能**：`is_enabled=false` 必须同事务删 `auth_session` 并 `token_version++`，否则已吊销的会话在绝对过期前仍可读取全案卷。本地密码账号没有这条自动回收，所以密码通道能覆盖的账号要尽量少。
 - 系统内部身份（`operator = SYSTEM`）**不建 `app_user` 行**，用常量 id，特权恒为假（§8）。
 
 ---
@@ -168,7 +170,7 @@ v3 把这条从"可见性授权"放大成了**"读写授权"**（可见即可操
 |---|---|
 | 谁能加/删参与人 | 仅该宿主的 `owner` 与具备 L1 数据范围的用户（§2.2 护栏 1）。协办人、关注人**不能**再往外拉人 |
 | 加人前的提示 | UI 必须明写「该同事将获得查看并编辑本案全部材料（含当事人、金额、附件）的权限」——这是授权动作，不是备注 |
-| 被加者条件 | `is_enabled = true` **且落在操作者的可见用户集内**（§4.1，2026-09-26 收窄裁定）。在此之前写的是"无组织约束、同所任何人皆可被加"——那等于任何登录用户都能把自己没见过的案卷开放出去，与 §2.2 护栏 1 的意图相反。推论：L1 仍可加全所，L2/L3 只能加共现过的同事 |
+| 被加者条件 | `is_enabled = true` **且 `activation_status = 'active'`** **且落在操作者的可见用户集内**（§4.1，2026-09-26 收窄裁定）。第三个条件是防旁路：云之家首登自动建号但管理员未批准的 `pending` 账号，若能被加进案卷，等于绕过批准直接取得读写。在此之前写的是"无组织约束、同所任何人皆可被加"——那等于任何登录用户都能把自己没见过的案卷开放出去，与 §2.2 护栏 1 的意图相反。推论：L1 仍可加全所，L2/L3 只能加共现过的同事 |
 | 禁止自我授权 | 用户不得自行往 `*_staff` 加自己（否则可枚举案号自取权限）。加人必须是他人操作或承办人变更的一部分 |
 | 禁止自助提权 | `can_manage_user` 的持有者**不得修改自己的角色与数据范围**；且授予 `full_admin`（含 `unarchive`/`read_plain`）这一动作要求授予者本人已持有 `full_admin`。否则 `sys_admin` 可自我升到看全所 + 看明文 |
 | 特权变更审计 | 角色/特权/数据范围调整写 `activity_log(action = ROLE_CHANGED)`，含新旧值——这是唯一允许记录范围类旧值的动作类型 |
@@ -257,7 +259,9 @@ visible(user, p) = user.is_admin
 | P-4 | 加参与人是否受范围限制（2026-09-26） | **收窄**。被加者必须落在操作者可见用户集内，定义与谓词见新增 §4.1；连带开出 `selectable-users` 接口位并限死"必须带宿主上下文" |
 | P-5 | 基线"外部/访客 只读"档（2026-09-26） | **第一期不做**，列 Out of Scope（见 §1 注）。不做第四档、不为查阅场景引入功能权限点 |
 
-> 净效果：权限模型 = **3 档范围 + 4 个特权开关 + 2 条归属护栏 + 1 条选人收窄**，共 3 张表（`app_user` / `role` / `user_role`）+ 1 张权限主表（`*_staff`）。将来确需更细时，加 `permission`/`role_permission` 是加法变更，不返工。
+| P-6 | 认证方式（2026-09-26） | **第一期双通道**：云之家登录（授权码 → eid/openId → 绑定 + 在职同步）+ 本地用户名密码。会话仍统一走服务端 `auth_session`；权限判定与通道无关。详见技术选型 §3.4 |
+
+> 净效果：权限模型 = **3 档范围 + 4 个特权开关 + 2 条归属护栏 + 1 条选人收窄**，共 3 张身份表（`app_user` / `role` / `user_role`）+ 1 张权限主表（`*_staff`）+ 3 张认证外挂表（`app_user_credential` / `app_user_external_identity` / `auth_session`，不新增任何权限判定入口）。将来确需更细时，加 `permission`/`role_permission` 是加法变更，不返工。
 
 ---
 

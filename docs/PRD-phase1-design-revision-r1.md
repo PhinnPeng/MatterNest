@@ -588,7 +588,7 @@ scheduled 类: event_type + ":" + target_id + ":" + date_key(扫描日期)
 B1 权限与数据范围 → 草案 `PRD-phase1-permission-design-draft.md` **v4 定稿**：无组织维度；三档数据范围按「我与记录的关系」；角色按功能机制划分（`sys_admin`/`full_admin`/`full_operator`/`joined_operator`/`self_operator`，不用岗位名）；可见即可操作 + 4 特权开关 + 2 归属护栏 + 禁止自助提权。2026-09-26 追加三条：加参与人须落**操作者可见用户集**（草案 §4.1）、基线"外部/访客只读"第一期不做、§9 报表格误引已纠。唯一未决 = 主表业务字段编辑归谁（草案 §2.2 注）
 B2 附件鉴权细则 → 判定流程已在权限草案 §7.3 给出；剩签名参数与病毒扫描策略
 B5 通知模板文案定稿（表结构已在 §7.2 给出）
-B6 枚举与结构登记表 → **已交付** `PRD-phase1-enums-and-schemas.md`：E01–E33 取值登记（其中 30 项为真实枚举，E01 说明"无此列"、E06 复用 E12、E07 为布尔）+ `activity_log.action` 全清单（含补登的 `UNCONVERT`）+ `trigger_config`/`action_config`/`extra_condition` schema + `scope_key` 归一化与 8 条单测向量。配置表数量封在 5 张
+B6 枚举与结构登记表 → **已交付** `PRD-phase1-enums-and-schemas.md`：E01–E37 取值登记（其中 34 项为真实枚举，E01 说明"无此列"、E06 复用 E12、E07 为布尔）+ `activity_log.action` 全清单（含补登的 `UNCONVERT`）+ `trigger_config`/`action_config`/`extra_condition` schema + `scope_key` 归一化与 8 条单测向量。配置表数量封在 5 张
 B7 当事人敏感字段加密与脱敏 → 方案已在权限草案 §7.3 给出（AES-256-GCM + HMAC 索引列 + `key_version` 预留），剩密钥托管与轮换细则
 B8 删除语义（与 §6.3 `is_deleted` 占位对应。原写"§6.1 节点 FK 已定 `ON DELETE CASCADE`"是笔误：§6.1 与 §12.4 定的都是 `RESTRICT`，节点不随宿主硬删。仍开放的是**用户可见的删除入口、软删记录能否恢复、被引用父行删除时子表怎么处理**）
 D 转案件字段映射矩阵 → **已交付** `PRD-phase1-risk-to-case-mapping.md`：逐字段映射（继承/重填/留空/引用）、金额不分摊、描述与附件不复制、当事人引用+角色落关联表、单事务 + `event_outbox` 派发 `risk_converted`、撤销前置条件

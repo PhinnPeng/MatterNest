@@ -3,6 +3,7 @@
 > 状态：**定稿 v2**（2026-09-26）。闭合 `PRD-phase1-design-revision-r1.md` §10 的 B6 项，并一并关掉 §11 遗留风险 1（`scope_key` 归一化）与 §6.3 各行的"枚举闭合"占位。
 > 本文件是**取值权威源**。其余各份文档（修订稿 / 权限草案 / 转案件矩阵 / 基线 / master）中的枚举与本表冲突时，以本表为准并回改本表以外的文件。
 > **v2 变更**：补登 E29–E33（通知与 outbox 三个枚举此前只在修订稿散落，权威源反而缺记）；§3.2 补 `UNCONVERT`；E09 的默认值口径与修订稿 §3.1 统一；§4.2 白名单按宿主分列并回改了修订稿 §2.5。
+> **v3 变更**（同日）：认证双通道 + 待开通态裁定后补登 **E34–E37**（provider / auth_via / sync_status / activation_status），§3.3 补 `USER_ACTIVATED`，§5.1 新增 `auth.ts`。全表现共 37 行、34 项为真实取值登记。
 
 ---
 
@@ -65,6 +66,10 @@
 | E31 | `notification_delivery.status` | `pending` `sent` `failed` `void` | `pending` | **与 E23 不同**：投递层用 `void`（收件人不可见而静默丢弃，权限草案 §8），提醒任务层用 `cancelled`（用户主动撤销）。不要合并成一套 |
 | E32 | `event_outbox.event_type` | `risk_converted` `comment_added` | — | outbox 只承载"提交后派发"的领域事件，与 E33 同值域 |
 | E33 | `trigger_config.event`（`event_occurred` 用） | `risk_converted` `comment_added` | — | 第一期两个值；规则 7 / 规则 8 各引一个（修订稿 §2.3） |
+| E34 | `app_user_external_identity.provider` | `yunzhijia` | — | 第一期唯一外部身份源。云之家侧身份键是 `eid`/`openId`，存 `external_id`，**不进 `app_user`**（技术选型 §3.4） |
+| E35 | `auth_session.auth_via` | `local` `yunzhijia` | — | 只用于审计与差异化失效策略，**不参与权限判定** |
+| E36 | `app_user_external_identity.sync_status` | `active` `inactive` `unknown` | `unknown` | `inactive` = 云之家侧已不可见 → 触发 `is_enabled=false` + 吊销 session；同步失败保持 `unknown`，**不得当作 `inactive`**（否则一次网络抖动就把全所锁在门外） |
+| E37 | `app_user.activation_status` | `pending` `active` | `pending`（仅云之家首登自动建号路径） | 与 `is_enabled` 正交：`pending` = 已建号但管理员未批准（登录返回「等待开通」），`is_enabled=false` = 停用/离职。**两者都不参与数据范围判定**。技术选型 §7 假设 F 裁定 |
 
 > E29–E33 是 2026-09-26 补登：本表 §5.1 早已声明 `notify.ts` 要承载 `notification_event.event_type` 与 `source_type`，但取值一直只在修订稿 §7.2 的表里散落，权威源反而没记——这正是"单一事实源"最容易被绕过的形态。
 
@@ -108,6 +113,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 |---|---|---|
 | `STAFF_CHANGED` | `{added:[],removed:[],role}` | 修订稿 §6 / 权限草案 §6 |
 | `ROLE_CHANGED` | `{role_id, old:{}, new:{}}` | **唯一允许记录范围类旧值的 action** |
+| `USER_ACTIVATED` | `{external_id, provider, role_ids:[]}` | 云之家首登自动建号后，管理员批准开通并当场指定角色（E37 `pending → active`）。与 `is_enabled` 变更同批进审计 |
 | `SENSITIVE_FIELD_READ` | `{target_type,target_id,fields:[]}` | **不含值**。权限草案 §7.3 |
 | `ACCESS_DENIED_WRITE` | `{target_type,attempted_action}` | 只记写操作拒绝；读拒绝不记（否则案号枚举探测会反向灌满日志表） |
 
@@ -240,6 +246,7 @@ packages/domain/enums/
 ├── status.ts        # E09 + 内置 semantics 行为映射
 ├── business.ts      # E12–E22, E26–E28
 ├── notify.ts        # E23–E25 + E29–E32（event_type / source_type / delivery.status / outbox.event_type）
+├── auth.ts          # E34–E36（provider / auth_via / sync_status）
 ├── audit.ts         # §3 action 清单（含补登的 UNCONVERT）
 └── automation.ts    # §4 的 trigger_type / action_type / 算子 / 字段白名单 + E33
 ```
@@ -248,7 +255,7 @@ packages/domain/enums/
 
 `CHECK` 约束**在迁移 SQL 里手写**，但配一条一致性测试兜底：读 `role_permission` 式的值数组与迁移文件里的 `CHECK` 取值做集合比较，不一致即 CI 失败。
 
-> 这一条是我改的，原稿写的是"由值数组在迁移生成期产出、不手写 SQL 取值列表"。理由：生成 CHECK 要建一条 codegen 管线（读 TS → 产 SQL → 写进迁移文件），而本表 33 项（E01–E33）变更频率极低（一期只增不改），管线收益抵不过成本；同时技术选型 §3.2b 已定"迁移 SQL 文件是唯一事实、须可人审"，生成器往迁移里插内容会让迁移不再是稳定产物。集合一致性测试能抓住同一个错误（枚举与库约束不同步），代价是一个测试文件。
+> 这一条是我改的，原稿写的是"由值数组在迁移生成期产出、不手写 SQL 取值列表"。理由：生成 CHECK 要建一条 codegen 管线（读 TS → 产 SQL → 写进迁移文件），而本表 37 行（E01–E37，其中 34 项为真实取值）变更频率极低（一期只增不改），管线收益抵不过成本；同时技术选型 §3.2b 已定"迁移 SQL 文件是唯一事实、须可人审"，生成器往迁移里插内容会让迁移不再是稳定产物。集合一致性测试能抓住同一个错误（枚举与库约束不同步），代价是一个测试文件。
 
 ### 5.2 三条约束模板
 
@@ -314,3 +321,4 @@ ALTER TABLE activity_log ADD COLUMN payload jsonb;   -- §3 的结构化载荷
 | 修订稿 §7.2 未登记的 `event_type`/`source_type`/`delivery.status` | E29–E31 补登；`expense_added` 按 2026-09-26 裁定删除 |
 | 映射矩阵 §4.1 `event_outbox.event_type` | E32 补登 |
 | 修订稿 §2.3 规则 8 的 `event_occurred` 新事件 | E33 + §4.1 校验行 |
+| 技术选型 §3.4 双通道登录新增的三组取值 | E34–E36 + §5.1 `auth.ts`。注意 `sync_status` 的 `unknown` 是**故障安全位**：同步失败不得推断为离职 |

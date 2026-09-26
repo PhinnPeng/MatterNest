@@ -26,19 +26,19 @@
 
 | 轴 | 选定 | 关键理由 |
 |---|---|---|
-| 语言 | **TypeScript 全栈** | 枚举与 DTO 在前后端共用一份（枚举表 §5.1 的单一事实源要求），这是唯一能让 30 项枚举取值（枚举表 E01–E33）不出现两份实现的方案 |
+| 语言 | **TypeScript 全栈** | 枚举与 DTO 在前后端共用一份（枚举表 §5.1 的单一事实源要求），这是唯一能让 33 项枚举取值（枚举表 E01–E36）不出现两份实现的方案 |
 | 运行时 | Node.js 22 LTS（当前机器 24 可跑，CI 锁 22） | 部署基线用 LTS；开发机不必降版本 |
-| 后端框架 | **NestJS 10 + Fastify 适配器** | 见 §3.1 |
+| 后端框架 | ~~NestJS 10 + Fastify 适配器~~ ⚑ **已被 §12 取代：Nitro（Nuxt 4.5.2 内置，`server/api/**`）** | 见 §3.1（保留其"横切约束要有唯一落点"的诉求，实现改显式 `withScope()` 包装 + `server/middleware`，理由见 §11.1） |
 | ORM / 查询 | **Drizzle ORM** + `postgres`(pg) 驱动 | 见 §3.2 |
 | 迁移 | **drizzle-kit 生成 + 手写 SQL 补丁段**，SQL 文件进版本库 | 见 §3.2 |
 | 校验/契约 | **Zod**，schema 定义在 `packages/domain` | 一处定义 → DTO 校验、前端表单规则、OpenAPI 三方复用 |
-| 前端 | **React 18 + Vite** + **Ant Design 5 与 Tailwind/shadcn 混用** + React Router 6 | 见 §3.3 |
-| 服务端数据 | **TanStack Query 5** | 列表分页/筛选/详情缓存是本项目的主战场，手写缓存必然出错 |
-| 认证 | 服务端 **session 表 + httpOnly cookie**，第一期本地账号 | 见 §3.4 |
+| 前端 | ~~React 18 + Vite + Ant Design 5 与 Tailwind/shadcn 混用~~ ⚑ **已被 §12 取代：Nuxt 4 SPA（`ssr:false`）+ Element Plus + Tailwind**（Element Plus 表格能力 = 未验项 S3） | 见 §3.3（其"密集表格/动态表单用现成组件库、差异化视觉用 Tailwind"的分类原则仍然成立） |
+| 服务端数据 | **TanStack Query 5** ⚑ Vue 侧为 `@tanstack/vue-query`，用法与 `staleTime` 口径不变（见 §12.5） | 列表分页/筛选/详情缓存是本项目的主战场，手写缓存必然出错 |
+| 认证 | **双通道**：云之家登录（授权码换 eid/openId → 绑定本所账号）+ 本地用户名密码；会话统一走服务端 session 表 + httpOnly cookie | 见 §3.4 |
 | 对象存储 | **MinIO**（S3 兼容）自建 | 法律文件不出内网；后端签 60s URL，不直暴 MinIO |
-| 定时任务 | `@nestjs/schedule` + **PG `pg_try_advisory_lock`** 单飞 | 见 §3.5 |
+| 定时任务 | ~~`@nestjs/schedule`~~ ⚑ **Nitro scheduled tasks（`nitro.experimental.tasks`）+ PG `pg_try_advisory_lock` 单飞** | 见 §3.5 与 §12.2 C1（N 副本 = 触发 N 次，锁是正确性前提） |
 | ID | 应用层雪花，`packages/domain/ids` | 与设计的 `bigint` 主键一致 |
-| 测试 | Vitest + supertest + Playwright；权限矩阵用 `test.each` 参数化生成 | 权限草案 §10 的 216 例不能手写 |
+| 测试 | Vitest + supertest + Playwright；权限矩阵用 `test.each` 参数化生成 | 权限草案 §10 的组合数按 **角色数 × 对象类数 × 入口数** 生成（现为 5 × 3 × 7 = 105 例，且会随入口增减而变），**不要在文档里钉死常数**，手写更不可能 |
 | 仓库 | **pnpm workspaces 单仓** | 见 §5 |
 | 部署 | **Docker Compose 单机**：app + postgres + minio | 见 §6 |
 
@@ -183,13 +183,36 @@ schema 真相    packages/db/schema/*.ts        （Drizzle，供类型安全查�
 
 若你更看重"一套体系、agent 全量生成、视觉不被组件库定型"，纯 shadcn + TanStack Table + RHF 也是正当选择，代价我量化出来：前端比混用方案多约 **1–1.5 周**，主要在表格与转案件表单。这是 §7 假设 D，评审时一并拍。
 
-### 3.4 session 表而不是 JWT
+### 3.4 session 表 + 双通道登录（云之家 / 本地用户名密码）
 
-权限草案 §8 要求"角色/权限变更下一次请求即生效"，靠 `app_user.token_version` 做失效判定。用 JWT 的话这个校验只能在签名有效期内被动等待；session 存 PG 则可以**主动删行**，语义更直白，也不引入 Redis 依赖（内部系统并发量用不着）。
+**会话机制不变**：权限草案 §8 要求"角色/权限变更下一次请求即生效"，靠 `app_user.token_version` 做失效判定。用 JWT 的话这个校验只能在签名有效期内被动等待；session 存 PG 则可以**主动删行**，语义更直白，也不引入 Redis 依赖（内部系统并发量用不着）。`token_version` 用途收窄为：session 内缓存的权限集以它为键，版本不一致即重解析。
 
-`token_version` 列保留，用途收窄为：session 内缓存的权限集以它为键，版本不一致即重解析——与设计原文一致，不改设计。
+> 2026-09-26 决策：第一期就要**云之家登录 + 用户名密码**两条通道。本节取代 v3 的"第一期只做本地账号"，§7 假设 C 随之作废。
 
-第一期不接 IdP。预留 `auth_provider` 判别列即可，不做插件化。
+**云之家通道的形态**（身份键与 token 换取方式按本地 SY-YunAgent 的既有一手经验对齐：`eid`/`openId` 为人档主键，服务端用企业应用 token 调人档接口）：
+
+```text
+登录   前端跳云之家授权 → 回调带 code → 服务端换 accessToken → 取 eid/openId
+绑定   按 (provider='yunzhijia', external_id=eid) 查 app_user_external_identity → 命中即签发 session
+在册   定期用应用 token 拉成员/通讯录，比对 external_id：所内已不可见 → is_enabled=false
+       + 删其全部 session + token_version++
+边界   只取"在职与否 + 姓名/手机"，**不落部门、不参与任何权限判定**——第一期无组织维度
+       这条是硬约束，否则通讯录同步会顺手把 dept 带进模型，权限草案 §9 的代价表就白写了
+```
+
+**表结构增量**（不改 `app_user` 的认证语义，认证凭据一律外挂）：
+
+| 表 | 关键列 | 说明 |
+|---|---|---|
+| `app_user_external_identity` | (provider, external_id) UK、user_id FK、synced_at、sync_status | provider 取值 `yunzhijia`（第一期唯一外部源）；`eid`/`openId` 存这里，不塞进 `app_user` |
+| `app_user_credential` | user_id UK、password_hash、updated_at、failed_attempts、locked_until | **1:0..1**：没有这行 = 该账号不能用密码登录。避免在 `app_user` 上堆一串互相矛盾的可空认证列 |
+| `auth_session` | token_hash、user_id、auth_via(`local`/`yunzhijia`)、expires_at、revoked_at | `auth_via` 供审计与差异化失效策略 |
+
+**两条必须现在就定的失效规则**：云之家不控制我方 session 生命周期，所以 ① 云之家会话的 session 要有绝对过期（建议 12h）+ 每次权限解析时校 `sync_status` 新鲜度（>24h 未同步则降级为只提示管理员，不静默放行）；② 本地密码账号没有"离职即失效"的自动回收，**所以密码通道能给的账号越少越好**（见 §7 假设 E）。
+
+**成本修正**：原估"OIDC code flow + 保留 session 表 = +2~3 天"，加上通讯录在职同步、绑定冲突处理、密码凭据表与失败锁定，实际 **+3~5 天**；另涉及云之家开放平台的应用注册（appId/appSecret）、回调地址、内网可达。
+
+> **口径（2026-09-26）**：云之家侧能力**可按需调整**，不要把开放平台现状当硬约束——回调形态、免登方式、需要的身份字段都可以先按我们的设计提要求，再核能不能直接配出来；确实给不出来的那部分，才由我们侧适配（例如改走服务端换票、或用定时同步替代实时免登）。因此上面这些项读作**协调成本**，不是审批阻塞；但也别反过来拿"平台大概不支持"当理由提前阉割设计。
 
 ### 3.5 定时任务单飞用 PG advisory lock
 
@@ -232,26 +255,34 @@ SELECT pg_try_advisory_lock(hashtext('matternest:reminder-scan'))
 | `scope_key` 归一化 8 条向量（枚举表 §4.4） | `packages/domain/automation/scope-key.spec.ts`，逐向量断言 |
 | 字段加密 + HMAC 索引列 | `packages/domain/crypto`，密钥从 env 注入，不入库 |
 | 期限计算（`date` vs `timestamptz`） | `packages/domain/time`，禁止业务层裸用 `Date` |
+| 双通道登录（§3.4） | `server/api/auth/*` 两组端点（`/local`、`/yunzhijia/callback`）+ 同一个 `auth_session` 签发口；在职同步挂 scheduled task 并包 `withSingleFlight()`（C1） |
+| 外部身份映射（§3.4） | `app_user_external_identity` + 唯一键 `UK(provider, external_id)`；**禁止**把 `eid` 写进 `app_user` 或前端可读的 DTO |
 
 ---
 
 ## 5. 仓库拓扑
 
 ```text
-MatterNest/
-├─ apps/
-│  ├─ server/            NestJS：路由、Guard、Interceptor、定时任务
-│  └─ web/               React + Vite + AntD
-├─ packages/
-│  ├─ domain/            枚举、Zod schema、雪花 id、时间/加密工具（无 IO）
-│  ├─ db/                Drizzle schema、迁移 SQL、仓储
-│  └─ config/            tsconfig / eslint / prettier 共享预设
-├─ deploy/               compose、minio 桶策略、备份脚本
-├─ docs/                 4 份设计文档 + 本文件
-└─ .trellis/             工程配置（spec 待 T2 填充）
+MatterNest/                     单 Nuxt 4 应用（v3 定稿后不再有 apps/server + apps/web 两个 app）
+├─ app/                         页面层（srcDir=app/；ssr:false + spa-loading-template.html）
+│  ├─ pages/ · components/ · composables/
+├─ server/                      Nitro 后端
+│  ├─ api/                      一律落 /api/**（禁令 5）：auth/ · matters/ · risk-matters/ · settings/ …
+│  ├─ middleware/               会话解析 + 404 兜底（每请求执行，含 404 路径）
+│  ├─ tasks/                    节点提醒 / 规则 4 / outbox 投递 / 云之家在职同步 —— 全部包 withSingleFlight()
+│  ├─ db/                       Drizzle schema、仓储、ScopeResolver（= 旧构想的 packages/db）
+│  └─ utils/                    服务端专用（可 import Node API）
+├─ shared/                      ⚑ 前后端唯一共用层，**纯 TS**：enums(E01–E37) · Zod schema · ids · time · crypto
+│  └─ （禁令 1：不得 import Vue / Nitro runtime / Node API；只有 shared/utils、shared/types 自动导入）
+├─ deploy/                      compose、minio 桶策略、备份脚本、migrator 一次性服务
+├─ docs/                        7 份文档（基线 / master / 修订稿 / 枚举 / 权限 / 转案件 / 技术选型）+ research
+├─ CHANGELOG.md
+└─ .trellis/                    工程配置（spec 待 T2 填充）
 ```
 
-依赖方向单向：`apps/* → packages/{db,domain}`，`packages/db → packages/domain`，`domain` 不依赖任何一层。违反这个方向是 review 阶段的一票否决项。
+依赖方向单向：`app/** → shared/**`，`server/** → shared/**` 与 `server/** → server/db`，`shared/**` 不依赖任何一层、且**不得**出现 `#server` 或 Vue 导入（这条是结构性约束，违反即 CI 失败——两侧 bundle 独立是 Nuxt 官方行为，不是风格问题）。
+
+> 本文件 §4 对应表里写的 `packages/domain/*`、`packages/db` 是 Nest+React 时代的旧路径，按上图读作：`packages/domain/*` → `shared/*`，`packages/db` → `server/db`。§11.3 列的切换成本之一就是这层重命名，别再照旧路径建目录。
 
 `.trellis/config.yaml` 的 `packages` 段需按此填（当前全在注释里），否则 Trellis 的包上下文检测拿不到东西。
 
@@ -267,8 +298,9 @@ docker compose (单主机，律所内网)
   nginx    : TLS 终结 + 反代，只暴露 /api 与静态资源
 ```
 
-三个部署期必须落地的安全项，都来自设计文档而非通用建议：
+四个部署期必须落地的安全项，都来自设计文档而非通用建议：
 - 密钥（AES-GCM 主密钥、HMAC 密钥）从 env/secret 注入，**两把密钥分离**，`key_version` 列先留（修订稿 §6.3）。
+- 云之家应用凭据（appId/appSecret）同样从 env 注入、不入库不进镜像；回调地址需在开放平台登记，所以**部署域名早于联调定下来更省事**——但云之家侧可按需调整（§3.4 口径），改回调属于改一次配置，不是重新走审批。另需一条明确口径：云之家侧不可达时，保留哪些账号能走本地密码登录（建议至少留一个 `sys_admin`），否则整所会一起被锁在门外。
 - 当事人身份证明文导出与 `SENSITIVE_FIELD_READ` 日志必须同链路，导出走脱敏 DTO 而非前端遮罩。
 - `activity_log` 留存期与备份策略要按所内合规要求定，属 G 组未决（§10）。
 
@@ -282,7 +314,11 @@ docker compose (单主机，律所内网)
 |---|---|---|---|
 | A | **团队是 TS/Node 背景** | 你在 SY-YunAgent 是 npm scope 的 monorepo，本机 Node 24 | 换 **Spring Boot 3 + MyBatis 或 JPA + Flyway(SQL-first) + 同一套前端**。四份设计文档全部不受影响，只有 §3.1/§3.2/§3.1b 与仓库拓扑要重做 |
 | B | **单所内部使用、无跨所隔离** | 本轮已定"不引入组织维度" | 若将来多分所，权限模型重写（转案件 §5、权限草案 §9 已记录该代价） |
-| C | **第一期不接 SSO/IdP** | 律所内网、无外部身份源描述 | 需要的话 §3.4 改为 OIDC code flow + session 表保留，工作量 +2~3 天 |
+| C | ~~第一期不接 SSO/IdP~~ | **已作废**（2026-09-26 裁定）：第一期即做云之家登录 + 本地密码双通道，见 §3.4 | 工作量已并入 §3.4 的 +3~5 天；新增外部依赖（应用注册、回调白名单、内网可达）见 §6 |
+| E | ~~本地密码通道给多大范围~~ **已裁定（2026-09-26）** | **只留少数兜底账号**：`sys_admin` 与运维/兜底账号可设密码，其余一律云之家登录。`app_user_credential` 无行的账号天然不能密码登录，不需要额外开关 | 密码账号没有离职自动回收，每多一个可密码登录账号就多一个人工管理的长期凭据 |
+| F | ~~云之家首登是否自动建号~~ **已裁定（2026-09-26）** | **自动建号但落"待开通"态**，管理员在待批队列一键批准并当场选角色。新列 `app_user.activation_status`（枚举 E37：`pending`/`active`），批准动作写 `USER_ACTIVATED` | 若改回"预建再绑定"，需要额外做账号批量导入与外部身份预挂界面（+1~2 天）；若改回"首登即可用"，等于取消管理员闸门 |
+
+**两条与 E/F 绑定的实现口径**（避免各写各的）：`activation_status` 与 `is_enabled` 语义正交——前者只表达"要不要让他进来"（首登自动建号即 `pending`，登录返回「等待管理员开通」），后者表达"停用/离职"（`false` 即吊销 session）。**两者都不参与数据范围判定**，判定只看 `role.data_scope` + 特权 + 护栏。其次：**登录成功/失败不写 `activity_log`**（会灌表且不是业务动作），走 `auth_session` + 结构化应用日志；只有 `USER_ACTIVATED`、`ROLE_CHANGED`、`is_enabled` 变更这三类进业务审计。
 | D | **前端取"AntD + Tailwind 混用"而非纯 shadcn** | 你的两个诉求（agent 友好 / 快速上线）在纯 shadcn 下互相冲突，混用同时拿八成 | 选纯 shadcn：视觉与代码风格完全由 agent 掌控、无组件库天花板，代价是前端 +1~1.5 周，且表格与转案件表单要手写（§3.3 表） |
 
 另有一条口径冲突要定：`.trellis/spec/` 模板结尾写着 "All documentation should be written in **English**"，而现有 5 份设计文档是中文。T2 填 spec 前先定：**约定文档英文、设计文档中文**，还是统一到一种。
@@ -310,6 +346,8 @@ T1 定稿后依次：
 | **P1 同批** | 自定义提醒 `custom_reminder`（重复规则、多渠道）、关注 feed 的未读计数、导出 | 有替代路径（未读=肉眼看列表；导出=手工汇总），不阻塞主流程 |
 | **建议移出第一期** | 邮件渠道、批量导入、全局搜索 | 每一项都要额外基础设施（SMTP 送达与退信、导入模板与冲突处理、检索方案），收益却是个别的 |
 
+**登录通道的切法**：开发期与端到端联调先用**本地密码**跑通（无外部依赖，不阻塞别人），云之家登录并行推进——它卡在应用注册与回调白名单这类不受我们节奏控制的审批上；但 **P0 正式上线时两条通道都必须在**，因为所内同事的日常入口就是云之家，只留密码等于把新系统挂在"大家得记一个新密码"上，G1 登记率第一个月就会塌。在职同步任务可以晚两天，但 `is_enabled=false` 的 session 吊销必须在 P0 就位，否则离职后仍能访问是要出安全事故的。
+
 规则 7（转案件→归档）**不能推到 P1**：它依赖的 outbox 与 `conversion_status` 已在 P0，且它是"事项转完还挂在进行中"这个体验问题的唯一解。
 
 这条切法带来的额外好处是 P0 可以直接用 T1 的技术栈跑通端到端，不必等规则引擎与通知模板全部对齐——这也是我把它写进决策文档而不是排期文档的原因。
@@ -320,13 +358,13 @@ T1 定稿后依次：
 
 不要通读，逐条拍就行：
 
-1. **§7 A**：是不是 TS/Node 团队。（否 → 后端整块换，其余不动）
-2. **§7 D**：前端混用 vs 纯 shadcn。（我推荐混用，纯 shadcn 多 1–1.5 周）
-3. **§3.2b 规定 1**：共享环境禁用 `drizzle-kit push`，只走编号 SQL 迁移。有没有现存流程冲突。
-4. **§3.1b 表格**：三类 CPU 阻塞活（逐行解密、大文件 hash、导出）是否接受"worker 线程 + 异步导出"这个处理强度，还是第一期就把导出砍到 P1（我在 §9 已放到 P1）。
-5. **§9 切法**：把自动化规则配置页推到 P1、只硬编码 2 条内置提醒，能不能接受。这是本期最大的省时间来源。
-7. **§11 路线选择**：Nuxt 全栈 vs §2 的 Nest + React。我改判推荐前者，但先跑 S1–S3。
-6. **§3.1b 连接池那条**：如果部署要上 transaction-mode pgbouncer，advisory lock 与 `SET LOCAL` 都得改走 session-mode 直连，需要你确认部署形态。
+1. **§7 A**：是不是 TS/Node 团队。（否 → 后端整块换，其余不动）**仍待你确认**
+2. **§7 D**：前端混用 vs 纯 shadcn。→ **已被 §12 取代**：路线改为 Nuxt SPA + Element Plus，分类原则不变；但 Element Plus 表格能力（S3）仍未验。
+3. **§3.2b 规定 1**：共享环境禁用 `drizzle-kit push`，只走编号 SQL 迁移。有没有现存流程冲突。（§12.3 禁令 4 已把这条扩到开发期，实测依据见 research §5）
+4. **§3.1b 表格**：三类 CPU 阻塞活（逐行解密、大文件 hash、导出）是否接受"worker 线程 + 异步导出"这个处理强度，还是第一期就把导出砍到 P1（我在 §9 已放到 P1）。注意 §12.4：`worker_threads` 在 Nuxt+Nitro 下是**待 spike 项**，不是已定方案。
+5. **§9 切法**：把自动化规则配置页推到 P1、只硬编码 2 条内置提醒，能不能接受。这是本期最大的省时间来源。（按今天的裁定，那两条对应规则 5/6 与规则 2，硬编码时要按新口径写）
+6. **§3.1b 连接池那条**：如果部署要上 transaction-mode pgbouncer，advisory lock 与 `SET LOCAL` 都得改走 session-mode 直连。**§12.5 已定为不引 pgbouncer、连接池 10**，此条随之一并关闭。
+7. **§11 路线选择**：~~Nuxt 全栈 vs Nest + React 待评~~ → **已按 §12 定稿全栈 Nuxt**；唯一残留风险是 S3（Element Plus Table），不通则整条路线作废、退回 Nest + React。
 
 ---
 
@@ -409,7 +447,7 @@ Nuxt 全栈成立，不阻塞。7 项主张：VERIFIED 5 项、PARTIALLY 2 项�
 
 ### 12.5 缓存：20 人规模不引入任何缓存组件
 
-判据不是性能，是安全：本系统每次读取都带行级数据范围谓词，**任何跨用户共享的响应缓存都是泄露面**。因此 HTTP 层缓存、反代缓存、查询结果缓存一律不做。需要缓存的三处全用现成机制：配置字典与用户权限集走进程内 `Map`（权限以 `userId:token_version` 为键，版本变更天然失效），列表详情走客户端 TanStack Query 的 `staleTime`。
+判据不是性能，是安全：本系统每次读取都带行级数据范围谓词，**任何跨用户共享的响应缓存都是泄露面**。因此 HTTP 层缓存、反代缓存、查询结果缓存一律不做。需要缓存的三处全用现成机制：配置字典与用户权限集走进程内 `Map`（权限以 `userId:token_version` 为键，版本变更天然失效），列表详情走客户端 `@tanstack/vue-query` 的 `staleTime`（Vue 侧等价物，见 §2「服务端数据」行）。
 
 连接池设 10，**不引入 pgbouncer**——顺带消除了 §3.1b 提到的 transaction-mode pooling 与 advisory lock / `SET LOCAL` 的冲突。
 
