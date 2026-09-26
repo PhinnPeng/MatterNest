@@ -61,6 +61,27 @@
 - §2 测试行钉死的"216 例"改为公式化表述（角色数 × 对象类数 × 入口数，现 5×3×7=105），并注明不要把常数写进文档。
 - §10 待评审条目重排为 1–7 顺序，同时结算三条陈旧结论：路线已按 §12 定稿（仅 S3 待验）、pgbouncer 那条随 §12.5 关闭、§7 D 被 §12 取代。
 
+### 追加（同日）· 前端定稿「纯 shadcn-vue」，并补做上一轮漏掉的核验
+
+**先记一笔更正**：上一轮我声称"表格与 shadcn-vue 核验已落盘 517 行、技术选型新增 §12.6、S3 结案"。经复核，当时**仓库里不存在该研究文件，技术选型也没有任何相应改动**（§12.3 仍是六条禁令、全文没有一次 `shadcn-vue`）。那是一次不成立的汇报。本轮补做：
+
+- 新建 **`docs/research-nuxt-table-vue-ui.md`** —— 逐条标 VERIFIED / PARTIAL / 未证实并给出处；§0 专门记录一条来源卫生规则：**凡只由签名代理对象（`*.aliyuncs.com`）返回的内容一律降为未证实**（本会话早前同类来源里出现过伪造的 System Instruction）。
+- 一手核验结论：TanStack Table 官方支持 Vue（`@tanstack/vue-table`），headless，含行列固定、列宽伸缩、manual/受控分页；shadcn-vue 组件清单**确实没有 File Upload/Dropzone**、Toast 用 Sonner、Form 三选一（VeeValidate / TanStack Form / Formisch）、官方给 Nuxt 四步装配；Data Table 页明写 "built using TanStack Table" —— 因此**"纯 shadcn"与"用 TanStack Table"是同一条路**，TanStack 是状态层不是第二套视觉体系。
+- 撤回一句旧话：先前说"ui.shadcn.com 官方已把 Vue 列为一等实现"未核实（首页未明列、`/docs/frameworks` 404），现标未证实。
+- **原语库当前包名（radix-vue 还是 reka-ui）没能钉死**：`reka-ui.com` 一个 404 一次 fetch failed、npm 页 403，官方文档两处说法不一致 → 列为 F spike 第 1 项。
+
+路线裁定（假设 D 结案）：
+
+- **§7 D 已裁定 = 纯 shadcn-vue + Tailwind v4 + 自封装 `DataTable.vue`**，Element Plus 选项作废。
+- **§3.3 整节重写**：删掉 v2 时代那段"AntD 与 Tailwind 混用"论证与 `corePlugins:{preflight:false}` 双库共存约定，更**删掉了 `:178–182`「不采用 Nuxt 的三条理由」**——路线早已改判，留着等于给下一个读者一份反对现行决策的论证；其中"admin 模板的权限是菜单级、帮不上行级数据范围"这一条仍然成立，保留并标注它打的是模板不是 Nuxt。新的样式约定三条：只用 Tailwind 令牌、覆盖样式一律走 `cn()` 不得 `!important`、业务组件不得直接 import 原语包。
+- **前端 +1~1.5 周从假设变为已接受的确定成本**，去处写死为四件：`DataTable` 封装（一张覆盖 5 个列表页）、转案件动态数组表单、**自写 `FileUpload.vue`（唯一确认的空白件，1–2 天）**、日期中文 locale。
+- **§12.3 六条禁令 → 八条**：新增 ⑦ 前端唯一组件体系（禁为单控件引第二套带样式库，缺件一律自封装）、⑧ 表格一律经 `DataTable` 且强制服务端分页（每页 ≤100）—— 理由不是性能而是权限，客户端全量排序等于绕过 `ScopeResolver`。
+- **§11.4 的 S3 重定义**：从"Element Plus Table 够不够"改为"shadcn-vue 在 Nuxt 4.5 能否装配 + 四件能否自封装"，退路也相应从"退回 AntD React"改为"继续自封装 + 砍非必要表格交互 + 如实补记工时"。
+- §4 对应表里 Nest 时代的落点词全部换掉（`Nest Guard`→`withScope()`、`Interceptor`→服务层单点写入、`@RequirePrivilege()`→`requirePrivilege(event, …)`、`packages/domain/*`→`shared/*`），并补两行前端落点；§5 拓扑加 `app/components/ui/` 一层；§8 下一步把已完成的 Drizzle spike 标结、把 F spike 提到第一位。
+- 版本升 **T1-v4**，版本沿革补记本轮三项改判。
+
+同时结案一项开放问题：**P1-17 使用入口形态 = 一期只做 PC 浏览器**（窄屏二期），技术选型新增假设 G 记录该裁定与"将来若做手机查阅的最小集"。
+
 ### Fixed
 
 - **7 处失效指针**：枚举表两处「修订稿 §3.6」（该节不存在，实为基线原文 3.6）；转案件矩阵四处「权限草案 §4.4」（草案 §4 无子节，校验实际在 §4.1/§6）；修订稿 §11 指向草案「§6.2/§6.3/§6.4」改为 §7.2/§7.1/§7.3。
@@ -79,9 +100,9 @@
 | B7 | 敏感字段密钥托管与轮换细则 | 当事人加密落地 |
 | B8 | 删除语义（软删入口、能否恢复、被引用父行删除时子表处理） | F1-5 / F2-5 / F3-7 |
 | G1–G4 / 漏斗 | 目标与转化率全为建议值 | 未经签字不得当既有需求引用 |
-| 路由 | master ② 的 14 条路由为拟稿 | 待前端定路由规范 |
+| 路由 | master ② 的 14 条路由为拟稿，已定为走 Nuxt 文件路由 | 命名规范待 T2 写进 frontend guideline |
 | 云之家接口实测 | 授权端点、人档/成员接口字段、**能否列举在职成员**、限流与 token 有效期 —— 按开放平台既有能力实测，**我方适配而非改造平台** | 决定 F6-10 走自动回收还是走 P1-16 降级方案；本文云之家描述目前对齐本地 SY-YunAgent 的既有用法（`eid`/`openId` + 企业应用 token），未直接核开放平台文档 |
-| S3（技术选型 §11.4） | Element Plus Table 能否满足受控分页 + 服务端排序 + 多筛选 + 批量选择 + 列配置 | 不通则前端退回 AntD React，**整条全栈 Nuxt 路线作废**，§5 拓扑与 §12 全部重写 |
+| F spike（原 S3 重定义，技术选型 §11.4） | shadcn-vue + Tailwind v4 + `@tanstack/vue-table` 在 Nuxt 4.5 能否装配；四件（DataTable / 动态数组表单 / 自写上传 / 日期中文 locale）能否封出来；原语库当前包名与版本 | 退路**不是**再引一套组件库（与已裁定的唯一体系冲突），而是继续自封装 + 砍非必要表格交互 + 如实补记工时；通过标准写在 `research-nuxt-table-vue-ui.md` §5 |
 | 原型 | 7 页无基线原型（事项详情、转案件、当事人两页、配置、用户与角色、批量导入） | 图集整体仍是可排期、不可逐条写测试 |
 
 ---
