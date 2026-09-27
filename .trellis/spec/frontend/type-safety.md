@@ -55,4 +55,4 @@ const form = useForm<z.infer<typeof matterCreateSchema>>({
 
 ## 未证实项的处理方式
 
-需要第三方库的类型但能力未核（例：原版 shadcn 的 React 件清单、react-day-picker 中文 locale）→ 先在 `docs/research-nextjs-stack.md` 补核或跑 N1/N7，**不要**先写 `as any` 占位再"回头补"。历史教训：本会话曾把代理域名抓来的结论当已核事实，最终撤回。
+需要第三方库的类型但能力未核（例：N2–N7 涉及的行为；**shadcn 件清单与 react-day-picker 中文 locale 已于 N1 核完**，见 `research-nextjs-stack.md` §6.4）→ 先在 `docs/research-nextjs-stack.md` 补核或跑对应 spike，**不要**先写 `as any` 占位再"回头补"。历史教训：本会话曾把代理域名抓来的结论当已核事实，最终撤回。

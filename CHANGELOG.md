@@ -5,6 +5,51 @@
 
 ---
 
+## [未发布] — 2026-09-27 · N1 结案：代理通了，shadcn 六件落地，并抓到两条会坑 M3 的硬约束
+
+用户加代理后复测：`curl -x http://127.0.0.1:7897` → 200，且**不带代理的 node 直连也变 200**（系统级 TUN）
+→ §6.3 那条"域名级定向重置"的诊断成立，解法就是换出口。兜底开关：`NODE_USE_ENV_PROXY=1` 在 Node 22.22.2 可用（experimental 警告）。
+
+### Added
+
+- `shadcn@4.21.0 init --base radix` + `add button card input dialog attachment calendar` → `src/app/components/ui/` 六件基线。
+- `components.json`：`style: radix-nova`，`aliases` 全部指向 `@/app/...`。**实测有效**——改完 aliases 后 `add` 落的正是 §5 要的位置。
+- `src/shared/time/zh-cn.ts` + `zh-cn.spec.ts`（4 条）：全项目唯一的中文日期口径。
+- `src/app/components/app-calendar.tsx`：日历的 client 包装（下面第 5 条的产物）。
+- 研究文档新增 **§6.4 N1 结案**，§5 的 N1 行改标 **通过**，§3.2 的"落点存疑"划掉结案。
+
+### Changed
+
+- **`cn()` 换成 shadcn 官方 npm 包 `cn`**（生成的件写 `import { cn } from "cn"`）。查过发布方：maintainer `shadcn <m@shadcn.com>`、
+  repo `shadcn-ui/cn`、MIT、零依赖、周下载 596 万——不是被抢注的同名包。`src/app/lib/utils.ts` 改为 re-export，
+  **`clsx` 与 `tailwind-merge` 从 devDeps 移除**（两套 cn 实现必留一套），`utils.spec.ts` 三条测试改为对 `cn` 包的行为契约。
+- **禁令⑦ 的括号按实测改写**：原语是统一的 `radix-ui`（1.6.7），不是 `@radix-ui/*` 分散包；且 shadcn 的 `base` 是
+  `radix | base | aria` 三选一，本仓选 radix。
+- 前端 spec 的"零前端代码 / N1 未跑 / locale 未证实"等 6 处标注全部更新为已验；`backend/quality-guidelines.md` 的
+  未证实表拆成 N1（已过）与 N2–N7（未跑）两行。技术选型 §13.4、master P1-18、落地方案 W0-2 与 §0 门禁 G1 同步。
+
+### 两条会坑 M3 的硬约束（N1 的真正收获）
+
+1. **`date-fns` 的 `Locale` 对象含函数，不能在 Server Component 里当 prop 传给 client 组件**。
+   写 `<Calendar locale={APP_LOCALE} />` 在 prerender 阶段直接失败：
+   `Functions cannot be passed directly to Client Components unless you explicitly expose it by marking it with "use server"`。
+   必须加一层 client 包装、在 client 侧 import locale。**M3 所有日期字段（立案日、节点时间、期限）都按这个模式做。**
+   另外 `date-fns` 预设 `P` 给的是 `26-09-27`，不合中文习惯 → 展示只能用 `zh-cn.ts` 里的自定义 pattern。
+2. **跑 shadcn CLI 之后必须 review diff**。`init` 自作主张往 `layout.tsx` 注入 `next/font/google` 的 `Geist`，
+   并把 `--font-sans` 写成自引用。`next/font/google` 是**构建期**去外网取字体——本系统是律所内网私有化部署，
+   给 `pnpm build` 加外部依赖不可接受，已移除并改系统字体栈（微软雅黑 / 苹方 / Noto Sans CJK）。
+
+### 校验
+
+`pnpm build` ✓（六件参与编译）；`pnpm dev` 的 HTML 实测含「九月 2026」与星期单字「日一二三四五六」（验完 kill，端口复查无监听）；
+`pnpm verify` 五步 ✓（**9 个测试**）；lint-guard 反向实验仍当场变红。
+
+### 剩余
+
+N2–N7 未跑（G1 只过了第一格）；PG 建 `dev_matternest` 角色仍需 superuser；W0-3/W0-4 是"审"票等设计条目评审。
+
+---
+
 ## [未发布] — 2026-09-27 · W0-2：Next 16 + Tailwind v4 装配通过，shadcn 半截被网络挡住
 
 票面：落地方案 §3 **W0-2**（派票）+ N1 spike。任务 `.trellis/tasks/09-27-w0-2-next-shadcn-setup`，**保持 in_progress 不 archive**（第 6–8 步未做）。
@@ -27,7 +72,7 @@
 - ❌→✅ **P1-18 的上传件问题：先误结案、当日撤回**。当时据 `ui.shadcn.com/r/index.json`（63 项、无 `upload`/`dropzone` 命名）写下「没有现成上传件，结案」——**下早了**。改从官方 GitHub 仓取到一手源码后确认：`attachment` 是**附件展示件**（官方 description：Displays a file or image attachment with media, metadata, **upload state**, and actions；签名带 `idle|uploading|processing|error|done`）。**修正后口径**：选文件 / 预签名 PUT / 直传 / 进度 / 白名单仍要自写，但「附件行 + 上传态 + 删除」有现成件 → **W3-7 从「整件自封装」缩为「逻辑自封装 + 展示层用 `Attachment`」**。
 - ⚠ 但同域名随后**持续 `ECONNRESET`**（6 次退避重试 + curl 全失败），`shadcn init` / `add` 没跑通 → `components/ui/` 基线**未产出**、`attachment` 只拿到名字没读到源码（**不许拿它当依据**）、中文 locale 未验、"CLI 能否落到 §5 指定的 `src/app/components/ui/`"未验。
 - **`components.json` 故意不手写**：一份没被 CLI 认过的配置只会让下次 `add` 报难懂的错。恢复命令已写进研究文档 §6.3。
-- 因此 **N1 只算半过，M0 的"N1 通过"这条退出条件未满足**。
+- ~~因此 **N1 只算半过**~~ → **本节结论已被同日稍后的「N1 结案」条目更正**（代理加上后 `init`/`add` 全部跑通，N1 通过）。留在原地不改写，是为了保住「先误判 → 复测 → 更正」这条过程。
 
 ### 复测（同日稍后："重试"的结果）
 
@@ -288,3 +333,5 @@
 - `9c247a7` 新增风险事项转案件映射矩阵（D 组）：逐字段映射、金额不分摊、描述与附件不复制、单事务 + `event_outbox`、撤销前置条件。
 - `d583bbc` 统一换行策略为 LF。
 - `e800a50` → `d1f8114` 技术选型 v1 → v3：定稿全栈 Nuxt 4（Nitro 作后端）+ Drizzle + PostgreSQL 15+ + MinIO，Docker Compose 单机；附 `research-nuxt-fullstack-nitro.md` 一手核验与由核验强制产生的四项设计变更（含附件上传改预签名 PUT 直传）。
+
+---

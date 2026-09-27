@@ -7,8 +7,8 @@
 
 ## 现状声明（读之前必须知道）
 
-- 本仓当前**零前端代码**（无 `src/`、无 `package.json`）。下列是规格件已裁定的约束 + 待落地目标形态，不是从既有代码归纳的模式。
-- 组件层能力**尚未 spike**：`docs/research-nextjs-stack.md` §5 的 N1/N7 未跑；原版 shadcn 的 React 组件清单本轮**抓取失败未核到**，所以"有没有现成上传件"不是已知事实——`FileUpload` 按自封装排期（技术选型 §13.4、master P1-18）。
+- 前端已有**装配产物**（W0-1/W0-2）：`next@16.3.6` + `react@19.3.0` + `tailwindcss@4.3.3` + `src/app/components/ui/` 六件（button · card · input · dialog · attachment · calendar）+ `src/shared/time/zh-cn.ts`。**但业务代码仍是零**——下面的约束来自规格件与装配实测，不是从业务代码归纳的模式。
+- **N1 已通过**（2026-09-27，`docs/research-nextjs-stack.md` §6.4）：组件落点、`cn` 包、`radix-ui` 原语、中文 locale 四条结案。**N2–N7 仍未跑**（`withScope` 404 / worker 锁与 drain / 双副本加密键 / 预签名 PUT / 云之家 OIDC / 真表与动态数组表单）——**门禁 G1 只过了第一格**。
 - 有 7 页**无原型**（master ②：P5/P6/P9/P10/P11/P13/P14 带 ⚑）。这几页按 master ②③ 的行文实现，**不要自由发挥布局**；需要新形态就先回 master 登记待裁定。
 
 ---

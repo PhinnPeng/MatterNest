@@ -9,7 +9,7 @@
 
 | # | 门禁 | 为什么卡 | 未过时的绕行 |
 |---|---|---|---|
-| G1 | **N1–N7 spike 通过**（`research-nextjs-stack.md` §5） | 换框架引入 4 个新未知项，其中 N4（多副本 Server Function 解密）与 N6（云之家 OIDC）不通会改架构 | N6 不过 → 一期先只上本地密码，云之家列 M6 |
+| G1 | **N1–N7 spike 通过**（`research-nextjs-stack.md` §5）——**进度：N1 ✅ 已过（2026-09-27），N2–N7 未跑** | 换框架引入 4 个新未知项，其中 N4（多副本 Server Function 解密）与 N6（云之家 OIDC）不通会改架构 | N6 不过 → 一期先只上本地密码，云之家列 M6 |
 | G2 | **B8 删除语义拍定** | 决定所有表的 FK 动作、软删与 partial unique 写法，迁移文件是唯一事实源，后改=全库返工 | 无绕行，必须先拍 |
 | G3 | **P0-6 主表业务字段归属拍定** | 权限草案 §10 契约矩阵要按它生成用例 | 暂按建议口径实现（业务字段属护栏 2，归属/状态类属护栏 1），但**不得当定稿写测试** |
 | G4 | 目标 G1–G4 与漏斗签字 | 只影响验收与上线判定，不阻塞编码 | 可与 M1 并行补 |
@@ -60,7 +60,7 @@ src/shared/**  纯 TS：枚举 E01–E37 · Zod schema · ids · time · crypto�
 - **W0-1** 仓库骨架 + pnpm + TS 严格模式 + ESLint/Prettier + Vitest 配置。派
   > **✅ 已完成（2026-09-27）**，任务 `.trellis/tasks/09-27-w0-1-repo-skeleton`（已 archive）。三处当场拍定：Node 钉 22（实测 v22.22.2，技术选型 §7 的"Node 24"已改）、开发期连共享机映射口、CI 先只给本地 `pnpm verify`。额外交付一条本票原本没要求的东西：`tools/lint-guard/` 用虚拟路径喂真 config，**对禁令① 的 lint 规则本身做回归**（并已把 `files` 段改坏验证过它会红）。**遗留阻塞**：172.16.70.100 实测不可达（ping 全丢 + 30432/30090/30306 TIMEOUT），W0-5 前须确认。
 - **W0-2** Next 16 + Tailwind v4 + shadcn 装配，产出 `components/ui/` 基线。出处：技术选型 §3.3、研究文档 §5 N1。派
-  > **⚠ 部分完成（2026-09-27）**：Next + Tailwind 已装并 `pnpm build` 通过（含 `.next/standalone`），**shadcn 那半截被网络挡住**——`ui.shadcn.com` 先给过一次 registry 清单（63 项、无上传件），随后持续 `ECONNRESET`，`init`/`add` 未跑通，所以 `components/ui/` 基线**尚未产出**、中文 locale 未验。N1 因此只算**半过**，M0 退出条件里的"N1 通过"要等网络窗口补一次。证据与恢复命令：`research-nextjs-stack.md` §3.1/§6。
+  > **✅ 已完成（2026-09-27，N1 通过）**：`next@16.3.6 + react@19.3.0 + tailwindcss@4.3.3 + shadcn@4.21.0` 装配完毕，`src/app/components/ui/` 出六件基线（button/card/input/dialog/attachment/calendar），`components.json` 的 aliases 已按 §5 配到 `@/app/components/ui`（实测有效）。中文 locale 验通。三条新硬约束写进 spec：`Locale` 含函数不能跨 server→client 传、`cn` 改用 shadcn 官方包、**跑 CLI 必须 review diff**（它注入的 `next/font/google` 与内网部署冲突，已移除）。曾阻塞的 `ui.shadcn.com` 是域名级重置，加代理后解决。详证 `research-nextjs-stack.md` §6.4。
 - **W0-3** `src/shared/enums` 落地 E01–E37（含中文名字典），并写**CHECK↔值数组一致性测试**。出处：枚举表 §5.1、§5.2。审（这条错了后面全错）
 - **W0-4** Drizzle + 迁移管线：`generate`→人审→尾部手写 SQL 补丁；禁 `push`；`migrator` 一次性服务 + `pg_advisory_lock`。出处：技术选型 §3.2b/§3.2c、§12.3 禁令 2/3/4。审
 - **W0-5** compose 开发栈（pg/minio/nginx conf/worker）+ 密钥 env 清单（PG/MINIO/AES/HMAC/云之家/OIDC/state/NEXT_SERVER_ACTIONS_ENCRYPTION_KEY/DEPLOYMENT_VERSION）。派

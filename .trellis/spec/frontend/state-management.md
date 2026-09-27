@@ -20,7 +20,7 @@ URL 态这一层是本次填 spec 时**新定的建议口径**（规格件未写
 ## 一期**不引入**任何全局状态库
 
 - 不装 Redux / Zustand / Jotai / MobX。业务后台的共享状态其实只有"当前登录者是谁 + 他的范围档"，那一份由后端每次请求现算（§2），前端拿副本反而造成权限不一致。
-- 不装 `next-intl` / i18n 框架。本项目**没有第二套语言**，需要的是组件的**中文 locale**（Calendar/Date Picker 的月份、星期、周起始——`UNVERIFIED`，待 N1/N7 实测），别把"配 locale"做成"引入 i18n 体系"。
+- 不装 `next-intl` / i18n 框架。本项目**没有第二套语言**，需要的是组件的**中文 locale**（**已于 N1 实测通过**：`date-fns` 的 `zhCN` 给「九月 2026」与星期单字，口径集中在 `src/shared/time/zh-cn.ts`，且 `Locale` 只能在 client 侧 import——见 `component-guidelines.md` 的日期条）。
 
 ---
 

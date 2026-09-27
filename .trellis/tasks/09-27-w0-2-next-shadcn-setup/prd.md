@@ -25,8 +25,8 @@
 | # | 判据 | 怎么验 |
 |---|---|---|
 | 1 | ✅ `pnpm build` 成功且产出 `.next/standalone` | 实跑：Turbopack 编译通过，`.next/standalone/{server.js,package.json,node_modules}` 存在 |
-| 2 | ⚠ 半：Next+Tailwind 起得来（build 通过、`cn()` 有测试），**`shadcn add` 未验** | 网络 `ECONNRESET` 挡住 |
-| 3 | ⏸ 未验（依赖 #2） | 网络恢复后跑 `init` 再看路径 |
+| 2 | ✅ `shadcn init` + `add` 六个件全部成功，Tailwind 令牌与中文月份在 HTML 里实测到 | `research` §6.4 + `pnpm dev` 取证 |
+| 3 | ✅ 六个件落在 `src/app/components/ui/`（改 `components.json` aliases 后实测有效，`init` 默认是 `src/components/ui`） | `git status` 路径核对 |
 | 4 | ❌→✅ **曾误结案、当日撤回**：registry 清单里没有 `upload`/`dropzone` 命名 ≠ 没有可用的件。改从官方 GitHub 仓取到 `attachment` 一手源码后确认它是**附件展示件**（带 `idle\|uploading\|processing\|error\|done`），于是 W3-7 从「整件自封装」缩为「逻辑自封装 + 展示层用 `Attachment`」 | `research/attachment-组件定性.md` + 研究文档 §3.2 |
 | 5 | ✅ `pnpm verify` 五步全绿（5 个测试），且把 `files` 段改错后 lint-guard 当场 exit 1 | 实跑 + 反向实验 |
 | 6 | ✅ 结论已回写四处：研究文档 §3.1/§5/§6、技术选型 §13.4、master P1-18-补、spec `component-guidelines.md`（含新事实：原语是 `radix|base|aria` 三选一） | 见提交 |
@@ -41,6 +41,6 @@ DataTable / FileUpload 的**实现**（W3-1 / W3-7）、业务路由、DB 连接
 2. **Next 16 构建会强改 `tsconfig.json` 的 `jsx` → `react-jsx`**，但**不回退其它严格项**（`strict`/`noUncheckedIndexedAccess`/`verbatimModuleSyntax`/`noUnusedLocals` 实测都还在）。
 3. **shadcn CLI 4.21.0 的 `base` 是 `radix | base | aria` 三选一**，默认组合 `style=nova / baseColor=neutral / iconLibrary=lucide / font=geist`。禁令⑦ 里的"Radix UI"因此是**本仓选定项**而非唯一可能。
 
-## 剩余工作（网络窗口到了再做，约 20 分钟）
+## 剩余工作（**已全部完成，2026-09-27 同日**）
 
-`pnpm dlx shadcn@latest init --yes --defaults --base radix` → 改 alias 到 `@/app/components{,/ui}` 与 `@/app/lib/utils` → `add button card input dialog attachment` → 读 `attachment` 源码定性 → 验中文 locale → 回填 §6.3 与本票第 6–8 步。
+`init --base radix` → aliases 改 `@/app/components{,/ui}` 与 `@/app/lib/utils` → `add button card input dialog attachment calendar` → `attachment` 定性完成（附件展示件，非上传器）→ 中文 locale 验通 → §6.3/§6.4 与本票第 6–8 步已回填。**另抓到两条新硬约束**：`Locale` 含函数不能跨 server→client 传；跑 CLI 必须 review diff（`next/font/google` 与内网部署冲突，已移除）。

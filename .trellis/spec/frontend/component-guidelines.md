@@ -35,7 +35,7 @@
 | 密集表格（案件/事项/当事人/我的关注/通知 5 张 + 详情内嵌表） | 半现成 | 以 Data Table 为底，**自封装一张 `DataTable.tsx`**（`components/ui/data-table/`）：受控分页参数、筛选模型、批量选择、列显隐统一收口。**禁止客户端全量排序** |
 | 转案件动态表单（N 个案件卡片 + 跨卡复制 + 每卡 10+ 字段联动校验） | 要自写 | **react-hook-form + Zod resolver**（与 `shared/schema` 同源，v5 的默认唯一选择，不再留三选一）；数组字段与跨卡复制自管；**id 类字段不参与复制**（矩阵 §3） |
 | 附件上传（预签名 PUT 直传 + 进度 + 白名单 + 多文件） | **逻辑自封装 + 展示层有现成件** | `FileUpload.tsx` 只做「选文件 → 向 `/api/**` 申请预签名 PUT → 直传 MinIO → 回报对象 key」；**列表项 / 上传态 / 删除按钮用 shadcn 的 `Attachment`**（官方定位：附件展示件，带 `idle|uploading|processing|error|done`，见研究文档 §3.2）。后端不中转文件流（C3），请求体上限由 nginx 设死；框架侧不设 body 上限 |
-| 日期与法律期限（含"剩 N 天"） | 半现成 | Calendar / Date Picker 有；**中文 locale 与 react-day-picker 版本待 N1/N7 实测（UNVERIFIED）**；期限计算一律走 `shared/time`，`date` 与 `timestamptz` 的边界不因组件库改变 |
+| 日期与法律期限（含"剩 N 天"） | **已验可用** | `Calendar`（`react-day-picker@10.0.1` + `date-fns@4.4.0`）已装，实测渲染出「九月 2026」与星期单字；中文口径统一从 `src/shared/time/zh-cn.ts` 取（**展示禁用 date-fns 预设 `P`，它给 `26-09-27`**）。⚠ **`Locale` 含函数，不能在 Server Component 里当 prop 传给 client 件**——必须 client 侧 import，见 `src/app/components/app-calendar.tsx`。期限计算仍走 `shared/time` |
 
 **压缩手段**：先把 `DataTable.tsx` 封好——它一张覆盖 5 个列表页，是全项目复用率最高的一块。"+1~1.5 周"是 v4 就接受的确定成本，v5 换回 React 后明显缩小，但**省下多少要等 N1 spike 实测才写数字**，不要拿估算当承诺。
 
@@ -55,7 +55,7 @@
 
 已装并可运行：`next@16.3.6` + `react@19.3.0` + `tailwindcss@4.3.3`（CSS-first，`@import "tailwindcss"`，**没有 `tailwind.config.js`**）+ `cn()`（`src/app/lib/utils.ts`，带 3 条行为测试）。`pnpm build` 出 `.next/standalone`。
 
-**尚未落地**：`components.json` 与任何 shadcn 复制件——`ui.shadcn.com` 持续 `ECONNRESET`，`init`/`add` 没跑通，而手写一份没被 CLI 认过的配置只会让下次 `add` 报难懂的错，所以故意留空。网络恢复后按 `research-nextjs-stack.md` §6.3 的恢复命令做，并把结果回填这里。
+**已落地**（同日代理通了之后跑完，详证 `research-nextjs-stack.md` §6.4）：`components.json`（`style: radix-nova`，aliases 指向 `@/app/components{,/ui}`）+ 六个件 `button card input dialog attachment calendar`。三条对写码有直接影响的实测事实：① **`cn()` 现在来自 shadcn 官方 npm 包 `cn`**（maintainer `shadcn`、repo `shadcn-ui/cn`、零依赖；查过不是被抢注的同名包），生成的件写 `import { cn } from "cn"`，本仓的 `src/app/lib/utils.ts` 只做 `export { cn } from "cn"`，**`clsx` 与 `tailwind-merge` 已移除**（留着就是两套 cn 实现）；② **原语包是统一的 `radix-ui`（1.6.7），不是 `@radix-ui/*` 分散包**；③ 跑 CLI 会改 `layout.tsx` / `globals.css`，**必须 review diff**——它注入的 `next/font/google`（构建期去外网取字体）已移除，内网私有化部署不能让 `pnpm build` 依赖外网，字体改系统栈。
 
 两条装配期踩到的事实要记住：**不要用 `create-next-app`**（它默认生成 `AGENTS.md`，会覆盖本仓的 Trellis 受管块）；**Next 会把 `tsconfig.json` 的 `jsx` 强改为 `react-jsx`**，其余严格项不会被回退。
 

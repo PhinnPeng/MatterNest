@@ -52,7 +52,8 @@
 
 | 项 | 状态 | 出处 |
 |---|---|---|
-| N1–N7 spike（装配 / `withScope` 404 / worker+锁+drain / 双副本加密键 / 预签名 PUT+nginx / 云之家 OIDC / 真表+动态数组表单） | **门禁 G1，未跑** | `docs/research-nextjs-stack.md` §5 |
+| N1 spike（Next+Tailwind+shadcn 装配、组件落点、`cn` 包、中文 locale） | **✅ 已通过（2026-09-27）** | `docs/research-nextjs-stack.md` §5/§6.4 |
+| N2–N7 spike（`withScope` 404 / worker+锁+drain / 双副本加密键 / 预签名 PUT+nginx / 云之家 OIDC / 真表+动态数组表单） | **门禁 G1 剩余项，未跑** | `docs/research-nextjs-stack.md` §5 |
 | 原版 shadcn 的 React 组件清单（有没有现成上传件） | **抓取失败，未核到** → `FileUpload` 按自封装排期 | 技术选型 §13.4、P1-18 |
 | 中文 locale（Calendar / Date Picker 月份、星期、周起始） | 未证实，必须实测 | 技术选型 §12.4 |
 | 云之家能否列举在职成员 | 未确认 → 离职回收可能退化为"登录时校验 + 未登录告警 + 人工停用"，**这是要签字接受的风险，不是已具备能力** | P1-16、技术选型 §3.4 |

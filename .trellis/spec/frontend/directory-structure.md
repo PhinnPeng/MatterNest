@@ -26,7 +26,7 @@ src/
                                  前端只 import 这一层，且它不得 import next/react/Node（禁令①）
 ```
 
-> `components/ui/` 与 `lib/server/` 挂在 `src/app/` 下，是技术选型 §5 拓扑图的原样（§5 自称"T2 填 spec 时以本图为唯一准"）。N1 spike 实跑 `shadcn init` 时若 CLI 默认落在别处，**按 §5 调 CLI/别名配置**，并把实测结论回填本行——不要各自迁就。
+> `components/ui/` 与 `lib/server/` 挂在 `src/app/` 下，是技术选型 §5 拓扑图的原样。**N1 已结案（2026-09-27）**：`shadcn init` 默认落 `src/components/ui`，但把 `components.json` 的 `aliases`（`components` / `ui` / `lib` / `utils` / `hooks`）改成 `@/app/...` 之后，`shadcn add` 的六个件全部正确落在 `src/app/components/ui/` → **§5 守得住，不要反过来把 §5 改成 CLI 默认值**。另：`init` 会顺手改 `layout.tsx` 与 `globals.css`，**跑完必须 review diff**（见研究文档 §6.4 第 6 条）。
 
 ---
 

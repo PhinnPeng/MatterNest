@@ -107,9 +107,7 @@
   但"附件行 + 上传中/失败态 + 删除按钮"这块 UI 有现成的，**W3-7 由"整件自封装"缩为"逻辑自封装 + 展示层用 `Attachment`"**，成本下降。
 - 同一仓库实测三个 base 的 ui 件数：`aria` 59、`base` 62、`radix` 61 —— 与 docs 站点 registry 的 63 条不完全等值
   （清单含非 ui 条目）。**不要拿这两个数字互相"验证"**。
-- ⚠ **一条必须等 CLI 才能定的事**：官方示例 import 的是 `@/styles/radix-rhea/ui/attachment`（`styleName="radix-rhea"`），
-  而 `init` 默认 `style=nova`。**组件落点似乎随 style 名变，不再是 `components/ui/`**——这直接关系技术选型 §5 拓扑与禁令⑦ 的措辞，
-  但不能靠读仓库源码定论，必须等 CLI 真跑一次（见 §6.3）。
+- ~~⚠ 组件落点是否随 style 名变~~ **已结案（同日代理通了、CLI 实跑完）**：`@/styles/radix-rhea/ui/…` 只是官方仓库里示例的写法，**CLI 写进你仓库的路径完全由 `components.json` 的 `aliases` 决定**，与 style 名无关。实测把 `aliases.ui` 设为 `@/app/components/ui` 后 `shadcn add` 的六个件全部落在 `src/app/components/ui/`→ **技术选型 §5 拓扑守得住，不用改文档**。实际解析出的 style 名是 `radix-nova`（base + style 合成）。
 
 ## 4. 从 Nuxt 路线继承与作废的清单
 
@@ -132,7 +130,7 @@
 | # | 验什么 | 通过标准 |
 |---|---|---|
 | N1 | Next 16 + React 19 + Tailwind v4 + shadcn 装配；官方 CLI 是否真支持 React 全特性（Blocks/registry 现场看） | 起得来、主题变量生效、能 `add` 组件 |
-| **N1 状态（2026-09-27 实跑）** | 前半**通过**：`next@16.3.6 + react@19.3.0 + tailwindcss@4.3.3` 装配后 `pnpm build` 成功、产出 `.next/standalone`、静态预渲染通过。后半**未过**：`shadcn init/add` 因 `ui.shadcn.com` 持续 `ECONNRESET` 没跑通（详见 §3.1） | 部分通过，剩 `add` 与中文 locale 两项 |
+| **N1 状态（2026-09-27，加代理后跑完）** | **✅ 通过**。`init` + `add button card input dialog attachment calendar` 全部成功；落点由 `components.json` 的 aliases 决定（已按 §5 配到 `src/app/components/ui/`）；中文 locale 实测渲染出「九月 2026」与星期单字；另钉死两条：`cn` 已是 shadcn 官方 npm 包、原语包是统一的 `radix-ui` | **通过**，详证 §6.4 |
 | N2 | Route Handler + Drizzle + `withScope()`：一条带数据范围的列表查询，不可见资源返回 **404 JSON** | 权限草案 §10 的 detail/list 两类入口先通 |
 | N3 | 独立 `worker` 容器 + `node-cron` + advisory lock 单飞；SIGTERM 后 drain 不丢任务 | 双副本下任务只跑一次 |
 | N4 | 双副本 + 同一 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` + `deploymentId` 下，滚动发布不出现 "Failed to find Server Action" | 现场起两容器验一次 |
@@ -160,7 +158,7 @@ N4/N6 是这次换框架**新引入**的验证点；N1/N2/N3/N5/N7 是原本就�
 2. **Next 16 构建时会强改 `tsconfig.json`**：`jsx` 从 `preserve` 被改写为 `react-jsx`，并打印 「We detected TypeScript in your project and reconfigured your tsconfig.json」。但其余严格项（`strict` / `noUncheckedIndexedAccess` / `verbatimModuleSyntax` / `noUnusedLocals`）**全部保留未被回退**——说明 W0-1 定的类型口径与 Next 不冲突，这条可以放心写进 spec。
 3. **shadcn 的 `base` 是三选一，不是默认 Radix**：CLI 4.21.0 的校验信息给出合法值 `radix | base | aria`，默认组合 `style=nova / baseColor=neutral / iconLibrary=lucide / font=geist / template=next`。这直接影响禁令⑦ 的措辞——「业务组件不得直接 import 原语包（Radix UI）」里的 Radix 是**我们要选的那个**，不是 shadcn 唯一可能的原语；若哪天换 `base`/`aria`，禁令本身不变，括号里的名字要跟着改。
 
-### 6.3 N1 未结案的部分
+### 6.3 N1 当时的未结案项（**已同日在 §6.4 全部结案**，此处保留过程记录）
 
 - `shadcn init` / `add` 未跑通（网络），所以**「CLI 能否把件落到 §5 指定的 `src/app/components/ui/`」仍未证实**。`components.json` 我**故意不手写**：一份没被 CLI 认过的配置只会让下一次 `add` 报难懂的错。
 - 中文 locale（Calendar / Date Picker 的月份、星期、周起始）仍未验。
@@ -169,3 +167,36 @@ N4/N6 是这次换框架**新引入**的验证点；N1/N2/N3/N5/N7 是原本就�
 - 恢复命令：网络可用时 `pnpm dlx shadcn@latest init --yes --defaults --base radix`，再把 alias 改到 `@/app/components` / `@/app/components/ui` / `@/app/lib/utils`，然后 `add button card input dialog attachment` 逐个读源码。
 - **不通的性质（两次复测后加强）**：`ui.shadcn.com` → `66.33.60.193`，对该 IP 的 443 **三次复测都是连上后立刻 `ECONNRESET`（<100ms）**，而同机同进程访问 `registry.npmjs.org`、`github.com`、`raw.githubusercontent.com` 全部 200。所以**不是抖动、等不会自己好**：要么换出口（代理/热点），要么在能访问该域名的机器上跑 `init` + `add` 再把产物拷回来。
 - ⚠ **但不要靠「从 GitHub 手拷 `.tsx`」绕过 CLI**：`attachment.tsx` 的类名（`cn-attachment …`）依赖 registry 随件下发的样式，且官方示例的 import 是 `@/styles/radix-rhea/ui/attachment`——**落点与样式都得由 CLI 生成**（详见 §3.2）。
+
+### 6.4 代理加上之后跑完 N1（2026-09-27 同日结案）
+
+复测出口：`curl -x http://127.0.0.1:7897 https://ui.shadcn.com/r/index.json` → 200 / 58,355B，
+且**不带代理的 node 直连也变 200**（系统级 TUN 生效）→ §6.3 的"域名级定向重置"诊断成立，解法就是换出口。
+兜底开关记一笔：`NODE_USE_ENV_PROXY=1` 在本机 Node 22.22.2 可用（会打 `UNDICI-EHPA` experimental 警告）。
+
+`shadcn@4.21.0 init --yes --defaults --base radix` 与 `add button card input dialog attachment calendar` 全部成功。六条结案：
+
+1. **落点可配，§5 拓扑不用改**。`init` 默认写 `src/components/ui/button.tsx` + `src/lib/utils.ts`；
+   把 `components.json` 的 `aliases` 改成 `components=@/app/components`、`ui=@/app/components/ui`、
+   `lib=@/app/lib`、`utils=@/app/lib/utils`、`hooks=@/app/hooks` 后重跑 `add`，六个件**全部落在
+   `src/app/components/ui/`**。解析出的 style 名是 `radix-nova`（base+style 合成），与落点无关。
+2. **`cn()` 现在是 shadcn 官方 npm 包**。生成的件写 `import { cn } from "cn"`。查过发布方：maintainer
+   `shadcn <m@shadcn.com>`、repo `shadcn-ui/cn`、MIT、**零依赖**、周下载 596 万——不是被抢注的同名包。
+   本仓 `src/app/lib/utils.ts` 改为 `export { cn } from "cn"`，并**移除 `clsx` 与 `tailwind-merge`**
+   （留着就是两套 cn 实现）；`utils.spec.ts` 三条测试改为对 `cn` 包的行为契约。
+3. **原语包是统一的 `radix-ui`（1.6.7）**，不是 `@radix-ui/*` 分散包 → 禁令⑦ 括号里的写法按实测更新。
+4. **中文 locale 结案**：`react-day-picker@10.0.1` + `date-fns@4.4.0`，`Calendar` 收 `locale` prop；
+   实测 HTML 里出现「九月 2026」与星期单字「日一二三四五六」。⚠ `date-fns` 预设 `P` 给的是 `26-09-27`
+   （不合中文习惯），所以展示口径集中在 `src/shared/time/zh-cn.ts` 的自定义 pattern，4 条测试当防回退锁。
+5. **N1 最值钱的一条（影响 M3 所有日期字段）**：`Locale` 对象含函数（`formatDistance`/`localize`/`match`），
+   在 Server Component 里写 `<Calendar locale={APP_LOCALE} />` 会在 **prerender 阶段直接失败**：
+   `Error: Functions cannot be passed directly to Client Components unless you explicitly expose it by
+   marking it with "use server"`。正确形态是多一层 client 包装、**在 client 侧 import locale**
+   （`src/app/components/app-calendar.tsx`）。这条已写进 `component-guidelines.md` 的日期条。
+6. **跑 CLI 之后必须 review diff**：`init` 自作主张往 `layout.tsx` 注入了 `next/font/google` 的 `Geist`，
+   并把 `globals.css` 的 `--font-sans` 写成自引用 `var(--font-sans)`。前者是**构建期去外网取字体**——
+   本系统是律所内网私有化部署（技术选型 §6），不能给 `pnpm build` 加外部依赖，已移除并换系统字体栈
+   （微软雅黑 / 苹方 / Noto Sans CJK 等）；后者去掉 Geist 后会失效，一并修掉。
+
+装配后端到端复测：`pnpm build` ✓（六件参与编译）、`pnpm dev` 的 HTML 实测到中文月份与星期、
+`pnpm verify` 五步 ✓（**9 个测试**）、lint-guard 反向实验仍当场变红。
