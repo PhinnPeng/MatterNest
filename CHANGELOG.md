@@ -5,7 +5,45 @@
 
 ---
 
-## [未发布] — 2026-09-26 · 前端改判 Next.js 全栈（T1-v5）+ 第一期落地方案
+## [未发布] — 2026-09-27 · W0-7：`.trellis/spec/` 由空模板填成派单约束
+
+启动 Trellis 任务流程（`init_developer.py` + `task.py start 00-bootstrap-guidelines`）并做完 **W0-7**。此前 `.trellis/spec/` 的 13 份模板每份 51–59 行、全是 `(To be filled by the team)` 占位，implement/check 子代理拿不到任何本仓约束——落地方案 §7 把这一票定为**硬派单前置**。
+
+### Added
+
+- **13 份规范写实**（backend 5 指南 + `index.md`；frontend 6 指南 + `index.md`；`spec/guides/` 3 份按模板要求保留不动），合计 896 行（此前每份 51–59 行占位）。八条禁令**逐字取自技术选型 §13.5**、按层拆开归位：① – ④ 进 `backend/database-guidelines.md`，⑤ 进 `backend/error-handling.md`，⑥⑦⑧ 进前端三份，两条部署级进 `backend/quality-guidelines.md`。每条规则带**出处到章节号**。八条 + 部署行经脚本 diff 确认与 §13.5 **逐字符相同**。
+- 两份 `index.md` 补上 workflow.md 契约要求的 **Pre-Development Checklist + Quality Check**，并各自声明"本仓当前零应用代码，故此处记的是规格件已裁定约束 + 待落地目标形态"——避免把示例代码当既有模式。
+- `backend/quality-guidelines.md` 新增**"CI 必须拦得住"表**（裸表访问 / `shared/` 污染 / CHECK↔值数组 / 同构表列 diff / `scope_key` 8 向量 / 转案件原子性 / handler 漏挂 `withScope`），以及**未证实项挂账表**（N1–N7、shadcn React 件清单、中文 locale、云之家成员列举、`worker_threads`）。
+- master 新增 **P1-19**：雪花 id 的 JSON 序列化口径**从未有任何规格件写过**。DB 侧 `bigint`（修订稿 §12.2）而 JS 安全整数只到 2^53−1，直接 `JSON.stringify` 会静默丢精度 → 表现为案号对不上、详情跳错。建议 DTO 层 id 一律 string，已按建议落进 `frontend/type-safety.md`，**待签字后回改修订稿**。
+
+### Changed
+
+- **技术选型 §5 末行判断被实测推翻**（原文："packages 段需按此填，否则包上下文检测拿不到东西"）。实测相反：声明 `packages` 后 spec 基准目录切到 `spec/<package>/`，`get_context.py --mode packages` 打印 `Spec: not configured`——**填了才拿不到**。依据 `scripts/common/config.py:396` `get_spec_base()` + `packages_context.py:30` `_scan_spec_layers()`。本仓是单个 Next app，layer 型布局正好匹配 single-repo 模式，故 `config.yaml` 的 packages 段**保持注释**，判定与复现命令写进 config 注释防后人"顺手补上"。
+- 技术选型 §7 末那条口径冲突（spec 用英文还是中文）**关闭**：定为**中文**——八条禁令与枚举取值要逐字引用，翻译会引入漂移，且 spec 的读者是同时读中文设计文档的子代理。
+- 技术选型 §8 第 3 项 T2 标为已完成并就地更正三处票面口径（禁令来源 §12.3→§13.5、12 份→13 份、packages 不填）。
+- 落地方案 §3 W0-7 追加完成记录；`00-bootstrap-guidelines/prd.md` 补上"本票映射 / 验收判据 / 两条裁定"。
+
+### Fixed
+
+- master §8 自洽校验行残留的"路由已定为 Nuxt 文件路由，规范待 T2"——上一轮 CHANGELOG 曾声明该措辞已随 v5 同步，实际只改了 ② 那处，此处漏改。本轮按 append-only 更正（保留原文 + 标注），并把 7 页缺原型这条**仍判为未通过**。
+- 自查脚本发现我自己票面写的文件数不准（"12 份"实际 13 份），已在落地方案 W0-7 的完成记录里改正。
+- 上下文清单 `implement.jsonl` 原本挂了 `docs/tech-stack-decision.md`，`task.py validate` 报它 60,255 字节超 `max_file_bytes` 32,768 会被截断 → 改指已蒸馏的 spec 入口，避免子代理拿到半份禁令。
+- 填 spec 时顺带抓到两处**数字/工具口径过期**：技术选型 §3.2b 第 3 条仍写"5 规则"（A1/A2/A4/A8 合并前旧值，现 8 条）；修订稿 §12.2 末行仍建议"pt/Flyway"（选型已定 Drizzle `generate`+`migrate`）。两处都按 append-only 就地标注，并在 `backend/database-guidelines.md` 里给出正确清单：**5 配置表 + 8 状态（案件 4 + 事项 4 同构）+ 8 条预置规则 + 7 通知模板 + 5 角色**。
+
+### 校验做了什么
+
+脚本实测：13 份文件**零占位符残留**；45 个 `§x.y` 引用**全部能在 docs 里找到对应章节**；相对链接与文档路径全部可解析；21 条禁令/口径探针（`.where()` 只用 sql、`SET TIME ZONE 'UTC'`、`cn()`、每页上限 100、`selectable-users` 上限 50 等）**全部命中**；`get_context.py --mode packages` 仍正确列出 backend/frontend 两层；`task.py validate` 通过。另派独立子代理按行号逐条核对 spec ↔ 规格件，其结论见下一条提交（若查出问题则在本票内修）。
+
+### 未验证与下一步
+
+- spec 里的"目标形态"代码片段**均未跑过**（M0 未开工，无 `package.json`）；N1–N7 spike 仍是门禁 G1。
+- **G2（B8）/ G3（P0-6）/ G4（目标签字）+ 新添 P1-19** 待你裁定。
+- 派单前置已解除：W0-1 / W0-2 / W0-5（骨架、Next+shadcn 装配、compose 开发栈）现在可以派，W0-3/W0-4/W0-6 属"审"票。
+
+
+---
+
+
 
 用户提出"用 Next + shadcn + Tailwind，后端考虑 Python 或 Next"。核验后裁定：**换 Next，不换 Python**。
 

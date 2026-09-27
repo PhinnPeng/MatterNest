@@ -19,11 +19,54 @@ the rest conversationally.
 
 ---
 
-## Status (update the checkboxes as you complete each item)
+## Status (update the checkboxes as you need to complete each item)
 
-- [ ] Fill backend guidelines
-- [ ] Fill frontend guidelines
-- [ ] Add code examples
+- [x] Fill backend guidelines（5 份 + `index.md`）
+- [x] Fill frontend guidelines（6 份 + `index.md`）
+- [x] Add code examples —— **口径修正见下**：本仓当前**零应用代码**（只有 `docs/` 与 `.trellis/`），所以"引用仓库内真实示例"做不到。示例一律写成**待落地的目标形态**并标注出处，代码落地后由后续票回填真实路径
+- [x] `.trellis/config.yaml` 的 `packages` 段：已实测，**结论是不填**（理由见"本票的两条裁定"第 2 条）
+
+---
+
+## 本票映射：落地方案 W0-7
+
+票面出处：`docs/implementation-plan-v1.md` §3 M0 的 **W0-7**（标注为"审"票，且是 §7 的**硬派单前置**）。
+
+**内容来源（只从这几处抄，不再自创规则）**：
+
+| 来源 | 用作 |
+|---|---|
+| `docs/tech-stack-decision.md` §13.5 | 现行八条禁令 + 两条部署级（**明写不要抄 §12.3 的 v4 版**） |
+| 同上 §13.3 / §13.2 | Next 侧四条硬约束；Nuxt 结论的继承/作废 |
+| 同上 §4 | 设计约束 → 技术落点对应表（本票各文件的目录） |
+| 同上 §3.3 / §3.4 / §3.5 / §3.6 / §5 / §6 / §12.5 | 样式三条、双通道登录、advisory lock、明确不做、仓库拓扑、部署四条、缓存决定 |
+| `docs/PRD-phase1-enums-and-schemas.md` §5.1–§5.4、§4.4 | 单一事实源、三条 CHECK 模板、加值规则、`scope_key` 向量 |
+| `docs/PRD-phase1-permission-design-draft.md` §4/§4.1/§7.3/§10 | ScopeResolver、可见用户集、脱敏导出、契约矩阵 |
+| `docs/implementation-plan-v1.md` §4 | 八条规范的措辞（与 §13.5 对齐） |
+
+**验收（本票自证的判据）**：
+1. 12 份模板里不再出现 `(To be filled by the team)` 与 `To fill`；每份的每条硬规则都带**出处到章节号**。
+2. §13.5 八条禁令**逐条落进对应 spec 文件**，一条不丢、一条不改写语义（① `src/shared` 纯 TS ② Drizzle `.where()` ③ 生成列 ④ 禁 `push` ⑤ `/api/**`+`withScope` ⑥ 页面壳零业务数据 ⑦ 唯一组件体系 ⑧ 表格服务端分页 ≤100）。
+3. 未证实项不得写成既有能力：`research-nextjs-stack.md` §5 的 N1–N7、§12.4 各项，一律标 `UNVERIFIED`。
+4. `py -3 ./.trellis/scripts/get_context.py --mode packages` 仍能列出 backend/frontend 两层（即没被 packages 段打断）。
+
+---
+
+## 本票的两条裁定
+
+**1. spec 语言 = 中文**（覆盖模板结尾的 "All documentation should be written in **English**"）。
+这正是技术选型 §7 末尾挂着的那条未决口径冲突。裁定理由：八条禁令与枚举表必须**逐字引用**，译成英文会引入翻译漂移，而这条 spec 的唯一读者是派单子代理——它同时读中文设计文档。标题与目录结构保持模板原样，便于 `trellis update` 做块级替换。
+
+**2. `packages` 段维持注释、不填**（这条**推翻**技术选型 §5 最后一行的判断）。
+实测（`.trellis/scripts/common/config.py:396` `get_spec_base()` + `packages_context.py:30` `_scan_spec_layers()`）：一旦声明 `packages`，spec 基准目录就从 `spec/` 变成 `spec/<package>/`。往里塞 `backend: {path: src/lib/server}` / `frontend: {path: src/app}` 后，`get_context.py --mode packages` 打印的是：
+
+```text
+### backend
+Path: src/lib/server
+Spec: not configured      ← 反而拿不到东西
+```
+
+本仓是**单个 Next.js 应用**（§5 自己写的"仍是一个 app，不是回到 apps/server + apps/web"），Trellis 的单仓模式正好匹配现有的 `spec/backend/` + `spec/frontend/` 两层布局。要真用 packages，得先把 spec 整体搬进 `spec/<package>/<layer>/`——那是 monorepo 拆分时才值得付的成本，一期不拆。结论写进 `config.yaml` 注释里，防止下一个人"顺手补上"。
 
 ---
 

@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端约束入口：Pre-Dev Checklist + Quality Check（八条禁令已蒸馏在内，原文见 docs/tech-stack-decision.md §13.5）"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "八条禁令与取值权威的出处，写码前必读"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "八条禁令与取值权威的出处，写码前必读"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "八条禁令与取值权威的出处，写码前必读"}
+{"file": "docs/PRD-phase1-enums-and-schemas.md", "reason": "取值权威源（E01–E37）；CHECK 手写 + 一致性测试的出处"}

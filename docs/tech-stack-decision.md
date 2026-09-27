@@ -126,6 +126,7 @@ schema 真相    packages/db/schema/*.ts        （Drizzle，供类型安全查�
 1. **共享环境禁用 `drizzle-kit push`**，也禁用任何 schema sync。`push` 是"按当前 schema 直接改库"，多分支并行会静默丢列；只有编号迁移文件能 review、能回滚、能审计。
 2. **迁移文件是唯一事实**，不是 `schema.ts` 的产物快照。出现漂移时改迁移，不反向同步。
 3. **seed 是数据迁移，不是手点 SQL 控制台**：5 张配置表 + 5 角色 + 5 规则 + 7 模板写成幂等 `INSERT ... ON CONFLICT (code) DO NOTHING`，新环境一条命令拉起，测试库复用同一份。
+   > **数字已过期（2026-09-27 W0-7 校正）**：本行的"5 规则"是 A1/A2/A4/A8 合并前的旧值。现行 seed 清单以修订稿 §2.3 与落地方案 W1-6 为准：**5 配置表 + 8 状态 + 8 条预置规则 + 7 通知模板 + 5 角色（含 4 个特权开关）**。
 
 有一处实现细节需要你安排在 T7 之前拍掉：Drizzle 的 schema DSL 对 **partial index（`WHERE is_enabled`）、表级 `CHECK`、生成列** 的支持程度随版本变化，我不替你断言。安排 **0.5 天 spike**：拿三张最难的表实跑一次 `drizzle-kit generate`——`automation_rule`（partial unique）、`matter_node`（生成列 + CHECK）、`status_config`（三个条件唯一索引）。**若产出明显残缺，就退到纯 SQL-first**（`node-pg-migrate` 或 umzug 手写 .sql，Drizzle 只当查询器）。这个决定越早越便宜，它会连带改变 §5 的 `packages/db` 结构。
 
@@ -285,6 +286,8 @@ MatterNest/                     单 Next.js 16 应用（v5）；仍是"一个 ap
 
 `.trellis/config.yaml` 的 `packages` 段需按此填（当前全在注释里），否则 Trellis 的包上下文检测拿不到东西。
 
+> **本行于 2026-09-27（W0-7）实测后作废**：结论相反。一旦在 `config.yaml` 声明 `packages`，Trellis 的 spec 基准目录就从 `spec/` 切到 `spec/<package>/`（`scripts/common/config.py:396` `get_spec_base()` + `packages_context.py:30` `_scan_spec_layers()`）；把 `backend: {path: src/lib/server}` / `frontend: {path: src/app}` 写进去后，`get_context.py --mode packages` 打印的是 `Spec: not configured`——**填了才拿不到东西**。本仓是单个 Next app，现有 `spec/backend/` + `spec/frontend/` 是 layer 型布局，正好落在 single-repo 模式的预期上。处置：**packages 段保持注释**，判定依据与复现命令写进 `.trellis/config.yaml` 的注释与本任务 `prd.md`「本票的两条裁定」第 2 条。要用 packages，前提是先整体迁移成 `spec/<package>/<layer>/`，那是 monorepo 拆分时的成本，一期不拆。
+
 ---
 
 ## 6. 部署形态
@@ -323,6 +326,8 @@ docker compose (单主机，律所内网)
 
 另有一条口径冲突要定：`.trellis/spec/` 模板结尾写着 "All documentation should be written in **English**"，而 `docs/` 现有 9 份文档（7 份设计 + 2 份 research）全是中文。T2 填 spec 前先定：**约定文档英文、设计文档中文**，还是统一到一种。
 
+> **已裁定（2026-09-27，W0-7）：spec 一律中文。** 理由：八条禁令与枚举取值必须**逐字引用**，翻译会引入漂移；而 spec 的实际读者是派出去的实现/检查子代理，它同时读中文设计文档。标题与目录骨架保持模板原样，便于将来 `trellis update` 做块级替换。已在 `spec/backend/index.md` 与 `spec/frontend/index.md` 结尾各记一行"语言：中文（覆盖模板默认 English）"。
+
 ---
 
 ## 8. 下一步
@@ -331,6 +336,7 @@ T1 定稿后依次：
 1. **F（0.5 天，最先做）** 前端装配 spike：`shadcn-vue init` 后的真实原语依赖与版本、一张服务端分页的表、动态数组表单、自写上传件、中文 locale —— 验收标准写在 `research-nuxt-table-vue-ui.md` §5。它决定组件层，做晚了整片页面返工。
 2. ~~S0（0.5 天）Drizzle spike~~ **已完成**：`research-nuxt-fullstack-nitro.md` §5 用 `drizzle-kit@0.31.11` 实跑过 `generate`，结论是可表达，代价是 `.where()` 只用 `sql` 模板、pg 侧无 `.stored()`、开发期禁用 `push`（已全部进 §12.3 禁令）。
 3. **T2** 填 `.trellis/spec/` 12 个模板（内容取自本文 §4 对应表 + 枚举表 §5 + §12.3 八条禁令 + §3.3 样式三条），并填 `.trellis/config.yaml` 的 packages 段。
+   > **已完成（2026-09-27，落地方案 W0-7 / Trellis 任务 `00-bootstrap-guidelines`）**，且三处口径按现行结论修正：① 禁令取 **§13.5**（不是 §12.3 的 v4 版）；② 实际是 **13 份**文件（backend 5 指南 + `index.md`，frontend 6 指南 + `index.md`），`spec/guides/` 三份模板原样保留；③ `config.yaml` 的 packages 段**不填**，理由见 §5 末的作废标注。spec 语言裁定见 §7 末。
 4. **T7** 生成迁移与 seed（schema + SQL 补丁 + 幂等 INSERT）。
 5. **T3** 删除语义（B8），然后才轮到 T5 原型与 T8 API 契约。
 

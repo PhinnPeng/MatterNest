@@ -1,51 +1,49 @@
 # State Management
 
-> How state is managed in this project.
+> 状态分四层，各自有唯一归属。结论来源：`docs/tech-stack-decision.md` §2、§12.5、§13.3-3、§13.5 禁令⑧。
 
 ---
 
-## Overview
+## 四层归属
 
-<!--
-Document your project's state management conventions here.
+| 层 | 用什么 | 不放什么 |
+|---|---|---|
+| **服务端态**（案件/事项/通知/配置列表） | `@tanstack/react-query`（§2「服务端数据」行） | 不放 Redux/Zustand；不放组件内 `useState` 手抄一份 |
+| **表单态** | react-hook-form（+ Zod resolver） | 不放全局 store；不放 query cache |
+| **局部 UI 态**（开合、当前 Tab、列显隐） | 组件 `useState` | 不放能影响数据范围的"筛选态"——那属服务端态 |
+| **URL 态**（列表的 `page/pageSize/sortBy/sortDir/filters`） | 搜索参数（使分享链接可复现同一视图） | 不放 id 类敏感集合、不放 token |
 
-Questions to answer:
-- What state management solution do you use?
-- How is local vs global state decided?
-- How do you handle server state?
-- What are the patterns for derived state?
--->
-
-(To be filled by the team)
+URL 态这一层是本次填 spec 时**新定的建议口径**（规格件未写）：`DataTable` 的受控参数天然适合落在 URL，便于同事之间发链接对齐视图。若不同意，删掉这半行即可，不影响禁令⑧（分页仍在服务端）。
 
 ---
 
-## State Categories
+## 一期**不引入**任何全局状态库
 
-<!-- Local state, global state, server state, URL state -->
-
-(To be filled by the team)
-
----
-
-## When to Use Global State
-
-<!-- Criteria for promoting state to global -->
-
-(To be filled by the team)
+- 不装 Redux / Zustand / Jotai / MobX。业务后台的共享状态其实只有"当前登录者是谁 + 他的范围档"，那一份由后端每次请求现算（§2），前端拿副本反而造成权限不一致。
+- 不装 `next-intl` / i18n 框架。本项目**没有第二套语言**，需要的是组件的**中文 locale**（Calendar/Date Picker 的月份、星期、周起始——`UNVERIFIED`，待 N1/N7 实测），别把"配 locale"做成"引入 i18n 体系"。
 
 ---
 
-## Server State
+## 缓存的硬边界（§12.5，判据是安全不是性能）
 
-<!-- How server data is cached and synchronized -->
+本系统每次读取都带行级数据范围谓词，**任何跨用户共享的响应缓存都是泄露面**。因此：
 
-(To be filled by the team)
+- ❌ HTTP 层缓存、反代缓存、查询结果缓存、Redis——一律不做（§3.6、§12.5）。
+- ❌ Next 的 `'use cache'` / 跨实例共享缓存——不用（§13.3-3）。
+- ✅ 允许的三处：配置字典与权限集走**进程内 `Map`**（权限以 `userId:token_version` 为键，版本变更天然失效）；列表/详情走 react-query 的 `staleTime`（每浏览器实例私有）；除此之外没有第四处。
+- 触发加缓存的可观测信号（将来才评估）：单查询 p95 > 200ms 且 `EXPLAIN` 显示索引已最优；副本 > 2 且出现必须跨进程共享的状态；附件需要 CDN（那时加在对象存储侧，仍不是 Redis）。
 
 ---
 
-## Common Mistakes
+## 认证与会话态
 
-<!-- State management mistakes your team has made -->
+- session 存 PG（`auth_session`，含 `auth_via`），**没有框架自带 session 可用**（C4 经 §13.2 继承）；前端只拿 httpOnly cookie，不在 `localStorage` 里存 token，也不在前端存"当前权限集"副本。
+- 未登录：proxy 只做**登录跳转**，鉴权判定在每个 handler 内（禁令⑤、§13.3-1）。所以前端不要实现"本地判断有没有权限"的逻辑分支——判不了，也不该判。
+- `activation_status='pending'`（云之家首登自动建号，等管理员开通）：这是一个**必须专门画的 UI 态**，返回"等待管理员开通"而不是 403（§7 裁定 F、枚举表 E37）。
+- 角色/权限变更**下一次请求即生效**（靠 `token_version`），所以不要在客户端长期缓存角色布尔值来做按钮显隐的"优化"。
 
-(To be filled by the team)
+---
+
+## 已接受风险，不要误当作已实现能力
+
+离职自动回收目前可能是降级方案（登录时校验 + 长期未登录告警 + 人工停用），**"离职即失效"不是已具备能力**（master P1-16、技术选型 §3.4）。前端不要写"检测到离职已自动封禁"这类文案，也不要把降级路径当兜底实现掉。

@@ -64,6 +64,7 @@ src/shared/**  纯 TS：枚举 E01–E37 · Zod schema · ids · time · crypto�
 - **W0-5** compose 开发栈（pg/minio/nginx conf/worker）+ 密钥 env 清单（PG/MINIO/AES/HMAC/云之家/OIDC/state/NEXT_SERVER_ACTIONS_ENCRYPTION_KEY/DEPLOYMENT_VERSION）。派
 - **W0-6** N2 验证：一条 `withScope` 查询 + 404 JSON。出处：研究文档 §2.1/§2.2。审
 - **W0-7** **T2 填 `.trellis/spec/` 12 份空模板**（backend 5 + frontend 7，现状每份仍是 51–59 行占位），内容取自技术选型 §4 对应表 + **§13.5 现行八条禁令** + §3.3 样式三条 + 枚举表 §5；同时补 `.trellis/config.yaml` 的 `packages` 段（当前全在注释里，导致包上下文检测拿不到东西）与 `default_package`，并把 `.trellis/tasks/00-bootstrap-guidelines`（现 `in_progress`）做完关闭。**派单前置：这一票不做，后续所有子代理都拿不到"禁裸表访问、CHECK 手写、`.where()` 只用 sql、禁第二套组件库"这些约束。**审
+  > **✅ 已完成（2026-09-27）**。三处票面口径按实测更正：① 实际是 **13 份**（backend 5 指南 + `index.md`；frontend 6 指南 + `index.md`；`spec/guides/` 3 份模板按要求保留不动）；② `packages` 段**不填**——声明 packages 会把 spec 基准切到 `spec/<package>/`，实测输出 `Spec: not configured`，比不填更差（依据 `scripts/common/config.py:396`、`packages_context.py:30`；已在 `config.yaml` 注释与技术选型 §5 留证）；③ spec 语言裁定为**中文**（技术选型 §7 末那条未决口径冲突随之关闭）。顺带产出两条新发现：spec 现要求"未 spike 的能力一律标 `UNVERIFIED`"，以及 **P1-19**（雪花 id 的 JSON 序列化口径未定）。
 
 ### M1 数据与契约
 - **W1-1** 宿主主表 `matter` / `risk_matter`（含 `conversion_status`、`last_progress_at`、`is_archived` 派生）。出处：修订稿 §6.3、§3.4。审

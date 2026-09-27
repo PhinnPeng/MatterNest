@@ -1,51 +1,83 @@
 # Error Handling
 
-> How errors are handled in this project.
+> 错误类型、返回契约、默认拒绝的落点。
+> 来源：`docs/PRD-phase1-permission-design-draft.md` §1 元规则 3、§4、§7.1；`docs/tech-stack-decision.md` §13.5 禁令⑤、§13.3-1、§4 行 3。
 
 ---
 
-## Overview
+## 三条不可动摇的返回规则
 
-<!--
-Document your project's error handling conventions here.
-
-Questions to answer:
-- What error types do you define?
-- How are errors propagated?
-- How are errors logged?
-- How are errors returned to clients?
--->
-
-(To be filled by the team)
+1. **不可见一律 404，不返回 403。**
+   权限草案 §1 元规则 3 原文理由："这个案号存在但你不能看"在律所本身就是敏感信息。因此**禁止**任何"存在但无权"的响应形态——包括 403 状态码、`{code:"FORBIDDEN"}` 之类的载荷、以及"该记录已隐藏"这类提示文案。默认拒绝的表现形式只有一个：当作不存在。
+2. **响应一律 JSON。** 业务接口一律落 `/api/**`（禁令⑤）。权限模型的"不可见＝404"依赖调用方能可编程地解析响应，页面/HTML 形态的默认错误页不算。
+3. **鉴权在每个 handler 内部完成，不在 proxy/middleware。**
+   禁令⑤ + §13.3-1（官方原文）："Always verify authentication and authorization inside each Server Function rather than relying on Proxy alone"，且 matcher 排除某路径会**连带跳过该路径上的 Server Function**。proxy 只做未登录跳转。撤回过的错误说法留此备忘："middleware 跑 Edge 拿不到 PG 连接"——Next 16 起 proxy 默认 Node.js 运行时，那条风险不成立，但**结论不变**（鉴权仍必须逐 handler）。
 
 ---
 
-## Error Types
+## 默认拒绝怎么实现
 
-<!-- Custom error classes/types -->
+```text
+每个 /api/** handler:
+  1. 解析 session（token_hash → auth_session → user），失败 = 401
+  2. withScope(req, { target, action }, handler)   ← 缺这一步即视为漏洞，不是"少个校验"
+  3. handler 内所有查询必须携带 scope（ScopedQuery），拿不到 scope 的仓储方法直接抛
+  4. 出口统一错误映射 → JSON + 状态码
+```
 
-(To be filled by the team)
-
----
-
-## Error Handling Patterns
-
-<!-- Try-catch patterns, error propagation -->
-
-(To be filled by the team)
-
----
-
-## API Error Responses
-
-<!-- Standard error response format -->
-
-(To be filled by the team)
+- **子资源不自带范围**：节点 / 进展 / 费用 / staff 行 / 标签行 / 附件 / 评论 / 日志，入口给子资源 id 时**必须先取宿主再判定**，禁止按 id 直查（权限草案 §4）。附件与导出的可见性同理（§7.3）。
+- **配置类 5 张表不受范围限制**：全体登录用户可读（下拉要用），仅 `can_manage_config` 可写。给它们套范围会出现"别人建的标签我选不到"，属错误建模（权限草案 §4）。
+- 反向泄露通道要单独想：`user_watch` 与通知会让 L2/L3 用户**间接**看到宿主的存在性，降级为占位的规则在权限草案 §7.1，不要自己发明。
 
 ---
 
-## Common Mistakes
+## 错误分类与状态码
 
-<!-- Error handling mistakes your team has made -->
+| 类 | 状态码 | 产生场景 | 出处 |
+|---|---|---|---|
+| `Unauthorized` | 401 | 无有效 session；`token_version` 不匹配；`activation_status='pending'`（返回"等待管理员开通"，不是 403） | 技术选型 §3.4、§7 裁定 F |
+| `NotFound` | 404 | 不存在 **或** 不在可见范围（两种情况响应完全一致） | 权限草案 §1/§4 |
+| `ValidationError` | 400 | Zod 校验失败，返回 `fieldErrors`；**规则只有一份**，来自 `src/shared/schema` | 禁令⑧、枚举表 §5.1 |
+| `BusinessRuleBlocked` | 422 | 状态机不允许的迁移、护栏 1/2 拦截、归档态写操作 | 权限草案 §2.2、修订稿 §3.3 |
+| `Conflict` | 409 | 规则 `scope_key` 触发域重复、配置唯一键冲突、停用被引用的配置 | 修订稿 §2.1/§2.2 |
+| `PayloadTooLarge` | 413 | 由 **nginx** 设死请求体上限，不在应用里配 body 限制 | C3 经 §13.2；§13.5 部署级 (a) |
+| 事务超时 / 锁等待 | 409 或 422 | 转案件单事务拿不到行锁、并发取号 | 矩阵 §4 |
 
-(To be filled by the team)
+规则：**任何 4xx/5xx 载荷都不得暗示资源存在性**。上面 `Conflict` 只用于操作者本来就有权看到的对象（配置类），不得拿它回"别人案子里有重复"。
+
+> **诚实标注**：表里"产生场景"一列有规格件出处；**具体数字（422 / 409 / 413）是本轮填 spec 时新定的口径**，规格件只定了语义（不可见＝404、返回体＝JSON、超限由 nginx 兜）。若要改成别的码，改这张表即可，别改语义。唯一不许动的是 404 vs 403 那条。
+
+---
+
+## Server Function 的边界
+
+Server Function 允许用于表单 mutation，但**只做编排**：调同一套服务层函数、复用同一个 `withScope()` 出口，**不承载第二套权限判断**（§13.2 对禁令⑤的加强行）。理由是错误语义与审计会分叉——两条路径各自判权限，迟早有一条忘了 404。
+
+多副本部署时 Server Function 的加密串跨实例解密要配 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` + `deploymentId`（§13.3-3，落地状态见"未决"）；这条不配的后果是发布期 500，不是权限问题，别和上面混为一谈。
+
+---
+
+## 事务与失败传播
+
+- 业务写 + `activity_log` **同一事务**；审计写失败＝整笔回滚，不允许"操作成功但日志丢失"（技术选型 §4 行 4、落地方案 §4-5）。
+- 转案件：取号→建案→关联→计数→outbox→审计 在**单事务**内；任一失败整体回滚，并有注入失败的回归测试（矩阵 §4、落地方案 §5 回归锁）。
+- outbox 投递**至少一次**：`dedupe_key` 唯一键冲突即当成功跳过，不抛错给调用方（修订稿 §7.2）。
+- 关闭期：SIGTERM 后留 10–30s drain，让 `after()` 回调与在途 outbox 投递跑完（§13.3-4 / 部署级 (b)）。
+
+---
+
+## 未决与不得自行发挥的项
+
+- **B8（门禁 G2）**：用户可见删除入口、软删能否恢复、父行删除时子表如何处理——未拍前**不要实现删除类错误分支**。DB 层的 FK 调（业务表 `RESTRICT`、从属明细 `CASCADE`）见修订稿 §12.4。
+- **P0-6（门禁 G3）**：主表业务字段编辑归谁，影响 `BusinessRuleBlocked` 的两类护栏用例。
+- 云之家侧错误（限流、token 失效、回调 state 不匹配）的具体码值 **UNVERIFIED**：口径是"我方适配云之家"，接口实测前不得编端点与错误码（技术选型 §3.4 口径条）。
+
+---
+
+## 常见错误
+
+1. 无权时返回 403 或返回带原因的提示 → 泄露存在性。
+2. 在 proxy 里统一鉴权，handler 裸奔 → 违反禁令⑤，且 matcher 一旦排除路径就真的没鉴权。
+3. 前端拿 HTTP 状态码之外的字段判"有没有权限" → 破坏 404 语义的可编程性。
+4. 表单在组件里再写一套校验规则 → 与 `shared/schema` 分叉（禁令⑧）。
+5. 把 Server Function 当第二条鉴权路径。

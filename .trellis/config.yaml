@@ -54,6 +54,18 @@ max_journal_lines: 2000
 # Monorepo / Packages
 #-------------------------------------------------------------------------------
 
+# DECISION (2026-09-27, W0-7 / task 00-bootstrap-guidelines): 保持 single-repo 模式，
+# 下面的 packages 段**故意不填**。
+#
+# 实测依据（.trellis/scripts/common/config.py:396 get_spec_base + packages_context.py:30
+# _scan_spec_layers）：一旦声明 packages，spec 基准目录从 `spec/` 变为 `spec/<package>/`。
+# 临时写入 backend/frontend 两段后 `get_context.py --mode packages` 输出
+# "Spec: not configured" —— 反而拿不到东西。
+# 本仓是单个 Next.js 应用（docs/tech-stack-decision.md §5），现有 spec 布局是
+# layer 型（spec/backend/ + spec/frontend/），正好匹配 single-repo 模式。
+# 真要 monorepo 化，必须先把 spec 整体搬进 spec/<package>/<layer>/。
+# 这条推翻了技术选型 §5 末行"packages 段需按此填"的判断（已在原文处标注）。
+#
 # Declare packages for monorepo projects.
 # Trellis auto-detects workspaces during `trellis init`, but you can also
 # configure them manually here.
