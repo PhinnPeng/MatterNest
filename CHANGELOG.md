@@ -463,3 +463,13 @@ N7 因此记为**逻辑层通过、交互层待补**。
 ### 顺带修的一处自伤
 
 `prettier --write .` 把 `docs/` 与 `.trellis/` 共 43 个中文 md/json 的表格全部补齐成几百列宽（含**永不改写的 `PRD-phase1-baseline-v0.md`**）。根因不是工具，是**我自己**：`.prettierignore` 本已在版本库里躺着 13 行（`docs/`、`.trellis/`、`CHANGELOG.md`、`AGENTS.md`、`pnpm-lock.yaml` 全在里面，写得很清楚"重排会破坏按行号取证"），我用 `printf ... > .prettierignore` **覆盖**了它而不是追加，于是这些忽略全部失效。处置：`git checkout HEAD -- .prettierignore` 原样恢复，只在尾部**追加** `agent-work/` 一条；43 个文件全部还原（`git diff --numstat` 现只有本票真实改动）。教训两条：① 对已存在的配置文件禁用 `>` 重定向，先读再改；② 跑任何 `--write .` 之前先看 `--check .` 的清单长度，43 个文件的"意外"里一定有我自己。
+
+### 补（同轮稍后）：连接层落地，但 N2 仍然没做
+
+`src/app/lib/server/db/client.ts` —— 懒建池（模块加载期不连库，Next 构建期会 import 路由文件）、`max=PG_POOL_MAX??10`、`connect_timeout=5`、首次取用时跑**启动断言**（`SHOW timezone`/`client_encoding` 不是 UTC/UTF8 就抛）。离线 5 条测试覆盖它，含"共享机那个 `PRC` 默认值必须抛"这一条。
+
+两条写之前查了源码而不是猜的工具事实：**选项名是 `connect_timeout`**，写成 `connection_timeout` 会被静默忽略（正是本轮 spike 记下的"未知选项静默丢弃"那一类）；**postgres.js 没有 `after_connect`/`options` 钩子**，所以"连接池参数里带 SET"这条路在本栈不成立，会话口径只能靠角色级默认 + 显式断言两道。
+
+真库跑过一次（一次性探针，跑完删）：`getDb()` 读回 8 行状态、生成列 `is_archive_status` 只在两行 `archived` 上为 true。
+
+**N2 没做完**：`withScope()` + 不可见资源 404 需要一个受范围限制的宿主表，而 `matter` 的列集合属 W1-1；本轮刻意没有为 spike 去建半张 `matter`（spike 结论第 8.5 节写的就是这个取舍）。DB 与迁移前置已全部就位，W0-6 可直接开做。
