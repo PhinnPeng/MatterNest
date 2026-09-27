@@ -115,3 +115,25 @@ ui.shadcn.com 三次复测均为连上即 ECONNRESET（66.33.60.193:443 <100ms �
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: W0-2 / N1 结案：shadcn 六件按 §5 落位 + 两条会坑 M3 的硬约束
+<!-- trellis-session: v=2 fp=3dc0f941d8ec7aa1 -->
+
+**Date**: 2026-09-27
+**Task**: W0-2 / N1 结案：shadcn 六件按 §5 落位 + 两条会坑 M3 的硬约束
+**Branch**: `main`
+
+### Summary
+
+代理生效后跑完 N1：shadcn@4.21.0 init --base radix + add 六件（button card input dialog attachment calendar），components.json 的 aliases 改指 @/app/... 后实测全部落在 src/app/components/ui/ → 技术选型 §5 拓扑守得住。四条结论：cn() 已是 shadcn 官方 npm 包（发布方核过），clsx+tailwind-merge 移除只留一套实现；原语是统一的 radix-ui 且 base 三选一；中文 locale 验通（react-day-picker@10 + date-fns zhCN，HTML 实测「九月 2026」与星期单字，口径集中 src/shared/time/zh-cn.ts 且禁用预设 P）；上一笔担心的"落点随 style 名变"结案——路径只由 aliases 决定。两条硬约束进 spec：date-fns Locale 含函数不能跨 server→client 当 prop 传（prerender 直接报错，必须 client 侧 import，见 app-calendar.tsx），跑 CLI 必须 review diff（init 注入的 next/font/google 与内网私有化部署冲突，已移除改系统字体栈）。文档回写 7 处并把上一笔"半截被挡"标注为已更正（原文保留）。校验：build ✓、dev HTML 取证后 kill、verify 五步 ✓（9 测试）、lint-guard 反向实验仍变红、spec 914 行零占位符八条禁令整行 identical。任务已 archive。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2970391` | feat(w0-2): N1 结案 — shadcn 六件按 §5 落位，中文 locale 验通，两条硬约束进 spec |
+
+### Status
+
+[OK] **Completed**
