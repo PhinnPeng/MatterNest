@@ -8,3 +8,7 @@ pnpm-lock.yaml
 node_modules/
 .next/
 coverage/
+# Next 生成物，不参与格式与 lint
+next-env.d.ts
+next-types/**/*.ts
+

@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 的入口写法（无 tailwind.config.js 的 CSS-first 配置）。
+ * 样式三条（技术选型 §3.3）：① 间距与色彩只用 Tailwind 令牌，不留第二套刻度；
+ * ② 覆盖组件默认样式一律走 cn() 合并，禁止行内 style 与 !important；
+ * ③ 业务组件不得直接依赖原语包，一律经 components/ui/ 那层。
+ * 原来的 `corePlugins: { preflight: false }` + AntD ConfigProvider 令牌是为两套体系共存打的补丁，
+ * 现在只有一套，那条约定整段作废。
+ */
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}

@@ -13,6 +13,8 @@ node_modules/
 out/
 coverage/
 *.tsbuildinfo
+# Next 自动生成的类型声明，不入库（每次 build 重写）
+next-env.d.ts
 
 # 密钥清单只留 .env.example（技术选型 §6：任何密钥不入库）
 .env

@@ -21,6 +21,8 @@ export default tseslint.config(
       ".trellis/**",
       "docs/**",
       "pnpm-lock.yaml",
+      "next-env.d.ts",
+      ".next/**",
       // fixtures 是"故意写坏的样本"，本身不参与仓库 lint；check.mjs 用 lintText 读它们
       "tools/lint-guard/fixtures/**",
     ],

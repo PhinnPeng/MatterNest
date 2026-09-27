@@ -510,6 +510,9 @@ Nuxt 全栈成立，不阻塞。7 项主张：VERIFIED 5 项、PARTIALLY 2 项�
 
 N1 装配与 CLI 能力现场看 / N2 一条带 `withScope` 的 404 查询 / N3 worker + 锁 + drain / N4 双副本加密键与 deploymentId / N5 预签名 PUT + nginx 上限 / N6 云之家 OIDC 回跳 / N7 一张真表 + 动态数组表单。逐条通过标准写在 `research-nextjs-stack.md` §5。**注意：原版 shadcn 的 React 组件清单本轮抓取失败、未核到**，所以"有没有现成上传件"不作为已知事实——按自封装排期，两条路线都不变。
 
+> **N1 于 2026-09-27 实跑，结果分两半（详证见 `research-nextjs-stack.md` §3.1 与 §6）。** 前半**通过**：`next@16.3.6 + react@19.3.0 + tailwindcss@4.3.3` 手工装配后 `pnpm build` 成功、产出 `.next/standalone`。顺带钉死三条现场事实——① `create-next-app` 默认会写 `AGENTS.md`（本仓是 Trellis 受管块，**禁用它**，改手工装配）；② Next 16 构建时会把 `tsconfig.json` 的 `jsx` 强改为 `react-jsx`，但**不会回退其它严格项**；③ shadcn CLI 4.21.0 的 `base` 是 **`radix | base | aria` 三选一**，所以禁令⑦ 括号里的"Radix UI"是**本仓选定的原语**，不是 shadcn 的唯一可能。
+> 后半**未过**：`ui.shadcn.com` 在同一次会话里先返回过一次 `/r/index.json`（63 项，**无 upload/dropzone 命名的件** → "上传件按自封装排期"这条可以结案），随后所有请求持续 `ECONNRESET`，`init`/`add` 没跑通。所以**"CLI 能否把组件落到 §5 指定的 `src/app/components/ui/`"与中文 locale 两项仍未验**，`components.json` 故意不手写（没被 CLI 认过的配置只会让下次 `add` 报难懂的错）。
+
 ### 13.5 现行八条禁令（T2 填 `.trellis/spec/` 时照这一节抄，不要抄 §12.3）
 
 1. **`src/shared/**` 只放纯 TS**：不得 import `next/*`、`react`、Node API——它同时被客户端与服务端引用，污染了就会把服务端代码带进前端 bundle，CI 必须拦得住。

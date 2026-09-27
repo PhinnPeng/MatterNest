@@ -5,6 +5,41 @@
 
 ---
 
+## [未发布] — 2026-09-27 · W0-2：Next 16 + Tailwind v4 装配通过，shadcn 半截被网络挡住
+
+票面：落地方案 §3 **W0-2**（派票）+ N1 spike。任务 `.trellis/tasks/09-27-w0-2-next-shadcn-setup`，**保持 in_progress 不 archive**（第 6–8 步未做）。
+
+### Added
+
+- 依赖：`next@16.3.6` `react@19.3.0` `react-dom@19.3.0`；dev 侧 `tailwindcss@4.3.3` `@tailwindcss/postcss@4.3.3` `@types/react` `clsx@2.1.1` `tailwind-merge@3.7.0`。
+- 配置与壳：`next.config.ts`（`output: 'standalone'`）、`postcss.config.mjs`、`src/app/globals.css`（`@import "tailwindcss"`，v4 CSS-first，**无 `tailwind.config.js`**）、零业务数据的 `layout.tsx` / `page.tsx`（禁令⑥）、`src/app/lib/utils.ts` 的 `cn()`。
+- `cn()` 的 3 条行为测试（冲突类后者胜出、假值不产噪声、异类并存）——样式三条之② 要求"覆盖一律走 `cn()`"，这条只有 tailwind-merge 真生效才成立，所以测死它而不是假设装了包就对。
+- 研究文档新增 **§6 W0-2 装配实测**，§5 的 N1 行标 **部分通过**，§3 新增 §3.1 记录 registry 实取结果。
+
+### 三条只有现场才知道的事实
+
+1. **不要用 `create-next-app`**：官方默认特性包含生成 `AGENTS.md`（并让 `CLAUDE.md` 引用它）。本仓 `AGENTS.md` 是 Trellis 受管块，被覆盖是**静默**的——后续每个会话都会丢掉工作流指引。本票全程手工装配。
+2. **Next 16 构建时会强改 `tsconfig.json`**：`jsx` 从 `preserve` 被改成 `react-jsx` 并打印提示；但 `strict` / `noUncheckedIndexedAccess` / `verbatimModuleSyntax` / `noUnusedLocals` **全部保留未回退** → W0-1 的类型口径与 Next 不冲突，这条现在可以放心写进 spec。
+3. **shadcn 的原语是三选一，不是默认 Radix**：CLI 4.21.0 校验信息给出 `base` 合法值 **`radix | base | aria`**，默认组合 `style=nova / baseColor=neutral / iconLibrary=lucide / font=geist / template=next`。**禁令⑦ 括号里的"Radix UI"因此是本仓选定项而非唯一可能**——spec 已改成"禁的是绕过 `components/ui/` 这个动作"。
+
+### 结案与未结案
+
+- ✅ **P1-18 的上传件问题结案**：`ui.shadcn.com/r/index.json` 实取一次，**63 个条目里没有 `upload`/`dropzone` 命名的件** → `FileUpload` 自封装（W3-7）从"待验"转"定案"。
+- ⚠ 但同域名随后**持续 `ECONNRESET`**（6 次退避重试 + curl 全失败），`shadcn init` / `add` 没跑通 → `components/ui/` 基线**未产出**、`attachment` 只拿到名字没读到源码（**不许拿它当依据**）、中文 locale 未验、"CLI 能否落到 §5 指定的 `src/app/components/ui/`"未验。
+- **`components.json` 故意不手写**：一份没被 CLI 认过的配置只会让下次 `add` 报难懂的错。恢复命令已写进研究文档 §6.3。
+- 因此 **N1 只算半过，M0 的"N1 通过"这条退出条件未满足**。
+
+### Fixed
+
+- `src/app/lib/utils.spec.ts` 里 `false && "p-8"` 被 ESLint 的 `no-constant-binary-expression` 当场拦下 → 改用变量。顺带说明 W0-1 的 lint 配置在真实代码上是有效的。
+- `.prettierignore` / `eslint.config.mjs` 补 `next-env.d.ts` 与 `.next/**`：Next 生成的 `next-env.d.ts` 不该参与格式与 lint（否则 `pnpm verify` 会被生成物搞红）。
+
+### 校验
+
+`pnpm build` ✓；`pnpm dev` 实跑取证 ✓（`GET /` 200 / 10,458B，外链 CSS 13,465B 内含 `.min-h-screen` 与 `--color-neutral-200`，验完已 kill）；`pnpm verify` 五步 ✓（5 测试）；lint-guard 反向实验（把 `files` 段指错）当场 exit 1 ✓。
+
+---
+
 ## [未发布] — 2026-09-27 · W0-1：仓库骨架落地，第一条 CI 断言自带证伪
 
 票面：`docs/implementation-plan-v1.md` §3 的 **W0-1**（派票）。三处口径由用户当场拍定：Node **钉 22**、开发期数据服务**连共享 dev 机映射口**、CI **先只写本地 `pnpm verify`**（平台后定）。

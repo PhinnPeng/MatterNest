@@ -22,6 +22,7 @@
 1. **间距与色彩只用 Tailwind 令牌，不留第二套刻度。**
 2. **覆盖组件默认样式一律走 `cn()` 合并，禁止行内 style 与 `!important`。**
 3. **业务组件不得直接依赖原语包（Radix UI），一律经 `components/ui/` 那层封装**，将来换原语只改一层。
+   原语包名是**选定的、不是唯一的**：shadcn CLI 4.21.0 的 `base` 合法值为 `radix | base | aria`，本仓选 **radix**（2026-09-27 实测）。所以这条禁的是"绕过 `components/ui/` 直接引原语"这个动作，而不是某个包名——将来若换 `base`/`aria`，禁令不变、括号里的名字跟着换。
 
 > 历史上那条 `corePlugins: { preflight: false }` + AntD 走 `ConfigProvider` 令牌的约定，是为"两套体系共存"打的补丁；现在只有一套，**整段作废**，不要在任何配置里复活它。
 
@@ -49,6 +50,14 @@
 - 服务端专用能力（session、db、云之家客户端）不得 import 进任何客户端组件。
 
 ---
+
+## 装配现状（W0-2 实跑，2026-09-27）
+
+已装并可运行：`next@16.3.6` + `react@19.3.0` + `tailwindcss@4.3.3`（CSS-first，`@import "tailwindcss"`，**没有 `tailwind.config.js`**）+ `cn()`（`src/app/lib/utils.ts`，带 3 条行为测试）。`pnpm build` 出 `.next/standalone`。
+
+**尚未落地**：`components.json` 与任何 shadcn 复制件——`ui.shadcn.com` 持续 `ECONNRESET`，`init`/`add` 没跑通，而手写一份没被 CLI 认过的配置只会让下次 `add` 报难懂的错，所以故意留空。网络恢复后按 `research-nextjs-stack.md` §6.3 的恢复命令做，并把结果回填这里。
+
+两条装配期踩到的事实要记住：**不要用 `create-next-app`**（它默认生成 `AGENTS.md`，会覆盖本仓的 Trellis 受管块）；**Next 会把 `tsconfig.json` 的 `jsx` 强改为 `react-jsx`**，其余严格项不会被回退。
 
 ## 缺件的处理流程（写死，避免每次临时决定）
 

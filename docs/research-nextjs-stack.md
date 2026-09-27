@@ -77,6 +77,19 @@
 
 对计划的实际影响：本项目最重的四件里，表格底座两边同源（TanStack Table，官方支持 React，**VERIFIED**），日期/表单有 React 侧成熟解（**待本轮之外的复核**），上传件在 Vue 侧确认没有、React 侧本轮没核到——**所以"自封装 `FileUpload`"这条工作项无论哪条路线都留着，不因换框架而消失**。
 
+### 3.1 2026-09-27（W0-2）补测：拿到了一次清单，但没拿到源码
+
+同一次会话里先成功、随后持续失败，所以这条只能记成**部分核实**：
+
+- ✅ 取到 `https://ui.shadcn.com/r/index.json` 一次，HTTP 200 / 58,355 字节 / **63 个 registry 条目**，全名单：
+  `accordion alert alert-dialog aspect-ratio attachment avatar badge breadcrumb bubble button button-group calendar card carousel chart checkbox collapsible combobox command context-menu dialog direction drawer dropdown-menu empty field form hover-card input input-group input-otp item kbd label marker menubar message message-scroller native-select navigation-menu pagination popover progress questionnaire radio-group resizable scroll-area select separator sheet sidebar skeleton slider sonner spinner switch table tabs textarea toast toggle toggle-group tooltip`
+- ✅ 其中**没有** `upload` / `file-upload` / `dropzone` 命名的条目 → 与 Vue 端口同结论：**没有现成的上传件**，`FileUpload` 自封装的排期不变（这条可以结案）。
+- ⚠ 有个 `attachment` 条目，但**没能取到它的源码**（`/r/attachment.json`、`/r/styles/nova/attachment.json` 等五种 URL 形态全 404 或断连），所以**不断言它是上传器还是附件展示件**。要判就得等网络能连通时 `shadcn add attachment` 读源码——在此之前不要拿这个名字做排期依据。
+- ✅ `shadcn` CLI 版本 **4.21.0**；`init` 的参数面从报错信息里直接读到：`base` 的合法值是 **`radix | base | aria`**（**原语包现在是三选一，不是默认 Radix**），默认组合为 `style=nova & baseColor=neutral & theme=neutral & iconLibrary=lucide & font=geist & template=next`。
+- ❌ 之后所有请求（含 `/r/index.json` 六次退避重试、`curl` 三次）全部 `ECONNRESET`，`init` 与 `add` **没跑通** → N1 的"CLI 能否把组件落到 §5 指定位置"与"中文 locale"两项**仍未验**。
+
+对本仓的直接后果：`components.json` **故意不手写**——一份没被 CLI 认过的配置只会让下一次 `shadcn add` 报难懂的错。等网络可用时跑 `pnpm dlx shadcn@latest init --yes --defaults --base radix`，再按 §5 把 alias 改到 `@/app/components/ui`。
+
 ---
 
 ## 4. 从 Nuxt 路线继承与作废的清单
@@ -100,6 +113,7 @@
 | # | 验什么 | 通过标准 |
 |---|---|---|
 | N1 | Next 16 + React 19 + Tailwind v4 + shadcn 装配；官方 CLI 是否真支持 React 全特性（Blocks/registry 现场看） | 起得来、主题变量生效、能 `add` 组件 |
+| **N1 状态（2026-09-27 实跑）** | 前半**通过**：`next@16.3.6 + react@19.3.0 + tailwindcss@4.3.3` 装配后 `pnpm build` 成功、产出 `.next/standalone`、静态预渲染通过。后半**未过**：`shadcn init/add` 因 `ui.shadcn.com` 持续 `ECONNRESET` 没跑通（详见 §3.1） | 部分通过，剩 `add` 与中文 locale 两项 |
 | N2 | Route Handler + Drizzle + `withScope()`：一条带数据范围的列表查询，不可见资源返回 **404 JSON** | 权限草案 §10 的 detail/list 两类入口先通 |
 | N3 | 独立 `worker` 容器 + `node-cron` + advisory lock 单飞；SIGTERM 后 drain 不丢任务 | 双副本下任务只跑一次 |
 | N4 | 双副本 + 同一 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` + `deploymentId` 下，滚动发布不出现 "Failed to find Server Action" | 现场起两容器验一次 |
@@ -108,3 +122,28 @@
 | N7 | 一张真表（服务端分页/排序/筛选/批量选择/列显隐）+ 一个动态数组表单 | 错误能定位到"第几张卡哪个字段" |
 
 N4/N6 是这次换框架**新引入**的验证点；N1/N2/N3/N5/N7 是原本就要验的。任一不过按原退路处理（自封装、砍非必要交互、如实补记工时），**不得**为通过而引入第二套组件体系。
+
+---
+
+## 6. W0-2 装配实测（2026-09-27）
+
+### 6.1 装上了什么
+
+`next@16.3.6`、`react@19.3.0`、`react-dom@19.3.0`；dev 侧 `tailwindcss@4.3.3` + `@tailwindcss/postcss@4.3.3`、`@types/react@19.3.0`、`clsx@2.1.1`、`tailwind-merge@3.7.0`。配置：`next.config.ts`（`output: 'standalone'`）、`postcss.config.mjs`、`src/app/globals.css`（`@import "tailwindcss"`，v4 的 CSS-first 写法，无 `tailwind.config.js`）、零业务数据的 `layout.tsx` / `page.tsx`（禁令⑥）、`src/app/lib/utils.ts` 的 `cn()`（样式三条之②，配 3 条行为测试）。
+
+验证：`pnpm build` ✓（Turbopack，2 条静态路由）、`.next/standalone/{server.js,package.json,node_modules}` ✓、`pnpm verify` 五步 ✓（5 个测试）、禁令① 的 lint-guard 反向实验仍然当场变红 ✓。
+
+`pnpm dev` 也实跑过一遍并取证：`GET /` → 200 / 10,458 字节，HTML 里是 `class="flex min-h-screen flex-col …"` 与本页文案；外链 `/_next/static/chunks/src_app_globals_*.css` 13,465 字节，内含 `.min-h-screen` 规则与 `--color-neutral-200` 令牌 → **Tailwind v4 的 CSS-first 配置真的在产出样式**，不是只写了 `@import` 没接上。（dev 进程验完已 kill，端口 3000 复查无监听。）
+
+### 6.2 三条只有现场才知道的事实
+
+1. **`create-next-app` 会写 `AGENTS.md`（并让 `CLAUDE.md` 引用它）**——官方安装页把这条列在默认特性里。本仓 `AGENTS.md` 是 Trellis 受管块，被覆盖会静默丢掉工作流指引，所以**本票没用 `create-next-app`**，改手工装配。
+2. **Next 16 构建时会强改 `tsconfig.json`**：`jsx` 从 `preserve` 被改写为 `react-jsx`，并打印 「We detected TypeScript in your project and reconfigured your tsconfig.json」。但其余严格项（`strict` / `noUncheckedIndexedAccess` / `verbatimModuleSyntax` / `noUnusedLocals`）**全部保留未被回退**——说明 W0-1 定的类型口径与 Next 不冲突，这条可以放心写进 spec。
+3. **shadcn 的 `base` 是三选一，不是默认 Radix**：CLI 4.21.0 的校验信息给出合法值 `radix | base | aria`，默认组合 `style=nova / baseColor=neutral / iconLibrary=lucide / font=geist / template=next`。这直接影响禁令⑦ 的措辞——「业务组件不得直接 import 原语包（Radix UI）」里的 Radix 是**我们要选的那个**，不是 shadcn 唯一可能的原语；若哪天换 `base`/`aria`，禁令本身不变，括号里的名字要跟着改。
+
+### 6.3 N1 未结案的部分
+
+- `shadcn init` / `add` 未跑通（网络），所以**「CLI 能否把件落到 §5 指定的 `src/app/components/ui/`」仍未证实**。`components.json` 我**故意不手写**：一份没被 CLI 认过的配置只会让下一次 `add` 报难懂的错。
+- 中文 locale（Calendar / Date Picker 的月份、星期、周起始）仍未验。
+- `attachment` 条目只拿到名字、没拿到源码，不许拿它当上传件存在与否的依据。
+- 恢复命令：网络可用时 `pnpm dlx shadcn@latest init --yes --defaults --base radix`，再把 alias 改到 `@/app/components` / `@/app/components/ui` / `@/app/lib/utils`，然后 `add button card input dialog` 逐个读源码。

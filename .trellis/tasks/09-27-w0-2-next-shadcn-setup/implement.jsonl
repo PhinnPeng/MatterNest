@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "禁令⑦/⑧ 与样式三条：装配落点与唯一体系的判据"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "§5 拓扑：components/ui 必须在 src/app 下"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "禁令① 依赖方向，加 Next 后仍不得污染 src/shared"}
+{"file": "docs/research-nextjs-stack.md", "reason": "N1 验收标准与待答问题清单"}
