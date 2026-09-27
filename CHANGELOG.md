@@ -5,6 +5,65 @@
 
 ---
 
+## [未发布] — 2026-09-27 · W1 可跑 Demo：表名 `mn_` 前缀全量落地，登录→列表→详情→转案件走通，并抓到三条只在真跑时才现形的缺陷
+
+用户裁定"全量推动，形成一个可用的 Demo，其他的你决定即可 / 科技蓝 / 左侧主菜单"。
+本轮把 W1 的身份与宿主读写、W3/W4 的界面，和一条 `mn_` 前缀改判一起做掉，
+验收方式是**真 HTTP + 真库跑一遍**（`agent-work/smoke-demo.mjs`，68 条断言全绿），不是看代码像不像。
+
+### Added
+
+- **界面**：`components/app-shell.tsx`（深色左侧主菜单 + 顶栏）、`(auth)/login`、`(desk)/` 工作台 / 案件列表 / 案件详情 / 事项列表 / 配置字典。
+  主题落在 `globals.css`：**冷墨纸 + 电蓝**，理由写在文件注释里（长时间读表、电蓝只出现在"当前页/主操作/焦点"三处、语义色只给点+词）。
+- **数据门**：`api/overview/route.ts` + `services/overview.ts`——工作台四个读数与"最近到期节点"，
+  全部复用 `scopedWhere`；活动流的可见性**跟着宿主走**（`EXISTS` 相关子查询），否则"谁改过什么"会反推出案卷存在。
+- **领域件**：`ui/status-mark`（点+词，语义色只在点上）、`ui/deadline-mark`（逾期/临期分档，仍写完整日期）、
+  `ui/state-block`（空态必须给下一步）、`form/fields`（`useId()` 绑 aria、radix 的 `""` 保留值统一用哨兵）。
+- **原语**：`badge label select separator table tabs textarea skeleton` 八件**取自官方 registry**（命令与代理口径见 `spec/frontend/component-guidelines.md`）。
+- **可证伪门禁**：`tools/lint-guard` 从 1 条禁令扩到 **3 条**（禁令① shared 纯净、⑦ 一套组件体系、⑥⑤ 页面壳不碰数据层），
+  改成表驱动并新增 4 个 fixture；已实撞验证"把 `files` 段指错目录 → EXIT=1 且点名 B/D 两条"。
+- `http.ts:pathId()`、`services/statuses.ts:initialStatusCode/hostStatusRows`、`shared/schema/list-query.ts:includeArchivedField`。
+
+### Changed
+
+- **表名一律 `mn_` 前缀**（用户指令"表名采用前缀命名"）：21 张表 + 45 索引 + 31 CHECK 重新生成迁移并重放 seed。
+- 初始状态不再写 `"pending"` 字面量：三个新建入口改读 `mn_status_config.is_initial_status`。
+  写死在本仓**测不出来**（seed 里那一行恰好就叫 pending），只会让配置表那一列变成摆设。
+- `/api/meta` 的状态查询改走 `hostStatusRows`——原先自己 select 了一遍，**漏了 `is_enabled` 过滤**，
+  被停用的状态仍会出现在下拉里并可被提交。这是本轮消掉第三份重复实现时顺手抓到的。
+- 排序白名单与服务层映射用 `Record<SORTABLE_COLUMNS, SQL>` 钉成编译期约束（原来 `Record<string, SQL>` 时
+  `risk_level`/`owner_name` 在 DTO 里、映射里没有 → 那两种排序静默退回 `updated_at`）。
+- `DataTable` 的表头/表体改走 `ui/table.tsx`，不再自带一份样式（禁令⑦）；空态不再画半张表。
+- 列表状态落 **URL**（`use-list-state`）：可分享、后退可回、刷新不丢筛选。
+- 演示账号分布改成 **纯 L1 / 纯 L2 / 纯 L3 各一**（104 孙奕 `self_operator`→`joined_operator`），
+  配套 upsert 键换成 `("id")`；`0001_identity.sql` 里把"为什么必须有纯 L2"写进了注释。
+
+### Fixed（三条都是跑出来才发现的，纸面 review 抓不到）
+
+- **L2 谓词的 SQL 是坏的**：drizzle `exists()` 不给 `sql` 模板加括号，渲染成 `exists select 1 …` → PG 42601。
+  此前全套账号没有一个纯 L2，这条分支在真实登录链路上永远走不到。`visibility.ts` 与 `overview.ts` 两处一并修。
+- **登录把"未开通"和"口令错"分了文案**：`unauthorized()` 那句是"会话已失效或未登录"，
+  在登录端点上用它等于把"账号存在但没开通"单独特异化——与同文件顶部"三种失败同一文案"自相矛盾。
+- **手打错 URL 会 500**：`BigInt("undefined")` 抛 SyntaxError 冒成 5xx。改由 `pathId()` 拦成 400。
+  顺带补上一条真实语义问题：`/api/matters/{id}/nodes/{nodeId}` 以前完全不用 `{id}`，
+  现在要求节点确实挂在该案件下（权限本来就没漏，是 URL 语义不诚实）。
+- **失败查询会永远停在骨架屏**：react-query 只在两次重试之间问 `onlineManager`，
+  内嵌/后台标签里报 offline 时查询停在 `fetchStatus:"paused"`、`isPending` 恒真。
+  改为 4xx 一次都不重试（5xx 仍试 1 次）。取证方式是临时把 QueryClient 挂到 `window` 读缓存，
+  看到 `{status:"pending", fetchStatus:"paused"}` 才定位到——**不是靠猜**。
+
+### 已验 / 未验（本轮的边界，别当成全绿）
+
+- 已验：`pnpm verify` 五道（格式、lint、tsc、58 test、lint-guard）、`pnpm build`（22 条路由）、`pnpm db:check` 12/12、
+  `seed` 重放幂等、冒烟 68 条（三档范围条数递增收窄且互为子集、不可见读写都 404、`pageSize=500`→400、
+  初始态来自配置表、归档不带原因 422 / 带原因成功且默认列表隐藏、转案件后 `conversion_status=1` 且金额不继承、
+  页面壳 SSR 里没有业务编号）。
+- **未验**：真实可见浏览器里的视觉效果（这台机器的浏览器面板是 0×0 hidden，只能读 DOM 与 computed 值，
+  截图不成立）。已用 DOM 结构核对过列表 10 列 / 详情 5 Tab / 节点三键 / 工作台清单，但**配色与密度好不好看得人眼过**。
+- 未做：事项侧状态流转（只有案件有 `POST /status`）、附件（等 MinIO 服务账号，W1-10）、配置编辑（只有读）。
+
+---
+
 ## [未发布] — 2026-09-27 · N1 结案：代理通了，shadcn 六件落地，并抓到两条会坑 M3 的硬约束
 
 用户加代理后复测：`curl -x http://127.0.0.1:7897` → 200，且**不带代理的 node 直连也变 200**（系统级 TUN）

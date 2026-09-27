@@ -1,7 +1,14 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import prettierConfig from "eslint-config-prettier";
-import { SHARED_PATTERNS } from "./tools/lint-guard/restricted-imports.mjs";
+import {
+  SHELL_FILES_GLOBS,
+  SHELL_PATTERNS,
+  SHARED_PATTERNS,
+  UI_FILES_GLOB,
+  UI_IGNORE_GLOBS,
+  UI_PATTERNS,
+} from "./tools/lint-guard/restricted-imports.mjs";
 
 /**
  * 禁令①（.trellis/spec/backend/directory-structure.md ← 技术选型 §13.5-1）：
@@ -35,6 +42,21 @@ export default tseslint.config(
     files: ["src/shared/**/*.ts", "src/shared/**/*.tsx"],
     rules: {
       "no-restricted-imports": ["error", { patterns: SHARED_PATTERNS }],
+    },
+  },
+  {
+    // 禁令⑦（一套组件体系）：业务代码不得直连原语包，components/ui/ 那一层除外
+    files: [UI_FILES_GLOB],
+    ignores: UI_IGNORE_GLOBS,
+    rules: {
+      "no-restricted-imports": ["error", { patterns: UI_PATTERNS }],
+    },
+  },
+  {
+    // 禁令⑥/⑤（页面壳不预取业务数据、鉴权在 handler 内）
+    files: SHELL_FILES_GLOBS,
+    rules: {
+      "no-restricted-imports": ["error", { patterns: SHELL_PATTERNS }],
     },
   },
   {

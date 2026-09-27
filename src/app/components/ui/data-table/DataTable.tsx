@@ -7,10 +7,19 @@ import {
   type LegacyColumnDef,
   type LegacyRow,
 } from "@tanstack/react-table/legacy";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { Button } from "@/app/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/app/components/ui/table";
+import { StateBlock } from "@/app/components/ui/state-block";
 import { cn } from "@/app/lib/utils";
 import { MAX_PAGE_SIZE } from "@/shared/schema/list-query";
 
@@ -25,11 +34,13 @@ import { MAX_PAGE_SIZE } from "@/shared/schema/list-query";
  * v9 官方留了兼容层 `useLegacyTable` + `getXRowModel`，所以**留在 v9、显式走 legacy 入口**：
  * 比降级版本好（不锁死升级路），也比改学新 API 好（`useLegacyTable` 这个名字本身就声明了"这是 v8 形状"）。
  *
- * ### 三条不可商量的设计点
+ * ### 四条不可商量的设计点
  * 1. **受控**：`page / pageSize / sortBy / sortDir` 由调用方给，组件内部不维护分页与排序态；
  * 2. **只装 core row model**：不装 `getSortedRowModel` / `getPaginationRowModel` / `getFilteredRowModel`——
  *    装了就等于允许客户端全量排序，而禁令⑧ 的理由是权限不是性能（客户端全量筛＝绕过 `ScopeResolver`）；
- * 3. `pageSize > MAX_PAGE_SIZE` **直接抛**，不静默夹小——静默夹小会让调用方以为已经拉全了。
+ * 3. `pageSize > MAX_PAGE_SIZE` **直接抛**，不静默夹小——静默夹小会让调用方以为已经拉全了；
+ * 4. 表格骨架一律走 `ui/table.tsx` 那组原语，本文件不再自带一份 `<thead>/<tbody>` 样式：
+ *    两张列表页 + 详情页内嵌表共用一套单元格刻度，这是"一套组件体系"（禁令⑦）在这张组件上的落点。
  */
 export interface DataTableProps<TData extends Record<string, unknown>> {
   columns: LegacyColumnDef<TData, unknown>[];
@@ -44,7 +55,10 @@ export interface DataTableProps<TData extends Record<string, unknown>> {
   onSortChange: (column: string, dir: "asc" | "desc") => void;
   onSelectionChange?: (rows: TData[]) => void;
   loading?: boolean;
-  emptyHint?: ReactNode;
+  /** 行主键，用于 React key 与"点行跳转"；不给则退回行号 */
+  rowKey?: (row: TData) => string;
+  onRowOpen?: (row: TData) => void;
+  empty?: ReactNode;
 }
 
 export function DataTable<TData extends Record<string, unknown>>(props: DataTableProps<TData>) {
@@ -60,7 +74,9 @@ export function DataTable<TData extends Record<string, unknown>>(props: DataTabl
     onSortChange,
     onSelectionChange,
     loading = false,
-    emptyHint = "没有符合条件的记录",
+    rowKey,
+    onRowOpen,
+    empty = "没有符合条件的记录",
   } = props;
 
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({});
@@ -88,16 +104,27 @@ export function DataTable<TData extends Record<string, unknown>>(props: DataTabl
   });
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const selectedCount = Object.values(rowSelection).filter(Boolean).length;
+  const selectedCount = Object.keys(rowSelection).length;
+  const visible = table.getVisibleLeafColumns();
+
+  /**
+   * 空态**不画表头**。半张空表格比什么都没有更容易被读成"接口挂了"，
+   * 而这里的空绝大多数时候是真的空（范围收窄或筛得太窄），要给用户下一步。
+   */
+  if (!loading && rows.length === 0) {
+    return <StateBlock title="这张列表现在是空的" hint={empty} />;
+  }
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          共 {total} 条 · 第 {page}/{pageCount} 页 · 每页 {pageSize} 条 · 本页已选 {selectedCount}{" "}
-          条
+          共 <span className="num">{total}</span> 条 · 第 <span className="num">{page}</span>/
+          <span className="num">{pageCount}</span> 页 · 每页 <span className="num">{pageSize}</span>{" "}
+          条{selectedCount ? ` · 本页已选 ${selectedCount} 条` : ""}
         </p>
         <div className="flex flex-wrap gap-1">
+          {/* 列显隐：内网系统里"我只看编号/状态/到期"是真实诉求，做在一处比每张表各写一遍强 */}
           {table
             .getAllColumns()
             .filter((col) => col.getCanHide())
@@ -105,9 +132,9 @@ export function DataTable<TData extends Record<string, unknown>>(props: DataTabl
               <Button
                 key={String(col.id)}
                 type="button"
-                size="sm"
+                size="xs"
                 variant={col.getIsVisible() ? "outline" : "ghost"}
-                className={cn("text-xs", !col.getIsVisible() && "text-muted-foreground")}
+                className={cn(!col.getIsVisible() && "text-muted-foreground")}
                 onClick={() => col.toggleVisibility()}
               >
                 {typeof col.columnDef.header === "string" ? col.columnDef.header : String(col.id)}
@@ -116,21 +143,24 @@ export function DataTable<TData extends Record<string, unknown>>(props: DataTabl
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full caption-bottom text-sm">
-          <thead>
+      <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <Table>
+          <TableHeader>
             {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} className="border-b bg-muted/40">
+              <TableRow key={hg.id}>
                 {hg.headers.map((header) => {
                   const id = String(header.column.id);
                   const active = sortBy === id;
+                  const sortable = header.column.getCanSort();
                   return (
-                    <th key={header.id} className="h-9 px-3 text-left align-middle font-medium">
-                      {header.isPlaceholder ? null : (
+                    <TableHead key={header.id}>
+                      {header.isPlaceholder ? null : sortable ? (
                         <button
                           type="button"
-                          disabled={!header.column.getCanSort()}
-                          className="inline-flex items-center gap-1 enabled:hover:underline"
+                          className="inline-flex items-center gap-1 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                          aria-sort={
+                            active ? (sortDir === "asc" ? "ascending" : "descending") : "none"
+                          }
                           onClick={() =>
                             onSortChange(id, active && sortDir === "asc" ? "desc" : "asc")
                           }
@@ -138,65 +168,72 @@ export function DataTable<TData extends Record<string, unknown>>(props: DataTabl
                           {flexRender(header.column.columnDef.header, header.getContext())}
                           {active ? (
                             sortDir === "asc" ? (
-                              <ArrowUp className="size-3" />
+                              <ArrowUpIcon className="size-3 text-primary" />
                             ) : (
-                              <ArrowDown className="size-3" />
+                              <ArrowDownIcon className="size-3 text-primary" />
                             )
                           ) : (
-                            <ChevronsUpDown className="size-3 opacity-40" />
+                            <ChevronsUpDownIcon className="size-3 opacity-30" />
                           )}
                         </button>
+                      ) : (
+                        flexRender(header.column.columnDef.header, header.getContext())
                       )}
-                    </th>
+                    </TableHead>
                   );
                 })}
-              </tr>
+              </TableRow>
             ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={columns.length}
-                  className="h-16 px-3 text-center text-sm text-muted-foreground"
-                >
-                  {loading ? "加载中…" : emptyHint}
-                </td>
-              </tr>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className={cn("border-b", row.getIsSelected() && "bg-muted/40")}>
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-3 py-1.5 align-middle">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+          </TableHeader>
+          <TableBody className={cn(loading && "opacity-60")}>
+            {table.getRowModel().rows.map((row) => (
+              <TableRow
+                key={rowKey ? rowKey(row.original) : row.id}
+                data-state={row.getIsSelected() ? "selected" : undefined}
+                className={onRowOpen ? "cursor-pointer" : undefined}
+                onClick={onRowOpen ? () => onRowOpen(row.original) : undefined}
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell key={cell.id}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {/* 列数为 0 时（全部隐藏）TableBody 什么都不渲染，这里补一句而不是留一张空壳 */}
+        {visible.length === 0 ? (
+          <p className="border-t border-border px-3 py-6 text-center text-xs text-muted-foreground">
+            所有列都被隐藏了，点上面的列名恢复。
+          </p>
+        ) : null}
       </div>
 
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-        >
-          上一页
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={page >= pageCount}
-          onClick={() => onPageChange(page + 1)}
-        >
-          下一页
-        </Button>
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        <p className="text-[0.68rem] text-muted-foreground">
+          排序与分页都在服务端做，这里只装当页。
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page <= 1 || loading}
+            onClick={() => onPageChange(page - 1)}
+          >
+            上一页
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page >= pageCount || loading}
+            onClick={() => onPageChange(page + 1)}
+          >
+            下一页
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -204,17 +241,26 @@ export function DataTable<TData extends Record<string, unknown>>(props: DataTabl
 
 function pickSelected<TData extends Record<string, unknown>>(
   rows: TData[],
-  selection: Record<string, boolean>,
+  selection: Record<string, true>,
 ): TData[] {
   const out: TData[] = [];
-  for (const [index, selected] of Object.entries(selection)) {
+  for (const index of Object.keys(selection)) {
     const row = rows[Number(index)];
-    if (selected && row !== undefined) out.push(row);
+    if (row !== undefined) out.push(row);
   }
   return out;
 }
 
-/** 选择列的公共实现，避免每张表各写一遍 checkbox。 */
+/**
+ * 列定义类型也从这一层再导出。
+ * 业务页直连 `@tanstack/react-table/legacy` 拿类型会被 lint-guard 的禁令⑦ 拦下 ——
+ * 那不是误伤：类型 import 是"开始自己拼引擎"的第一步，下一步就是 `getSortedRowModel`。
+ */
+export type { LegacyColumnDef };
+
+/**
+ * 选择列的公共实现，避免每张表各写一遍 checkbox。
+ */
 export function selectionColumn<TData extends Record<string, unknown>>(): LegacyColumnDef<
   TData,
   unknown
@@ -227,6 +273,7 @@ export function selectionColumn<TData extends Record<string, unknown>>(): Legacy
       <input
         type="checkbox"
         aria-label="全选本页"
+        className="size-3.5 accent-(--primary)"
         checked={table.getIsAllPageRowsSelected()}
         onChange={table.getToggleAllPageRowsSelectedHandler()}
       />
@@ -235,8 +282,10 @@ export function selectionColumn<TData extends Record<string, unknown>>(): Legacy
       <input
         type="checkbox"
         aria-label="选择该行"
+        className="size-3.5 accent-(--primary)"
         checked={row.getIsSelected()}
         onChange={row.getToggleSelectedHandler()}
+        onClick={(e) => e.stopPropagation()}
       />
     ),
   };

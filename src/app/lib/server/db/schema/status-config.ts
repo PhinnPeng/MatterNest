@@ -26,26 +26,10 @@ import { HOST_TYPES, STATUS_SEMANTICS } from "@/shared/enums/status";
  *
  * 值域与 `src/shared/enums/status.ts` 由 `status.spec.ts` 逐字对齐（E08/E09 单一事实源）。
  */
-/**
- * DDL 侧的表达式一律不能带参数。
- *
- * `sql\`x IN (${v})\`` 会把值编成 `$1` —— 而 `CREATE TABLE … CHECK` / `CREATE INDEX … WHERE`
- * 是 DDL，没有参数上下文。2026-09-27 实测：drizzle-orm 0.45.3 用 `eq()` 写 partial index 的
- * `.where()` 时正是这样产出 `… = $1`，PG 报 `there is no parameter $1`，迁移直接跑不过去
- * （详证 `docs/research-nextjs-stack.md` §8，也是禁令② 的成因）。
- * 所以枚举值域要进 DDL 只能用 `sql.raw` 拼字面量，值本身来自受控常量数组（E08/E09），
- * 不是用户输入。
- */
-function sqlInList(column: string, values: readonly string[]) {
-  const list = values.map((v) => {
-    if (!/^[a-z0-9_]+$/.test(v)) throw new Error(`枚举值含非法字符，拒绝拼进 DDL：${v}`);
-    return `'${v}'`;
-  });
-  return sql.raw(`${column} IN (${list.join(",")})`);
-}
+import { sqlInList } from "./ddl";
 
 export const statusConfig = pgTable(
-  "status_config",
+  "mn_status_config",
   {
     /** 雪花 id，应用侧生成（修订稿 §12.2）；DB 不设 IDENTITY */
     id: bigint("id", { mode: "number" }).primaryKey(),

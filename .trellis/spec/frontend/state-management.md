@@ -47,3 +47,27 @@ URL 态这一层是本次填 spec 时**新定的建议口径**（规格件未写
 ## 已接受风险，不要误当作已实现能力
 
 离职自动回收目前可能是降级方案（登录时校验 + 长期未登录告警 + 人工停用），**"离职即失效"不是已具备能力**（master P1-16、技术选型 §3.4）。前端不要写"检测到离职已自动封禁"这类文案，也不要把降级路径当兜底实现掉。
+
+---
+
+## QueryClient 的 retry 口径（Demo 那轮实测，2026-09-27）
+
+`src/app/components/providers.tsx` 里是**唯一**的 QueryClient 构造点，retry 规则：
+
+```ts
+retry: (count, err) => (err instanceof ApiFailure && err.status < 500 ? false : count < 1)
+```
+
+为什么 4xx 一次都不重试，两条都是硬的：
+
+1. **语义**：400 是"这个请求本身不成立"、404 是"对你不可见"（默认拒绝的 404-not-403，权限草案 §1 元规则 3）。
+   重试等于在门已经答过"没有"之后再敲一次——审计日志里看起来像探测。
+2. **会真的卡死界面**：react-query 只在**两次重试之间**问 `onlineManager`；后台标签页 / 内嵌 0×0 面板里
+   它可能报 offline，于是查询停在 `fetchStatus:"paused"`、`isPending` 恒真。
+   实测症状就是"骨架屏转到天荒地老，而 header 里的用户名照常渲染出来"——
+   因为成功的查询（200）走不到那条分支，只有失败的会停住。
+   当时的取证手段：把 QueryClient 临时挂到 `window` 上读 `getQueryCache()`，
+   看到 `{status:"pending", fetchStatus:"paused"}` 才定位到；**不要靠猜**。
+
+推论：`staleTime` 可以按数据新鲜度调，但 **retry 策略不要在页面里各写一份**，
+否则又会出现"这条查询重试三次、那条不重试"的口径分叉。

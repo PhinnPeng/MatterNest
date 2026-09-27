@@ -93,3 +93,37 @@ shadcn 的 Data Table 文档与示例都按 v8 形状写，所以走官方 legac
    默认值一律写进 `defaultValues`。
 4. `useSearchParams()` 必须包在 `Suspense` 里，否则 Next 16 构建期就报错。所有列表页共用这个结构。
 5. 测试里用 `@/...` 需要 `vitest.config.mts` 的 `resolve.alias`——**vitest 不读 `tsconfig.paths`**。
+
+---
+
+## shadcn registry 的取用口径（Demo 那轮，2026-09-27）
+
+**取件要带代理环境变量**，否则 `ECONNRESET`（`docs/research-nextjs-stack.md` §6.3 的"域名级定向重置"仍然成立，
+只是当时忘了它需要显式出口）。可直接复用的命令：
+
+```bash
+HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 \
+  node --use-env-proxy ./node_modules/shadcn/dist/index.js add -y <件名...>
+```
+
+三个踩点：
+
+1. `npx --no-install shadcn@latest add …` 会报 `npx canceled due to missing packages and no YES option`——
+   本仓已把 `shadcn` 装成 dependency，**直接跑本地包**，不要用 npx。
+   另外 `.bin/shadcn` 是 shell wrapper，`node <它>` 会当 JS 解析报错，要指到 `dist/index.js`。
+2. 非交互必须带 `-y`；要覆盖已有件再加 `-o`，且**只列真正要换的件名**——
+   `-o` 会把列出的件全部重写（本轮用 `add -y -o badge label select separator table tabs textarea skeleton`
+   换掉 8 件自封装实现，`button/card/dialog/…` 与全部领域件不受影响，事后逐个 `diff` 确认过）。
+3. **registry 产出的文件不符合本仓 prettier 口径**，落地后立刻对这 8 个文件单独 `prettier --write`；
+   绝不要跑 `pnpm format`（=`prettier --write .`）——它会重排 `docs/**`，
+   而 `docs/PRD-phase1-baseline-v0.md` 永不改写。
+
+**领域件（不是 registry 件）一律自封装并留在 `components/ui/`**：`status-mark`、`deadline-mark`、`state-block`、
+`data-table/DataTable`。它们的价值是**口径**（状态=点+词、空态要给下一步、表格只装当页），不是样式。
+
+## 行内 `style` 的唯一例外
+
+禁令⑦/样式三条② 说"覆盖组件默认样式一律走 `cn()`，禁止行内 style"。**运行时几何**不属于外观覆盖：
+`workbench.tsx` 的状态分布条用 `style={{width: pct}}`，因为百分比来自数据库，Tailwind 无法为任意值生成类名。
+这一处是全站唯一例外，写在组件注释里而不是放宽规则——
+其余任何 `style` 出现都按违规处理（`common errors` 第 3 条不变）。

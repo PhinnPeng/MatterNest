@@ -175,3 +175,31 @@ index("uk_rule_scope").unique()
 5. 用 `timestamptz` 存日历日期，或业务层 `new Date()` 算期限 → 期限算错。
 6. 用 `current_date` 或 `now()::date` 当 `day_key` → 会话钉 UTC 后，上海 0–8 点的立案会被归到**前一天**（实测：同一时刻 PRC 会话 09-27 / UTC 会话 09-26）。`day_key` 只能是显式 `AT TIME ZONE 'Asia/Shanghai'` 形式。
 7. 给业务表配 `ON DELETE CASCADE` → 抹掉审计链（§12.4）。
+
+---
+
+## drizzle 拼 SQL 的四条实测口径（Demo 那轮，2026-09-27）
+
+1. **`exists()` 只对 QueryBuilder 自动加括号。**
+   传 `sql` 模板时它渲染成 `exists select 1 from …` → PG 42601 syntax error。
+   一律自己写：`exists(sql\`(select 1 from t where …)\`)`。
+   本仓有两处命中：`scope/visibility.ts` 的 L2 谓词、`services/overview.ts` 的活动可见性。
+2. **这条 bug 只有 L2 账号能触发**，所以 seed 里**必须留一个纯 `participating` 的演示账号**（当前是 104 孙奕）。
+   L1 走"不加谓词"、L3 走 `OR(owner, creator)`，都碰不到 EXISTS。
+   本轮就是因为全套账号里没有纯 L2，那句少括号的 SQL 一路没人撞上——
+   改 seed 角色时请保留"至少一个纯 L1 / 一个纯 L2 / 一个纯 L3"这个分布。
+   配套：`mn_app_user_role` 的 seed upsert 用 `ON CONFLICT ("id")` 而不是复合唯一键，
+   否则改角色会撞主键、重放直接崩。
+3. **事务里不要再向池子要第二条连接。**
+   `await initialStatusCode(...)` 这类"查配置"的调用必须**提到 `db.transaction()` 之前**：
+   postgres.js 的池子满时，事务持有者互等就是死锁。三个新建入口（建案 / 建事项 / 转案件）都按这个形状写。
+4. **`count(*) filter (where …)` 只能用 `sql` 模板**，drizzle 的 `count()` 没有 `.filter()` 方法。
+   工作台三个到期分桶靠它一次扫描出三个数（`services/overview.ts`）。
+
+## 排序白名单与映射必须逐字相等
+
+`shared/schema/list-query.ts:SORTABLE_COLUMNS` 与服务层 `SORTABLE` 映射是两份清单，
+历史上出过"DTO 允许 `risk_level`/`owner_name`、服务层没有对应列 → 排序静默退回 `updated_at`"
+（用户点了表头，数据没动）。现在服务层写成 `Record<(typeof SORTABLE_COLUMNS)[number], SQL>`：
+少键报"缺属性"、多键报"多余属性"，两边都在编译期红。
+**两侧都已实撞验证**（删掉 `risk_level` → TS2741；改名 → TS2353）。

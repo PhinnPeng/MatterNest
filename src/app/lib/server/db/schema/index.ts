@@ -1,7 +1,12 @@
 /**
  * schema 真相的唯一入口（技术选型 §3.2b）。
- * `drizzle.config.ts` 只指这一个文件；新增表必须从这里 re-export，
- * 否则 `generate` 看不见它 —— 这类"文件写了但没挂进索引"的漂移，靠 §8 spike 抓到的
- * 那条一致性断言（库里有表不在 journal / journal 有表库里没有）兜。
+ *
+ * `drizzle.config.ts` 只指这一个文件 ⇒ **新增表必须从这里 re-export**，
+ * 否则 `generate` 看不见它，会出现"代码里有表、库里没有"的静默漂移。
+ * 反向也有兜底：`enum-check.spec.ts` 会把迁移里的值域约束逐条认领，`db:check` 会比对库与 journal。
  */
-export { statusConfig } from "./status-config";
+export * from "./status-config";
+export * from "./identity";
+export * from "./config";
+export * from "./hosts";
+export * from "./collab";

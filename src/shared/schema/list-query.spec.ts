@@ -46,6 +46,15 @@ describe("listQuerySchema", () => {
     expect(listQuerySchema.safeParse({ status: "whatever" }).success).toBe(false);
     expect(listQuerySchema.safeParse({ keyword: "x".repeat(61) }).success).toBe(false);
   });
+
+  it("includeArchived：URL 里的 'false' 不能被判成 true", () => {
+    // 反面教材是 z.coerce.boolean() —— Boolean("false") === true，
+    // 那会让"取消勾选含归档"静默变成"一直显示归档"。
+    expect(listQuerySchema.parse({ includeArchived: "false" }).includeArchived).toBe(false);
+    expect(listQuerySchema.parse({ includeArchived: "1" }).includeArchived).toBe(true);
+    expect(listQuerySchema.parse({}).includeArchived).toBe(false);
+    expect(listQuerySchema.safeParse({ includeArchived: "yes" }).success).toBe(false);
+  });
 });
 
 describe("searchParamsToRecord", () => {

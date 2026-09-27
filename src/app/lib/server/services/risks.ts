@@ -1,0 +1,215 @@
+import { and, asc, count as dcount, desc, eq, sql } from "drizzle-orm";
+import { nextId } from "@/shared/ids/snowflake";
+import { getDb } from "../db/client";
+import { matter, matterStaff, riskMatter, riskMatterCase, riskMatterStaff } from "../db/schema";
+import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
+import type { Actor } from "../auth/auth";
+import { nextCode } from "./numbering";
+import { initialStatusCode } from "./statuses";
+import { logActivity } from "./activity";
+
+/**
+ * 风险事项读写 + **转案件**（W4 的旗舰动作，修订稿 §3.4 / 映射矩阵 §2）。
+ *
+ * 转案件这条链上三件事必须同事务，否则会出现"案件建好了但事项还显示未转"：
+ *   1. 生成 `AJ-` 编号并建案件；
+ *   2. 写 `mn_risk_matter_case` 关联（事项的"来源"靠它反查，宿主表上**不留** `source_risk_id`，§6.3）；
+ *   3. 事项 `conversion_status=1` + 计数 +1，并落 `CONVERTED_TO_CASE` 审计。
+ *
+ * 字段继承按 master P0-1 的裁定：以映射矩阵为准 —— **描述不继承、金额留空逐案填、附件引用不复制**；
+ * 基线 3.4 那句"带入描述与金额"已被 §P0-1 判为被覆盖。
+ */
+
+export async function listRiskMatters(
+  actor: Actor,
+  q: {
+    page: number;
+    pageSize: number;
+    keyword?: string;
+    status?: string;
+    includeArchived?: boolean;
+    sortDir?: "asc" | "desc";
+  },
+) {
+  const db = await getDb();
+  const where = and(
+    scopedWhere("risk_matter", actor),
+    archivedFilter("risk_matter", Boolean(q.includeArchived)),
+    q.status ? eq(riskMatter.status, q.status) : undefined,
+    keywordFilter("risk_matter", q.keyword),
+  );
+  const [total] = await db.select({ n: dcount() }).from(riskMatter).where(where);
+  const rows = await db
+    .select({
+      id: riskMatter.id,
+      code: riskMatter.code,
+      name: riskMatter.name,
+      type: riskMatter.type,
+      level: riskMatter.level,
+      source: riskMatter.source,
+      amount: riskMatter.amount,
+      status: riskMatter.status,
+      conversionStatus: riskMatter.conversionStatus,
+      convertedCaseCount: riskMatter.convertedCaseCount,
+      isArchived: riskMatter.isArchived,
+      discoverDate: riskMatter.discoverDate,
+      updatedAt: riskMatter.updatedAt,
+      ownerName: sql<string>`(select u.display_name from mn_app_user u where u.id = ${riskMatter.ownerId})`,
+    })
+    .from(riskMatter)
+    .where(where)
+    .orderBy(
+      q.sortDir === "asc" ? asc(riskMatter.updatedAt) : desc(riskMatter.updatedAt),
+      desc(riskMatter.id),
+    )
+    .limit(q.pageSize)
+    .offset((q.page - 1) * q.pageSize);
+
+  return {
+    items: rows.map((r) => ({ ...r, id: String(r.id) })),
+    page: q.page,
+    pageSize: q.pageSize,
+    total: Number(total?.n ?? 0),
+  };
+}
+
+/** 建事项：编号 `FX-`，`discover_date` 是日历 `date`（§12.2） */
+export async function createRiskMatter(
+  actor: Actor,
+  input: {
+    name: string;
+    type: string;
+    level: string;
+    source?: string | null;
+    description: string;
+    measure?: string | null;
+    amount?: string;
+    discoverDate?: string | null;
+    ownerId?: string;
+  },
+) {
+  const db = await getDb();
+  const { code } = await nextCode("riskMatter");
+  const id = BigInt(nextId());
+  const owner = BigInt(input.ownerId ?? actor.userId);
+  // 在**进入事务前**取：事务内再向池子要一条连接去查配置，池子满时会互等成死锁
+  const initial = await initialStatusCode("risk_matter");
+  await db.transaction(async (tx) => {
+    await tx.insert(riskMatter).values({
+      id,
+      code,
+      name: input.name,
+      type: input.type,
+      level: input.level,
+      source: input.source ?? null,
+      description: input.description,
+      measure: input.measure ?? null,
+      amount: input.amount ?? "0",
+      discoverDate: input.discoverDate ?? new Date().toISOString().slice(0, 10),
+      status: initial,
+      ownerId: owner,
+      createdBy: BigInt(actor.userId),
+      updatedBy: BigInt(actor.userId),
+    });
+    await tx
+      .insert(riskMatterStaff)
+      .values({ id: BigInt(nextId()), hostId: id, userId: owner, staffRole: "owner" });
+    await logActivity(tx, actor, {
+      riskMatterId: id,
+      targetType: "risk_matter",
+      targetId: id,
+      action: "RISK_CREATED",
+    });
+  });
+  return { id: String(id), code };
+}
+
+/**
+ * 转案件。返回新案件的内部编号，前端据此跳详情。
+ * 幂等性：同一事项可多次转（`converted_case_count` 递增），因为"已转案件"是与结案正交的第二事实（§3.4）。
+ */
+export async function convertToCase(
+  actor: Actor,
+  riskId: string,
+  input: {
+    name: string;
+    cause: string;
+    caseType: string;
+    procedure: string;
+    litigationRole: string;
+    court?: string | null;
+    level: string;
+    filingDate?: string | null;
+  },
+) {
+  const db = await getDb();
+  const [src] = await db
+    .select()
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
+    .limit(1);
+  if (!src) return null; // → 404，不给 403
+
+  const { code } = await nextCode("matter");
+  const caseId = BigInt(nextId());
+  // 同 createRiskMatter：取初始态要在进事务之前，别在事务里向池子再要一条连接
+  const initial = await initialStatusCode("matter");
+  await db.transaction(async (tx) => {
+    await tx.insert(matter).values({
+      id: caseId,
+      internalCode: code,
+      caseNo: code,
+      // 描述**不继承**（P0-1）：只带事项名称作为初始案由说明，正文留空由承办人逐案填
+      name: input.name,
+      cause: input.cause,
+      caseType: input.caseType,
+      procedure: input.procedure,
+      litigationRole: input.litigationRole,
+      court: input.court ?? null,
+      amount: "0",
+      level: input.level,
+      status: initial,
+      filingDate: input.filingDate ?? null,
+      ownerId: BigInt(actor.userId),
+      createdBy: BigInt(actor.userId),
+      updatedBy: BigInt(actor.userId),
+      lastProgressAt: new Date().toISOString(),
+    });
+    await tx.insert(matterStaff).values([
+      { id: BigInt(nextId()), hostId: caseId, userId: BigInt(actor.userId), staffRole: "owner" },
+      ...(src.ownerId === BigInt(actor.userId)
+        ? []
+        : [
+            {
+              id: BigInt(nextId()),
+              hostId: caseId,
+              userId: src.ownerId ?? BigInt(actor.userId),
+              staffRole: "co_owner" as const,
+            },
+          ]),
+    ]);
+    await tx
+      .insert(riskMatterCase)
+      .values({ id: BigInt(nextId()), riskMatterId: BigInt(riskId), matterId: caseId });
+    await tx
+      .update(riskMatter)
+      .set({
+        conversionStatus: 1,
+        convertedAt: new Date().toISOString(),
+        convertedBy: BigInt(actor.userId),
+        convertedCaseCount: sql`${riskMatter.convertedCaseCount} + 1`,
+        updatedBy: BigInt(actor.userId),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(riskMatter.id, BigInt(riskId)));
+    await logActivity(tx, actor, {
+      matterId: caseId,
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter",
+      targetId: BigInt(riskId),
+      action: "CONVERTED_TO_CASE",
+      payload: { case_ids: [String(caseId)], from: src.code },
+    });
+  });
+  return { id: String(caseId), internalCode: code };
+}

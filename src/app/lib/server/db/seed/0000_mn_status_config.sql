@@ -9,7 +9,7 @@
 --      而规则/接口一律引用 `code` 不引用 id（修订稿 §2.4 末行）。
 --
 -- color 是占位值：M3 视觉定稿后统一替换，不在这里自创配色语义。
-INSERT INTO "status_config" ("id", "code", "name", "color", "host_type", "semantics", "is_system", "is_initial_status", "sort_order")
+INSERT INTO "mn_status_config" ("id", "code", "name", "color", "host_type", "semantics", "is_system", "is_initial_status", "sort_order")
 VALUES
   (1, 'pending', '待受理', 'slate', 'matter', 'open', true, true, 1),
   (2, 'in_progress', '进行中', 'blue', 'matter', 'in_progress', true, false, 2),

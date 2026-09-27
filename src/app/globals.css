@@ -67,38 +67,50 @@
  ---break---
  */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /*
+   * MatterNest 一期主题（2026-09-27）。基调：**冷墨纸 + 电蓝**，为"律师每天盯 40 分钟表格"设计。
+   *
+   * 三条理由，避免被当成装饰性配色：
+   *   · 背景不是纯白而是带一点蓝灰的纸色 —— 满屏 btree 表格长时间阅读，纯白的对比噪声更累；
+   *   · 主色只在"当前页/主操作/焦点"三处出现（电蓝），表格内部一律安静，
+   *     否则每行都有颜色 = 没有颜色，临期与逾期就淹在装饰里；
+   *   · 语义色（结案/归档/逾期/待补）只给"点 + 词"，不给整块底色 —— 状态要能被扫读，不能靠色觉分辨。
+   * 深色侧栏只承担导航这一件事；内容区永远是浅色（内网 PC 宽屏，一期不做窄屏，P1-17）。
+   */
+  --background: oklch(0.975 0.006 250);
+  --foreground: oklch(0.243 0.028 258);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.243 0.028 258);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.243 0.028 258);
+  --primary: oklch(0.556 0.217 265);
+  --primary-foreground: oklch(0.985 0.004 250);
+  --secondary: oklch(0.962 0.011 250);
+  --secondary-foreground: oklch(0.32 0.03 258);
+  --muted: oklch(0.962 0.011 250);
+  --muted-foreground: oklch(0.556 0.028 255);
+  --accent: oklch(0.945 0.028 258);
+  --accent-foreground: oklch(0.32 0.045 262);
+  --destructive: oklch(0.55 0.2 26);
+  --border: oklch(0.902 0.014 252);
+  --input: oklch(0.902 0.014 252);
+  --ring: oklch(0.556 0.217 265);
+  --chart-1: oklch(0.556 0.217 265);
+  --chart-2: oklch(0.62 0.13 185);
+  --chart-3: oklch(0.66 0.15 62);
+  --chart-4: oklch(0.55 0.2 26);
+  --chart-5: oklch(0.52 0.03 258);
+  /* 8px：比默认 10px 收一点。表格里到处是小控件，圆角一大就显软 */
+  --radius: 0.5rem;
+  /* 侧栏是"深色那一块"，用语义变量而不是硬编码，方便将来整体换暗色 */
+  --sidebar: oklch(0.262 0.04 262);
+  --sidebar-foreground: oklch(0.94 0.012 250);
+  --sidebar-primary: oklch(0.62 0.19 265);
+  --sidebar-primary-foreground: oklch(0.98 0.004 250);
+  --sidebar-accent: oklch(0.33 0.05 262);
+  --sidebar-accent-foreground: oklch(0.97 0.006 250);
+  --sidebar-border: oklch(0.36 0.05 262);
+  --sidebar-ring: oklch(0.62 0.19 265);
 }
 /*
  ---break---
@@ -149,4 +161,20 @@
   html {
     @apply font-sans;
   }
+}
+
+/*
+ ---break---
+ */
+/*
+ * 项目级工具类。**只用上面的令牌**（样式三条①：不留第二套间距/色彩刻度）。
+ * 放这里而不是散进各组件，是为了让"电蓝只出现在三处"这条约束可被 grep 检查。
+ */
+@utility num {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: -0.01em;
+}
+@utility hairline-b {
+  border-bottom: 1px solid var(--color-border);
 }

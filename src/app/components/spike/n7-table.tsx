@@ -3,9 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
-import { type LegacyColumnDef } from "@tanstack/react-table/legacy";
 
-import { DataTable, selectionColumn } from "@/app/components/ui/data-table/DataTable";
+import {
+  DataTable,
+  selectionColumn,
+  type LegacyColumnDef,
+} from "@/app/components/ui/data-table/DataTable";
 import { listQuerySchema, type ListQuery } from "@/shared/schema/list-query";
 import { format } from "date-fns";
 import { APP_LOCALE, DATE_COMPACT_PATTERN } from "@/shared/time/zh-cn";

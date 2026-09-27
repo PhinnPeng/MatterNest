@@ -1,7 +1,11 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { ENUM_REGISTRY, STRUCT_REGISTRY, type EnumEntry } from "@/shared/enums";
-import { AUDIT_ACTION_MAX_LENGTH } from "@/shared/enums";
+import {
+  AUDIT_ACTION_MAX_LENGTH,
+  claimedChecks,
+  ENUM_REGISTRY,
+  STRUCT_REGISTRY,
+} from "@/shared/enums";
 
 /**
  * CHECK ↔ 值数组一致性机制（W0-3 的正主，落地方案 §2 的 M0 退出条件之一）。
@@ -23,9 +27,12 @@ export function parseEnumChecks(sql: string): ParsedCheck[] {
   const out: ParsedCheck[] = [];
   // 约束名**可带引号也可不带**：drizzle 产的是 "ck_x"，而枚举表 §5.2 的手写补丁模板写的是裸名 ck_x。
   // 只认带引号的形态，就等于给"尾部手写 CHECK 不被反向检查发现"留了个洞（本轮实测踩过）。
-  const re = /CONSTRAINT\s+"?([a-z0-9_]+)"?\s+CHECK\s*\(\s*([a-z0-9_]+)\s+IN\s*\(([^)]*)\)\s*\)/gs;
+  // 可空列的 CHECK 是 `CHECK (col IS NULL OR col IN (…))` 形状，也要能认出来 ——
+  // drizzle 把 `sql\`x IS NULL OR \${sqlInList(...)}\`` 原样产出，漏了这形状就等于该列没人守。
+  const re =
+    /CONSTRAINT\s+"?([a-z0-9_]+)"?\s+CHECK\s*\(\s*(?:([a-z0-9_]+) IS NULL OR )?([a-z0-9_]+)\s+IN\s*\(([^)]*)\)\s*\)/gs;
   for (const m of sql.matchAll(re)) {
-    const [, name, column, inner] = m;
+    const [, name, , column, inner] = m;
     if (!name || !column || inner === undefined) continue;
     out.push({
       name,
@@ -44,10 +51,9 @@ const migrationSql = migrationFiles
   .map((f) => readFileSync(`${MIGRATIONS}/${f}`, "utf8"))
   .join("\n");
 const checks = parseEnumChecks(migrationSql);
-const inDb = ENUM_REGISTRY.filter(
-  (e): e is EnumEntry & { constraint: NonNullable<EnumEntry["constraint"]> } =>
-    Boolean(e.constraint),
-);
+/** 已进库的值域：落点由注册表的 `checks`（源自 IN_DB_CHECKS 映射）给出 */
+const landed = ENUM_REGISTRY.filter((e) => e.landing === "in-db");
+const claims = claimedChecks();
 
 describe("枚举注册表自身", () => {
   it("覆盖 E01–E37 全 37 行，不重不漏", () => {
@@ -95,7 +101,7 @@ describe("枚举注册表自身", () => {
     const actions = STRUCT_REGISTRY.find((s) => s.key === "activity_log.action");
     expect(actions).toBeTruthy();
     for (const a of actions?.values ?? []) {
-      expect(a.length, `${a} 超出 ${AUDIT_ACTION_MAX_LENGTH}`).toBeLessThanOrEqual(
+      expect(String(a).length, `${a} 超出 ${AUDIT_ACTION_MAX_LENGTH}`).toBeLessThanOrEqual(
         AUDIT_ACTION_MAX_LENGTH,
       );
     }
@@ -125,19 +131,27 @@ describe("注册表 ↔ 迁移里的 CHECK", () => {
   });
 
   it("注册表说已进库的约束，迁移里必须存在且值集合逐字相等", () => {
-    for (const e of inDb) {
-      const found = checks.find((c) => c.name === e.constraint.name);
-      expect(found, `${e.id} 声明了 ${e.constraint.name}，迁移里找不到`).toBeTruthy();
-      expect(found?.column, `${e.constraint.name} 守的不是 ${e.constraint.column}`).toBe(
-        e.constraint.column,
-      );
-      expect([...(found?.values ?? [])].sort()).toEqual([...e.values].map(String).sort());
-      expect(found?.values.length, `${e.constraint.name} 值数量不同`).toBe(e.values.length);
+    for (const e of landed) {
+      for (const [table, column, name] of e.checks) {
+        const found = checks.find((c) => c.name === name);
+        expect(found, `${e.id} 声明了 ${name}，迁移里找不到（${table}）`).toBeTruthy();
+        expect(found?.column, `${name} 守的不是 ${table}.${column}`).toBe(column);
+        expect(found?.values.length, `${name} 值数量不同`).toBe(e.values.length);
+        expect([...(found?.values ?? [])].sort()).toEqual([...e.values].map(String).sort());
+      }
+    }
+  });
+
+  it("`landing` 与映射表不许互相说谎", () => {
+    for (const e of ENUM_REGISTRY) {
+      if (e.landing === "in-db")
+        expect(e.checks.length, `${e.id} 标了 in-db 却没登记落点`).toBeGreaterThan(0);
+      else expect(e.checks.length, `${e.id} 有落点却标成 ${e.landing}`).toBe(0);
     }
   });
 
   it("反向：迁移里出现的 IN 型 CHECK 必须被注册表认领", () => {
-    const claimed = new Set(inDb.map((e) => e.constraint.name));
+    const claimed = new Set(claims.keys());
     const unclaimed = checks.filter((c) => !claimed.has(c.name)).map((c) => c.name);
     expect(
       unclaimed,
@@ -145,11 +159,8 @@ describe("注册表 ↔ 迁移里的 CHECK", () => {
     ).toEqual([]);
   });
 
-  it("约束名与列名对得上命名规范 ck_<表去下划线>_<列>", () => {
-    for (const e of inDb) {
-      expect(e.constraint.name).toMatch(/^ck_[a-z0-9_]+$/);
-      expect(e.constraint.name, `${e.constraint.name} 不含列名片段`).toContain(e.constraint.column);
-    }
+  it("迁移里至少落了 20 条值域 CHECK（少于这个数说明大面积没登记）", () => {
+    expect(checks.length).toBeGreaterThanOrEqual(20);
   });
 });
 

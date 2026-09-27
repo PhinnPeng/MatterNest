@@ -44,6 +44,22 @@ function compare(a: SpikeMatter, b: SpikeMatter, key: keyof SpikeMatter): number
   return String(av).localeCompare(String(bv), "zh-Hans-CN");
 }
 
+/**
+ * DTO 排序键 → spike 行上的列。写成 `Record<白名单, …>` 是让"两边键集合相等"成为编译期约束：
+ * `created_at` 在 spike 的行上没有对应列，映射到 `id` —— 雪花 ID 高位是毫秒时间戳，
+ * 所以按 id 排 = 按创建时间排，这正是主键选雪花的理由之一（`@/shared/ids/snowflake`）。
+ */
+const SPIKE_SORT: Record<ListQuery["sortBy"], keyof SpikeMatter> = {
+  code: "code",
+  name: "name",
+  status: "status",
+  risk_level: "risk_level",
+  owner_name: "owner_name",
+  amount: "amount",
+  created_at: "id",
+  updated_at: "updated_at",
+};
+
 /** 排序 → 筛选 → 分页。**分页在服务端做**，客户端拿到的永远是当页。 */
 export function queryMatters(
   rows: SpikeMatter[],
@@ -57,7 +73,8 @@ export function queryMatters(
     out = out.filter((r) => `${r.code} ${r.name} ${r.owner_name}`.toLowerCase().includes(kw));
   }
 
-  const sorted = [...out].sort((x, y) => compare(x, y, q.sortBy));
+  const key = SPIKE_SORT[q.sortBy];
+  const sorted = [...out].sort((x, y) => compare(x, y, key));
   if (q.sortDir === "desc") sorted.reverse();
 
   const start = (q.page - 1) * q.pageSize;
