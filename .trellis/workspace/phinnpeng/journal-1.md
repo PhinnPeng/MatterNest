@@ -93,3 +93,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: W0-2 复测：撤回我的"没有上传件"结案，改从官方仓定性 attachment
+<!-- trellis-session: v=2 fp=fc12120fa1071c92 -->
+
+**Date**: 2026-09-27
+**Task**: W0-2 复测：撤回我的"没有上传件"结案，改从官方仓定性 attachment
+**Branch**: `main`
+
+### Summary
+
+ui.shadcn.com 三次复测均为连上即 ECONNRESET（66.33.60.193:443 <100ms 被 RST），同机访问 npm/GitHub/raw 全通 → 域名级定向重置，不是抖动也不是 CLI 版本问题。改从官方 GitHub 仓 shadcn-ui/ui 取到 apps/v4/registry/bases/radix/ui/attachment.tsx 与官方 mdx：description 原文 "Displays a file or image attachment with media, metadata, upload state, and actions"，签名带 idle|uploading|processing|error|done → 它是附件展示件不是上传器。我上一笔据"清单无 upload/dropzone 命名"结案"没有现成上传件"属于拿命名当能力，已撤回：W3-7 从整件自封装缩为逻辑自封装 + 展示层用 Attachment（落地方案、spec、master P1-18 同步）。新未验项更要紧：官方示例 import @/styles/radix-rhea/ui/attachment 而 init 默认 style=nova，组件落点可能是 styles/<style>/ui/ 而非 components/ui/，牵动 §5 拓扑与禁令⑦；且不能靠手拷 .tsx 顶替 CLI（件依赖随件下发的 cn-attachment 样式）。同仓实测 aria 59/base 62/radix 61 与 docs index 63 条口径不同，不得互证。取证落盘任务 research/。N1 仍半过，任务保持 in_progress。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `40ad5c6` | fix(research): 撤回我自己"没有上传件"的结案——attachment 是附件展示件，W3-7 范围缩小 |
+
+### Status
+
+[OK] **Completed**
