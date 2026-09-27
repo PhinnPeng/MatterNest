@@ -137,3 +137,25 @@ ui.shadcn.com 三次复测均为连上即 ECONNRESET（66.33.60.193:443 <100ms �
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: N7 spike：DataTable 与动态数组表单（逻辑层通过，交互层待补）
+<!-- trellis-session: v=2 fp=8343786d575633a0 -->
+
+**Date**: 2026-09-27
+**Task**: N7 spike：DataTable 与动态数组表单（逻辑层通过，交互层待补）
+**Branch**: `main`
+
+### Summary
+
+建 DataTable.tsx（受控五参数、只装 getCoreRowModel、manualSorting/Filtering/Pagination 全开、pageSize>100 直接抛）+ 动态数组表单（useFieldArray + summarizeIssues 定位到第 N 张卡哪个字段 + copyCardOnto 白名单复制不带 id）+ 假接口 /api/spike/matters + 页面 /spike/n7。测试 9→32 条。实测取证：pageSize=500 → 400、sortBy 注入 → 400、正常查询 20 条/total 237、SSR HTML 业务行 0 条（禁令⑥ 实证）。五条新事实进 spec：TanStack v9 破坏性改版（决定留 v9 走官方 legacy 入口 useLegacyTable）、vitest 不读 tsconfig paths、Zod .default() 打断 RHF resolver（新约定：默认值进 defaultValues）、v9 RowSelectionState 是 Record<string,true>、useSearchParams 必须包 Suspense。DOM 走查抓到真缺陷并修：列显隐工具条把选择列列出来（文案印 select）→ enableHiding:false + 工具条过滤 getCanHide()。交互层未验成且原因写清：内置浏览器 hidden/0x0 导致 __reactFiber=0（25 个 chunk 全 200、无报错），不能归因于代码；补救三选一记在研究文档 §7.3。落地方案 G1 进度更新为 N1✅ N7✅(逻辑) N2–N6 未跑。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f965c99` | feat(n7): DataTable + 动态数组表单 spike — 逻辑层通过，交互层被环境卡住（如实记录） |
+
+### Status
+
+[OK] **Completed**
