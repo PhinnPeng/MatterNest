@@ -5,7 +5,41 @@
 
 ---
 
-## [未发布] — 2026-09-26 · PRD 审查与九条裁定落地
+## [未发布] — 2026-09-26 · 前端改判 Next.js 全栈（T1-v5）+ 第一期落地方案
+
+用户提出"用 Next + shadcn + Tailwind，后端考虑 Python 或 Next"。核验后裁定：**换 Next，不换 Python**。
+
+### 决策依据（两条，都写了出处）
+
+- **shadcn 一等待遇来自 React，与后端语言无关。** 官方安装页与 CLI 页列出的框架是 "Next.js, Vite, Laravel, React Router, Astro, TanStack Start"，Vue/Nuxt 不在内（`research-nextjs-stack.md` 直取原文）。为拿这个收益去换 Python 是白付成本。
+- **换 Python 会破一期最硬的约束**：枚举表 §5.1 要求枚举与 DTO「前后端共用一份」并导出 TS 值数组供 CHECK 一致性测试读；且 §5.1 `:258` 当初**明确否决过 codegen 管线**。Python 进主栈等于把这条否决推翻，还要把 ScopeResolver、审计、脱敏、404 语义在两边各写一遍。
+
+### Added
+
+- **`docs/research-nextjs-stack.md`** —— Next 16.3.6 官方文档一手核验，逐条 VERIFIED / PARTIAL / 未证实。三条实质结论：① Next 16 已把 `middleware` 改名 `proxy` 且**默认 Node.js 运行时**（我上一轮"Edge 拿不到 PG 连接"的担心不成立，已撤回）；② 官方明令**鉴权不得只依赖 proxy，要在每个 Server Function 内部校验** —— 把我们原本的"显式 `withScope()`"从权宜变成合规；③ **多副本第二个坑**：必须共配 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 与 `deploymentId`，否则滚动发布报 "Failed to find Server Action"。
+- **`docs/implementation-plan-v1.md`** —— 第一期落地方案 v1：4 条开工门禁（G1 spike、G2 B8 删除语义、G3 P0-6 字段归属、G4 目标签字）、里程碑 M0–M7（单人 34–41 天，两泳道并行 24–29 天）、**WBS 约 50 票**每票带规格件出处与"可派 AI / 须人审"标记、8 条规范条款、验收门禁、6 条风险与退路。
+- 技术选型新增 **§13 全栈 Next.js 路线**，含 §13.2 Nuxt 结论继承表（C1/C3/C4 与四条 Drizzle 禁令继承，C2 与两条 Nitro 专属限制作废）与 **§13.5 现行八条禁令**（T2 填 spec 的唯一蓝本）。
+- master 新增 **P1-18**：原版 shadcn 的 React 组件清单本轮抓取失败未核到，`FileUpload` 按自封装排期；双副本两个必需变量列为部署待办。
+
+### Changed
+
+- 技术选型升 **v5**：§2 前端/服务端数据/定时任务/校验契约四行改为 Next + `@tanstack/react-table` + `react-query` + 独立 worker 容器；§3.3 由"纯 shadcn-vue"再改写为"纯 shadcn（React 原版）"，表单库从三选一收敛为 **react-hook-form + Zod resolver 单一选择**；§5 拓扑改 `src/app/**` + `src/shared/**` + `src/lib/server/**` + `worker/`；§11/§12 整体标注**已被 §13 取代**（保留为核验记录），§12.3 旧八条禁令标注"不要照抄，现行看 §13.5"。
+- 定时任务从"框架内置 cron"改为**自建 worker 进程**（`node-cron` + `pg_try_advisory_lock` 单飞 + SIGTERM drain）；多副本结论：C1 的锁由"必须"继续是"必须"，理由从 per-process croner 变成"自己起的进程同样多副本"。
+- 附件上传的兜底位置更新：框架层不设 body 上限这条老问题，改由 **nginx 明确设请求体上限**兜住（官方自托管页把 payload size 限制列为反向代理职责），预签名 PUT 直传不变。
+- "整站 SPA"这个目标**取消**：自托管跑 Node 进程，不需要静态导出（`proxy` 在静态导出下根本不支持）；替换为一条新禁令——**页面壳不得预取业务数据**，否则行级权限被绕开。
+- master：§0.1 文档清单加两份新文件并把技术选型状态改 v5；版本说明补 master-v3（此前被误覆盖）/v4/v5 三行且恢复顺序；② 页面结构图的路由说明由"Nuxt 文件路由"改为 Next App Router。
+
+### Fixed
+
+- 上一轮我说"§3.3 已重写、§5 已改单 app、§12.6 已加"等表述中，凡属"打算做"当成"已做完"的部分，本轮一律以文件实存为准复核：本轮所有改动完成后才提交，`git status` 与逐条 grep 为证。
+- 我上一轮提出的"Next middleware 跑 Edge runtime 无法访问 PG"这条风险**主动撤回**（v16 起 proxy 默认 Node 运行时）。
+- master 版本表里被 v5 行误覆盖掉的 master-v3 行已补回，四行顺序修正。
+
+### 未验证与下一步
+
+`research-nextjs-stack.md` §5 的 **N1–N7 是 M0 门禁**，其中 N4（双副本 Server Function 解密）与 N6（云之家 OIDC 回跳）不过就会改部署形态或把云之家登录推到 M6。原版 shadcn 的组件清单本轮没核到，不进任何结论。
+
+
 
 审查 `docs/` 四期规格件时确认：它们都是打在一份缺失基线上的补丁，仓库里从未有过 PRD 正文，35 处「原文 X.Y / PRD 4.x / 清单#N」引用全部悬空。基线补齐后完成一轮全量一致性回改，并把用户裁定的九条并入各文件。
 

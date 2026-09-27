@@ -1,8 +1,8 @@
-# MatterNest 第一期技术选型（T1）v4
+# MatterNest 第一期技术选型（T1）v5
 
-> 状态：**v4 —— 路线为全栈 Nuxt + 纯 shadcn-vue；认证为云之家 + 本地密码双通道（我方适配云之家）**。§3.3 已按 Vue 现实重写，§5 拓扑已改单 app，§12.3 禁令扩到八条。
-> 核验依据：`research-nuxt-fullstack-nitro.md`（Nuxt 4.5.2 / nitropack 2.13.4 / drizzle-orm 0.45.3）与 `research-nuxt-table-vue-ui.md`（表格与组件能力）。
-> 版本沿革：v1 定 NestJS + Drizzle + React/AntD；v2 补 NestJS 并发与数据库版本管理的实质论证（§3.1b、§3.2b），前端改 AntD 5 与 Tailwind/shadcn 混用（§3.3），新增快速上线切法（§9），并就 Nuxt 全栈改判（§11）；v3 以核验结果定稿路线（§12）；**v4（2026-09-26）三项改判**——认证改双通道并定"适配云之家"口径（§3.4/§6/§7 C–F）、前端由 Element Plus 改判为**纯 shadcn-vue**（§2/§3.3/§7 D/§11.4 S3 重定义）、仓库拓扑与 OpenAPI 等四处自相矛盾修平（§5/§10）。
+> 状态：**v5 —— 全栈 Next.js 16（React + 纯 shadcn + Tailwind v4），后端仍 TS 同仓（Route Handlers + Server Functions），不进 Python**；认证为云之家 + 本地密码双通道（我方适配云之家）。§13 是现行结论；§11/§12 的 Nuxt 路线已被取代，但其中 C1/C3/C4 与 Drizzle 相关结论**仍然有效**。
+> 核验依据：`research-nextjs-stack.md`（Next 16.3.6 官方文档）、`research-nuxt-table-vue-ui.md`（TanStack/shadcn 能力）、`research-nuxt-fullstack-nitro.md`（Nitro/Drizzle 一手核验，框架结论部分已过期）。
+> 版本沿革：v1 定 NestJS + Drizzle + React/AntD；v2 补并发与迁移论证、前端改 AntD+Tailwind 混用、新增快速上线切法；v3 以核验定稿全栈 Nuxt；v4 认证改双通道并定"适配云之家"、前端由 Element Plus 改判纯 shadcn-vue、修平四处矛盾；**v5（2026-09-26）为拿 shadcn 一等待遇把前端换成 Next.js + React，后端随之从 Nitro 移到 Next Route Handlers，语言栈不变**——理由与代价见 §13。
 > 本文是决策记录，不是教程。T2 阶段把 `.trellis/spec/` 的 12 个空模板按本文填成项目约定。
 
 ---
@@ -28,15 +28,15 @@
 |---|---|---|
 | 语言 | **TypeScript 全栈** | 枚举与 DTO 在前后端共用一份（枚举表 §5.1 的单一事实源要求），这是唯一能让 33 项枚举取值（枚举表 E01–E36）不出现两份实现的方案 |
 | 运行时 | Node.js 22 LTS（当前机器 24 可跑，CI 锁 22） | 部署基线用 LTS；开发机不必降版本 |
-| 后端框架 | ~~NestJS 10 + Fastify 适配器~~ ⚑ **已被 §12 取代：Nitro（Nuxt 4.5.2 内置，`server/api/**`）** | 见 §3.1（保留其"横切约束要有唯一落点"的诉求，实现改显式 `withScope()` 包装 + `server/middleware`，理由见 §11.1） |
+| 后端框架 | ~~NestJS 10~~ ⚑ ~~Nitro（Nuxt）~~ → **Next.js 16 同仓后端：Route Handlers（`/api/**`）+ Server Functions，`output: 'standalone'` 自托管** | 见 §13.1。保留 §3.1 的诉求（横切约束要有唯一落点），实现为每个 handler 内显式 `withScope()` —— Next 官方明令鉴权不得只依赖 proxy，见研究文档 §2.2 |
 | ORM / 查询 | **Drizzle ORM** + `postgres`(pg) 驱动 | 见 §3.2 |
 | 迁移 | **drizzle-kit 生成 + 手写 SQL 补丁段**，SQL 文件进版本库 | 见 §3.2 |
-| 校验/契约 | **Zod**，schema 定义在 `shared/schema` | 一处定义 → DTO 校验、前端表单规则、OpenAPI 三方复用（原写 `packages/domain`，随 §5 单 app 拓扑改路径） |
-| 前端 | ~~React 18 + Vite + Ant Design 5 与 Tailwind/shadcn 混用~~ ⚑ **已被 §12 取代：Nuxt 4 SPA（`ssr:false`）+ 纯 shadcn-vue + Tailwind v4 + 自封装 `DataTable`（`@tanstack/vue-table`）** | 见 §3.3（本节已按 Vue 现实重写；"密集表格与动态表单最重"这个判断不变，变的是它们改成自封装） |
-| 服务端数据 | **TanStack Query 5** ⚑ Vue 侧为 `@tanstack/vue-query`，用法与 `staleTime` 口径不变（见 §12.5） | 列表分页/筛选/详情缓存是本项目的主战场，手写缓存必然出错。**加分项**：表格用的 `@tanstack/vue-table` 与它同族，状态层同源 |
+| 校验/契约 | **Zod**，schema 定义在 `shared/schema` | 一处定义 → DTO 校验、前端表单规则、OpenAPI 三方复用（OpenAPI 由 `zod-openapi` 生成，没有 Nest 装饰器可白拿） |
+| 前端 | ~~AntD 5 与 Tailwind/shadcn 混用~~ ⚑ ~~Nuxt + 纯 shadcn-vue~~ → **Next.js 16 + React + 纯 shadcn 原版 + Tailwind v4 + 自封装 `DataTable.tsx`（`@tanstack/react-table`）** | 见 §3.3。换回 React 的唯一动机是拿 shadcn 一等待遇（Blocks / 主题工具 / registry / MCP），继承与作废清单见 §13 |
+| 服务端数据 | **`@tanstack/react-query`**（与表格 `@tanstack/react-table` 同族，状态层同源） | 列表分页/筛选/详情缓存是本项目的主战场，手写缓存必然出错 |
 | 认证 | **双通道**：云之家登录（授权码换 eid/openId → 绑定本所账号）+ 本地用户名密码；会话统一走服务端 session 表 + httpOnly cookie | 见 §3.4 |
 | 对象存储 | **MinIO**（S3 兼容）自建 | 法律文件不出内网；后端签 60s URL，不直暴 MinIO |
-| 定时任务 | ~~`@nestjs/schedule`~~ ⚑ **Nitro scheduled tasks（`nitro.experimental.tasks`）+ PG `pg_try_advisory_lock` 单飞** | 见 §3.5 与 §12.2 C1（N 副本 = 触发 N 次，锁是正确性前提） |
+| 定时任务 | ~~`@nestjs/schedule`~~ ⚑ ~~Nitro scheduled tasks~~ → **独立 `worker` 容器 + `node-cron` + PG `pg_try_advisory_lock` 单飞**（Next 无内置调度器） | 见 §3.5 与 §12.2 C1、`research-nextjs-stack.md` §2.3（多副本重复触发的老风险不变，只是调度器换成自己的） |
 | ID | 应用层雪花，`shared/ids` | 与设计的 `bigint` 主键一致 |
 | 测试 | Vitest + supertest + Playwright；权限矩阵用 `test.each` 参数化生成 | 权限草案 §10 的组合数按 **角色数 × 对象类数 × 入口数** 生成（现为 5 × 3 × 7 = 105 例，且会随入口增减而变），**不要在文档里钉死常数**，手写更不可能 |
 | 仓库 | **pnpm workspaces 单仓** | 见 §5 |
@@ -151,26 +151,26 @@ schema 真相    packages/db/schema/*.ts        （Drizzle，供类型安全查�
          （枚举表 §5.1 已把 codegen 改为手写 + 测试）
 ```
 
-### 3.3 前端：纯 shadcn-vue + Tailwind（v4 重写）
+### 3.3 前端：纯 shadcn（React 原版）+ Tailwind（v5 再重写）
 
-> 本节在 v2 时论证的是"AntD 5 与 Tailwind 混用"，v3 改判全栈 Nuxt 后一直没重写，甚至留着"不采用 Nuxt 的三条理由"。路线已定，这次按 Vue 现实整体重写。**判断里仍然成立的部分我保留了**，见本节末。
+> 本节历史：v2 论证"AntD 5 与 Tailwind 混用"→ v4 按 Vue 现实重写为"纯 shadcn-vue"→ **v5 因换回 Next.js，落到原版 shadcn（React）**。判断里成立的部分一路保留下来：密集表格与动态表单最重、shadcn 买的是"源码进仓 + 无黑盒"、缺件必须自己封装。Vue 端口的核验留在 `research-nuxt-table-vue-ui.md` 里作为对照，不再是指南。
 
-**先认这条路线买到了什么**：组件源码复制进仓库、没有黑盒 API，agent 能读能改；Tailwind 是模型写得最熟的样式语言；不受组件库版本天花板约束；无障碍（键盘导航、焦点管理、aria）由无样式原语兜住，不必自研必定做错的那部分。这几条正是本项目"由 agent 大量实现"前提下的主要收益。
+**先认这条路线买到了什么**：组件源码复制进仓库、没有黑盒 API，agent 能读能改；Tailwind 是模型写得最熟的样式语言；不受组件库版本天花板约束；无障碍（键盘导航、焦点管理、aria）由无样式原语兜住，不必自研必定做错的那部分。这几条正是本项目"由 agent 大量实现"前提下的主要收益。**v5 额外拿到的**：官方 CLI 与 registry 一等支持（安装页列的六个框架全是 React 系）、Blocks 成品区块、主题工具、面向 agent 的 MCP 工具。
 
-**"纯 shadcn"与"要不要用 TanStack Table"不是选择题。** shadcn/vue 的 Data Table 页明写它是 "built using TanStack Table"——TanStack Table 是 **headless 状态层**（只管排序/分页/筛选/选择/列模型，不管长什么样），用它不构成引入第二套视觉体系。所以"纯 shadcn"落到 Vue 侧就是：`shadcn-vue + Tailwind v4 + @tanstack/vue-table 自封装 DataTable`。真正会破坏"纯"的只有一个动作：**为某个缺件去引一套带样式的组件库**（Element Plus / AntD Vue / Vuetify），这条由 §12.3 禁令 ⑦ 关掉。
+**"纯 shadcn"与"要不要用 TanStack Table"不是选择题。** shadcn 的 Data Table 本就 "built using TanStack Table"——TanStack Table 是 **headless 状态层**（只管排序/分页/筛选/选择/列模型，不管长什么样），用它不构成引入第二套视觉体系。所以"纯 shadcn"落到 React 侧就是：`shadcn + Tailwind v4 + @tanstack/react-table 自封装 DataTable`。真正会破坏"纯"的只有一个动作：**为某个缺件去引一套带样式的组件库**（MUI / AntD / Chakra 之类），这条由 §12.3 禁令 ⑦ 关掉。
 
-一手核验与缺口清单见 `research-nuxt-table-vue-ui.md`（含 VERIFIED / PARTIAL / 未证实 分级）。本项目最重的四件：
+Next 侧的一手核验见 `research-nextjs-stack.md`；React 版组件清单本轮**抓取失败、未核到**（不拿"React 侧肯定更全"当结论），四件重活照旧：
 
-| 件 | Vue 侧现成度 | 落地方式 |
+| 件 | 现成度 | 落地方式 |
 |---|---|---|
-| 密集表格（案件/事项/当事人/我的关注/通知 5 张 + 详情内嵌表） | 半现成 | 以 Data Table 为底，**自封装一张 `DataTable.vue`**：受控分页参数、筛选模型、批量选择、列显隐统一收口。**禁止客户端全量排序**（万级数据 + 行级权限，权限草案 §4） |
-| 转案件动态表单（N 个案件卡片 + 跨卡复制 + 每卡 10+ 字段联动校验） | 要自写 | Form 底层官方给三条：VeeValidate / TanStack Form / Formisch —— **钉死一个，全项目不得混用**；数组字段与跨卡复制自管；id 类字段不参与复制（映射矩阵 §3） |
-| 附件上传（预签名 PUT 直传 + 进度 + 白名单 + 多文件） | **清单里没有，唯一确认的空白件** | 自封装 `FileUpload.vue`。因为 C3 已把后端中转砍掉，逻辑面窄：**1–2 天**，不是无底洞 |
-| 日期与法律期限（含"剩 N 天"） | 半现成 | 有 Calendar / Date Picker / Range Calendar；**中文 locale 未证实，spike 实测**；期限计算仍走 `shared/time`，`date` 与 `timestamptz` 的边界不因组件库改变 |
+| 密集表格（案件/事项/当事人/我的关注/通知 5 张 + 详情内嵌表） | 半现成 | 以 Data Table 为底，**自封装一张 `DataTable.tsx`**：受控分页参数、筛选模型、批量选择、列显隐统一收口。**禁止客户端全量排序**（万级数据 + 行级权限，权限草案 §4） |
+| 转案件动态表单（N 个案件卡片 + 跨卡复制 + 每卡 10+ 字段联动校验） | 要自写 | **react-hook-form + Zod resolver**（与 `shared/schema` 同源，这是 v5 默认的单一选择，不再留三选一）；数组字段与跨卡复制自管；id 类字段不参与复制（映射矩阵 §3） |
+| 附件上传（预签名 PUT 直传 + 进度 + 白名单 + 多文件） | **按已核事实：Vue 端口清单里没有；React 侧本轮未核到，两边都按自封装排期** | 自封装 `FileUpload.tsx`。因为 C3 已把后端中转砍掉，逻辑面窄：**1–2 天**，不是无底洞 |
+| 日期与法律期限（含"剩 N 天"） | 半现成 | Calendar / Date Picker 有；**中文 locale 与 react-day-picker 版本待 spike 实测**；期限计算仍走 `shared/time`，`date` 与 `timestamptz` 的边界不因组件库改变 |
 
-**成本口径变更**：v2 里"+1~1.5 周"是待拍的假设 D，现在是**已接受的确定成本**，具体去处就是上表四件。压缩手段只有一条有效的：**先把 `DataTable.vue` 封好**，它一张覆盖 5 个列表页，是全项目复用率最高的一块；其余按需补，不要提前做通用组件库。
+**成本口径**："+1~1.5 周"是 v4 就接受的确定成本，v5 换回 React 后**这条成本明显缩小**（表格与表单不再是端口级手写），但**不构成新的收益主张**——省下多少要等 N1 spike 实测才写数字。压缩手段不变：**先把 `DataTable.tsx` 封好**，它一张覆盖 5 个列表页，是全项目复用率最高的一块。
 
-**样式体系约定（替换原 preflight 那条）**：原来的 `corePlugins: { preflight: false }` + AntD 走 `ConfigProvider` 令牌，是为两套体系共存打的补丁——现在只有一套，**整段作废**。新约定三条，原样进 T2 的 frontend guideline：① 间距与色彩只用 Tailwind 令牌，不留第二套刻度；② 覆盖组件默认样式一律走 `cn()` 合并，禁止行内 style 与 `!important`；③ 业务组件不得直接依赖原语包（`reka-ui`/`radix-vue`，包名待 spike 定），一律经 `components/ui/` 那层封装，将来换原语只改一层。
+**样式体系约定（替换原 preflight 那条）**：原来的 `corePlugins: { preflight: false }` + AntD 走 `ConfigProvider` 令牌，是为两套体系共存打的补丁——现在只有一套，**整段作废**。新约定三条，原样进 T2 的 frontend guideline：① 间距与色彩只用 Tailwind 令牌，不留第二套刻度；② 覆盖组件默认样式一律走 `cn()` 合并，禁止行内 style 与 `!important`；③ 业务组件不得直接依赖原语包（Radix UI），一律经 `components/ui/` 那层封装，将来换原语只改一层。
 
 **仍然成立的两条旧判断**（v2 论证里不是全错）：
 1. **shadcn 在数据密集后台确实是短板** —— 上面的成本表就是这条的兑现，不是被推翻。
@@ -262,28 +262,26 @@ SELECT pg_try_advisory_lock(hashtext('matternest:reminder-scan'))
 ## 5. 仓库拓扑
 
 ```text
-MatterNest/                     单 Nuxt 4 应用（v3 定稿后不再有 apps/server + apps/web 两个 app）
-├─ app/                         页面层（srcDir=app/；ssr:false + spa-loading-template.html）
-│  ├─ pages/ · composables/
-│  ├─ components/ui/            shadcn-vue 复制进来的组件 + 自封装件（DataTable.vue · FileUpload.vue）
-│  │                            —— 业务组件只准依赖这一层，不得直接 import 原语包（§12.3 禁令 7）
-├─ server/                      Nitro 后端
-│  ├─ api/                      一律落 /api/**（禁令 5）：auth/ · matters/ · risk-matters/ · settings/ …
-│  ├─ middleware/               会话解析 + 404 兜底（每请求执行，含 404 路径）
-│  ├─ tasks/                    节点提醒 / 规则 4 / outbox 投递 / 云之家在职同步 —— 全部包 withSingleFlight()
-│  ├─ db/                       Drizzle schema、仓储、ScopeResolver（= 旧构想的 packages/db）
-│  └─ utils/                    服务端专用（可 import Node API）
-├─ shared/                      ⚑ 前后端唯一共用层，**纯 TS**：enums(E01–E37) · Zod schema · ids · time · crypto
-│  └─ （禁令 1：不得 import Vue / Nitro runtime / Node API；只有 shared/utils、shared/types 自动导入）
-├─ deploy/                      compose、minio 桶策略、备份脚本、migrator 一次性服务
-├─ docs/                        7 份文档（基线 / master / 修订稿 / 枚举 / 权限 / 转案件 / 技术选型）+ research
+MatterNest/                     单 Next.js 16 应用（v5）；仍是"一个 app"，不是回到 apps/server + apps/web
+├─ src/app/                     App Router
+│  ├─ (auth)/login/ · (desk)/matters/ · risk-matters/ · parties/ · settings/ …   页面壳，不预取业务数据（§13.2 禁令）
+│  ├─ api/**                    Route Handlers —— 唯一业务写入口，每个 handler 内 withScope()
+│  ├─ components/ui/            shadcn 复制件 + 自封装（DataTable.tsx · FileUpload.tsx）
+│  │                           —— 业务组件只准依赖这一层，不得直接 import Radix UI（§12.3 禁令 7）
+│  └─ lib/server/               服务端专用：db、ScopeResolver、签名、session、云之家客户端（可 import Node API）
+├─ src/shared/                  前后端唯一共用层，**纯 TS**：enums(E01–E37) · Zod schema · ids · time · crypto
+│                              —— 不得 import next/* / react / Node API（客户端与服务器共用同一份）
+├─ worker/                      独立进程：node-cron 跑四件（节点提醒 / 规则 4 / outbox 投递 / 云之家在职同步）
+│                               全部包 withSingleFlight()；复用 src/shared 与 lib/server/db
+├─ deploy/                      compose、nginx.conf（请求体上限、X-Accel-Buffering）、minio 桶策略、备份脚本、migrator
+├─ docs/                        8 份（基线 / master / 修订稿 / 枚举 / 权限 / 转案件 / 技术选型 / 落地方案）+ 4 份 research
 ├─ CHANGELOG.md
 └─ .trellis/                    工程配置（spec 待 T2 填充）
 ```
 
-依赖方向单向：`app/** → shared/**`，`server/** → shared/**` 与 `server/** → server/db`，`shared/**` 不依赖任何一层、且**不得**出现 `#server` 或 Vue 导入（这条是结构性约束，违反即 CI 失败——两侧 bundle 独立是 Nuxt 官方行为，不是风格问题）。
+依赖方向单向：`src/app/** → src/shared/**` 与 `src/app/** → src/lib/server/**`，`worker/** → src/shared/** + src/lib/server/**`，而 **`src/shared/**` 不得依赖任何一层、不得 import `next/*`、`react`、Node API**（它是客户端与服务端共用的一份，一旦污染，前端 bundle 里就会出现服务端代码，这是结构性约束，违反即 CI 失败）。
 
-> 本文件 §4 对应表里写的 `packages/domain/*`、`packages/db` 是 Nest+React 时代的旧路径，按上图读作：`packages/domain/*` → `shared/*`，`packages/db` → `server/db`。§11.3 列的切换成本之一就是这层重命名，别再照旧路径建目录。
+> §4 对应表里的旧路径按本图读作：`packages/domain/*` → `src/shared/*`，`packages/db` → `src/lib/server/db`，`server/api` → `src/app/api`。这三处改名已经发生过两次（Nest 时代 → Nuxt 时代 → Next 时代），**T2 填 spec 时以本图为唯一准**。
 
 `.trellis/config.yaml` 的 `packages` 段需按此填（当前全在注释里），否则 Trellis 的包上下文检测拿不到东西。
 
@@ -417,7 +415,9 @@ S3 曾是胜负手——这个系统的重心就是那张密集的表格与转�
 
 ---
 
-## 12. 全栈 Nuxt 路线（S1/S2 已核，S3 重定义后待 F spike）
+## 12. 全栈 Nuxt 路线（**v5 起已被 §13 取代**，结论继承见 §13.2）
+
+> ⚠ 本节整段作为"Nuxt 路线的一次性核验记录"保留，**不再是指南**。它的价值在于：C1（多副本重复触发）、C3（不中转大文件、预签名直传）、C4（无第一方 session）三条结论与框架无关，已搬进 §13；C2 与所有 Nitro/`shared/` 专属限制随之下线。读本节时先看 §13.2 的继承表，别照抄目录与禁令。
 
 一手核验结果见 `research-nuxt-fullstack-nitro.md`（531 行，版本基线 Nuxt 4.5.2 / nitropack 2.13.4 / h3 1.15.11 / drizzle-orm 0.45.3 / drizzle-kit 0.31.11）与 `research-nuxt-table-vue-ui.md`（前端表格与 shadcn-vue 能力）。**本节取代 §2 的框架行与 §3.1 的结论**；§3.3 已按 Vue 现实重写、§5 拓扑已改单 app；§3.2b、§3.2c、§3.4、§3.5、§3.6、§6、§9 全部继续有效。
 
@@ -434,7 +434,9 @@ Nuxt 全栈成立，不阻塞。7 项主张：VERIFIED 5 项、PARTIALLY 2 项�
 | C3 | `readMultipartFormData` **全量 `Buffer.concat` 进内存**，且 Nitro/h3 层无任何 body size 限制 | **改附件上传方案**：客户端向服务端申请 **MinIO 预签名 PUT** 直传，服务端只登记元数据 + 事后异步校验 hash。这反而比原设计更干净——后端不再中转 50MB 文件流，§7.1 的"签 60s URL"保留，多一条"签 PUT URL" |
 | C4 | Nuxt/Nitro **无第一方 session 模块**（`nuxt-session` 停更于 2018）；h3 `useSession` 只做密封 cookie，不管吊销与枚举 | §3.4 的自建 session 表维持不变。文档与 spec 里禁止出现"用 Nuxt 官方 session"这类表述 |
 
-### 12.3 必须写进 `.trellis/spec/` 的八条禁令
+### 12.3 必须写进 `.trellis/spec/` 的八条禁令（**v4 版，已过时；现行禁令见 §13.5**）
+
+> 下面 1/5/6 三条含 Vue/Nitro 措辞，**不要照抄进 spec**；2/3/4/7/8 的实质仍有效，但请从 §13.5 取现行文字。
 
 1. **`shared/` 只放纯 TS**：不得 import Vue、Nitro runtime、Node API（Nuxt 官方明写两个独立 bundle）；且只有 `shared/utils`、`shared/types` 会被自动导入，子目录需显式配 `imports.dirs` + `nitro.imports.dirs`。
 2. **Drizzle partial index 的 `.where()` 只用 `sql` 模板，禁用 `eq()/and()`**——0.45.3 实测会生成非法的 `$1`（open issue #4790）。锁 `drizzle-orm`/`drizzle-kit` 精确版本，升级时复验。
@@ -462,3 +464,53 @@ Nuxt 全栈成立，不阻塞。7 项主张：VERIFIED 5 项、PARTIALLY 2 项�
 连接池设 10，**不引入 pgbouncer**——顺带消除了 §3.1b 提到的 transaction-mode pooling 与 advisory lock / `SET LOCAL` 的冲突。
 
 将来触发加缓存的可观测信号：单查询 p95 > 200ms 且 `EXPLAIN` 显示索引已最优；副本 > 2 且出现必须跨进程共享的状态；附件需要 CDN（那时加在对象存储侧，仍不是 Redis）。
+
+---
+
+## 13. 全栈 Next.js 路线（v5 现行结论）
+
+一手核验见 `research-nextjs-stack.md`（Next 16.3.6 官方文档，逐条标 VERIFIED / PARTIAL / 未证实）。**本节取代 §11/§12 的框架结论**；后端语言仍是 TypeScript，与 §1~§10 的其余结论（迁移、认证、并发红线、部署、快速上线切法）全部继续有效。
+
+### 13.1 为什么换、换到什么
+
+- **唯一动机**：拿 shadcn 一等待遇。官方安装页与 CLI 页列出的框架是 "Next.js, Vite, Laravel, React Router, Astro, TanStack Start"，Vue/Nuxt 不在其中——shadcn-vue 是社区端口，节奏与文档都慢一层。本项目既定 UI 方向就是 shadcn + Tailwind，且一期前端零投入，是切换成本最低的时点。
+- **不顺手换后端**：Python 一进来就会破枚举表 §5.1 的"枚举与 DTO 前后端共用一份"，并推翻 `:258` 对 codegen 管线的明确否决，还要把 ScopeResolver / 审计 / 脱敏 / 404 语义在两边各写一遍。**换来的收益是零**——shadcn 一等来自 React，不来自 Python。用户口径同样是"Python 没有特定理由"。
+- **落地形态**：Next.js 16（App Router）+ React + 纯 shadcn + Tailwind v4；业务读写走 `src/app/api/**` Route Handlers，表单 mutation 允许 Server Functions；`output: 'standalone'` + Docker 自托管；Drizzle / PG / 迁移 SQL / 认证表结构**一行不改**。
+
+### 13.2 Nuxt 结论的继承与作废
+
+| 原结论 | 处置 |
+|---|---|
+| C1 多副本会重复触发 → advisory lock 是正确性前提 | **继承**（Next 连内置调度都没有，独立 worker 同样多进程） |
+| C2 `nitro task run` 仅 dev | **作废**，补跑改为一次性容器 `docker compose run worker --task <name>` |
+| C3 不中转大文件、预签名 PUT 直传 | **结论继承、兜底位置变了**：请求体上限由 nginx 明确设死（官方自托管页把 payload size 限制列为反向代理职责） |
+| C4 无第一方 session → 自建 `auth_session` | **继承**，§3.4 表结构不动 |
+| §12.3 禁令 1（`shared/` 纯 TS，禁 Vue/Nitro/Node） | **替换**：`src/shared/**` 只放纯 TS，禁 import `next/*`、`react`、Node API |
+| §12.3 禁令 2/3/4（Drizzle `.where()` 只用 sql、无 `.stored()`、禁 `push`） | **完全继承**，与框架无关 |
+| §12.3 禁令 5（API 一律 `/api/**`） | **加强**：业务写入一律 Route Handler，Server Function 只做编排——否则 404 语义与审计会分叉 |
+| §12.3 禁令 6（`spa-loading-template.html`） | **作废**，替换为新禁令"页面壳不得预取业务数据" |
+| §12.3 禁令 7/8（唯一组件体系、表格强制服务端分页） | **继承**，去 Vue 化措辞 |
+
+### 13.3 Next 侧新增的四条硬约束
+
+1. **鉴权不放在 proxy/middleware。** 官方原文："Always verify authentication and authorization inside each Server Function rather than relying on Proxy alone"，且 matcher 排除某路径会连带跳过该路径上的 Server Function。所以 §4 的"默认拒绝"这一层必须落在每个 handler 的 `withScope()` 里，proxy 只做登录跳转。**顺带撤回我上一轮写的"Next middleware 跑 Edge 拿不到 PG 连接"——v16 起 proxy 默认 Node.js 运行时，那条风险不成立。**
+2. **页面壳零业务数据。** 自托管不需要静态导出（`proxy` 在静态导出下根本不支持），所以我们保留服务端进程即可，不必再追求"整站 SPA"；但页面壳若预取业务数据就会绕开行级权限，故列禁令。
+3. **多副本三件套。** 除 advisory lock 外，必须给所有实例同一个 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`（否则滚动发布报 "Failed to find Server Action"）并配 `deploymentId` 防版本错配；默认缓存是每实例一份，与 §12.5"不引任何跨用户缓存"决定天然一致，但**不许改用 `'use cache'`**。若不想配这两个变量，退路是一期单副本。
+4. **graceful shutdown。** 官方要求 SIGTERM 后留 10–30s drain 让 `after()` 回调跑完；worker 容器与 migrator 服务都要照此配，否则 outbox 投递会被掐断。
+
+### 13.4 前置 spike（替代 §8 的 F spike）
+
+N1 装配与 CLI 能力现场看 / N2 一条带 `withScope` 的 404 查询 / N3 worker + 锁 + drain / N4 双副本加密键与 deploymentId / N5 预签名 PUT + nginx 上限 / N6 云之家 OIDC 回跳 / N7 一张真表 + 动态数组表单。逐条通过标准写在 `research-nextjs-stack.md` §5。**注意：原版 shadcn 的 React 组件清单本轮抓取失败、未核到**，所以"有没有现成上传件"不作为已知事实——按自封装排期，两条路线都不变。
+
+### 13.5 现行八条禁令（T2 填 `.trellis/spec/` 时照这一节抄，不要抄 §12.3）
+
+1. **`src/shared/**` 只放纯 TS**：不得 import `next/*`、`react`、Node API——它同时被客户端与服务端引用，污染了就会把服务端代码带进前端 bundle，CI 必须拦得住。
+2. **Drizzle partial index 的 `.where()` 只用 `sql` 模板，禁用 `eq()/and()`**（0.45.3 实测生成非法 `$1`，open issue #4790）；锁 `drizzle-orm`/`drizzle-kit` 精确版本，升级时复验。
+3. **生成列写法**：`generatedAlwaysAs(sql\`…\`)` 或回调形式，**pg 侧没有 `.stored()`**；PG 只有 STORED，生成列不可进 PK/FK/unique、不可引用其他生成列。
+4. **schema 演进只用 `generate` + `migrate`，开发期也不用 `push`**：`push` 检测不到已有索引 `.where()`/表达式变化，而软删 partial unique 是权限模型骨架，用 push 会出现"代码改了、库没改、CI 还绿"的静默漂移。
+5. **业务读写一律 `/api/**` Route Handler**，且**鉴权必须在每个 handler 内部 `withScope()`**——Next 官方明令不得只依赖 proxy/middleware（matcher 排除路径会连带跳过该路径上的 Server Function）。Server Function 只做编排，不承载第二套权限判断。返回体一律 JSON，不可见资源 **404**。
+6. **页面壳不得预取业务数据**：SSR 只出外壳与静态文案，一切业务读取发生在鉴权后的 `/api/**`。否则行级数据范围被页面壳绕开。（替代原"整站 SPA"那条。）
+7. **前端只允许一套组件体系：shadcn + Tailwind。** 禁止为单个控件引入第二套带样式的库（MUI / AntD / Chakra 等）；清单里没有的件一律自封装进 `components/ui/`。业务组件不得直接 import 原语包（Radix UI），必须经 `components/ui/` 那层，将来换原语只改一层。
+8. **表格一律经 `components/ui/data-table/DataTable.tsx` 封装并强制服务端分页/排序/筛选**（每页上限 100）——理由不是性能而是权限：客户端全量拉取再本地筛等于绕过 `ScopeResolver`（权限草案 §4）。表单库**只用 react-hook-form + Zod resolver**（与 `shared/schema` 同源），日期库全项目只允许一个；组件内不得自带第二套校验规则。
+
+外加两条部署级：**(a)** 多副本必须共配 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 与 `deploymentId`，且不使用 `'use cache'`/跨实例共享缓存；**(b)** worker 与 app 都要处理 SIGTERM，留 10–30s drain，outbox 投递不得在关闭时被掐断。
