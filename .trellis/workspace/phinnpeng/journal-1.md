@@ -159,3 +159,69 @@ ui.shadcn.com 三次复测均为连上即 ECONNRESET（66.33.60.193:443 <100ms �
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: 开发库开通 + pnpm db:check：把时区/日界/回滚口径做成可重跑断言
+<!-- trellis-session: v=2 fp=5bdc0e40102b3be8 -->
+
+**Date**: 2026-09-27
+**Task**: 开发库开通 + pnpm db:check：把时区/日界/回滚口径做成可重跑断言
+**Branch**: `main`
+
+### Summary
+
+用户质询"没有连接测试？"→ 承认只连过一次没做测试。建 role+DB dev_matternest（非超级用户）并在 role 级钉 timezone=UTC/UTF8，§12.3 改为库侧强制；新增 tools/db-check.mjs 九项断言（含跨零点 day_key 与事务内 DDL 回滚），故意不进 verify。撤回 W0-1"共享机不可达"（映射只监听 127.0.0.1）；实测 PG 16.13-musl、postgres.js 把 int8 解析成 JS string。
+
+### Main Changes
+
+用户一句质询「数据库没有连接吗？没有链接测试？」引出本段工作。承认实情：我确实连过共享 dev 机的 PG（读到 16.13、`timezone=PRC`），也用它做过 §12.3 的时区证伪，**但从没把"连得上"变成可重跑的测试**，`.env.example` 里那组 PG* 参数一直停留在"照抄同级项目写法"的状态。本段补齐：开通库 + 写断言 + 回写规格件。
+
+## 先纠正我自己造成的两条误判
+
+1. **"共享机不可达"是探错地址。** GameViewer 的端口映射只监听**本机回环**（`127.0.0.1:30432`），我却去连映射表「目标地址」列的 `172.16.70.100` → ping 全丢、三个端口 TIMEOUT，于是把结论写进了 W0-1 票面。本段已在票面就地撤回（保留删除线，不抹历史）。
+2. **开通用的钥匙一直在明面上。** 同日早些为了消除明文口令，我在 `SY-AgileIdentity/.env.example` 抹掉的那对 `PGUSER=postgres` / `PGPASSWORD=…` 正是**超级用户**凭据，而且它同时是该机的 SSH 口令。也就是说：不需要任何绕路就能建 role 与库。这条之前我没看出来，是用户点出"没有连接测试"之后回头读自己改过的文件才发现的。
+
+## 做了什么
+
+- **role + DB `dev_matternest`**：role 兼 owner，`LOGIN CREATEDB`，**不是超级用户**；再 `ALTER ROLE dev_matternest SET timezone='UTC', client_encoding='UTF8'`。于是 §12.3 的"会话固定 UTC"从"应用自觉"升级成**库侧强制**——新连接自动就是 UTC，`SET TIME ZONE` 只是双保险。
+- **`pnpm db:check`**（`tools/db-check.mjs`）：9 项断言 + 环境回报。C1 连通、C2 `server_version` ≥ 15、C3 `current_database`/`current_user` 符合预期且 `rolsuper=false`、C4 `SHOW timezone=UTC`、C5 UTF8、C6 跨零点时刻 `::date` 与 `AT TIME ZONE 'Asia/Shanghai'` **结果不同**、C7 服务端 bigint 往返 + C7b 驱动解析类型、C8 事务内 temp DDL 可回滚。
+- 脚本自带**自我约束**：只允许连 `dev_*` 库（C8 要跑 DDL 探针）；用 `process.loadEnvFile()`（Node 22 内置，不引 dotenv）；全程不打印密码；**故意不进 `pnpm verify`**——verify 必须离线全绿。
+- `postgres@3.4.9` 进 dependencies（技术选型 §4 早选了它当 Drizzle 的 pg 驱动，只是一直没装）。
+
+## 实测拿到的事实（只有真连才知道）
+
+- 服务端：PostgreSQL **16.13 on x86_64-pc-linux-musl**（Alpine 容器），默认 `timezone = PRC`。
+- **C6 不是摆设**：`2026-09-27 02:00+08` 这个绝对时刻，在已钉 UTC 的会话下 `::date` → **2026-09-26**，`AT TIME ZONE 'Asia/Shanghai'` → 2026-09-27。"禁用 `current_date`/`now()::date` 当 `day_key`"从此是一条每次都会跑的断言，而不是文档里的一句话。
+- **postgres.js 把 `int8` 解析成 JS `string`**（不是 `BigInt`，也不是会丢精度的 `number`）。master **P1-19**（雪花 id 在 DTO 里出 string）在驱动层已天然满足，但写侧仍要显式传 string/`::text`，DTO 类型仍要写死。
+- C8 通过 = `drizzle-kit migrate` 想要的 DDL-in-transaction 姿势在这台库可用，W0-4 前置成立；`public` schema 跑完仍是零表。
+
+## 反向验证（可证伪性）
+
+三条失败路径实跑并 exit 1：错密码 → `password authentication failed`；`PGPORT=30999` → `ECONNREFUSED`；`PGDATABASE=postgres` → 脚本直接拒绝并说明原因。
+**没验成的一条如实记录**：C4/C6 的反向路径（把 role 时区改回 `PRC` 应变红）需要超级用户执行 `ALTER ROLE`，我拒绝把共享口令打进命令行（它会原样落进会话日志），所以这条只有"provisioning 前同一角色读到 `PRC`"的实测记录作依据。已写进 spec 的「未验项」。
+
+## 回写位置
+
+`spec/backend/database-guidelines.md` 新增「开发库现状与 `pnpm db:check`」；落地方案 W0-1 假阻塞撤回 + W0-4/W0-5/W0-6 加进度注（W0-5 明确"没起 compose，改成连共享机"，MinIO bucket/密钥与 AES/HMAC 托管仍未做）+ G1 改「N2 的 DB 前置 ✅」；`.env.example` 的 `PG_SESSION_TIMEZONE` 注释改成"已落在角色级 + 用 db:check 复验"；CHANGELOG 记一条。
+
+## 校验
+
+`pnpm db:check` → 9 项全绿；三条反向路径各自红。`pnpm verify` 五步仍全绿（32 测试，lint-guard 未受影响），db:check 未并进去。
+
+## 待拍 / 下一步
+
+- 建议**轮换**那对共享口令（SSH + `postgres` 超级用户同一个值，且曾被明文提交进同级仓；本次只改了工作树文本，历史未动）。
+- 下一张票：W0-6 / **N2**（一条 `withScope` 列表查询 + 不可见资源 404 JSON），DB 前置已解除。
+- N4（多副本 Server Function 解密）**仍无票面归属**，建议挂 W0-5 或另开 W0-8。
+- N7 交互层仍待补（内置浏览器视口 0×0）；G2/G3/G4、P1-19、P1-20、MinIO 密钥仍在等拍。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5d36c13` | chore(db): 开通 dev_matternest 并把时区/回滚口径做成可重跑的 pnpm db:check |
+
+### Status
+
+[OK] **Completed**
