@@ -378,3 +378,44 @@ N7 因此记为**逻辑层通过、交互层待补**。
 ### 校验
 
 `pnpm verify` 五步 ✓（32 测试）；`pnpm build` ✓（路由 `/`、`/spike/n7` 静态 + `/api/spike/matters` 动态）；lint-guard 反向实验仍变红；dev 取证后进程已 kill。
+
+---
+
+## [未发布] — 2026-09-27 · 开发库开通并把"口径"做成可重跑的自检（回应一句质询）
+
+用户问「数据库没有连接吗？没有链接测试？」。答案是：**连过一次，但没变成可重跑的测试**——`.env.example` 里那组 PG* 参数是照抄同级项目写法，没人证明过这台机、这个角色、这个库真能连上且口径符合规格件。本票补齐。
+
+### 先纠正两条我自己造成的误判
+
+1. **"共享机不可达"是探错地址。** GameViewer 的端口映射只监听**本机回环**（`127.0.0.1:30432`），我连的是映射表「目标地址」列的 `172.16.70.100` → 全超时。已在 W0-1 的票面注里撤回。
+2. **开通的钥匙一直在明面上。** 我今天早些为了消除明文口令，在 `SY-AgileIdentity/.env.example` 里抹掉的那对 `PGUSER=postgres` / `PGPASSWORD=…`，正是**超级用户**凭据——角色与库本可以更早创建，不需要绕任何路。（它同时也是 SSH 口令，见下"待拍"。）
+
+### Added
+
+- **role + DB `dev_matternest`**（role 兼 owner，`LOGIN CREATEDB`，非超级用户），并在 **role 级**钉 `timezone='UTC'` + `client_encoding='UTF8'` → 修订稿 §12.3 的"会话固定 UTC"由**库侧强制**，不再依赖每个 handler 记得 `SET`。`public` schema 交付时实测零表（探针表已 drop）。
+- **`pnpm db:check`**（`tools/db-check.mjs`，9 项断言，**故意不进 `pnpm verify`**——verify 必须离线全绿）：C1 连通 / C2 版本 ≥15 / C3 库名+角色名且 `rolsuper=false` / C4 `SHOW timezone=UTC` / C5 UTF8 / C6 跨零点时刻 `::date` 与 `AT TIME ZONE 'Asia/Shanghai'` 结果**不同** / C7+C7b bigint 往返与驱动的 int8 解析类型 / C8 事务内 temp DDL 可回滚。
+- `postgres@3.4.9` 进 dependencies（Drizzle 的 pg 驱动，技术选型 §4 已选，此前只是没装）。
+
+### 实测拿到的五条事实
+
+- 服务端 **PostgreSQL 16.13 on x86_64-linux-musl**（Alpine 容器），默认 `timezone = PRC`。
+- **C6 不是摆设**：同一时刻 `2026-09-27 02:00+08` 在 UTC 会话下 `::date` → **2026-09-26**，`AT TIME ZONE 'Asia/Shanghai'` → 2026-09-27。这就是"`day_key` 禁用 `current_date`/`now()::date`"从纸面规矩变成可执行断言的那一条。
+- **postgres.js 把 `int8` 解析成 JS `string`**（不是 `BigInt`、不是丢精度的 `number`）→ master **P1-19**（雪花 id 出 string）在驱动层已天然满足，DTO 侧仍要显式声明，写侧要用 string/`::text`。
+- C8 通过意味着 `drizzle-kit migrate` 想要的 DDL-in-transaction 姿势在这台库上可用（W0-4 前置）。
+- 三条失败路径已实跑变红并给排查方向：错密码（`password authentication failed`）、端口不通（`ECONNREFUSED`）、`PGDATABASE` 非 `dev_*`（脚本直接拒绝，因为它会跑 DDL 探针）。
+
+### Changed（回写）
+
+- `spec/backend/database-guidelines.md` 新增「开发库现状与 `pnpm db:check`」段。
+- 落地方案：W0-1 的假阻塞撤回；W0-4/W0-5/W0-6 各加进度注（W0-5 明确"没起 compose，改成连共享机"，MinIO bucket/密钥与 AES/HMAC 托管仍未做）；G1 一行改成"N2 的 DB 前置 ✅"。
+- `.env.example` 的 `PG_SESSION_TIMEZONE` 注释改成"已落在角色级 + 用 `pnpm db:check` 复验"。
+
+### 待拍（不阻塞）
+
+- **C4/C6 的反向路径没实机触发**：把 role 时区改回 `PRC` 应当变红，但那需要超级用户 `ALTER ROLE`，我拒绝把共享口令打进命令行（会原样落进日志）。现有依据只有 provisioning 前同一角色读到 `PRC` 的实测记录。
+- **共享口令建议轮换**：它同时是 SSH 与 `postgres` 超级用户凭据，且以明文躺在同级仓库的 `.env.example` 里被提交过。今天只抹了工作树文本，**该仓历史未动**。
+- MinIO bucket 与服务账号密钥、AES/HMAC 托管（B7 未决）。
+
+### 校验
+
+`pnpm db:check` → 9 项全绿、exit 0；三条反向路径各自 exit 1。`pnpm verify` 五步仍全绿（32 测试），未把 db:check 并进去。

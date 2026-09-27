@@ -9,7 +9,7 @@
 
 | # | 门禁 | 为什么卡 | 未过时的绕行 |
 |---|---|---|---|
-| G1 | **N1–N7 spike 通过**（`research-nextjs-stack.md` §5）——**进度：N1 ✅、N7 ✅（逻辑层，交互层待补）、N2–N6 未跑** | 换框架引入 4 个新未知项，其中 N4（多副本 Server Function 解密）与 N6（云之家 OIDC）不通会改架构 | N6 不过 → 一期先只上本地密码，云之家列 M6 |
+| G1 | **N1–N7 spike 通过**（`research-nextjs-stack.md` §5）——**进度：N1 ✅、N7 ✅（逻辑层，交互层待补）、N2 的 DB 前置 ✅（`dev_matternest` 已连通，`pnpm db:check` 9 项全绿）、N2–N6 未跑** | 换框架引入 4 个新未知项，其中 N4（多副本 Server Function 解密）与 N6（云之家 OIDC）不通会改架构 | N6 不过 → 一期先只上本地密码，云之家列 M6 |
 | G2 | **B8 删除语义拍定** | 决定所有表的 FK 动作、软删与 partial unique 写法，迁移文件是唯一事实源，后改=全库返工 | 无绕行，必须先拍 |
 | G3 | **P0-6 主表业务字段归属拍定** | 权限草案 §10 契约矩阵要按它生成用例 | 暂按建议口径实现（业务字段属护栏 2，归属/状态类属护栏 1），但**不得当定稿写测试** |
 | G4 | 目标 G1–G4 与漏斗签字 | 只影响验收与上线判定，不阻塞编码 | 可与 M1 并行补 |
@@ -58,13 +58,17 @@ src/shared/**  纯 TS：枚举 E01–E37 · Zod schema · ids · time · crypto�
 
 ### M0 地基
 - **W0-1** 仓库骨架 + pnpm + TS 严格模式 + ESLint/Prettier + Vitest 配置。派
-  > **✅ 已完成（2026-09-27）**，任务 `.trellis/tasks/09-27-w0-1-repo-skeleton`（已 archive）。三处当场拍定：Node 钉 22（实测 v22.22.2，技术选型 §7 的"Node 24"已改）、开发期连共享机映射口、CI 先只给本地 `pnpm verify`。额外交付一条本票原本没要求的东西：`tools/lint-guard/` 用虚拟路径喂真 config，**对禁令① 的 lint 规则本身做回归**（并已把 `files` 段改坏验证过它会红）。**遗留阻塞**：172.16.70.100 实测不可达（ping 全丢 + 30432/30090/30306 TIMEOUT），W0-5 前须确认。
+  > **✅ 已完成（2026-09-27）**，任务 `.trellis/tasks/09-27-w0-1-repo-skeleton`（已 archive）。三处当场拍定：Node 钉 22（实测 v22.22.2，技术选型 §7 的"Node 24"已改）、开发期连共享机映射口、CI 先只给本地 `pnpm verify`。额外交付一条本票原本没要求的东西：`tools/lint-guard/` 用虚拟路径喂真 config，**对禁令① 的 lint 规则本身做回归**（并已把 `files` 段改坏验证过它会红）。
+  > ~~遗留阻塞：172.16.70.100 实测不可达~~ **该结论已于同日撤回，是我探错了地址**：GameViewer 的端口映射只监听**本机回环**，正确地址是 `127.0.0.1:30432`（PG）/ `30090`（MinIO API）/ `30091`（MinIO 控制台）。现在 PG 侧已开通并自检通过，见 W0-5 与 `spec/backend/database-guidelines.md`「开发库现状」。
 - **W0-2** Next 16 + Tailwind v4 + shadcn 装配，产出 `components/ui/` 基线。出处：技术选型 §3.3、研究文档 §5 N1。派
   > **✅ 已完成（2026-09-27，N1 通过）**：`next@16.3.6 + react@19.3.0 + tailwindcss@4.3.3 + shadcn@4.21.0` 装配完毕，`src/app/components/ui/` 出六件基线（button/card/input/dialog/attachment/calendar），`components.json` 的 aliases 已按 §5 配到 `@/app/components/ui`（实测有效）。中文 locale 验通。三条新硬约束写进 spec：`Locale` 含函数不能跨 server→client 传、`cn` 改用 shadcn 官方包、**跑 CLI 必须 review diff**（它注入的 `next/font/google` 与内网部署冲突，已移除）。曾阻塞的 `ui.shadcn.com` 是域名级重置，加代理后解决。详证 `research-nextjs-stack.md` §6.4。
 - **W0-3** `src/shared/enums` 落地 E01–E37（含中文名字典），并写**CHECK↔值数组一致性测试**。出处：枚举表 §5.1、§5.2。审（这条错了后面全错）
 - **W0-4** Drizzle + 迁移管线：`generate`→人审→尾部手写 SQL 补丁；禁 `push`；`migrator` 一次性服务 + `pg_advisory_lock`。出处：技术选型 §3.2b/§3.2c、§12.3 禁令 2/3/4。审
+  > **前置已就位（2026-09-27）**：`dev_matternest` 库/角色开通，`pnpm db:check` 9 项断言全绿（含"事务内 temp DDL 可回滚"C8 —— 正是 `migrate` 的执行姿势）。目标库是**共享 dev 机的空库**，`public` schema 实测零表，所以第一版迁移是真 `generate` 而不是从已有库反向。
 - **W0-5** compose 开发栈（pg/minio/nginx conf/worker）+ 密钥 env 清单（PG/MINIO/AES/HMAC/云之家/OIDC/state/NEXT_SERVER_ACTIONS_ENCRYPTION_KEY/DEPLOYMENT_VERSION）。派
+  > **进度（2026-09-27）：PG 侧一半已完成，但完成方式与票面不同——没有起 compose 容器，而是连共享 dev 机**（本机 `127.0.0.1:30432`，PG 16.13/linux-musl）。已开通 role + DB `dev_matternest` 并在 **role 级**钉死 `timezone='UTC'` + `client_encoding='UTF8'`，因此 §12.3 的"会话固定 UTC"由库侧强制，不依赖应用自觉；连接与口径的重复自检 = `pnpm db:check`（故意不进 `pnpm verify`，后者必须离线）。**仍待做**：MinIO bucket 与服务账号密钥（等 B/派单口径）、AES/HMAC 两把密钥的托管（B7 未决）、nginx conf 与 worker 容器、`.env.example` 里那几个空占位的实际值。
 - **W0-6** N2 验证：一条 `withScope` 查询 + 404 JSON。出处：研究文档 §2.1/§2.2。审
+  > **DB 前置解除（2026-09-27）**：连接可用且有重复自检（见 W0-4/W0-5 注），N2 不再被"库没连上"卡住。顺带一条实测事实：postgres.js 把 `int8` 解析成 **JS string**（不丢精度），P1-19 的"雪花 id 出 string"在驱动层已天然满足，但 DTO 侧仍要显式声明。
 - **W0-7** **T2 填 `.trellis/spec/` 12 份空模板**（backend 5 + frontend 7，现状每份仍是 51–59 行占位），内容取自技术选型 §4 对应表 + **§13.5 现行八条禁令** + §3.3 样式三条 + 枚举表 §5；同时补 `.trellis/config.yaml` 的 `packages` 段（当前全在注释里，导致包上下文检测拿不到东西）与 `default_package`，并把 `.trellis/tasks/00-bootstrap-guidelines`（现 `in_progress`）做完关闭。**派单前置：这一票不做，后续所有子代理都拿不到"禁裸表访问、CHECK 手写、`.where()` 只用 sql、禁第二套组件库"这些约束。**审
   > **✅ 已完成（2026-09-27）**。三处票面口径按实测更正：① 实际是 **13 份**（backend 5 指南 + `index.md`；frontend 6 指南 + `index.md`；`spec/guides/` 3 份模板按要求保留不动）；② `packages` 段**不填**——声明 packages 会把 spec 基准切到 `spec/<package>/`，实测输出 `Spec: not configured`，比不填更差（依据 `scripts/common/config.py:396`、`packages_context.py:30`；已在 `config.yaml` 注释与技术选型 §5 留证）；③ spec 语言裁定为**中文**（技术选型 §7 末那条未决口径冲突随之关闭）。顺带产出两条新发现：spec 现要求"未 spike 的能力一律标 `UNVERIFIED`"，以及 **P1-19**（雪花 id 的 JSON 序列化口径未定）。
 

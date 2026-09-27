@@ -11,6 +11,22 @@
 
 ---
 
+## 开发库现状与 `pnpm db:check`（2026-09-27 实测）
+
+一期开发库**已经开通并验证**，写 W0-4/W0-5 之前先跑一次 `pnpm db:check`，不要靠"参数照抄同级项目"的假设。
+
+- **实例**：共享 dev 机 PostgreSQL **16.13**（Alpine/linux-musl）。经 GameViewer 端口映射暴露，**本机连 `127.0.0.1:30432`**——映射只监听回环，连 `172.16.70.100:30432` 必然超时（这条曾让我误报"共享机不可达"）。
+- **角色与库**：`dev_matternest`（role 兼 DB owner，`LOGIN CREATEDB`，**非超级用户**）。role 级默认 `timezone='UTC'` + `client_encoding='UTF8'`，所以"会话固定 UTC"是**库侧强制**，不依赖每个 handler 记得 `SET`。
+- **凭据位置**：`.env`（已 gitignore，禁提交）；模板 `.env.example`。脚本全程不打印密码，且**拒绝连非 `dev_*` 库**（C8 会跑 DDL 探针）。
+- **断言**：C1 连通 / C2 版本 ≥15 / C3 库名+角色名符合预期且 `rolsuper=false` / C4 `SHOW timezone=UTC` / C5 UTF8 / C6 跨零点时刻 `::date` 与 `AT TIME ZONE 'Asia/Shanghai'` 结果不同（即"禁 `current_date`/`now()::date` 当 `day_key`"的实机证据）/ C7 bigint 服务端往返 + C7b 驱动的 int8 解析类型 / C8 事务内 temp DDL 可回滚。
+- **不进 `pnpm verify`**：verify 必须离线全绿，`db:check` 是显式命令。
+- **已实测的驱动事实**：postgres.js 把 `int8` 解析成 **JS `string`**（不是 `BigInt`、不是丢精度的 `number`）。P1-19「bigint id 在 DTO 里出 string」因此天然满足一半，但**写侧仍要显式传 string/`::text`**，且别让 `useNumberId` 之类的隐式转换进代码。
+
+**未验项**：C4/C6 的反向路径（把 role 时区改回 `PRC` 应当变红）需要超级用户执行 `ALTER ROLE`，本次未实机触发——依据只有 provisioning 前同一角色读到 `timezone = PRC` 的实测记录。C1/C3/C8 的失败路径已实跑变红（错密码、端口不通、非 `dev_` 库）。
+
+
+---
+
 ## 迁移：SQL 文件是唯一事实
 
 1. **只用 `generate` + `migrate`。开发期也禁止 `drizzle-kit push`。**
