@@ -314,7 +314,7 @@ docker compose (单主机，律所内网)
 
 | # | 假设 | 依据 | 若不成立 / 裁定结论 |
 |---|---|---|---|
-| A | **团队是 TS/Node 背景** | 你在 SY-YunAgent 是 npm scope 的 monorepo，本机 Node 24 | 换 **Spring Boot 3 + MyBatis 或 JPA + Flyway(SQL-first) + 同一套前端**。设计文档全部不受影响，只有 §3.1/§3.2/§3.1b 与仓库拓扑要重做 |
+| A | **团队是 TS/Node 背景** | 你在 SY-YunAgent 是 npm scope 的 monorepo，本机 Node 24〔**2026-09-27 W0-1 实测更正：`node -v` = v22.22.2**；Next 16.3.6 官方最低 Node 20.9，故 `engines` 钉 `>=22.0.0 <23`，不影响本条假设成立〕| 换 **Spring Boot 3 + MyBatis 或 JPA + Flyway(SQL-first) + 同一套前端**。设计文档全部不受影响，只有 §3.1/§3.2/§3.1b 与仓库拓扑要重做 |
 | B | **单所内部使用、无跨所隔离** | 本轮已定"不引入组织维度" | 若将来多分所，权限模型重写（转案件 §5、权限草案 §9 已记录该代价） |
 | C | ~~第一期不接 SSO/IdP~~ | **已作废**（2026-09-26 裁定）：第一期即做云之家登录 + 本地密码双通道，见 §3.4 | 工作量已并入 §3.4 的 +3~5 天；外部依赖（应用注册、回调登记、内网可达）见 §6 |
 | D | ~~前端取"AntD + Tailwind 混用"而非纯 shadcn~~ **已裁定（2026-09-26）** | 路线已是全栈 Nuxt（§12），AntD 混用这条比较对象随之消失 | **取纯 shadcn-vue + Tailwind v4 + `@tanstack/vue-table` 自封装 DataTable**；"双库混用"选项作废。代价（前端 +1~1.5 周）转为**已接受的确定成本**，去处与压缩手段见 §3.3；核验见 `research-nuxt-table-vue-ui.md` |
@@ -331,6 +331,8 @@ docker compose (单主机，律所内网)
 ---
 
 ## 8. 下一步
+
+> **W0-1 落地的两个版本约束（2026-09-27 实测，写在这里免得下个票再撞）**：`registry` 上 `typescript` 已出到 **7.0.2**，而 `typescript-eslint@8.70.1` 的 peer 是 `>=4.8.4 <6.1.0` —— 直接 `pnpm add -D typescript` 会装到 7.x 并产生 unmet peer，本仓已钉 **`typescript@5.9.3`**；同理 `@types/node` 默认装到 26.x 与 `engines` 的 22 不符，已改钉 **22.20.4**。Next 16 与 TS 7 的兼容性属 N1 spike 范围，未验前不要升。
 
 T1 定稿后依次：
 1. **F（0.5 天，最先做）** 前端装配 spike：`shadcn-vue init` 后的真实原语依赖与版本、一张服务端分页的表、动态数组表单、自写上传件、中文 locale —— 验收标准写在 `research-nuxt-table-vue-ui.md` §5。它决定组件层，做晚了整片页面返工。

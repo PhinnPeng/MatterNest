@@ -1,0 +1,10 @@
+# 设计文档不参与格式化：它们是逐字引用与节号锚点的载体，重排会让 diff 不可读，
+# 也会破坏"按行号取证"的可追溯性。
+docs/
+.trellis/
+CHANGELOG.md
+AGENTS.md
+pnpm-lock.yaml
+node_modules/
+.next/
+coverage/

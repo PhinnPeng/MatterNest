@@ -5,6 +5,38 @@
 
 ---
 
+## [未发布] — 2026-09-27 · W0-1：仓库骨架落地，第一条 CI 断言自带证伪
+
+票面：`docs/implementation-plan-v1.md` §3 的 **W0-1**（派票）。三处口径由用户当场拍定：Node **钉 22**、开发期数据服务**连共享 dev 机映射口**、CI **先只写本地 `pnpm verify`**（平台后定）。
+
+### Added
+
+- 根配置：`package.json`（private、`packageManager: pnpm@10.33.2`、`engines: >=22.0.0 <23`、七个 script）、`tsconfig.json`（`strict` + `noUncheckedIndexedAccess` + `verbatimModuleSyntax` + `moduleResolution: bundler`，零 emit）、`eslint.config.mjs`（flat config）、`.prettierrc` / `.prettierignore`、`vitest.config.mts`、`.env.example`（十项键名零凭据）。
+- 目录骨架按技术选型 §5 建：`src/app/`、`src/app/components/ui/`、`src/app/lib/server/`、`src/shared/`、`worker/`、`deploy/`，每处一句"这里放什么、哪票开始有内容"的 README。**不建 `pnpm-workspace.yaml`**（§5 明写单 app、§3.6 否了 turborepo/nx、`config.yaml` 的 packages 段昨日已裁定不填，三处一致）。
+- **`tools/lint-guard/` —— 对 lint 规则本身的测试**。禁令①（`src/shared` 只放纯 TS）光在 config 里写一条 `no-restricted-imports` 不算数：glob 打错、`files` 段指错目录、被后面的 config 覆盖，都会让规则**静默失效而 CI 全绿**。`check.mjs` 把 fixtures 里的代码用 `lintText` 以 `src/shared/` 下的**虚拟路径**喂给仓库真 config，五道断言：fixture 非空 / 违规必被拦 / 合法不误伤 / 规则确实挂在 src/shared / **不溢出到 `lib/server`**（那层允许 Node API）。
+  - 这道断言自己也被证伪过：把 `files` 段改成 `src/shareWRONG/**` 后 `check.mjs` 立刻 exit 1 并指名失败项，改回即绿。
+- `src/shared/dirs.ts` + `purity.spec.ts`：骨架期唯一纯 TS 实体（tsc 与 vitest 需要输入文件才跑得起来），顺带把 README 那张"五个子目录"表变成可断言。
+
+### Changed
+
+- 技术选型 §7 假设 A：原文"本机 Node 24"**与实测不符**（`node -v` = v22.22.2），按 append-only 改正；Next 16.3.6 官方最低 Node 20.9 已核，`engines` 钉 22 不影响该假设成立。
+- 技术选型 §8 新增两条版本约束：`registry` 上 `typescript` 已到 **7.0.2**，而 `typescript-eslint@8.70.1` 的 peer 是 `>=4.8.4 <6.1.0`，直接装会 unmet → 本仓钉 **5.9.3**；`@types/node` 默认 26.x 与 `engines` 的 22 不符 → 钉 **22.20.4**。Next 16 × TS 7 的兼容性属 N1，未验不升。
+
+### Fixed
+
+- `eslint .` 起初因 fixture 自身违规而红 —— 改为把 `tools/lint-guard/fixtures/**` 加入 ignores、由 `check.mjs` 以虚拟路径喂规则，既保住"仓库 lint 干净"，也保住"规则被证伪时必红"。
+- `tools/**/*.mjs` 触发 `no-undef`（`console`/`process`）—— 补 Node globals 段，而不是关掉 `no-undef`。
+
+### 阻塞上报（不属本票，但挡 W0-5）
+
+共享 dev 机 **172.16.70.100 当前完全不可达**：ping 100% 丢包，`30432`/`30090`/`30306` 三端口 TCP 全 TIMEOUT（`node net.connect` + `ping` 双向确认）。W0-5 之前要确认机器是否开机、GameViewer 映射是否在、IP 是否变。本票的 `.env.example` 因此只写占位 host，并在文件头注明"未验证"。
+
+### 校验
+
+`pnpm install` → `pnpm verify` 全绿（format:check / eslint / tsc / vitest 2 passed / lint-guard）。任务 `.trellis/tasks/09-27-w0-1-repo-skeleton`（prd + design + implement + 两个 jsonl）随票入库，完成后 archive。
+
+---
+
 ## [未发布] — 2026-09-27 · W0-7：`.trellis/spec/` 由空模板填成派单约束
 
 启动 Trellis 任务流程（`init_developer.py` + `task.py start 00-bootstrap-guidelines`）并做完 **W0-7**。此前 `.trellis/spec/` 的 13 份模板每份 51–59 行、全是 `(To be filled by the team)` 占位，implement/check 子代理拿不到任何本仓约束——落地方案 §7 把这一票定为**硬派单前置**。

@@ -6,3 +6,15 @@
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# W0-1 骨架：构建产物与依赖
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# 密钥清单只留 .env.example（技术选型 §6：任何密钥不入库）
+.env
+.env.*
+!.env.example

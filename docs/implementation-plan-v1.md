@@ -58,6 +58,7 @@ src/shared/**  纯 TS：枚举 E01–E37 · Zod schema · ids · time · crypto�
 
 ### M0 地基
 - **W0-1** 仓库骨架 + pnpm + TS 严格模式 + ESLint/Prettier + Vitest 配置。派
+  > **✅ 已完成（2026-09-27）**，任务 `.trellis/tasks/09-27-w0-1-repo-skeleton`（已 archive）。三处当场拍定：Node 钉 22（实测 v22.22.2，技术选型 §7 的"Node 24"已改）、开发期连共享机映射口、CI 先只给本地 `pnpm verify`。额外交付一条本票原本没要求的东西：`tools/lint-guard/` 用虚拟路径喂真 config，**对禁令① 的 lint 规则本身做回归**（并已把 `files` 段改坏验证过它会红）。**遗留阻塞**：172.16.70.100 实测不可达（ping 全丢 + 30432/30090/30306 TIMEOUT），W0-5 前须确认。
 - **W0-2** Next 16 + Tailwind v4 + shadcn 装配，产出 `components/ui/` 基线。出处：技术选型 §3.3、研究文档 §5 N1。派
 - **W0-3** `src/shared/enums` 落地 E01–E37（含中文名字典），并写**CHECK↔值数组一致性测试**。出处：枚举表 §5.1、§5.2。审（这条错了后面全错）
 - **W0-4** Drizzle + 迁移管线：`generate`→人审→尾部手写 SQL 补丁；禁 `push`；`migrator` 一次性服务 + `pg_advisory_lock`。出处：技术选型 §3.2b/§3.2c、§12.3 禁令 2/3/4。审
