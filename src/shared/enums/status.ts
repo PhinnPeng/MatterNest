@@ -9,13 +9,24 @@
  * "新建状态只能选 custom"是 API 规则 —— 四个内置语义由 seed 持有、不可授予。
  */
 
-/** E08 `status_config.host_type` */
-export const HOST_TYPES = ["matter", "risk_matter"] as const;
-export type HostType = (typeof HOST_TYPES)[number];
+/**
+ * E08 `status_config.host_type` —— 值域与 E10（`node_type_config.host_type`）完全相同，
+ * 因此**不在此重复定义**：单一实现住在 `./targets`，这里只做再导出。
+ * 两份数组 = 本票要防的第一类漂移（改了 E08 忘了 E10）。
+ */
+export { HOST_TYPES, HOST_TYPE_LABELS, type HostType } from "./targets";
 
 /** E09 `status_config.semantics` —— 顺序即 DDL CHECK 里的顺序，改动会触发一致性测试 */
 export const STATUS_SEMANTICS = ["open", "in_progress", "closed", "archived", "custom"] as const;
 export type StatusSemantics = (typeof STATUS_SEMANTICS)[number];
+/** 展示名按修订稿 §3.1 的语义描述取短词（文档未给逐项中文，见 `business.ts` 的 DERIVED_LABELS 同口径） */
+export const STATUS_SEMANTIC_LABELS: Record<StatusSemantics, string> = {
+  open: "初始态",
+  in_progress: "进行中",
+  closed: "结案",
+  archived: "归档",
+  custom: "自定义",
+};
 
 /**
  * semantics → 系统行为与"每 host_type 数量约束"（修订稿 §3.1 表）。

@@ -81,9 +81,17 @@ index("uk_rule_scope").unique()
 
 - 取值**权威源**是 `docs/PRD-phase1-enums-and-schemas.md`（E01–E37，其中 34 项为真实取值）。落地在 `src/shared/enums/`（枚举表 §5.1 的目录按现行拓扑读作此路径），每个文件同时导出 **TS 联合类型 + 值数组 + 中文名字典**。
 - **CHECK 手写进迁移 SQL**，不做 codegen 管线（枚举表 §5.1 已把原"由值数组生成"改判为"手写 + 一条一致性测试"）。
-- **必配测试**：读值数组与迁移文件里的 `CHECK` 取值做集合比较，不一致即 CI 失败（M0 退出条件之一，落地方案 §2）。
+- **必配测试（W0-3 已落地为通用机制）**：`src/app/lib/server/db/enum-check.spec.ts` 三重比对 ——
+  ① `ENUM_REGISTRY` 声明"已进库"的值域，迁移里必须存在对应 `CHECK` 且集合逐字相等；
+  ② **反向**：迁移里出现的任何 `IN (…) CHECK` 必须被注册表认领（只走正向会漏"手写补丁加了值域没登记"）；
+  ③ **与权威源原文对拉**：逐行解析枚举表 §1/§2 的「取值」列比对，两边同时抄错也会当场红。
+  解析器自己有单测（含"裸约束名"形态，枚举表 §5.2 的手写补丁模板就是裸名）。
   已落地：`src/app/lib/server/db/schema/status-config.spec.ts` —— 它**读迁移 SQL 而不是读 TS**（迁移才是唯一事实；有人直接在迁移尾部改 CHECK，测试会立刻红），并顺带断言三个 partial unique 的 `WHERE` 还在、生成列没被塞进任何索引。反向验证做过：往 `STATUS_SEMANTICS` 里加一个 `'converted'` → 该测试红，撤掉即绿。
 - 类型用 `varchar + CHECK`，**不用 PG `enum` 类型**（修订稿 §8.3/§12.2：加值要 `ALTER TYPE` 且受事务/逻辑复制限制）。
+- **同值域只允许一份实现**：`host_type`（E08∩E10）住在 `src/shared/enums/targets.ts`，`status.ts` 再导出；
+  outbox/领域事件（E32∩E33）住在 `automation.ts`，`notify.ts` 再导出。测试断言的是"同一个数组引用"，两份相等的数组不算单实现。
+- 建表时要抄的值域与约束名都在注册表的 `usedBy` / `constraint` 字段里，**不要在迁移里现编约束名**：
+  命名规范是 `ck_<表名去下划线>_<列名>`，反向检查与命名断言都依赖它。
 - 加值 / 废值规则（枚举表 §5.3）：新增值＝改常量 + 迁移 `DROP`/`ADD CONSTRAINT`（全表扫，一期数据量可接受）；**禁止从 CHECK 里删值**（历史行会违反约束），废弃值常量保留标 `@deprecated`；需要运营自助加值＝判断错了，按枚举表 §6 升格为配置表，**不要**放宽成无约束 `varchar`。
 - 三条 CHECK 模板见枚举表 §5.2，其中节点时间的 `ck_node_time_shape`（range 必须有起止、point 禁填 `end_time`、双 NULL＝待定时间）必须逐条落地。
 

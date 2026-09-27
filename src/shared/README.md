@@ -13,4 +13,8 @@
 | `time/`   | 期限计算、`date` 与 `timestamptz` 边界         | 修订稿 §12.2/§12.3        |
 | `crypto/` | AES-GCM 字段加密 + HMAC 索引列                 | 技术选型 §4、修订稿 §6.3  |
 
-W0-3 落 `enums/`（审票）；W1-7 落 `schema/`。
+`enums/` 已落地（W0-3，2026-09-27）：分册 `targets / status / business / notify / auth / audit / automation`
+
+- `index.ts`（`ENUM_REGISTRY`，E01–E37 逐行登记，含三行"本就不是枚举"的占位）。
+  **一致性测试不在这里** —— 它要读迁移 SQL 与文档，得用 `node:fs`，而本层禁止 Node API，
+  故落在 `src/app/lib/server/db/enum-check.spec.ts`。W1-7 落 `schema/`。
