@@ -366,3 +366,99 @@ ALTER TABLE "status_config" ADD CONSTRAINT ck_status_unregistered CHECK (color I
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: W1 可跑 Demo：mn_ 前缀全量落地，登录→列表→详情→转案件走通
+<!-- trellis-session: v=2 fp=dd61d0e03573efc7 -->
+
+**Date**: 2026-09-27
+**Task**: W1 可跑 Demo：mn_ 前缀全量落地，登录→列表→详情→转案件走通
+**Branch**: `main`
+
+### Summary
+
+把 W1/W2 的宿主与权限读写做成能真点的界面（深色左侧主菜单 + 冷墨纸/电蓝），并抓到三条只在真跑时才现形的缺陷：L2 谓词 SQL 一直语法错（seed 里没有纯 L2 账号）、登录把未开通与口令错分了文案、失败查询停在 paused 让骨架屏转不停。verify/build/db:check/68 条真 HTTP 冒烟全绿。
+
+### Main Changes
+
+用户裁定「全量推动，形成一个可用的 Demo，其他的你决定即可 / 科技蓝 / 左侧主菜单」，
+另加一条「表名采用前缀命名」。本轮把 W1 的宿主读写、W2 的权限落地、W3/W4 的界面一次做完。
+
+## 表名 `mn_` 前缀
+
+21 张表 / 45 索引 / 31 CHECK 重新 `generate` 成 `0000_mn_baseline.sql`，seed 全量重放，
+`pnpm db:check` 12/12。同构表对（`mn_matter_*` / `mn_risk_matter_*`）由工厂函数产，
+所以 Drizzle 侧属性名统一叫 `hostId`、DB 列名分别是 `matter_id` / `risk_matter_id`
+—— 这条差别在本轮清场脚本上咬过一次（按 `host_id` 删 → 42703），已写进 spec。
+
+## 界面
+
+主题落在 `globals.css`：冷墨纸底 + 电蓝主色，理由三条写在文件注释里
+（长时间读表不用纯白；主色只出现在"当前页/主操作/焦点"三处；语义色只给点+词不给整块底色）。
+`components/app-shell.tsx` 是深色左侧主菜单（工作台 / 案件 / 风险事项 / 配置），
+顶栏放标题与账号。列表状态一律落 URL（可分享、后退可回、刷新不丢筛选）。
+原语八件（badge label select separator table tabs textarea skeleton）取自官方 registry。
+
+**registry 取不下来的真正原因是缺代理**，不是网络封锁：
+`HTTPS_PROXY=… node --use-env-proxy ./node_modules/shadcn/dist/index.js add -y [-o] …`。
+两个附带坑记进了 `spec/frontend/component-guidelines.md`：
+`.bin/shadcn` 是 shell wrapper（`node <它>` 会当 JS 解析报错）；
+registry 产出的文件不符合本仓 prettier 口径，落地后**只对那 8 个文件** `--write`，
+绝不跑 `pnpm format`（它会重排 `docs/**`，而 baseline 永不改写）。
+
+## 三条只在真跑时才现形的缺陷（纸面 review 全漏）
+
+1. **L2 谓词的 SQL 一直是坏的**：drizzle `exists()` 只对 QueryBuilder 加括号，
+   传 `sql` 模板渲染成 `exists select 1 …` → PG 42601。根因是 seed 里**没有纯 L2 账号**
+   （103 兼两角色取并集后是 L1），那条分支从没被执行过。
+   修 `visibility.ts` + `overview.ts`，并把账号分布改成 纯L1/纯L2/纯L3 各一；
+   配套把 `mn_app_user_role` 的 upsert 冲突键换成 `("id")` —— 用复合唯一键时改角色会撞主键、重放即崩。
+2. **登录把"未开通"和"口令错"分了文案**：用的 `unauthorized()`（"会话已失效或未登录"），
+   与同文件顶部"三种失败同一句"自相矛盾，等于给出账号存在性字典。冒烟里那条"同码同文案"断言抓到的。
+3. **失败查询永远停在骨架屏**：react-query 只在两次重试**之间**问 `onlineManager`，
+   内嵌/后台标签里它报 offline，查询就停在 `fetchStatus:"paused"`、`isPending` 恒真。
+   取证没有靠猜：临时把 QueryClient 挂到 `window` 读 `getQueryCache()`，
+   看到 `{status:"pending", fetchStatus:"paused"}` 才动手 —— 改成 4xx 一次都不重试（5xx 仍试 1 次）。
+   同一轮还补了 `http.pathId()`：`BigInt("undefined")` 会把一个手打错的 URL 冒成 500。
+
+另两处口径修正：初始状态改读 `mn_status_config.is_initial_status`
+（写死 `"pending"` 在本仓**测不出来**，因为 seed 那行恰好也叫 pending）；
+`/api/meta` 原先自己 select 状态、**漏了 `is_enabled` 过滤** ⇒ 被停用的状态仍出现在下拉且可提交，
+改走 `hostStatusRows` 并顺手消掉第三份重复实现（`getMatter` 里那份连 hostType 都没带）。
+
+## 门禁扩到三条
+
+`tools/lint-guard` 从 1 条禁令（① shared 纯净）扩到 3 条：新增 ⑦ 一套组件体系、⑥⑤ 页面壳不碰数据层，
+改成 SCOPES 表驱动 + 4 个新 fixture。反向验证做了：把 `files` 段指到错目录 → EXIT=1 且点名 B/D 两条；
+排序映射的 `Record<SORTABLE_COLUMNS, SQL>` 也两侧实撞（删键 → TS2741，改名 → TS2353）。
+新规则当场抓到自己写的违规：两张列表从 `@tanstack/react-table/legacy` 直连取 `LegacyColumnDef`，
+改成由 `components/ui/data-table/` 再导出。
+
+## 校验
+
+`pnpm verify` 五道全绿（格式 / lint / tsc / 58 test / lint-guard 三禁令）；`pnpm build` 22 条路由；
+`pnpm db:check` 12/12；seed 重放幂等。
+真 HTTP 冒烟 **68 条断言全绿并自动清场**（`agent-work/smoke-demo.mjs`）：
+三档范围条数递增收窄且互为子集、L2 里存在 L3 看不见的行、不可见读写都 404、
+`pageSize=500`→400、`includeArchived` 四值都收而 `yes` 拒、初始态取自配置表、
+归档无原因 422 / 带原因成功且默认列表隐藏、转案件后 `conversion_status=1 count=1` 且金额不继承、
+四个页面壳里都不含业务编号（禁令⑥）。
+另用 0×0 内嵌面板读了真实 DOM：列表 10 列 5 行、详情 5 Tab + 节点三键、工作台到期清单与读数都对。
+
+## 未验 / 未做（别当成全绿）
+
+未验：**真实可见浏览器下的观感**（配色、密度、好不好看）——这台机器的面板是 0×0 hidden，截图不成立，只核了结构。
+未做：事项侧状态流转（只有案件有 `POST /status`）、事项详情页（"转案件"做在列表行上）、
+附件（等 MinIO 服务账号）、费用、进展写入、@提及、配置编辑、用户与角色页、云之家通道、报表两张。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dcc5a2f` | feat(demo): W1 可跑 Demo——mn_ 前缀全量落地，登录→列表→详情→转案件走通 |
+| `e126594` | chore(trellis): Demo 票关票归档（09-27-demo-slice） |
+
+### Status
+
+[OK] **Completed**
