@@ -39,7 +39,7 @@ src/shared/**  纯 TS：枚举 E01–E37 · Zod schema · ids · time · crypto�
 
 | 阶段 | 内容 | 退出条件 |
 |---|---|---|
-| **M0 地基**（3–4 天） | 仓库骨架、Next+Tailwind+shadcn 装配、Drizzle+迁移管线、lint/CI、compose 开发栈、`src/shared` 枚举包落地 | N1/N2 通过；`pnpm db:generate && db:migrate` 在空库可重放；CI 有"CHECK 与值数组一致性"这条测试 |
+| **M0 地基**（3–4 天） | 仓库骨架、Next+Tailwind+shadcn 装配、Drizzle+迁移管线、lint/CI、compose 开发栈、`src/shared` 枚举包落地、**T2 填 `.trellis/spec/` 12 份 + config packages 段** | N1/N2 通过；`pnpm db:generate && db:migrate` 在空库可重放；CI 有"CHECK 与值数组一致性"这条测试；**spec 里已写入 §13.5 八条禁令，bootstrap 任务关闭** |
 | **M1 数据与契约**（3 天） | 全部表结构 + 索引 + seed（配置 5 表 / 8 状态 / 8 规则 / 7 模板 / 5 角色）+ Zod 契约 + OpenAPI 生成 | 迁移评审通过；seed 幂等可重放；`/api/**` 契约快照进版本库 |
 | **M2 权限与账号**（5–6 天） | session/双通道登录、ScopeResolver+`withScope`、4 特权 + 2 护栏 + 可见用户集、`selectable-users`、用户与角色页 | 权限草案 §10 矩阵（5×3×7）**全绿**；裸表访问 CI 拦得住 |
 | **M3 主档 CRUD**（8–10 天） | 案件/事项 + 节点 + 进展 + 费用 + 评论 + 标签等级 + 当事人；DataTable 封装 | 五类列表页与详情页可用；`activity_log` 覆盖 §3 全清单动作 |
@@ -63,6 +63,7 @@ src/shared/**  纯 TS：枚举 E01–E37 · Zod schema · ids · time · crypto�
 - **W0-4** Drizzle + 迁移管线：`generate`→人审→尾部手写 SQL 补丁；禁 `push`；`migrator` 一次性服务 + `pg_advisory_lock`。出处：技术选型 §3.2b/§3.2c、§12.3 禁令 2/3/4。审
 - **W0-5** compose 开发栈（pg/minio/nginx conf/worker）+ 密钥 env 清单（PG/MINIO/AES/HMAC/云之家/OIDC/state/NEXT_SERVER_ACTIONS_ENCRYPTION_KEY/DEPLOYMENT_VERSION）。派
 - **W0-6** N2 验证：一条 `withScope` 查询 + 404 JSON。出处：研究文档 §2.1/§2.2。审
+- **W0-7** **T2 填 `.trellis/spec/` 12 份空模板**（backend 5 + frontend 7，现状每份仍是 51–59 行占位），内容取自技术选型 §4 对应表 + **§13.5 现行八条禁令** + §3.3 样式三条 + 枚举表 §5；同时补 `.trellis/config.yaml` 的 `packages` 段（当前全在注释里，导致包上下文检测拿不到东西）与 `default_package`，并把 `.trellis/tasks/00-bootstrap-guidelines`（现 `in_progress`）做完关闭。**派单前置：这一票不做，后续所有子代理都拿不到"禁裸表访问、CHECK 手写、`.where()` 只用 sql、禁第二套组件库"这些约束。**审
 
 ### M1 数据与契约
 - **W1-1** 宿主主表 `matter` / `risk_matter`（含 `conversion_status`、`last_progress_at`、`is_archived` 派生）。出处：修订稿 §6.3、§3.4。审
@@ -162,5 +163,6 @@ src/shared/**  纯 TS：枚举 E01–E37 · Zod schema · ids · time · crypto�
 ## 7. 交给 AI 执行的边界
 
 可整体派发的票：W0-1/2/5、W1-5/7、W2-5/7、W3-2/3/5/7/9、W4-3/5、W5-4、W6-4/6、W7-3/4。
-必须人审设计条目再放行：W0-3/4/6、W1-1/2/3/4/6、W2-1/2/3/4/6、W3-1/4/6/8、W4-1/2/4/6、W5-1/2/3、W6-1/2/3/5、W7-1。
+必须人审设计条目再放行：W0-3/4/6/**7**、W1-1/2/3/4/6、W2-1/2/3/4/6、W3-1/4/6/8、W4-1/2/4/6、W5-1/2/3、W6-1/2/3/5、W7-1。
 派单纪律：票面必须带**规格件出处到章节号**，禁止把本文件的推断当"已知事实"写进派单；子代理回报的完成状态一律以 `git status` + 目标文件实存为准，不采信叙述。
+**派单前置（硬）**：W0-7 未完成前不要派任何写码票——`.trellis/spec/` 目前是 12 份空模板、`config.yaml` 的 `packages` 段全是注释，implement/check 子代理拿不到八条禁令，会写出"裸表查询、装饰器式权限判断、引第二套组件库、用 `drizzle-kit push`"这类与规格件相悖且 CI 抓不住的代码。
