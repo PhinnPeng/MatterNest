@@ -37,6 +37,7 @@ const form = useForm<z.infer<typeof matterCreateSchema>>({
 ```
 
 服务端同一份 schema 再跑一次（客户端校验只是体验，不是防线）。跨字段规则（如 `ck_node_time_shape` 的 range/point 形态约束）在 schema 里用 `superRefine` 表达一次，DB 侧 CHECK 与之对齐——**不要在前端另写一套 if**。
+- **表单 schema 不要用 `.default()`**（N7 实测）：Zod 的 `.default()` 会让 input 类型带 `?`、output 类型不带，`useForm<T>` 与 `zodResolver` 的类型因此对不上。默认值写进 `defaultValues`，schema 里用 `.optional()`。
 
 ---
 

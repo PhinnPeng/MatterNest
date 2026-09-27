@@ -32,8 +32,8 @@
 
 | 件 | 现成度 | 落地方式 |
 |---|---|---|
-| 密集表格（案件/事项/当事人/我的关注/通知 5 张 + 详情内嵌表） | 半现成 | 以 Data Table 为底，**自封装一张 `DataTable.tsx`**（`components/ui/data-table/`）：受控分页参数、筛选模型、批量选择、列显隐统一收口。**禁止客户端全量排序** |
-| 转案件动态表单（N 个案件卡片 + 跨卡复制 + 每卡 10+ 字段联动校验） | 要自写 | **react-hook-form + Zod resolver**（与 `shared/schema` 同源，v5 的默认唯一选择，不再留三选一）；数组字段与跨卡复制自管；**id 类字段不参与复制**（矩阵 §3） |
+| 密集表格（案件/事项/当事人/我的关注/通知 5 张 + 详情内嵌表） | **底座已探通** | `components/ui/data-table/DataTable.tsx` 已有可运行参照实现（N7 spike）：受控 `page/pageSize/sortBy/sortDir`、只装 `getCoreRowModel`、`manualSorting/Filtering/Pagination` 全开、`pageSize > 100` 直接抛。**禁止客户端全量排序**（禁令⑧，理由是权限不是性能）。W3-1 剩的是接真接口与筛选面板 |
+| 转案件动态表单（N 个案件卡片 + 跨卡复制 + 每卡 10+ 字段联动校验） | **可行性已验** | react-hook-form + Zod resolver（与 `shared/schema` 同源）。N7 实测：`useFieldArray` + `summarizeIssues()` 能把 `cases[2].client_name` 渲染成「第 3 张卡 · 当事人名称」；**id 类字段不参与复制**用白名单 `COPYABLE_FIELDS` 实现（不是靠约定），并有`COPYABLE ∩ NON_COPYABLE = ∅` 的断言 |
 | 附件上传（预签名 PUT 直传 + 进度 + 白名单 + 多文件） | **逻辑自封装 + 展示层有现成件** | `FileUpload.tsx` 只做「选文件 → 向 `/api/**` 申请预签名 PUT → 直传 MinIO → 回报对象 key」；**列表项 / 上传态 / 删除按钮用 shadcn 的 `Attachment`**（官方定位：附件展示件，带 `idle|uploading|processing|error|done`，见研究文档 §3.2）。后端不中转文件流（C3），请求体上限由 nginx 设死；框架侧不设 body 上限 |
 | 日期与法律期限（含"剩 N 天"） | **已验可用** | `Calendar`（`react-day-picker@10.0.1` + `date-fns@4.4.0`）已装，实测渲染出「九月 2026」与星期单字；中文口径统一从 `src/shared/time/zh-cn.ts` 取（**展示禁用 date-fns 预设 `P`，它给 `26-09-27`**）。⚠ **`Locale` 含函数，不能在 Server Component 里当 prop 传给 client 件**——必须 client 侧 import，见 `src/app/components/app-calendar.tsx`。期限计算仍走 `shared/time` |
 
@@ -74,3 +74,22 @@
 3. 用 `style={{margin:'8px'}}` 或 `!important` 压 shadcn 默认样式。
 4. 在业务组件里再写一份枚举中文字典。
 5. 让 `DataTable` 支持"一次性拉全量再本地排序"（哪怕只是"临时"）——禁令⑧的真实理由是权限，不是性能。
+
+---
+
+## TanStack Table 的版本决定与五条坑（N7 spike，2026-09-27）
+
+**决定：留在 `@tanstack/react-table` v9，但显式从 `@tanstack/react-table/legacy` 引入。**
+v9 是破坏性改版：主入口没有 `useReactTable` / `getCoreRowModel` / `VisibilityState`，泛型改成 feature-first
+（`ColumnDef<TFeatures, TData, TValue>`；把 TData 写在第一位会报 `does not satisfy the constraint 'TableFeatures'`）。
+shadcn 的 Data Table 文档与示例都按 v8 形状写，所以走官方 legacy 入口（`useLegacyTable` / `getXRowModel` /
+`LegacyColumnDef`）：不降级锁死升级路，函数名本身也声明了"这是 v8 形状"，读代码的人不会被误导。
+
+写表/表单时必须避开的五个坑（每一条都是真撞过的）：
+
+1. `RowSelectionState` 在 v9 是 `Record<string, true>`，写 `boolean` 类型不过。
+2. 选择列要 `enableHiding: false`，且列显隐工具条只渲染 `col.getCanHide()` 的列——否则工具条会冒出一个文案为 `select` 的按钮。
+3. **表单 schema 里不要用 Zod 的 `.default()`**：它让 input 与 output 类型不一致，`useForm<T>` + `zodResolver` 直接类型不匹配。
+   默认值一律写进 `defaultValues`。
+4. `useSearchParams()` 必须包在 `Suspense` 里，否则 Next 16 构建期就报错。所有列表页共用这个结构。
+5. 测试里用 `@/...` 需要 `vitest.config.mts` 的 `resolve.alias`——**vitest 不读 `tsconfig.paths`**。

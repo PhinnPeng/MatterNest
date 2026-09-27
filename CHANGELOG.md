@@ -335,3 +335,46 @@ N2–N7 未跑（G1 只过了第一格）；PG 建 `dev_matternest` 角色仍需
 - `e800a50` → `d1f8114` 技术选型 v1 → v3：定稿全栈 Nuxt 4（Nitro 作后端）+ Drizzle + PostgreSQL 15+ + MinIO，Docker Compose 单机；附 `research-nuxt-fullstack-nitro.md` 一手核验与由核验强制产生的四项设计变更（含附件上传改预签名 PUT 直传）。
 
 ---
+
+---
+
+## [未发布] — 2026-09-27 · N7 spike：DataTable 与动态数组表单，逻辑层通过、交互层被环境卡住
+
+票面：研究文档 §5 的 **N7**（承接 W3-1 / W4-1）。任务 `.trellis/tasks/09-27-n7-table-form-spike`。
+
+### Added
+
+- `src/shared/schema/{list-query,convert-form,spike-matter}.ts`：查询参数、转案件表单、行 DTO 三份**单源**定义。
+- `src/app/lib/server/spike/matters.ts`（纯函数 `queryMatters`）+ `src/app/api/spike/matters/route.ts`（薄壳）。
+- `src/app/components/ui/data-table/DataTable.tsx`：受控、只装 core row model、`pageSize>100` 直接抛。
+- `src/app/components/spike/{n7-table,n7-convert-form}.tsx` + 页面 `/spike/n7` + `spike/layout.tsx`（QueryClientProvider）。
+- 依赖：`@tanstack/react-table@9.2.4` `@tanstack/react-query@5.104.0` `react-hook-form@7.89.0` `zod@4.6.5` `@hookform/resolvers@5.9.1`。
+- 测试从 9 条增至 **32 条**（分页不重不漏、排序方向、筛选后 total、上限拒绝、注入拒绝、错误定位、复制不带 id、`cn` 合并语义、中文日期口径）。
+
+### 实测取证（不是"应该能跑"）
+
+- `GET /api/spike/matters?page=2&pageSize=3&sortBy=amount&sortDir=desc` → 200，首条金额 234000（降序正确）。
+- `?pageSize=500` → **400** `{"path":["pageSize"],"message":"Too big: expected number to be <=100"}`（禁令⑧ 的上限真拦住了）。
+- `?sortBy=id;drop` → **400**（`sortBy` 是枚举白名单，不是自由字符串）。
+- `/spike/n7` 的 SSR HTML：表头与"加载中…"在，**业务行 0 条**（禁令⑥ 实证）。
+
+### 五条只有真跑才会撞到的事实（已回写 spec 五处）
+
+1. **TanStack Table 已到 v9 且是破坏性改版**：主入口无 `useReactTable`/`getCoreRowModel`/`VisibilityState`，泛型改 feature-first。
+   **决定：留在 v9、显式走官方兼容入口 `@tanstack/react-table/legacy`**（`useLegacyTable`）。
+2. **vitest 不读 `tsconfig.paths`**——`@/` 别名必须在 `vitest.config.mts` 里配；W0-1 没暴露是因为当时没有测试用到别名。
+3. **Zod 的 `.default()` 会打断 react-hook-form 的 resolver 类型**（input 带 `?`、output 不带）→ 新约定：表单 schema 不用 `.default()`，默认值进 `defaultValues`。
+4. v9 的 `RowSelectionState` 是 `Record<string, true>`，不是 boolean。
+5. `useSearchParams()` 必须有 `Suspense` 边界，否则 Next 16 构建期直接报错——M3 的 14 个列表页全适用。
+
+顺带修掉一个 DOM 走查抓到的真缺陷：列显隐工具条把选择列也列出来（按钮文案印着 `select`）→ 选择列 `enableHiding:false` + 工具条过滤 `getCanHide()`。
+
+### 未验项（诚实记录，不猜）
+
+**浏览器交互链路没验成，原因是环境不是应用。** 内置浏览器里 27 个可交互元素的 `__reactFiber`/`__reactProps` 计数为 0（React 从未 hydration），而 25 个 chunk 全 200、控制台除 HMR WebSocket 外无报错；同一环境下 pointer 操作报 `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE ... visibilityState=hidden`，即视口 0×0 且隐藏 → rAF 类调度被挂起 → 首帧客户端渲染不发生。
+所以"点加卡按钮无反应"**不能归因于 `useFieldArray` 或本仓代码**。补救三选一：把内置浏览器面板打开成可见窗口 / 用真实 Chrome / 引 `jsdom` 做组件测试（新依赖，需批准）。
+N7 因此记为**逻辑层通过、交互层待补**。
+
+### 校验
+
+`pnpm verify` 五步 ✓（32 测试）；`pnpm build` ✓（路由 `/`、`/spike/n7` 静态 + `/api/spike/matters` 动态）；lint-guard 反向实验仍变红；dev 取证后进程已 kill。

@@ -54,6 +54,7 @@ src/
 | 要写的东西 | 落在哪 |
 |---|---|
 | 新列表页 | `(desk)/<资源>/page.tsx`（外壳）+ `components/<资源>/*Table.tsx`（走 DataTable） |
+| 表格封装本体 | `components/ui/data-table/DataTable.tsx`（N7 已有参照实现） |
 | 详情页的 Tab（案件详情 8 个 Tab，含新增附件 Tab） | `components/matter/tabs/*`，宿主上下文由路由段给（修订稿 §7.1） |
 | 转案件动态数组表单 | `components/convert/`，react-hook-form + Zod resolver（矩阵 §3） |
 | 人员选择器（加参与人/关注人） | `components/ui/user-picker/`，只调 `selectable-users`，见权限草案 §4.1 |

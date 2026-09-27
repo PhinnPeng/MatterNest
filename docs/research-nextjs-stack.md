@@ -137,6 +137,7 @@
 | N5 | 预签名 PUT 直传（Next 侧只签 URL，不中转流）+ nginx 请求体上限 | 50MB 直传成功、超限被 nginx 拒 |
 | N6 | 云之家 OIDC 授权码回跳在 Route Handler 里跑通（内网可达 + 回调登记） | 拿到 `eid`/`openId` 并绑定；失败时可回退本地密码 |
 | N7 | 一张真表（服务端分页/排序/筛选/批量选择/列显隐）+ 一个动态数组表单 | 错误能定位到"第几张卡哪个字段" |
+| **N7 状态（2026-09-27 实跑）** | **逻辑层通过、交互层未验**。32 条单测覆盖分页/排序/筛选/上限/注入拒绝/错误定位/复制不带 id；`/api/spike/matters` 真实 HTTP 取证（`pageSize=500` → 400、`sortBy=id;drop` → 400、正常页返回 20 条 + total 237）；`/spike/n7` 的 SSR HTML 里业务行 **0 条**（禁令⑥ 实证）。**浏览器点击链路没验成**——见 §7.3 | 通过（附一条未验项），详证 §7 |
 
 N4/N6 是这次换框架**新引入**的验证点；N1/N2/N3/N5/N7 是原本就要验的。任一不过按原退路处理（自封装、砍非必要交互、如实补记工时），**不得**为通过而引入第二套组件体系。
 
@@ -200,3 +201,59 @@ N4/N6 是这次换框架**新引入**的验证点；N1/N2/N3/N5/N7 是原本就�
 
 装配后端到端复测：`pnpm build` ✓（六件参与编译）、`pnpm dev` 的 HTML 实测到中文月份与星期、
 `pnpm verify` 五步 ✓（**9 个测试**）、lint-guard 反向实验仍当场变红。
+
+---
+
+## 7. N7 spike 实测（2026-09-27）
+
+产物：`src/app/components/ui/data-table/DataTable.tsx`、`src/app/components/spike/{n7-table,n7-convert-form}.tsx`、
+`src/app/api/spike/matters/route.ts`、`src/app/lib/server/spike/matters.ts`、`src/shared/schema/{list-query,convert-form,spike-matter}.ts`、
+页面 `/spike/n7`。**假数据、非业务页**，但形状按真接口与真 DTO 写。
+
+### 7.1 通过标准达成情况
+
+| 判据 | 结果 | 证据 |
+|---|---|---|
+| 五个参数全受控、无客户端全量排序 | ✅ | `DataTable` 只装 `getCoreRowModel`，`manualSorting/Filtering/Pagination` 全 true；测试断言 `items.length < total` |
+| `pageSize > 100` 被拦 | ✅ | 实测 `GET /api/spike/matters?pageSize=500` → **400** `{"path":["pageSize"],"message":"Too big: expected number to be <=100"}` |
+| `sortBy` 不接受自由字符串 | ✅ | `?sortBy=id;drop` → **400**（枚举白名单） |
+| 错误定位到"第几张卡 · 哪个字段" | ✅（逻辑层） | `describeIssuePath(["cases",2,"client_name"])` → 「第 3 张卡 · 当事人名称」，10 条测试 |
+| 跨卡复制不带 id | ✅ | `copyCardOnto` 白名单实现 + 断言 `COPYABLE ∩ NON_COPYABLE = ∅` |
+| 页面壳零业务数据 | ✅ | `/spike/n7` SSR HTML 中业务行 0 条，只有表头与"加载中…" |
+
+### 7.2 五条只有真跑才会撞到的事实（已回写 spec）
+
+1. **`@tanstack/react-table` 已到 v9.2.4，且是破坏性改版**：主入口没有 `useReactTable` / `getCoreRowModel` /
+   `VisibilityState`，泛型改成 **feature-first**（`ColumnDef<TFeatures, TData, TValue>`——把 TData 写在第一位会报
+   `does not satisfy the constraint 'TableFeatures'`）。v9 官方留了兼容入口 `@tanstack/react-table/legacy`
+   （`useLegacyTable` + `getXRowModel` + `LegacyColumnDef`）。**决定：留在 v9、显式走 legacy 入口**，
+   既不降级锁死升级，也不让读代码的人以为这是新 API。
+2. **vitest 不读 `tsconfig.paths`**：任何用 `@/...` 的模块在测试里 `Cannot find package '@/shared/...'`。
+   W0-1 之所以没暴露，是因为那时没有测试用到别名。已在 `vitest.config.mts` 配 `resolve.alias`。
+3. **Zod 的 `.default()` 会让 react-hook-form 的 resolver 类型对不上**：input 类型是 `tags?: string[]`、
+   output 是 `tags: string[]`，`useForm<T>` 与 `zodResolver` 就报 `Resolver<...> is not assignable`。
+   约定：**表单 schema 里不用 `.default()`，默认值一律放 `defaultValues`**。
+4. **v9 的 `RowSelectionState` 是 `Record<string, true>` 而不是 `Record<string, boolean>`**，写 boolean 直接类型不过。
+5. **`useSearchParams()` 必须有 `Suspense` 边界**，否则 Next 16 构建期就报 `useSearchParams() should be wrapped in a
+   suspense boundary`。M3 的 14 个列表页全部适用。
+
+顺带一个 DOM 走查抓到的真缺陷（已修）：列显隐工具条把选择列也列出来，按钮文案直接印出 `select`。
+修法是选择列 `enableHiding: false` + 工具条只渲染 `col.getCanHide()` 的列。
+
+### 7.3 交互层没验成——原因是环境不是应用
+
+在 Qoder 内置浏览器里打开 `/spike/n7`：**27 个可交互元素上 `__reactFiber` / `__reactProps` 计数为 0**，
+即 React 从未 hydration；同时 25 个 chunk 全部 200、`decodedBodySize` 正常、控制台除 HMR WebSocket 失败外**无任何报错**。
+判据链：内置浏览器处于 `visibilityState=hidden` 且视口 0×0（同一环境下 pointer 类操作会直接报
+`NATIVE_BROWSER_VIEWPORT_UNAVAILABLE ... visibilityState=hidden`），rAF 类调度被挂起 → 首帧客户端渲染不发生。
+**所以"点加卡按钮无反应"不能归因于 `useFieldArray` 或本仓代码。**
+
+补救办法（任选其一，做完了再把 N7 从"逻辑层通过"升级为"全通过"）：
+① 把内置浏览器面板真正打开（可见、非 0×0）后重复点击验证；② 用可见窗口的真实 Chrome；
+③ 加一个 jsdom + Testing Library 的组件测试（要引 `jsdom` devDep，属新依赖，需批准）。
+
+### 7.4 对 M3/M4 排期的影响
+
+- **W3-1 的 `DataTable` 已有可运行参照实现**，剩下的主要是接真接口与筛选面板，不是从零试探。
+- **W4-1 的动态数组表单**：错误定位与跨卡复制两条已验证可行，可直接沿用 `summarizeIssues` / `copyCardOnto` 的形状。
+- 表格能力边界按 §12.4 的既定处置不变：列固定/拖拽第一期不强求。

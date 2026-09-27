@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "禁令⑦⑧ 与四件重活表：DataTable/表单的既定口径"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "react-query 与 URL 态、受控分页参数约定"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Zod 单源与 shared 纯净性"}
