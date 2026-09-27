@@ -27,9 +27,24 @@
 - `eslint .` 起初因 fixture 自身违规而红 —— 改为把 `tools/lint-guard/fixtures/**` 加入 ignores、由 `check.mjs` 以虚拟路径喂规则，既保住"仓库 lint 干净"，也保住"规则被证伪时必红"。
 - `tools/**/*.mjs` 触发 `no-undef`（`console`/`process`）—— 补 Node globals 段，而不是关掉 `no-undef`。
 
-### 阻塞上报（不属本票，但挡 W0-5）
+### 阻塞上报的撤回（同日晚些：实测推翻本票自己写下的结论）
 
-共享 dev 机 **172.16.70.100 当前完全不可达**：ping 100% 丢包，`30432`/`30090`/`30306` 三端口 TCP 全 TIMEOUT（`node net.connect` + `ping` 双向确认）。W0-5 之前要确认机器是否开机、GameViewer 映射是否在、IP 是否变。本票的 `.env.example` 因此只写占位 host，并在文件头注明"未验证"。
+上面那条「共享机 172.16.70.100 完全不可达」是**错的，错在探测目标选错**：GameViewer 的端口映射监听在**本机回环**，要连 `127.0.0.1:<本地端口>`；我却去连了映射表「目标地址」那一列的 `172.16.70.100`，那台机器本来就不从本机直连。
+
+换成正确目标后实测：`127.0.0.1:30432` 对 PostgreSQL SSLRequest 握手回 `N`（服务真在听，`server_version = 16.13`）；`30090` 是 S3 API（`/minio/health/live` → 200，`GET /` → 403 AccessDenied），`30091` 是 MinIO Console；SSH 经 `127.0.0.1:22` 可登录。`.env.example` 已按真值重写。
+
+**剩下的真阻塞只有一个**：共享 PG 上 `dev_sy_identity` 只有 `CREATEDB`、没有 `CREATEROLE`，所以按同级项目约定建 `dev_matternest` **角色**这步需要 superuser（`postgres` 角色在，`rolsuper=true`），我建不了 —— 要么给一次 `postgres` 凭据，要么你自己跑那三条命令。
+
+### 时区：一条规格件论证被实测证伪（改理由，不改结论）
+
+修订稿 §12.3 的理由是：「若会话时区本身已是 +08，`now() AT TIME ZONE 'Asia/Shanghai'` 会整体再偏 8 小时，日界跟着错」。拿共享机（服务端默认 `timezone = PRC`）做定点实验，取跨零点的绝对时刻 `2026-09-27 02:00:00+08`：
+
+| 写法 | 会话=PRC | 会话=UTC |
+|---|---|---|
+| `(date_trunc('day', … AT TIME ZONE 'Asia/Shanghai'))::date` | 2026-09-27 | 2026-09-27 |
+| 裸 `… ::date` | 2026-09-27 | **2026-09-26** |
+
+即 **§12.3 点名的那条编号 SQL 其实与会话时区无关**（`AT TIME ZONE` 作用在 `timestamptz` 上是「绝对时刻 → 指定时区」的换算，会话 tz 不参与），它给的理由不成立。但**结论要保留并加强**：真会漂移的是隐式转换那一类（`ts::date`、`current_date`、`timestamp without time zone` 列），而共享机默认正是 PRC，所以 `SET TIME ZONE 'UTC'` 依然必要。新增一条硬口径：**`day_key` 只能写成显式 `AT TIME ZONE 'Asia/Shanghai'`，禁止 `current_date` 与 `now()::date`** —— 后者在 UTC 会话下会把上海 0–8 点的业务归到前一天。已回写修订稿 §12.3 与 `.trellis/spec/backend/database-guidelines.md`。
 
 ### 校验
 

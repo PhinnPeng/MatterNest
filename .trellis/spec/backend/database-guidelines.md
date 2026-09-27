@@ -79,7 +79,7 @@ index("uk_rule_scope").unique()
 - id：`bigint`，**雪花由应用侧生成**，DB 不设 `IDENTITY`（避免双序列冲突，修订稿 §12.2）。
 - 时间：一律 `timestamptz`(UTC)；`date` 只用于"当事人可见的日历日期"（`discover_date`/`filing_date`/`progress_date`）。**日历日期用 `timestamptz` 会跨时区漂一天，法律期限直接算错**（§12.2，本节自己标了"最容易被忽略"）。期限计算一律走 `src/shared/time`，业务层禁止裸用 `Date`（技术选型 §4「期限计算」行）。
 - 编号 `FX/AJ/AL-YYYYMMDD-XXX`：`code_seq(day_key, prefix)` + `INSERT … ON CONFLICT … DO UPDATE … RETURNING` 单语句原子取号。**日界用业务时区 `Asia/Shanghai`**（已定稿 2026-09-26），SQL 口径即 `date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai')::date`。
-- **前提（必须挂在连接池参数上并加断言）**：应用连接会话 `SET TIME ZONE 'UTC'`，否则整体再偏 8 小时、日界跟着错（修订稿 §12.3）。
+- **会话固定 UTC（连接池参数 + 启动断言）**：`SET TIME ZONE 'UTC'`。**注意理由与规格件原文不同**——2026-09-27 在共享 dev 机（PG 16.13，服务端默认 `timezone = PRC`）实测：上面那条 `AT TIME ZONE 'Asia/Shanghai'` 的日界**与会话时区无关**（PRC/UTC 两跑同为 09-27），真正会漂的是**隐式转换**：同一跨零点时刻 `::date` 在 PRC 会话给 09-27、UTC 会话给 **09-26**，`current_date` 同理。钉 UTC 的目的是让隐式转换与文本往返确定，不是“防编号偏 8 小时”（修订稿 §12.3 已同步更正）。
 - 序号溢出 999 → **扩为 4 位**（`AJ-20261015-1000`），不报错；号可跳不可复（§12.3）。
 - 金额 `numeric(18,2)`，禁 `float`。
 
@@ -125,5 +125,5 @@ index("uk_rule_scope").unique()
 3. 把枚举值抄进第二个文件（前端另写一份、测试里再硬编码一份）→ 破坏 §5.1 单一事实源。
 4. 从 CHECK 里删掉废弃取值 → 历史行违反约束。
 5. 用 `timestamptz` 存日历日期，或业务层 `new Date()` 算期限 → 期限算错。
-6. 忘记 `SET TIME ZONE 'UTC'` 却用 `AT TIME ZONE 'Asia/Shanghai'` → 编号日界偏 8 小时。
+6. 用 `current_date` 或 `now()::date` 当 `day_key` → 会话钉 UTC 后，上海 0–8 点的立案会被归到**前一天**（实测：同一时刻 PRC 会话 09-27 / UTC 会话 09-26）。`day_key` 只能是显式 `AT TIME ZONE 'Asia/Shanghai'` 形式。
 7. 给业务表配 `ON DELETE CASCADE` → 抹掉审计链（§12.4）。
