@@ -11,10 +11,11 @@
 
 ### Added
 
-- **13 份规范写实**（backend 5 指南 + `index.md`；frontend 6 指南 + `index.md`；`spec/guides/` 3 份按模板要求保留不动），合计 896 行（此前每份 51–59 行占位）。八条禁令**逐字取自技术选型 §13.5**、按层拆开归位：① – ④ 进 `backend/database-guidelines.md`，⑤ 进 `backend/error-handling.md`，⑥⑦⑧ 进前端三份，两条部署级进 `backend/quality-guidelines.md`。每条规则带**出处到章节号**。八条 + 部署行经脚本 diff 确认与 §13.5 **逐字符相同**。
+- **13 份规范写实**（backend 5 指南 + `index.md`；frontend 6 指南 + `index.md`；`spec/guides/` 3 份按模板要求保留不动），合计 896 行（此前每份 51–59 行占位）。八条禁令**逐字取自技术选型 §13.5**、按层拆开归位：① 进 `backend/directory-structure.md`（依赖方向），②③④ 进 `backend/database-guidelines.md`，⑤ 进 `backend/error-handling.md`，⑥⑦⑧ 在前端三份给摘编（标明全文以 §13.5 为准），两条部署级进 `backend/quality-guidelines.md`。每条规则带**出处到章节号**。八条 + 部署行经脚本 diff 确认与 §13.5 一致——**但这条声明在第一次提交时是假的**，见下面「独立复核推翻的两处」。
 - 两份 `index.md` 补上 workflow.md 契约要求的 **Pre-Development Checklist + Quality Check**，并各自声明"本仓当前零应用代码，故此处记的是规格件已裁定约束 + 待落地目标形态"——避免把示例代码当既有模式。
 - `backend/quality-guidelines.md` 新增**"CI 必须拦得住"表**（裸表访问 / `shared/` 污染 / CHECK↔值数组 / 同构表列 diff / `scope_key` 8 向量 / 转案件原子性 / handler 漏挂 `withScope`），以及**未证实项挂账表**（N1–N7、shadcn React 件清单、中文 locale、云之家成员列举、`worker_threads`）。
 - master 新增 **P1-19**：雪花 id 的 JSON 序列化口径**从未有任何规格件写过**。DB 侧 `bigint`（修订稿 §12.2）而 JS 安全整数只到 2^53−1，直接 `JSON.stringify` 会静默丢精度 → 表现为案号对不上、详情跳错。建议 DTO 层 id 一律 string，已按建议落进 `frontend/type-safety.md`，**待签字后回改修订稿**。
+- master 新增 **P1-20**：项目标识五条（产品名／仓库名 `matter-nest`／缩写 MN／DB 前缀 `mn_`／API 前缀 `/api/mn/v1/`）**从未回写任何规格件**，`grep matter-nest docs/` 零命中；连带两处没人拍的冲突——`mn_` vs 裸名（P1-15）、API 版本段要不要。建议 W0-1 之前一次拍掉。
 
 ### Changed
 
@@ -28,11 +29,23 @@
 - master §8 自洽校验行残留的"路由已定为 Nuxt 文件路由，规范待 T2"——上一轮 CHANGELOG 曾声明该措辞已随 v5 同步，实际只改了 ② 那处，此处漏改。本轮按 append-only 更正（保留原文 + 标注），并把 7 页缺原型这条**仍判为未通过**。
 - 自查脚本发现我自己票面写的文件数不准（"12 份"实际 13 份），已在落地方案 W0-7 的完成记录里改正。
 - 上下文清单 `implement.jsonl` 原本挂了 `docs/tech-stack-decision.md`，`task.py validate` 报它 60,255 字节超 `max_file_bytes` 32,768 会被截断 → 改指已蒸馏的 spec 入口，避免子代理拿到半份禁令。
+- **§7.1 的占位口径被我写反了**（`frontend/index.md`、`frontend/quality-guidelines.md`）：权限草案 §7.1 **明令**关注/通知 feed 对不可见宿主"保留占位行、标题写「无权查看的记录」、摘要字段不发、不隐藏整行"，我却写成"没有'无权查看'文案"——照做会删掉规格件规定的文案并让同事以为数据丢失。已在两处 + `backend/error-handling.md` 讲清"详情/下载＝404，feed＝占位行"两形态不通用。
+- **审票清单漏了 9 票**（`backend/quality-guidelines.md`）：我列的"审"票少了 W0-6/7、W1-1/2/3/4/6、W2-6、W3-1，**等于把整个 M1 当成可派票**。现按落地方案 §7 原样抄回"可派"与"须审"两行。
+- **批量导入被误列为"已裁定移出"**（同文件）：master F7-4 / P14 / 票 W7-3 都还带着它，技术选型 §9 只是**建议**移出且未拍；邮件渠道是 W5-5"待拍"。已拆成"已定不做"与"§9 建议未裁定"两段。
+- **禁令③ 的"（会抛 TypeError）"来自已作废的 §12.3**，标着"§13.5 逐字"却是旧版正文 → 删；`前端唯一组件体系/表格分页`两行的 `DataTable.vue` 与 `§12.3 禁令 7/8` 指针（技术选型 §4、§9）→ 改 `DataTable.tsx` 与 §13.5；§3.6 那行"不做前端 SSR/Next.js"与 v5 自相矛盾 → 标注作废并指向禁令⑥。
+- **未标注的自创口径补齐标记**：日志级别与 `requestId` 字段集、DTO 的 `nullable()` 与 `{items,page,pageSize,total}` 响应壳、"TS 模块 kebab-case"（master §8 只管路由）、状态机/规则求值归 `src/shared/`（§4 无对应行）、progress/expense/attachment 三张的 FK 动作（§12.4 只对节点明写）→ 全部就地标"本轮新增口径/推断待签字"；"选 PG 的三条理由"改四条（§12.1 实为四行）。
 - 填 spec 时顺带抓到两处**数字/工具口径过期**：技术选型 §3.2b 第 3 条仍写"5 规则"（A1/A2/A4/A8 合并前旧值，现 8 条）；修订稿 §12.2 末行仍建议"pt/Flyway"（选型已定 Drizzle `generate`+`migrate`）。两处都按 append-only 就地标注，并在 `backend/database-guidelines.md` 里给出正确清单：**5 配置表 + 8 状态（案件 4 + 事项 4 同构）+ 8 条预置规则 + 7 通知模板 + 5 角色**。
+
+### 独立复核推翻的两处（写在这节开头，别跳过）
+
+第一次提交的 `5ea2f24` 里我自称两件事已被脚本证明，**两件都不成立**：
+
+1. **"逐字符相同"是假的**。我的 diff 脚本先把 `*` 与反引号剥掉再比对，于是禁令② 的 ``禁用 `eq()/and()` ``（源）被我写的 ``禁用 `eq()`/`and()` `` 蒙过去了——**恰好是唯一会被子代理照抄的那条**。第 6、8 条还各丢了一个括注（「（替代原整站 SPA）」「（权限草案 §4）」）。现在改成**保留反引号的原始行比对**，八条 + 部署行才真正 identical。
+2. **"45 个 § 引用全部能查到"技术为真但结论无效**。脚本只验"这个节号在 docs 某处存在"，没验它属于**被引的那份文档**，也没验「§4 行 N」这种**表内行号**。于是一批真错全漏：`权限草案 §8.2`（§8.2 在修订稿）、`§3.6`（枚举表无此节，实为基线原文 3.6）、§4 对应表的行号系统性错位（加密＝行 8、期限＝行 9，我按旧数法写成 9/10）。已把行号引用改成**按行名引用**（`§4「字段加密 + HMAC 索引列」行`），不再依赖会漂移的序号。
 
 ### 校验做了什么
 
-脚本实测：13 份文件**零占位符残留**；45 个 `§x.y` 引用**全部能在 docs 里找到对应章节**；相对链接与文档路径全部可解析；21 条禁令/口径探针（`.where()` 只用 sql、`SET TIME ZONE 'UTC'`、`cn()`、每页上限 100、`selectable-users` 上限 50 等）**全部命中**；`get_context.py --mode packages` 仍正确列出 backend/frontend 两层；`task.py validate` 通过。另派独立子代理按行号逐条核对 spec ↔ 规格件，其结论见下一条提交（若查出问题则在本票内修）。
+自跑脚本：13 份文件零占位符；相对链接与文档路径可解析；21 条口径探针全中；`get_context.py --mode packages` 仍列出 backend/frontend 两层；`task.py validate` 通过。**独立子代理按行号复核另查出 8 类问题，已全部修**（下列 Fixed）。教训已写进记忆：**"逐字引用"必须用保留格式的 diff 证明，"引用可达"必须验到"属于那份文档"这一层。**
 
 ### 未验证与下一步
 

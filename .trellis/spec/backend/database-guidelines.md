@@ -1,7 +1,7 @@
 # Database Guidelines
 
 > ORM、迁移、schema 演进、软删与索引、枚举 CHECK、编号与加密。
-> 来源：`docs/tech-stack-decision.md` §13.5 禁令②③④、§3.2/§3.2b/§3.2c、§12.2 继承行；`docs/PRD-phase1-enums-and-schemas.md` §5；`docs/PRD-phase1-design-revision-r1.md` §12；`docs/PRD-phase1-permission-design-draft.md` §5/§8.2。
+> 来源：`docs/tech-stack-decision.md` §13.5 禁令②③④、§3.2/§3.2b/§3.2c、§12.2 继承行；`docs/PRD-phase1-enums-and-schemas.md` §5；`docs/PRD-phase1-design-revision-r1.md` §12；`docs/PRD-phase1-permission-design-draft.md` §5（`*_staff` 是权限主表）；索引清单在 `docs/PRD-phase1-design-revision-r1.md` §8.2。
 
 ---
 
@@ -27,7 +27,7 @@
 
 **禁令②**（§13.5，逐字）：Drizzle partial index 的 `.where()` **只用 `sql` 模板，禁用 `eq()`/`and()`**——`drizzle-orm@0.45.3` 实测会生成非法的 `$1`（open issue #4790）。锁 `drizzle-orm`/`drizzle-kit` 精确版本，升级时复验。
 
-**禁令③**（§13.5，逐字）：生成列写法 `generatedAlwaysAs(sql\`…\`)` 或回调形式，**pg 侧没有 `.stored()`**（会抛 TypeError）；PG 只有 STORED，生成列不可进 PK/FK/unique、不可引用其他生成列。
+**禁令③**（§13.5，逐字）：生成列写法 `generatedAlwaysAs(sql\`…\`)` 或回调形式，**pg 侧没有 `.stored()`**；PG 只有 STORED，生成列不可进 PK/FK/unique、不可引用其他生成列。
 
 ```ts
 // 目标形态：partial unique（一期规则唯一性的骨架）
@@ -57,7 +57,7 @@ index("uk_rule_scope").unique()
 |---|---|---|
 | 业务表 `matter` / `risk_matter` / `party` | 只软删 `is_deleted` | DB 层一律 `ON DELETE RESTRICT`，级联由服务层显式执行并写 `activity_log` |
 | 从属明细 `*_staff` / `*_tag` / `*_party` | 随宿主硬删 | `ON DELETE CASCADE`（无独立审计价值） |
-| `node` / `progress` / `expense` / `attachment` | 软删（有业务与审计含义） | `RESTRICT` |
+| `node` / `progress` / `expense` / `attachment` | 软删（有业务与审计含义） | 节点：§12.4 明写 `RESTRICT`。**progress / expense / attachment 三张的 FK 动作规格件未写**，按同族（同为有审计含义的软删表）推 `RESTRICT` —— **推断，待 B8 一并签字** |
 
 **仍开放＝门禁 G2（B8）**：用户可见的删除入口、软删记录能否恢复、被引用父行删除时子表怎么处理（修订稿 §10 :593）。这三问未拍前**不要写删除类接口与恢复语义**，也不要把上面表格的任何一行当"已签字"扩散到测试里。
 
@@ -67,7 +67,7 @@ index("uk_rule_scope").unique()
 
 ## 索引
 
-- 列表查询恒带"未删 + 未归档"过滤 → 用 **partial index**（`WHERE NOT is_deleted …`），这是选 PG 的三条理由之一（修订稿 §12.1）。
+- 列表查询恒带"未删 + 未归档"过滤 → 用 **partial index**（`WHERE NOT is_deleted …`），这是修订稿 §12.1 列的四条 PG 依赖之一（另三条：规则 partial unique、数组列 GIN、`ON CONFLICT` 单语句取号）。
 - 索引清单以修订稿 §8.2 为准；`ix_staff_user`（`*_staff` 上的用户维索引）是**权限必需**，不是性能优化（权限草案 §5、落地方案 W1-5）。
 - 数组列（`next_status_codes`、`remind_days`、`notify_channel[]`）用 `text[]`/`integer[]` + GIN（§12.1）。
 - 规则唯一性用 partial unique index `WHERE is_enabled`（§2.1），`scope_key` 归一化的 8 条必过向量见枚举表 §4.4，落成 `src/shared/automation/scope-key.spec.ts`。
@@ -77,7 +77,7 @@ index("uk_rule_scope").unique()
 ## ID、时间与编号
 
 - id：`bigint`，**雪花由应用侧生成**，DB 不设 `IDENTITY`（避免双序列冲突，修订稿 §12.2）。
-- 时间：一律 `timestamptz`(UTC)；`date` 只用于"当事人可见的日历日期"（`discover_date`/`filing_date`/`progress_date`）。**日历日期用 `timestamptz` 会跨时区漂一天，法律期限直接算错**（§12.2，本节自己标了"最容易被忽略"）。期限计算一律走 `src/shared/time`，业务层禁止裸用 `Date`（技术选型 §4 行 10）。
+- 时间：一律 `timestamptz`(UTC)；`date` 只用于"当事人可见的日历日期"（`discover_date`/`filing_date`/`progress_date`）。**日历日期用 `timestamptz` 会跨时区漂一天，法律期限直接算错**（§12.2，本节自己标了"最容易被忽略"）。期限计算一律走 `src/shared/time`，业务层禁止裸用 `Date`（技术选型 §4「期限计算」行）。
 - 编号 `FX/AJ/AL-YYYYMMDD-XXX`：`code_seq(day_key, prefix)` + `INSERT … ON CONFLICT … DO UPDATE … RETURNING` 单语句原子取号。**日界用业务时区 `Asia/Shanghai`**（已定稿 2026-09-26），SQL 口径即 `date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai')::date`。
 - **前提（必须挂在连接池参数上并加断言）**：应用连接会话 `SET TIME ZONE 'UTC'`，否则整体再偏 8 小时、日界跟着错（修订稿 §12.3）。
 - 序号溢出 999 → **扩为 4 位**（`AJ-20261015-1000`），不报错；号可跳不可复（§12.3）。
@@ -88,7 +88,7 @@ index("uk_rule_scope").unique()
 ## 加密与敏感字段
 
 - 敏感字段：AES-GCM 密文列 + **HMAC 索引列**（用于查重与等值检索），落在 `src/shared/crypto`。
-- **两把密钥分离**（AES 主密钥 / HMAC 密钥），从 env 或 secret 注入，**不入库、不进镜像**；`key_version` 列先留（技术选型 §4 行 9、§6 第 1 条；修订稿 §6.3）。
+- **两把密钥分离**（AES 主密钥 / HMAC 密钥），从 env 或 secret 注入，**不入库、不进镜像**；`key_version` 列先留（技术选型 §4「字段加密 + HMAC 索引列」行、§6 第 1 条）。
 - 明文导出与 `SENSITIVE_FIELD_READ` 审计**必须同链路**，导出走脱敏 DTO 而不是前端遮罩（技术选型 §6 第 3 条、权限草案 §7.3）。
 - 密钥托管与轮换方案属 **B7 未决**（修订稿 §10），不得自行编一套。
 
@@ -101,7 +101,7 @@ index("uk_rule_scope").unique()
   SELECT pg_try_advisory_lock(hashtext('matternest:reminder-scan'))
   ```
   拿不到锁直接返回。**这不是"保险起见"，是多副本下的功能正确性前提**（outbox 双派＝双发通知，技术选型 C1 经 §13.2 继承）。
-- outbox：至少一次投递 + `notification_event.dedupe_key` 唯一键冲突即跳过（技术选型 §4 行 6、修订稿 §7.2、矩阵 §4.1）。
+- outbox：至少一次投递 + `notification_event.dedupe_key` 唯一键冲突即跳过（技术选型 §4「outbox 至少一次 + 去重」行、修订稿 §7.2、矩阵 §4.1）。
 - 连接池设 **10**，不引入 pgbouncer（§12.5）——顺带消除 transaction-mode pooling 与 advisory lock / `SET LOCAL` 的冲突。
 
 ---

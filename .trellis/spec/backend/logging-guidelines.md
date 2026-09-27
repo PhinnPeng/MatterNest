@@ -2,6 +2,8 @@
 
 > 两类日志不要混：**业务审计 `activity_log`（入库、同事务）** 与 **应用日志（结构化输出，供运维）**。
 > 来源：`docs/PRD-phase1-enums-and-schemas.md` §3（动作闭集）、§5.4；`docs/tech-stack-decision.md` §7 末两条实现口径、§6；`docs/PRD-phase1-permission-design-draft.md` §7.3。
+>
+> **本轮新增、规格件没有的东西**：下面「二、应用日志」的**日志级别划分与 `requestId` 等字段集**是我填 spec 时定的工程口径，docs 全文没有日志级别规定——要改改这一节，别去规格件找出处；§一（`activity_log`）与脱敏两节才有规格件出处。
 
 ---
 
@@ -28,9 +30,9 @@
 
 ### 结构与事务
 
-- 表除 `field_diffs` 外还有 `payload jsonb`（枚举表 §5.4）：`field_diffs` 只存字段差异（`{"level":{"from":"中","to":"高"}}`），结构化载荷进 `payload`。**不要**把结构化结果塞回 `field_diffs`——那是 §3.6 记过的"语义污染"。
+- 表除 `field_diffs` 外还有 `payload jsonb`（枚举表 §5.4）：`field_diffs` 只存字段差异（`{"level":{"from":"中","to":"高"}}`），结构化载荷进 `payload`。**不要**把结构化结果塞回 `field_diffs`——那是枚举表 §3 末尾注记的"语义污染"（基线原文 3.6 把规则结果塞进 `field_diffs`；基线副本无对应段落，见 `PRD-phase1-baseline-v0.md` §B）。
 - 审计写与业务写**同一事务**（落地方案 §4-5）：状态变更、参与人变更、授权变更、转案件与撤销必须同批落。
-- 写入点收敛在**服务层单点包装**（写操作成功后落日志），不是框架 Interceptor/Guard（技术选型 §4 行 4）。
+- 写入点收敛在**服务层单点包装**（写操作成功后落日志），不是框架 Interceptor/Guard（技术选型 §4「`activity_log` 自动落审计」行）。
 
 ### 明确不进 `activity_log` 的
 

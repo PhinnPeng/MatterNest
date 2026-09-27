@@ -47,7 +47,7 @@ const form = useForm<z.infer<typeof matterCreateSchema>>({
 - `bigint` 只在 `shared/ids` 与服务层内部出现，不进前端组件。
 - 时间：`timestamptz` 读出即 UTC ISO 字符串；`date` 列在前端**必须**保持 `YYYY-MM-DD` 字符串，不要 `new Date(...)` 再格式化（会按时区漂一天，修订稿 §12.2 已点名这条最容易错）。
 - 金额：`numeric(18,2)` → 前端拿 **string**，展示时才格式化；不做浮点运算（§12.2 禁 `float`）。
-- `null` vs `undefined`：DB 侧可空列在 DTO 里显式 `nullable()`，不要用可选属性 `?` 含糊掉——`field_diffs` 与审计要能区分"没填"和"填了空"。
+- （本条与下一条的**具体形状是本轮新增口径**，规格件未定）`null` vs `undefined`：DB 侧可空列在 DTO 里显式 `nullable()`，不要用可选属性 `?` 含糊掉——`field_diffs` 与审计要能区分"没填"和"填了空"。
 - 联合返回：列表接口返回固定形状 `{items, page, pageSize, total}`，不要有的接口返数组有的返对象。
 - **外部身份字段不得进 DTO**：`eid`/`openId` 只在 `app_user_external_identity` 与服务端，禁止出现在 `app_user` 或前端可读 DTO（技术选型 §4 末行）。
 

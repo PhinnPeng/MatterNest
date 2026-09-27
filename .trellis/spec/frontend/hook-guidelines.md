@@ -33,7 +33,7 @@ page.tsx（外壳，无业务数据） → 'use client' 组件 → useXxx hook �
 - `use` 前缀、动词或资源名，放在离使用点最近的 `hooks/`；跨域复用才上移到公共 `hooks/`。
 - 一个 hook 只做一件事：`useMatterList(params)` 取数、`useMatterDetail(id)` 取单条、`useConvertSubmit()` 提交。取数与表单状态不要混在同一个 hook 里。
 - 表单状态属于 react-hook-form，**不要**包成自研 `useFormState`；校验规则从 `src/shared/schema` 派生（禁令⑧）。
-- 期限/"剩 N 天"计算走 `shared/time` 纯函数，不写在组件里（§4 行 10）。
+- 期限/"剩 N 天"计算走 `shared/time` 纯函数，不写在组件里（技术选型 §4「期限计算」行）。
 
 ---
 

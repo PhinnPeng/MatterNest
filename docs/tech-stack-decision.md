@@ -233,7 +233,7 @@ SELECT pg_try_advisory_lock(hashtext('matternest:reminder-scan'))
 | Redis | session 在 PG，缓存只有权限集一处且量小 |
 | 微服务拆分 | 用户量与领域耦合度都不支持这个成本 |
 | ORM 软删除插件 | 设计已定 `is_deleted` + 部分索引，语义要显式控制，不能让插件偷偷改写查询 |
-| 前端 SSR/Next.js | 内部后台，无 SEO 需求，SSR 只增加部署与鉴权复杂度 |
+| ~~前端 SSR/Next.js~~ **v5 作废** | 本行写于换框架之前（当时结论就是不要 Next）。**v5 已定全栈 Next.js 16**，故本条出局。仍成立的内核换成了另一种形式：**禁令⑥ 页面壳不得预取业务数据**（§13.5）——无 SEO 需求这点没变，变的只是壳用什么框架渲染。|
 | monorepo 构建缓存（turborepo/nx） | 3 个 app、5 个 package 规模下收益不明显，先裸 pnpm |
 
 ---
@@ -253,8 +253,8 @@ SELECT pg_try_advisory_lock(hashtext('matternest:reminder-scan'))
 | `scope_key` 归一化 8 条向量（枚举表 §4.4） | `shared/automation/scope-key.spec.ts`，逐向量断言 |
 | 字段加密 + HMAC 索引列 | `shared/crypto`，密钥从 env 注入，不入库 |
 | 期限计算（`date` vs `timestamptz`） | `shared/time`，禁止业务层裸用 `Date` |
-| **前端唯一组件体系（§3.3 / §12.3 禁令 7）** | 只有 `app/components/ui/`（shadcn-vue 复制件 + 自封装 `DataTable.vue`、`FileUpload.vue`）；业务组件不得直接 import 原语包，不得引入第二套带样式组件库 |
-| **表格强制服务端分页（§12.3 禁令 8）** | `DataTable.vue` 只接受 `page/pageSize/sortBy/sortDir/filters` 受控参数并打 `/api/**`；**禁止客户端全量排序**——那等于绕过 ScopeResolver 读到自己无权的数据 |
+| **前端唯一组件体系（§3.3 / §13.5 禁令 7）** | 只有 `src/app/components/ui/`（shadcn 复制件 + 自封装 `DataTable.tsx`、`FileUpload.tsx`）；业务组件不得直接 import 原语包，不得引入第二套带样式组件库 |
+| **表格强制服务端分页（§13.5 禁令 8）** | `DataTable.tsx` 只接受 `page/pageSize/sortBy/sortDir/filters` 受控参数并打 `/api/**`；**禁止客户端全量排序**——那等于绕过 ScopeResolver 读到自己无权的数据 |
 | 双通道登录（§3.4） | `server/api/auth/*` 两组端点（`/local`、`/yunzhijia/callback`）+ 同一个 `auth_session` 签发口；在职同步挂 scheduled task 并包 `withSingleFlight()`（C1） |
 | 外部身份映射（§3.4） | `app_user_external_identity` + 唯一键 `UK(provider, external_id)`；**禁止**把 `eid` 写进 `app_user` 或前端可读的 DTO |
 
@@ -348,7 +348,7 @@ T1 定稿后依次：
 
 | 波次 | 内容 | 为什么这么切 |
 |---|---|---|
-| **P0 上线必带** | 风险事项、案件、节点、进展、评论、附件；三档数据范围 + 审计；`FX/AJ` 编号生成；转案件（含 outbox + `risk_converted`）；归档与偏离确认；**前端两件前置封装：`DataTable.vue` 与 `FileUpload.vue`** | 缺任何一项，主流程就不闭合：能建案但转不了，或转了但没人看得到。前端这两件是 P0 的地基——`DataTable` 一张覆盖 5 个列表页（案件/事项/当事人/我的关注/通知），`FileUpload` 是 shadcn-vue 唯一确认没有现成件的一块（核验见 `research-nuxt-table-vue-ui.md` §4），都要在写业务页之前先落 |
+| **P0 上线必带** | 风险事项、案件、节点、进展、评论、附件；三档数据范围 + 审计；`FX/AJ` 编号生成；转案件（含 outbox + `risk_converted`）；归档与偏离确认；**前端两件前置封装：`DataTable.tsx` 与 `FileUpload.tsx`**（v5 换 React 后文件名同步；原写 `.vue`） | 缺任何一项，主流程就不闭合：能建案但转不了，或转了但没人看得到。前端这两件是 P0 的地基——`DataTable` 一张覆盖 5 个列表页（案件/事项/当事人/我的关注/通知），`FileUpload` 在 Vue 端口已确认没有现成件，**React 端口本轮抓取失败未核到**，两边都按自封装排期（核验见 `research-nuxt-table-vue-ui.md` §4 与 `research-nextjs-stack.md` §3），都要在写业务页之前先落 |
 | **P1 可推后 2 周** | **自动化规则的配置页与通用引擎**。P0 阶段把「节点到期提醒」「结案通知关注人」两条按内置定时任务硬编码实现，规则表结构与 seed 照常建好 | 规则引擎是全套设计里最贵的子系统（5 触发 × 5 动作 × scope_key 唯一性 × 冲突检测 × 聚合去重），而第一期真正要跑的行为只有 2–3 条。表结构先建、UI 与引擎后补是**只加不改**，不会返工 |
 | **P1 同批** | 自定义提醒 `custom_reminder`（重复规则、多渠道）、关注 feed 的未读计数、导出 | 有替代路径（未读=肉眼看列表；导出=手工汇总），不阻塞主流程 |
 | **建议移出第一期** | 邮件渠道、批量导入、全局搜索 | 每一项都要额外基础设施（SMTP 送达与退信、导入模板与冲突处理、检索方案），收益却是个别的 |

@@ -54,15 +54,15 @@ src/shared/**     →  任何一层           ❌
 |---|---|---|
 | 业务读写接口 | `src/app/api/<资源>/route.ts` | §13.5 禁令⑤ |
 | 表单 mutation 的编排 | Server Function，但**不承载第二套权限判断** | §13.2 对禁令⑤的加强 |
-| 数据范围判定 | `src/lib/server/scope/` + 仓储基类断言，显式 `withScope(event, handler)` | §4 行 2 |
-| 状态机 / 规则求值 / 编号 / 期限计算 | `src/shared/`（纯 TS，可被前端复用） | §5.1、§4 行 8/9/10 |
-| 字段加密 + HMAC 索引列 | `src/shared/crypto`，密钥从 env 注入，**不入库** | §4 行 9 |
-| 审计写入 | 服务层单点包装（写成功后落 `activity_log`），不是 Interceptor/Guard | §4 行 4 |
-| 特权开关判定 | `requirePrivilege(event, 'can_unarchive')` 这类统一辅助函数 | §4 行 5（原 `@RequirePrivilege()` 装饰器是 Nest 落点，已废） |
+| 数据范围判定 | `src/lib/server/scope/` + 仓储基类断言，显式 `withScope(event, handler)` | §4「ScopeResolver + 禁止裸表访问」行 |
+| 状态机 / 规则求值 / 编号 / 期限计算 | `src/shared/`（纯 TS，可被前端复用） | 枚举表 §5.1；§4「期限计算」行。**注**：状态机与规则求值在 §4 无对应行，按 §5 拓扑归入 `src/shared/`（本轮新增口径，非引用） |
+| 字段加密 + HMAC 索引列 | `src/shared/crypto`，密钥从 env 注入，**不入库** | §4「字段加密 + HMAC 索引列」行 |
+| 审计写入 | 服务层单点包装（写成功后落 `activity_log`），不是 Interceptor/Guard | §4「`activity_log` 自动落审计」行 |
+| 特权开关判定 | `requirePrivilege(event, 'can_unarchive')` 这类统一辅助函数 | §4「特权开关」行（原 `@RequirePrivilege()` 装饰器是 Nest 落点，已废） |
 | 定时任务 | `worker/`，每条包 `withSingleFlight()` | §3.5、C1（§13.2） |
 | 一次性补跑 | `docker compose run worker --task <name>` | C2 作废后的替代路径（§13.2） |
 
-**禁止**：裸 `select()` 绕过 ScopeResolver（§4 行 2 要求 CI 检查）；在 proxy/middleware 里做鉴权（§13.3-1，官方原文要求在每个 Server Function 内部校验）。
+**禁止**：裸 `select()` 绕过 ScopeResolver（§4「ScopeResolver + 禁止裸表访问」行要求 CI 检查）；在 proxy/middleware 里做鉴权（§13.3-1，官方原文要求在每个 Server Function 内部校验）。
 
 ---
 
@@ -74,9 +74,9 @@ src/shared/**     →  任何一层           ❌
 - **枚举值一律全称 `risk_matter`，禁止缩写 `risk`**（§8.3）。
 - 展示字段统一 `name`（不是 `title`）；API 层出参用 `displayName`。
 - 类型基线：id `bigint`、时间 `timestamptz`(UTC)、日期 `date`、金额 `numeric(18,2)`、枚举 `varchar + CHECK`（**不用 PG `enum` 类型**——加值要 `ALTER TYPE` 且有事务限制）、固定集合 `text[]`/`integer[]`、自由结构 `jsonb`。
-- 项目标识：仓库 `matter-nest`，产品名 MatterNest，缩写 MN。
+- 项目标识：仓库 `matter-nest`、产品名 MatterNest、缩写 MN、DB 前缀 `mn_`、API 前缀 `/api/mn/v1/`——**这五条来自用户 2026-09-26 的口头口径，docs 里此前一处都没写**（`grep -rn matter-nest docs/` 零命中；`mn_` 只出现在基线 15.1，`/api/mn/v1/` 与禁令⑤的 `/api/**` 是父子关系但未成文）。已登记 master **P1-20** 待回写；`mn_` 前缀另撞 master **P1-15**（规格件全用裸名）。**两者拍定前不得往迁移与路由里自行加前缀。**
 - **表名前缀未决，不得自行决定**：基线 15.1 全带 `mn_` 前缀，规格件（修订稿/枚举表/权限草案）全用裸名。现行按**裸名**读写；`mn_` 属 master §7.2 **P1-15** 未决项，任何票不得一边写 `mn_matter` 一边写 `matter`。拍定前若要出迁移，先把这条挂回给用户签字。
-- 文件命名：Route Handler 固定 `route.ts`；React 组件 PascalCase（`DataTable.tsx`）；其余 TS 模块 kebab-case；自定义 hook `useXxx`。
+- 文件命名：Route Handler 固定 `route.ts`；React 组件 PascalCase（`DataTable.tsx`）；自定义 hook `useXxx`。〔**「其余 TS 模块 kebab-case」是本轮新增口径**——master §8 的 kebab-case 只管**路由**，没管文件名，别当引用用〕
 
 ---
 

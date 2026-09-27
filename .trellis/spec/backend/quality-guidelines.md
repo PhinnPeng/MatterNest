@@ -8,7 +8,7 @@
 ## 现行八条禁令（逐字取自技术选型 §13.5；**不要抄 §12.3 的 v4 版**）
 
 1. **`src/shared/**` 只放纯 TS**：不得 import `next/*`、`react`、Node API——它同时被客户端与服务端引用，污染了就会把服务端代码带进前端 bundle，CI 必须拦得住。
-2. **Drizzle partial index 的 `.where()` 只用 `sql` 模板，禁用 `eq()`/`and()`**（0.45.3 实测生成非法 `$1`，open issue #4790）；锁 `drizzle-orm`/`drizzle-kit` 精确版本，升级时复验。
+2. **Drizzle partial index 的 `.where()` 只用 `sql` 模板，禁用 `eq()/and()`**（0.45.3 实测生成非法 `$1`，open issue #4790）；锁 `drizzle-orm`/`drizzle-kit` 精确版本，升级时复验。
 3. **生成列写法**：`generatedAlwaysAs(sql\`…\`)` 或回调形式，**pg 侧没有 `.stored()`**；PG 只有 STORED，生成列不可进 PK/FK/unique、不可引用其他生成列。
 4. **schema 演进只用 `generate` + `migrate`，开发期也不用 `push`**：`push` 检测不到已有索引 `.where()`/表达式变化，而软删 partial unique 是权限模型骨架，用 push 会出现"代码改了、库没改、CI 还绿"的静默漂移。
 5. **业务读写一律 `/api/**` Route Handler**，且**鉴权必须在每个 handler 内部 `withScope()`**——Next 官方明令不得只依赖 proxy/middleware（matcher 排除路径会连带跳过该路径上的 Server Function）。Server Function 只做编排，不承载第二套权限判断。返回体一律 JSON，不可见资源 **404**。
@@ -18,7 +18,7 @@
 
 外加两条部署级：**(a)** 多副本必须共配 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 与 `deploymentId`，且不使用 `'use cache'`/跨实例共享缓存；**(b)** worker 与 app 都要处理 SIGTERM，留 10–30s drain，outbox 投递不得在关闭时被掐断。
 
-**后端相关的落点分布**：①–④ 主要在本目录 [Database Guidelines](./database-guidelines.md)；⑤ 在 [Error Handling](./error-handling.md)；⑥⑦⑧ 在前端目录；(a)(b) 在 `deploy/` 与 `worker/`。
+**落点分布**：① 在 [Directory Structure](./directory-structure.md)（依赖方向）；②–④ 在 [Database Guidelines](./database-guidelines.md)；⑤ 在 [Error Handling](./error-handling.md)；⑥⑦⑧ 在前端目录（该三份为**摘编**，全文以本节为准）；(a)(b) 在 `deploy/` 与 `worker/`。
 
 ---
 
@@ -64,7 +64,9 @@
 
 ## 明确不做（第一期）
 
-Elasticsearch/全文检索、消息队列、Redis、微服务拆分、ORM 软删插件、monorepo 构建缓存（turborepo/nx）、pgbouncer、任何跨用户共享缓存（技术选型 §3.6、§12.5）。案例模块、外部/访客只读账号、邮件渠道、批量导入的全套设施——按既定裁定移出或降级，不要顺手加回来。
+**已定不做**（技术选型 §3.6、§12.5）：Elasticsearch/全文检索、消息队列、Redis、微服务拆分、ORM 软删插件、monorepo 构建缓存（turborepo/nx）、pgbouncer、任何跨用户共享缓存；案例模块与外部/访客只读账号一期出局（master 裁定）。
+
+**§9 只是"建议移出"、尚未裁定，不要当定案执行**：邮件渠道（落地方案 W5-5 仍标"待拍"）、全局搜索、批量导入。其中**批量导入仍在一期**——master F7-4 / P14 / 票 W7-3 都带着它，只是缺原型；别按"已移出"把它删掉。
 
 ---
 
@@ -72,4 +74,6 @@ Elasticsearch/全文检索、消息队列、Redis、微服务拆分、ORM 软删
 
 - 票面必须带**规格件出处到章节号**；禁止把落地方案里的推断当"已知事实"写进派单。
 - 子代理回报的完成状态一律以 `git status` + 目标文件实存 + 命令实际输出为准，**不采信叙述**。我自己说"已落盘/已结案"同样按这条办——本项目真出过一次口头宣布 517 行研究文档、实际文件不存在的事。
-- W0-7（本票）未完成前不派任何写码票；W0-3/W0-4/W2-1～W2-4/W3-4/W3-6/W3-8/W4-1/W4-2/W4-4/W4-6/W5-1～W5-3/W6-1～W6-3/W6-5/W7-1 属"审"票，人审后才放行（落地方案 §7）。
+- W0-7（本票）未完成前不派任何写码票。
+- **可整体派发的票**（落地方案 §7 原样）：W0-1/2/5、W1-5/7、W2-5/7、W3-2/3/5/7/9、W4-3/5、W5-4、W6-4/6、W7-3/4。
+- **必须人审后才放行的票**（同处原样）：W0-3/4/6/**7**、W1-1/2/3/4/6、W2-1/2/3/4/6、W3-1/4/6/8、W4-1/2/4/6、W5-1/2/3、W6-1/2/3/5、W7-1。
