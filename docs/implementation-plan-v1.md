@@ -94,6 +94,7 @@ src/shared/**  纯 TS：枚举 E01–E37 · Zod schema · ids · time · crypto�
 - **W3-5** 进展 / 费用（`SUM` 合计）/ 评论（≤1 层、@提及）/ 标签等级。出处：修订稿 §6.3。派
 - **W3-6** 当事人：查重（模糊 + `id_number_hash`）、加密与默认脱敏、跨案引用提示、可见性规则。出处：修订稿 §6.3/§8.2、权限草案 §7.2。审
 - **W3-7** `FileUpload` 自封装 + 预签名 PUT。出处：研究文档 §2.6、技术选型 C3。派
+  > **范围修正（2026-09-27）**：展示层不必从零写——shadcn 有 `Attachment` 件（附件行 + `uploading/processing/error/done` 态 + 删除动作），本票只做「选文件 → 签 PUT → 直传 → 回报 key + 白名单校验」。**前置**：`shadcn add attachment` 要能访问 `ui.shadcn.com`（当前被域名级重置），且先确认它把件落在 `components/ui/` 还是 `styles/<style>/ui/`。
 - **W3-8** 编号生成器（业务时区日界、溢出扩 4 位）。出处：修订稿 §12.3。审
 - **W3-9** 收藏与关注、`is_read` 未读位。派
 

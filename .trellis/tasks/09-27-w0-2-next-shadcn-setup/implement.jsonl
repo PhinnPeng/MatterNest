@@ -2,3 +2,4 @@
 {"file": ".trellis/spec/frontend/directory-structure.md", "reason": "§5 拓扑：components/ui 必须在 src/app 下"}
 {"file": ".trellis/spec/backend/directory-structure.md", "reason": "禁令① 依赖方向，加 Next 后仍不得污染 src/shared"}
 {"file": "docs/research-nextjs-stack.md", "reason": "N1 验收标准与待答问题清单"}
+{"file": ".trellis/tasks/09-27-w0-2-next-shadcn-setup/research/attachment-组件定性.md", "reason": "attachment 件的定性与「落点随 style 变」这条未验项；W3-7 与禁令⑦ 的判据"}

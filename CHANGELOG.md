@@ -24,10 +24,17 @@
 
 ### 结案与未结案
 
-- ✅ **P1-18 的上传件问题结案**：`ui.shadcn.com/r/index.json` 实取一次，**63 个条目里没有 `upload`/`dropzone` 命名的件** → `FileUpload` 自封装（W3-7）从"待验"转"定案"。
+- ❌→✅ **P1-18 的上传件问题：先误结案、当日撤回**。当时据 `ui.shadcn.com/r/index.json`（63 项、无 `upload`/`dropzone` 命名）写下「没有现成上传件，结案」——**下早了**。改从官方 GitHub 仓取到一手源码后确认：`attachment` 是**附件展示件**（官方 description：Displays a file or image attachment with media, metadata, **upload state**, and actions；签名带 `idle|uploading|processing|error|done`）。**修正后口径**：选文件 / 预签名 PUT / 直传 / 进度 / 白名单仍要自写，但「附件行 + 上传态 + 删除」有现成件 → **W3-7 从「整件自封装」缩为「逻辑自封装 + 展示层用 `Attachment`」**。
 - ⚠ 但同域名随后**持续 `ECONNRESET`**（6 次退避重试 + curl 全失败），`shadcn init` / `add` 没跑通 → `components/ui/` 基线**未产出**、`attachment` 只拿到名字没读到源码（**不许拿它当依据**）、中文 locale 未验、"CLI 能否落到 §5 指定的 `src/app/components/ui/`"未验。
 - **`components.json` 故意不手写**：一份没被 CLI 认过的配置只会让下次 `add` 报难懂的错。恢复命令已写进研究文档 §6.3。
 - 因此 **N1 只算半过，M0 的"N1 通过"这条退出条件未满足**。
+
+### 复测（同日稍后："重试"的结果）
+
+- **网络阻断定性升级**：不是抖动。`ui.shadcn.com` → `66.33.60.193`，对该 IP 的 443 三次复测都是**连上即 `ECONNRESET`（<100ms）**，同机访问 `registry.npmjs.org` / `github.com` / `raw.githubusercontent.com` 全部 200 → **域名级定向重置，等不会自己好**。CLI 报错建议的「降级到 `shadcn@4.20.0`」是无效方向，已在研究文档点名。
+- **绕过方式有限**：registry 源码确实在 GitHub `shadcn-ui/ui` 且可达（`attachment.tsx` 与 `attachment.mdx` 都是这么取到的），但**不能靠手拷 `.tsx` 顶替 `shadcn add`**——该件类名 `cn-attachment …` 依赖 registry 随件下发的样式，且官方示例的 import 是 `@/styles/radix-rhea/ui/attachment`（`init` 默认却是 `style=nova`）。
+- **由此冒出一条新的未验项，比"有没有上传件"更要紧**：组件落点可能是 `styles/<style>/ui/` 而不是 `components/ui/`，这会牵动技术选型 §5 拓扑与禁令⑦ 的措辞。**必须等 CLI 真跑一次才能定**，不许靠读仓库源码推断。
+- 同批实测三个 base 的 ui 件数：`aria` 59 / `base` 62 / `radix` 61（与 docs 站点 registry 的 63 条不等值，清单含非 ui 条目）—— 两个数字不要拿来互相"验证"。
 
 ### Fixed
 

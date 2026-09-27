@@ -83,7 +83,7 @@
 
 - ✅ 取到 `https://ui.shadcn.com/r/index.json` 一次，HTTP 200 / 58,355 字节 / **63 个 registry 条目**，全名单：
   `accordion alert alert-dialog aspect-ratio attachment avatar badge breadcrumb bubble button button-group calendar card carousel chart checkbox collapsible combobox command context-menu dialog direction drawer dropdown-menu empty field form hover-card input input-group input-otp item kbd label marker menubar message message-scroller native-select navigation-menu pagination popover progress questionnaire radio-group resizable scroll-area select separator sheet sidebar skeleton slider sonner spinner switch table tabs textarea toast toggle toggle-group tooltip`
-- ✅ 其中**没有** `upload` / `file-upload` / `dropzone` 命名的条目 → 与 Vue 端口同结论：**没有现成的上传件**，`FileUpload` 自封装的排期不变（这条可以结案）。
+- ⚠ 清单里**没有** `upload` / `file-upload` / `dropzone` 命名的条目。**但当时据此写下“没有现成的上传件、这条可以结案”是错的**——见 §3.2：有个 `attachment` 件，官方定位是**附件展示件（含上传状态显示）**，能替掉自封装里“列表项 + 状态 + 删除”那一块 UI，只是**不管选文件与传输**。
 - ⚠ 有个 `attachment` 条目，但**没能取到它的源码**（`/r/attachment.json`、`/r/styles/nova/attachment.json` 等五种 URL 形态全 404 或断连），所以**不断言它是上传器还是附件展示件**。要判就得等网络能连通时 `shadcn add attachment` 读源码——在此之前不要拿这个名字做排期依据。
 - ✅ `shadcn` CLI 版本 **4.21.0**；`init` 的参数面从报错信息里直接读到：`base` 的合法值是 **`radix | base | aria`**（**原语包现在是三选一，不是默认 Radix**），默认组合为 `style=nova & baseColor=neutral & theme=neutral & iconLibrary=lucide & font=geist & template=next`。
 - ❌ 之后所有请求（含 `/r/index.json` 六次退避重试、`curl` 三次）全部 `ECONNRESET`，`init` 与 `add` **没跑通** → N1 的"CLI 能否把组件落到 §5 指定位置"与"中文 locale"两项**仍未验**。
@@ -91,6 +91,25 @@
 对本仓的直接后果：`components.json` **故意不手写**——一份没被 CLI 认过的配置只会让下一次 `shadcn add` 报难懂的错。等网络可用时跑 `pnpm dlx shadcn@latest init --yes --defaults --base radix`，再按 §5 把 alias 改到 `@/app/components/ui`。
 
 ---
+
+### 3.2 `attachment` 到底是什么（2026-09-27 从官方仓取到一手源码）
+
+`ui.shadcn.com` 被重置，但**官方 registry 的源码就在 GitHub `shadcn-ui/ui` 仓里且可达**
+（`raw.githubusercontent.com` 返回 200）。取到 `apps/v4/registry/bases/radix/ui/attachment.tsx`
+与 `apps/v4/content/docs/components/radix/attachment.mdx`：
+
+- 官方 description 原文：**"Displays a file or image attachment with media, metadata, upload state, and actions."**
+  用途句是 "Use it for files and images in chat composers, message threads, and **upload lists**"。
+- 组件签名里 `state?: "idle" | "uploading" | "processing" | "error" | "done"`；子件为
+  `Attachment / AttachmentMedia / AttachmentContent / AttachmentTitle / AttachmentDescription /
+  AttachmentActions / AttachmentAction / AttachmentTrigger`；变体走 `class-variance-authority`，原语引 `radix-ui` 的 `Slot`。
+- **修正 §3.1 的过早结案**：它是**附件展示件**，不是上传器——**选文件、申请预签名 PUT、直传、进度回报、白名单校验仍要自己写**；
+  但"附件行 + 上传中/失败态 + 删除按钮"这块 UI 有现成的，**W3-7 由"整件自封装"缩为"逻辑自封装 + 展示层用 `Attachment`"**，成本下降。
+- 同一仓库实测三个 base 的 ui 件数：`aria` 59、`base` 62、`radix` 61 —— 与 docs 站点 registry 的 63 条不完全等值
+  （清单含非 ui 条目）。**不要拿这两个数字互相"验证"**。
+- ⚠ **一条必须等 CLI 才能定的事**：官方示例 import 的是 `@/styles/radix-rhea/ui/attachment`（`styleName="radix-rhea"`），
+  而 `init` 默认 `style=nova`。**组件落点似乎随 style 名变，不再是 `components/ui/`**——这直接关系技术选型 §5 拓扑与禁令⑦ 的措辞，
+  但不能靠读仓库源码定论，必须等 CLI 真跑一次（见 §6.3）。
 
 ## 4. 从 Nuxt 路线继承与作废的清单
 
@@ -148,4 +167,5 @@ N4/N6 是这次换框架**新引入**的验证点；N1/N2/N3/N5/N7 是原本就�
 - `attachment` 条目只拿到名字、没拿到源码，不许拿它当上传件存在与否的依据。
 ⚠ **阻断性质已定位：不是 CLI 版本、不是 query 长度。** 把四种 URL 各测一次——`/r/index.json`（无 query）、`/r/index.json?x=1`、仿 `init` 的 12 参数长 query、4 参数短 query——**四条全部 `ECONNRESET`，且都在 60–100ms 内被 RST**；而**同一次会话早先 `/r/index.json` 刚返回过 200 / 58,355 字节**。所以是**域名级间歇性连接重置**（本仓历史上抓 `ui.shadcn.com/docs/*` 失败过多次，同一症状）。CLI 报错里建议的"降级到 `shadcn@4.20.0` 再试"**是无效方向**——RST 发生在传输层，与包版本无关，别照做。
 - 恢复命令：网络可用时 `pnpm dlx shadcn@latest init --yes --defaults --base radix`，再把 alias 改到 `@/app/components` / `@/app/components/ui` / `@/app/lib/utils`，然后 `add button card input dialog attachment` 逐个读源码。
-- 若这台机器长期不通：在能访问 `ui.shadcn.com` 的机器上跑 `init` + `add`，把生成的 `components.json` 与 `src/app/components/ui/*` 拷回来——它们是纯源码进仓，没有运行时差异。
+- **不通的性质（两次复测后加强）**：`ui.shadcn.com` → `66.33.60.193`，对该 IP 的 443 **三次复测都是连上后立刻 `ECONNRESET`（<100ms）**，而同机同进程访问 `registry.npmjs.org`、`github.com`、`raw.githubusercontent.com` 全部 200。所以**不是抖动、等不会自己好**：要么换出口（代理/热点），要么在能访问该域名的机器上跑 `init` + `add` 再把产物拷回来。
+- ⚠ **但不要靠「从 GitHub 手拷 `.tsx`」绕过 CLI**：`attachment.tsx` 的类名（`cn-attachment …`）依赖 registry 随件下发的样式，且官方示例的 import 是 `@/styles/radix-rhea/ui/attachment`——**落点与样式都得由 CLI 生成**（详见 §3.2）。

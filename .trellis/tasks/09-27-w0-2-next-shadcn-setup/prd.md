@@ -27,7 +27,7 @@
 | 1 | ✅ `pnpm build` 成功且产出 `.next/standalone` | 实跑：Turbopack 编译通过，`.next/standalone/{server.js,package.json,node_modules}` 存在 |
 | 2 | ⚠ 半：Next+Tailwind 起得来（build 通过、`cn()` 有测试），**`shadcn add` 未验** | 网络 `ECONNRESET` 挡住 |
 | 3 | ⏸ 未验（依赖 #2） | 网络恢复后跑 `init` 再看路径 |
-| 4 | ✅ 半结案：registry 63 项清单**无 `upload`/`dropzone`** → 自封装排期定案；`attachment` 只拿到名字、没拿到源码，不作依据 | `research-nextjs-stack.md` §3.1 |
+| 4 | ❌→✅ **曾误结案、当日撤回**：registry 清单里没有 `upload`/`dropzone` 命名 ≠ 没有可用的件。改从官方 GitHub 仓取到 `attachment` 一手源码后确认它是**附件展示件**（带 `idle\|uploading\|processing\|error\|done`），于是 W3-7 从「整件自封装」缩为「逻辑自封装 + 展示层用 `Attachment`」 | `research/attachment-组件定性.md` + 研究文档 §3.2 |
 | 5 | ✅ `pnpm verify` 五步全绿（5 个测试），且把 `files` 段改错后 lint-guard 当场 exit 1 | 实跑 + 反向实验 |
 | 6 | ✅ 结论已回写四处：研究文档 §3.1/§5/§6、技术选型 §13.4、master P1-18-补、spec `component-guidelines.md`（含新事实：原语是 `radix|base|aria` 三选一） | 见提交 |
 

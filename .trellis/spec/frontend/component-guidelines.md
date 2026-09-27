@@ -34,7 +34,7 @@
 |---|---|---|
 | 密集表格（案件/事项/当事人/我的关注/通知 5 张 + 详情内嵌表） | 半现成 | 以 Data Table 为底，**自封装一张 `DataTable.tsx`**（`components/ui/data-table/`）：受控分页参数、筛选模型、批量选择、列显隐统一收口。**禁止客户端全量排序** |
 | 转案件动态表单（N 个案件卡片 + 跨卡复制 + 每卡 10+ 字段联动校验） | 要自写 | **react-hook-form + Zod resolver**（与 `shared/schema` 同源，v5 的默认唯一选择，不再留三选一）；数组字段与跨卡复制自管；**id 类字段不参与复制**（矩阵 §3） |
-| 附件上传（预签名 PUT 直传 + 进度 + 白名单 + 多文件） | 两边都按自封装排期 | 自封装 `FileUpload.tsx`：向 `/api/**` 申请预签名 PUT → 直传 MinIO → 只回报对象 key。**后端不中转文件流**（C3），请求体上限由 nginx 设死；框架侧不设 body 上限 |
+| 附件上传（预签名 PUT 直传 + 进度 + 白名单 + 多文件） | **逻辑自封装 + 展示层有现成件** | `FileUpload.tsx` 只做「选文件 → 向 `/api/**` 申请预签名 PUT → 直传 MinIO → 回报对象 key」；**列表项 / 上传态 / 删除按钮用 shadcn 的 `Attachment`**（官方定位：附件展示件，带 `idle|uploading|processing|error|done`，见研究文档 §3.2）。后端不中转文件流（C3），请求体上限由 nginx 设死；框架侧不设 body 上限 |
 | 日期与法律期限（含"剩 N 天"） | 半现成 | Calendar / Date Picker 有；**中文 locale 与 react-day-picker 版本待 N1/N7 实测（UNVERIFIED）**；期限计算一律走 `shared/time`，`date` 与 `timestamptz` 的边界不因组件库改变 |
 
 **压缩手段**：先把 `DataTable.tsx` 封好——它一张覆盖 5 个列表页，是全项目复用率最高的一块。"+1~1.5 周"是 v4 就接受的确定成本，v5 换回 React 后明显缩小，但**省下多少要等 N1 spike 实测才写数字**，不要拿估算当承诺。
@@ -61,7 +61,7 @@
 
 ## 缺件的处理流程（写死，避免每次临时决定）
 
-1. 先查 `docs/research-nextjs-stack.md` 是否已登记该件（未证实在 React 侧有没有现成件时，一律按"没有"排期——这是本轮抓取失败的既定处置）。
+1. 先查 `docs/research-nextjs-stack.md` §3.1/§3.2 是否已登记该件。**一条教训写在这**：§3.1 曾因「registry 清单里没有 `upload` 这个名字」就结案「没有现成上传件」，后来从官方仓读到 `attachment` 才发现**名字不等于能力**——判「有没有件」要同时看**清单 + 官方 description/源码**，不能只看命名。
 2. 没有 → 在 `components/ui/<件名>/` 自封装，只用已有原语 + Tailwind。
 3. 只有在"自封装成本明显高于一个**无样式** headless 库"时，才允许新增依赖（如 `@tanstack/react-table` 这类 headless 层），且必须：写进本文件 + 技术选型 §13.5 禁令⑦的例外说明。**带样式的库一律禁止**，没有例外。
 
