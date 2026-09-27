@@ -296,3 +296,73 @@ ui.shadcn.com 三次复测均为连上即 ECONNRESET（66.33.60.193:443 <100ms �
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: W0-3 枚举 E01–E37：三重 CHECK 一致性机制，并修掉一个让反向检查形同虚设的裸约束名正则
+<!-- trellis-session: v=2 fp=43bf6cdb87cc8198 -->
+
+**Date**: 2026-09-27
+**Task**: W0-3 枚举 E01–E37：三重 CHECK 一致性机制，并修掉一个让反向检查形同虚设的裸约束名正则
+**Branch**: `main`
+
+### Summary
+
+七份分册 + ENUM_REGISTRY（E01–E37 全 37 行有落点，两行非枚举作占位）；一致性测试升级为三重比对：注册表→迁移、迁移→注册表（反向）、注册表→枚举表原文。双向证伪时抓到解析器只认带引号约束名，而枚举表 §5.2 手写补丁模板是裸名 ⇒ 裸名 CHECK 完全绕过反向检查，已修并补向量。同值域 host_type/outbox 事件改单实现并断言同一数组引用。回写枚举表 §5.1（9 行未定归属 + 本表取值列现为机器核对对象）、spec 枚举节、shared README、plan。56 测试绿；仅 E08/E09 真进库，其余标 pending-table。
+
+### Main Changes
+
+用户按看板的推荐顺序说「开始落地 W0-3 枚举 E01–E37」。这张票票面自己标着"审（这条错了后面全错）"，因为它同时决定三件事：值域谁是权威源、进 DB 之后由谁守、文档改了代码跟不跟。任务 `.trellis/tasks/09-27-w0-3-enums`（已 archive），提交 `faeca6e` + `1c169b7`。
+
+## 落地物
+
+- **七份分册 + 注册表**（枚举表 §5.1 的分册照搬，路径按 v5 拓扑读作 `src/shared/enums/`）：`targets / status / business / notify / auth / audit / automation`，加 `index.ts` 的 `ENUM_REGISTRY`。每项同时导出 TS 联合类型、值数组（**顺序即 DDL 里的顺序**）、中文名字典。E01"无此列"、E07"布尔"作**占位条目**登记，而不是不登记 —— 否则覆盖性测试分不清"漏了"和"本来就没有"。
+- **一致性测试从"一条"升级为三重比对**（`src/app/lib/server/db/enum-check.spec.ts`，15 条）：
+  ① 注册表声明 `in-db` 的值域 ⇒ 迁移里必须存在该 `CHECK` 且集合逐字相等；
+  ② **反向** ⇒ 迁移里任何 `CHECK (col IN (…))` 必须被注册表认领；
+  ③ **与权威源原文对拉** ⇒ 逐行解析枚举表 §1/§2 的「取值」列与注册表比对（两边同时抄错也会红）。
+- §3 动作（41 条）与 §4 触发/动作/算子/白名单不占 E 行号，另立 `STRUCT_REGISTRY`，**防止"37/37"被拿来冒充全量登记**。
+- 同值域单实现：`host_type`（E08∩E10）定义在 `targets.ts`、`status.ts` 再导出；outbox 事件（E32∩E33）定义在 `automation.ts`、`notify.ts` 再导出。测试断言的是**同一个数组引用** —— 两份相等的数组照样会各自漂移。
+
+## 本票真正的收获：反向检查原先形同虚设
+
+做双向证伪时，我往迁移尾部加了一条**未登记的裸名约束**：
+
+```sql
+ALTER TABLE "status_config" ADD CONSTRAINT ck_status_unregistered CHECK (color IN ('red','blue'));
+```
+
+反向断言**照样绿**。原因：解析正则写的是 `CONSTRAINT "([a-z0-9_]+)"`，只认带引号的形态（drizzle 产物确实带引号），而**枚举表 §5.2 自己给的手写补丁模板是裸名** `ADD CONSTRAINT ck_matter_case_type CHECK (...)`。也就是说：按规格件的方式手写一条值域约束，就能完全绕过"迁移→注册表"这一半检查，而那半正是防"第二事实源"的唯一闸门。改成 `"?([a-z0-9_]+)"?` 并补一条"裸名也必须被认出"的解析器向量，红→绿才成立。
+
+这已经是同一个教训第 N 次应验：**校验类脚本自己必须先被证伪**，单向或只认一种形态的检查比没有检查更危险，因为它会产出绿色。
+
+## 三处按实测定性、已回写规格件
+
+- **枚举表 §5.1 的分册表原本没给 9 行归属**（E01/E02/E04/E05/E06/E07/E10/E11/E37）。裁定：E02/E04/E05→`targets.ts`，E06/E07/E10/E11→`business.ts`，E37→`auth.ts`，E01 占位。已在 §5.1 追加"W0-3 落地时的三处补齐"。
+- **本表「取值」列现在是机器核对对象**：改文档等于改代码，CI 当场判；新增 E 行必须同步注册表。三行例外（E01 `—`、E06「见 E12」、E07 布尔）在测试里显式列名单，不允许悄悄扩大。
+- `spec/backend/database-guidelines.md` 的"必配测试"从一句话换成三重比对口径，并补约束命名规范 `ck_<表>_<列>`（反向检查与命名断言都依赖它）；`src/shared/README.md` 的 `enums/` 行改已落地，并说明**为什么一致性测试不在 shared 层** —— 它要 `node:fs`，而禁令① 禁止 shared 依赖 Node API。
+
+## 过程中我自己写错的两处（都被工具当场抓住）
+
+- 覆盖性断言里我把期望值写成经过滤的表达式（`["E01","E07","E28"].filter(...)`），逻辑绕但结论侥幸对；重写成直白的两行。
+- `notify.ts` 再导出了 `automation.ts` 里并不存在的类型名 `OutboxEventType` —— **vitest 全绿，`tsc` 才报 TS2305**。又一次印证：测试通过不等于类型成立，门禁顺序（format→lint→typecheck→test）里 typecheck 不能被测试的绿代替。
+
+## 边界（别当已通过）
+
+- 只有 `status_config` 的 E08/E09 真进了 DB（`in-db`）；其余 31 行是 `pending-table`，注册表如实标注，没假装落地。
+- `scope_key` 的 8 条归一化向量属 W1-4（规则引擎实现时一起写），本票只登记 `SCOPE_KEY_LENGTH=12` 与向量数常量。
+- 中文名有 4 组是推导（E17/E18/E20/E22），在 `business.ts` 的 `DERIVED_LABELS` 里显式列出，不冒充权威术语。
+
+## 校验与下一步
+
+`pnpm verify` 五步绿，**56 测试**（+15）；`pnpm db:check` 仍 12/12；双向证伪各留一条红→绿记录。下一张按看板顺序是 **W1-1 宿主主表**，它需要你先拍 **P1-15 表名前缀**（`0000_status_config` 已用裸名）与 **B8 删除语义**（FK 动作与软删 partial unique 的写法全看它）。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `faeca6e` | feat(enums): W0-3 落地 E01–E37 与三重 CHECK 一致性机制（含一个反向检查洞的修复） |
+
+### Status
+
+[OK] **Completed**
