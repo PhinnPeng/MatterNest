@@ -71,3 +71,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: W0-2 装配（N1 半过）+ 共享机实测与 §12.3 时区论证证伪
+<!-- trellis-session: v=2 fp=5cb1c574a444a05f -->
+
+**Date**: 2026-09-27
+**Task**: W0-2 装配（N1 半过）+ 共享机实测与 §12.3 时区论证证伪
+**Branch**: `main`
+
+### Summary
+
+两件事。(1) 共享 dev 机：撤回我上一票写下的假阻塞——GameViewer 映射监听在本机回环，我昨天连的是映射表目标地址那一列。实测 127.0.0.1:30432 对 PG SSLRequest 回 N（16.13）、30090=S3 API、30091=Console、22 可 SSH。按同级项目约定应为每项目一个 dev_<项目> 角色+同名库，但 dev_sy_identity 只有 CREATEDB 无 CREATEROLE，建不了角色——真阻塞改这一条，等用户给 superuser。顺带用跨零点时刻定点实验证伪修订稿 §12.3 的理由：AT TIME ZONE 写法与会话时区无关（共享机默认 PRC），真会漂的是隐式转换（::date 在 UTC 会话少一天），故 SET TIME ZONE UTC 保留并新增 day_key 禁用 current_date/now()::date。(2) W0-2：next@16.3.6+react@19.3.0+tailwind@4.3.3 手工装配，pnpm build 出 standalone、dev 实跑取证外链 CSS 13465B 含 min-h-screen 与 --color-neutral-200、verify 五步全绿、lint-guard 反向实验仍变红。三条现场事实：create-next-app 会写 AGENTS.md（Trellis 受管块，禁用）；Next 构建强改 tsconfig jsx 但不回退其它严格项；shadcn base 是 radix|base|aria 三选一，禁令⑦ 的 Radix 是选定项。P1-18 上传件问题结案（registry 63 项无 upload/dropzone），但 ui.shadcn.com 随后持续 ECONNRESET（四种 URL 形态全被 RST，同会话早前刚返回过 200）→ init/add 未跑通，N1 记半过，任务保持 in_progress。另清掉 SY-AgileIdentity/.env.example 入库的真实口令（未提交，该库另有他人脏文件）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `12a935a` | feat(w0-2): Next 16.3.6 + React 19 + Tailwind v4 装配通过；shadcn 半截被网络挡住（N1 记半过） |
+
+### Status
+
+[OK] **Completed**
