@@ -146,4 +146,6 @@ N4/N6 是这次换框架**新引入**的验证点；N1/N2/N3/N5/N7 是原本就�
 - `shadcn init` / `add` 未跑通（网络），所以**「CLI 能否把件落到 §5 指定的 `src/app/components/ui/`」仍未证实**。`components.json` 我**故意不手写**：一份没被 CLI 认过的配置只会让下一次 `add` 报难懂的错。
 - 中文 locale（Calendar / Date Picker 的月份、星期、周起始）仍未验。
 - `attachment` 条目只拿到名字、没拿到源码，不许拿它当上传件存在与否的依据。
-- 恢复命令：网络可用时 `pnpm dlx shadcn@latest init --yes --defaults --base radix`，再把 alias 改到 `@/app/components` / `@/app/components/ui` / `@/app/lib/utils`，然后 `add button card input dialog` 逐个读源码。
+⚠ **阻断性质已定位：不是 CLI 版本、不是 query 长度。** 把四种 URL 各测一次——`/r/index.json`（无 query）、`/r/index.json?x=1`、仿 `init` 的 12 参数长 query、4 参数短 query——**四条全部 `ECONNRESET`，且都在 60–100ms 内被 RST**；而**同一次会话早先 `/r/index.json` 刚返回过 200 / 58,355 字节**。所以是**域名级间歇性连接重置**（本仓历史上抓 `ui.shadcn.com/docs/*` 失败过多次，同一症状）。CLI 报错里建议的"降级到 `shadcn@4.20.0` 再试"**是无效方向**——RST 发生在传输层，与包版本无关，别照做。
+- 恢复命令：网络可用时 `pnpm dlx shadcn@latest init --yes --defaults --base radix`，再把 alias 改到 `@/app/components` / `@/app/components/ui` / `@/app/lib/utils`，然后 `add button card input dialog attachment` 逐个读源码。
+- 若这台机器长期不通：在能访问 `ui.shadcn.com` 的机器上跑 `init` + `add`，把生成的 `components.json` 与 `src/app/components/ui/*` 拷回来——它们是纯源码进仓，没有运行时差异。
