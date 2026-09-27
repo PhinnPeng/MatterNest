@@ -23,6 +23,8 @@ export default tseslint.config(
       "pnpm-lock.yaml",
       "next-env.d.ts",
       ".next/**",
+      // 一次性 spike/探针的落盘处（已 gitignore），不参与仓库 lint
+      "agent-work/**",
       // fixtures 是"故意写坏的样本"，本身不参与仓库 lint；check.mjs 用 lintText 读它们
       "tools/lint-guard/fixtures/**",
     ],

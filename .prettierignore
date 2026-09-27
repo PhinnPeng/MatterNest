@@ -12,3 +12,6 @@ coverage/
 next-env.d.ts
 next-types/**/*.ts
 
+
+# 一次性 spike/探针的落盘处（同时已 gitignore）：不参与格式与 lint
+agent-work/

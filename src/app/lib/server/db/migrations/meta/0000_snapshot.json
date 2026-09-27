@@ -1,0 +1,193 @@
+{
+  "id": "25a4c968-e392-4d35-9434-a229303f4c49",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.status_config": {
+      "name": "status_config",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "color": {
+          "name": "color",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "host_type": {
+          "name": "host_type",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "semantics": {
+          "name": "semantics",
+          "type": "varchar(24)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'custom'"
+        },
+        "is_system": {
+          "name": "is_system",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "is_initial_status": {
+          "name": "is_initial_status",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "next_status_codes": {
+          "name": "next_status_codes",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "is_enabled": {
+          "name": "is_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "is_archive_status": {
+          "name": "is_archive_status",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "semantics = 'archived'",
+            "type": "stored"
+          }
+        }
+      },
+      "indexes": {
+        "ux_status_initial": {
+          "name": "ux_status_initial",
+          "columns": [
+            {
+              "expression": "host_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "is_initial_status",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ux_status_archived": {
+          "name": "ux_status_archived",
+          "columns": [
+            {
+              "expression": "host_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "semantics = 'archived'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ux_status_closed": {
+          "name": "ux_status_closed",
+          "columns": [
+            {
+              "expression": "host_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "semantics = 'closed'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ux_status_code": {
+          "name": "ux_status_code",
+          "columns": [
+            {
+              "expression": "host_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ck_status_host_type": {
+          "name": "ck_status_host_type",
+          "value": "host_type IN ('matter','risk_matter')"
+        },
+        "ck_status_semantics": {
+          "name": "ck_status_semantics",
+          "value": "semantics IN ('open','in_progress','closed','archived','custom')"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

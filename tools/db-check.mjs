@@ -200,6 +200,74 @@ try {
     `${c8}（W0-4 迁移可用 DDL-in-transaction 姿势）`,
   );
 
+  // ---- 迁移落地自检：库里的结构是否与迁移真相一致（跑在回滚事务里，不留痕）----
+  const hasTable = (await sql`select to_regclass('public.status_config') as r`)[0].r;
+  record(
+    hasTable !== null && hasTable !== undefined ? "ok" : "fail",
+    "C9",
+    hasTable
+      ? "status_config 已在库中（0000 迁移已应用）"
+      : "status_config 缺失 —— 跑 MN_DB_CONFIRM=<库名> pnpm db:migrate",
+  );
+
+  if (hasTable) {
+    // 三个条件唯一索引 + 表级 CHECK：都在回滚事务里真撞一次，确认它们不是"建了但没生效"。
+    // 关键细节：PG 里语句一旦报错，整个事务进入 aborted 态，后面的语句全废 ——
+    // 所以每个"预期失败"必须单独包在 SAVEPOINT 里，否则第一个探针之后什么都测不到。
+    const seen = [];
+    try {
+      await sql.begin(async (tx) => {
+        // 先把 matter 这一档清空再探针：partial unique 撞不撞取决于"同 host_type 已有几行"，
+        // 而 seed 跑没跑是另一件事 —— 探针不能依赖它。整个事务最后回滚，删掉的行会回来。
+        await tx`delete from status_config where host_type = 'matter'`;
+        await tx`insert into status_config (id, code, name, color, host_type, semantics, is_system, is_initial_status, sort_order)
+                 values (900001, 'probe_a', '探针A', 'slate', 'matter', 'custom', false, true, 901)`;
+        seen.push("初始态第一条 OK");
+        try {
+          await tx.savepoint(async (sp) => {
+            await sp`insert into status_config (id, code, name, color, host_type, semantics, is_initial_status, sort_order)
+                     values (900002, 'probe_b', '探针B', 'slate', 'matter', 'custom', true, 902)`;
+          });
+          seen.push("PARTIAL-UNIQUE-FAILED");
+        } catch {
+          seen.push("partial unique 生效");
+        }
+        try {
+          await tx.savepoint(async (sp) => {
+            await sp`insert into status_config (id, code, name, color, host_type, semantics, sort_order)
+                     values (900003, 'probe_c', '探针C', 'slate', 'matter', 'converted', 903)`;
+          });
+          seen.push("CHECK-FAILED");
+        } catch {
+          seen.push("表级 CHECK 生效");
+        }
+        const gen = await tx`select is_archive_status from status_config where id=900001`;
+        seen.push(`生成列实算=${String(gen[0]?.is_archive_status)}`);
+        throw new Rollback("探针回滚");
+      });
+    } catch (e) {
+      if (!(e instanceof Rollback)) seen.push(`EXC:${e.message.split("\n")[0].slice(0, 40)}`);
+    }
+    const good =
+      seen.includes("partial unique 生效") &&
+      seen.includes("表级 CHECK 生效") &&
+      seen.includes("生成列实算=false");
+    record(good ? "ok" : "fail", "C10", `约束实撞：${seen.join(" · ")}`);
+
+    const seeded = (
+      await sql`select host_type, count(*)::int as n,
+                       count(*) filter (where semantics='archived')::int as archived,
+                       count(*) filter (where is_initial_status)::int as initial
+                from status_config where id < 100 group by host_type order by host_type`
+    ).map((r) => `${r.host_type}:${r.n}(init=${r.initial},arch=${r.archived})`);
+    const seedOk = seeded.length === 2 && seeded.every((s) => /:(\d+)\(init=1,arch=1\)/.test(s));
+    record(
+      seedOk ? "ok" : "fail",
+      "C11",
+      `seed 八状态（修订稿 §3.2）：${seeded.join(" ") || "空表 —— 跑 pnpm db:seed"}`,
+    );
+  }
+
   // ---- 环境概况（不判定）----
   record("info", "ENV", (await sql`select version() as v`)[0].v);
 } catch (e) {

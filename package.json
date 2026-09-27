@@ -19,6 +19,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:check": "node tools/db-check.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node tools/migrate.mjs --migrate-only",
+    "db:seed": "node tools/migrate.mjs --seed-only",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs"
   },
   "devDependencies": {
@@ -27,6 +30,7 @@
     "@types/node": "^22.20.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "drizzle-kit": "0.31.10",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.9",
@@ -42,6 +46,7 @@
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "date-fns": "^4.4.0",
+    "drizzle-orm": "0.45.3",
     "lucide-react": "^1.48.0",
     "next": "^16.3.6",
     "postgres": "^3.4.9",

@@ -257,3 +257,46 @@ N4/N6 是这次换框架**新引入**的验证点；N1/N2/N3/N5/N7 是原本就�
 - **W3-1 的 `DataTable` 已有可运行参照实现**，剩下的主要是接真接口与筛选面板，不是从零试探。
 - **W4-1 的动态数组表单**：错误定位与跨卡复制两条已验证可行，可直接沿用 `summarizeIssues` / `copyCardOnto` 的形状。
 - 表格能力边界按 §12.4 的既定处置不变：列固定/拖拽第一期不强求。
+
+---
+
+## 8. W0-4 迁移机制 spike 实测（2026-09-27）
+
+要回答的问题只有一个（技术选型 §3.2b 末尾那条悬置）：**Drizzle 的 DSL 表达得了本项目的骨架构造吗？** 表达不了就退 SQL-first（`node-pg-migrate`/umzug，Drizzle 只当查询器），并连带改目录结构——所以它必须在写第一批真迁移之前定。
+
+### 8.1 做法
+
+`drizzle-orm@0.45.3` + `drizzle-kit@0.31.10`（精确版本，禁令② 要求），拿三张最难的表写 schema → `generate` 产 SQL → **把产出的 SQL 真打进共享 dev 机 PG 16.13**，再逐条撞约束。spike 跑在 `agent-work/`（已 gitignore、跑完删），产出 SQL 只作证据不作交付。
+
+### 8.2 结论：DSL 够用，不退 SQL-first
+
+| 构造 | 想要的 SQL | generate 实产 | 真库行为 |
+|---|---|---|---|
+| partial unique（软删骨架） | `CREATE UNIQUE INDEX … WHERE "is_enabled" AND NOT "is_deleted"` | ✅ 逐字正确 | 第二条初始态被 `duplicate key … "ux_status_initial"` 拦下 |
+| 表级 CHECK（枚举值域） | `CONSTRAINT "ck_status_semantics" CHECK (semantics IN (…))` | ✅ 字面量内联 | 越界值被 `violates check constraint` 拦下 |
+| 生成列 | `"is_archive_status" boolean GENERATED ALWAYS AS (semantics = 'archived') STORED` | ✅ 自动带 STORED | 实算值 `true`；手写它报 `can only be updated to DEFAULT` |
+| 数组列 / jsonb | `text[] DEFAULT '{}'`、`jsonb DEFAULT '{}'::jsonb` | ✅ | 实读回 `[]` / `{}` |
+| FK RESTRICT | `FOREIGN KEY (…) REFERENCES … ON DELETE restrict` | ✅（但见 8.3-3） | 删被引用父行报 `violates foreign key constraint`；孤儿行插不进 |
+| `.where()` 表达式变更 | 增量迁移 | ✅ 产出 `DROP INDEX` + `CREATE INDEX` | 说明"迁移文件是唯一事实"能被工具守住 |
+
+### 8.3 五条只有真跑才知道的约束（已回写 spec 四处）
+
+1. **禁令② 现场复现**：`.where(and(eq(t.isEnabled, true)))` 产出 `WHERE "automation_rule_bad"."is_enabled" = $1`，PG 直接 **`there is no parameter $1`**，整条 DDL 被拒。推论扩到所有 DDL 位置：CHECK / 索引 WHERE / DEFAULT **都不能带参数占位符**，从 TS 常量数组往 DDL 里拼值必须 `sql.raw()`（并对取值做 `[a-z0-9_]` 白名单校验）。
+2. **两个 API 形态与旧文档不同**：`check()` 只有 `check(name, sql\`…\`)` 两参形式（`check(name).sql\`…\`` 是 `TypeError`）；表级 FK 只有 `foreignKey({ name, columns, foreignColumns })`，`.columns().references()` 链式已移除，且被引用表必须**先定义**（无 lazy）。
+3. **FK 产物把目标表写死 `"public"."matter"`** —— 我在非 public schema 里跑第一遍时 FK 语句整条被拒（`relation "public.matter" does not exist`）。⇒ 一期业务表必须在 `public`，要迁 schema 时 FK 段必须落手写补丁。
+4. **未知选项静默丢弃**：`timestamp(col, { withTimeZone: true })`（正确键名 `withTimezone`）产出的是**无时区 `timestamp`**，不报错不告警 —— 与 §12.2「一律 `timestamptz`」正面冲突。对策是迁移人审时 grep 列类型；**`db:check` 目前不覆盖这一项**（已知缺口）。
+5. **事务内语句报错会 abort 整个事务**，后续语句全废 —— 所以"预期失败"的探针必须各自包 `SAVEPOINT`（`db:check` 的 C10 第一版就因此测不出东西）。
+
+### 8.4 顺带交付的真机制（不再只是文档）
+
+- `drizzle.config.ts`（仓库根，纳入 `tsconfig.include`）；schema 真相 `src/app/lib/server/db/schema/*.ts`（`index.ts` 是唯一入口，漏挂即 generate 看不见）；迁移真相 `…/db/migrations/`；seed `…/db/seed/*.sql`。
+- 脚本：`pnpm db:generate` / `db:migrate` / `db:seed` / `db:check`。**没有 push 脚本**（禁令④ 用"不存在"来表达，比写一句"别用"可靠）。
+- `tools/migrate.mjs`：`MN_DB_CONFIRM=<库名>` 硬闸门（不给或给错都拒跑，两条红路径实跑）→ `pg_advisory_lock(hashtext('matternest:migrator'))`（实测 key `-558534946`）→ drizzle `migrate()`（整体一个事务）→ ledger 落 `drizzle.__drizzle_migrations`（它自建 `drizzle` schema，不在 public）。
+- 第一条真迁移 `0000_status_config`（`status_config` 全列 + 四个唯一索引 + 两个 CHECK + 生成列）与八状态 seed 已应用；`db:check` 从 9 项扩到 **12 项**（C9 迁移已应用 / C10 约束真撞 / C11 seed 齐），并做过端到端一轮：**drop 到空库 → `db:migrate` + `db:seed` → 12 项全绿**；中途 C9/C10/C11 各自红过，不是空转断言。
+- 迁移文件名 tag 改成稳定名（`0000_status_config`）要同步改 `meta/_journal.json` 的 `tag`，migrator 按它找文件。
+- **down 口径**：`drizzle-kit` 无 down/rollback（命令清单只有 generate/migrate/introspect/push/studio/up/check/drop/export）⇒ 一期定"前滚 + `pg_dump` 恢复"，每个迁移头部写 `-- DOWN:` 或 `-- IRREVERSIBLE:`。详 `spec/backend/database-guidelines.md` 迁移节第 8 条。
+
+### 8.5 没做的两件事（别当成已通过）
+
+- **`push` 的盲区没有复现**：禁令④ 禁止它，我就没跑它。本轮只证明了正面——`generate` 能看见 `.where()` 变化。"push 看不见"仍是引用上游结论。
+- **`automation_rule` / `matter_node` 两张表没进交付迁移**：它们的完整列集合属 W1-2/W1-3（且 `automation_rule` 的 partial unique 依赖 `is_deleted` 语义，与 G2「B8 删除语义」未决直接相关）。spike 里用的是构造等价的简化版，够定路线，不够当交付。

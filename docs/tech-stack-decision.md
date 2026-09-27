@@ -128,7 +128,13 @@ schema 真相    packages/db/schema/*.ts        （Drizzle，供类型安全查�
 3. **seed 是数据迁移，不是手点 SQL 控制台**：5 张配置表 + 5 角色 + 5 规则 + 7 模板写成幂等 `INSERT ... ON CONFLICT (code) DO NOTHING`，新环境一条命令拉起，测试库复用同一份。
    > **数字已过期（2026-09-27 W0-7 校正）**：本行的"5 规则"是 A1/A2/A4/A8 合并前的旧值。现行 seed 清单以修订稿 §2.3 与落地方案 W1-6 为准：**5 配置表 + 8 状态 + 8 条预置规则 + 7 通知模板 + 5 角色（含 4 个特权开关）**。
 
-有一处实现细节需要你安排在 T7 之前拍掉：Drizzle 的 schema DSL 对 **partial index（`WHERE is_enabled`）、表级 `CHECK`、生成列** 的支持程度随版本变化，我不替你断言。安排 **0.5 天 spike**：拿三张最难的表实跑一次 `drizzle-kit generate`——`automation_rule`（partial unique）、`matter_node`（生成列 + CHECK）、`status_config`（三个条件唯一索引）。**若产出明显残缺，就退到纯 SQL-first**（`node-pg-migrate` 或 umzug 手写 .sql，Drizzle 只当查询器）。这个决定越早越便宜，它会连带改变 §5 的 `packages/db` 结构。
+> **✅ 这条悬置已于 2026-09-27 用实跑关掉：保留 Drizzle DSL，不退 SQL-first。** 拿三张最难的表（`automation_rule` 的 partial unique、`matter_node` 的生成列 + 表级 CHECK、`status_config` 的三个条件唯一索引）实跑 `drizzle-kit generate`（`drizzle-orm@0.45.3` + `drizzle-kit@0.31.10`，精确版本），产出的 SQL 逐条在共享 dev 机 PG 16.13 上建库并**撞过约束**：partial unique 生效、`GENERATED ALWAYS AS … STORED` 生效且拒手写、两个表级 CHECK 拒越界值、`text[]`/`integer[]` 与 `jsonb` 默认值正确。退路不需要启用。
+>
+> 四条实测写法约束（比原判断更严，全部进 `spec/backend/database-guidelines.md`）：`check()` 只有 `check(name, sql)` 两参形式；表级 FK 只有 `foreignKey({columns, foreignColumns})` config 形式且被引用表须先定义；**FK 产物把目标表写死成 `"public"."xxx"`** ⇒ 一期业务表必须在 `public`；**未知选项静默丢弃**：`timestamp(col, { withTimeZone: true })`（正确键名是 `withTimezone`，大小写差一个字母）产出的列类型是**无时区的 `timestamp`**，不报错也不告警 —— 与 §12.2「一律 timestamptz」直接冲突，所以迁移人审必须 grep 产出里的列类型。
+>
+> 另两条顺手拿到的事实：改 `.where()` 表达式后 `generate` **看得见**（产出 `DROP INDEX` + `CREATE INDEX` 增量），所以"迁移文件是唯一事实"站得住；`eq()` 写 partial index 产出的 `= $1` 会被 PG 以 `there is no parameter $1` 直接拒 —— 禁令② 从"引用 issue"升级为"本仓复现过"。
+>
+> 落点按本图定为 `src/app/lib/server/db/{schema,migrations,seed}` + 仓库根 `drizzle.config.ts`；`packages/db` 那套 monorepo 结构随 v5 单仓作废（原文那句"它会连带改变 §5 的 packages/db 结构"因此不再适用）。
 
 ### 3.2c 迁移的执行方案（与框架无关，两条路线通用）
 
@@ -280,13 +286,13 @@ MatterNest/                     单 Next.js 16 应用（v5）；仍是"一个 ap
 └─ .trellis/                    工程配置（spec 待 T2 填充）
 ```
 
-依赖方向单向：`src/app/** → src/shared/**` 与 `src/app/** → src/lib/server/**`，`worker/** → src/shared/** + src/lib/server/**`，而 **`src/shared/**` 不得依赖任何一层、不得 import `next/*`、`react`、Node API**（它是客户端与服务端共用的一份，一旦污染，前端 bundle 里就会出现服务端代码，这是结构性约束，违反即 CI 失败）。
+依赖方向单向：`src/app/** → src/shared/**` 与 `src/app/** → src/app/lib/server/**`，`worker/** → src/shared/** + src/app/lib/server/**`，而 **`src/shared/**` 不得依赖任何一层、不得 import `next/*`、`react`、Node API**（它是客户端与服务端共用的一份，一旦污染，前端 bundle 里就会出现服务端代码，这是结构性约束，违反即 CI 失败）。
 
-> §4 对应表里的旧路径按本图读作：`packages/domain/*` → `src/shared/*`，`packages/db` → `src/lib/server/db`，`server/api` → `src/app/api`。这三处改名已经发生过两次（Nest 时代 → Nuxt 时代 → Next 时代），**T2 填 spec 时以本图为唯一准**。
+> §4 对应表里的旧路径按本图读作：`packages/domain/*` → `src/shared/*`，`packages/db` → `src/app/lib/server/db`，`server/api` → `src/app/api`。这三处改名已经发生过两次（Nest 时代 → Nuxt 时代 → Next 时代），**T2 填 spec 时以本图为唯一准**。
 
 `.trellis/config.yaml` 的 `packages` 段需按此填（当前全在注释里），否则 Trellis 的包上下文检测拿不到东西。
 
-> **本行于 2026-09-27（W0-7）实测后作废**：结论相反。一旦在 `config.yaml` 声明 `packages`，Trellis 的 spec 基准目录就从 `spec/` 切到 `spec/<package>/`（`scripts/common/config.py:396` `get_spec_base()` + `packages_context.py:30` `_scan_spec_layers()`）；把 `backend: {path: src/lib/server}` / `frontend: {path: src/app}` 写进去后，`get_context.py --mode packages` 打印的是 `Spec: not configured`——**填了才拿不到东西**。本仓是单个 Next app，现有 `spec/backend/` + `spec/frontend/` 是 layer 型布局，正好落在 single-repo 模式的预期上。处置：**packages 段保持注释**，判定依据与复现命令写进 `.trellis/config.yaml` 的注释与本任务 `prd.md`「本票的两条裁定」第 2 条。要用 packages，前提是先整体迁移成 `spec/<package>/<layer>/`，那是 monorepo 拆分时的成本，一期不拆。
+> **本行于 2026-09-27（W0-7）实测后作废**：结论相反。一旦在 `config.yaml` 声明 `packages`，Trellis 的 spec 基准目录就从 `spec/` 切到 `spec/<package>/`（`scripts/common/config.py:396` `get_spec_base()` + `packages_context.py:30` `_scan_spec_layers()`）；把 `backend: {path: src/app/lib/server}` / `frontend: {path: src/app}` 写进去后，`get_context.py --mode packages` 打印的是 `Spec: not configured`——**填了才拿不到东西**。本仓是单个 Next app，现有 `spec/backend/` + `spec/frontend/` 是 layer 型布局，正好落在 single-repo 模式的预期上。处置：**packages 段保持注释**，判定依据与复现命令写进 `.trellis/config.yaml` 的注释与本任务 `prd.md`「本票的两条裁定」第 2 条。要用 packages，前提是先整体迁移成 `spec/<package>/<layer>/`，那是 monorepo 拆分时的成本，一期不拆。
 
 ---
 

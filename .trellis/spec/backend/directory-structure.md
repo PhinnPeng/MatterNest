@@ -9,7 +9,7 @@
 
 **单个 Next.js 16 应用（App Router），同仓单语言 TypeScript。** 不存在 `apps/server` + `apps/web` 两棵树，也不引入 Python——枚举与 DTO 前后端共用一份是 `docs/PRD-phase1-enums-and-schemas.md` §5.1 的硬要求（技术选型 §13.1「不顺手换后端」）。
 
-后端在三处：`src/app/api/**`（Route Handlers，唯一业务写入口）、`src/lib/server/**`（服务端专用）、`worker/**`（独立进程跑定时任务）。
+后端在三处：`src/app/api/**`（Route Handlers，唯一业务写入口）、`src/app/lib/server/**`（服务端专用）、`worker/**`（独立进程跑定时任务）。
 
 ---
 
@@ -24,6 +24,9 @@ MatterNest/
 │  ├─ components/ui/      shadcn 复制件 + 自封装，前端唯一依赖层
 │  └─ lib/server/         服务端专用：db、ScopeResolver、签名、session、云之家客户端
 │                          —— 这一层可以 import Node API
+│     ├─ db/schema/*.ts    schema 真相（`index.ts` 是唯一入口，漏挂 = generate 看不见）
+│     ├─ db/migrations/    迁移真相：编号 SQL + `meta/_journal.json`，人审对象
+│     └─ db/seed/*.sql     数据迁移：幂等重放，不记账本
 ├─ src/shared/            前后端唯一共用层，**纯 TS**：enums(E01–E37) · Zod schema · ids · time · crypto
 ├─ worker/                node-cron 四件：节点提醒 / 规则 4 无更新 / outbox 投递 / 云之家在职同步
 ├─ deploy/                compose、nginx.conf、minio 桶策略、备份脚本、migrator
@@ -35,14 +38,16 @@ MatterNest/
 
 ```text
 src/app/**        →  src/shared/**      ✅
-src/app/**        →  src/lib/server/**  ✅
-worker/**         →  src/shared/** + src/lib/server/**  ✅
+src/app/**        →  src/app/lib/server/**  ✅
+worker/**         →  src/shared/** + src/app/lib/server/**  ✅
 src/shared/**     →  任何一层           ❌
 ```
 
 **禁令①**（技术选型 §13.5-1，逐字）：`src/shared/**` 只放纯 TS——不得 import `next/*`、`react`、Node API；它同时被客户端与服务端引用，污染了就会把服务端代码带进前端 bundle，CI 必须拦得住。
 
-> 路径改名已发生两次（Nest 时代 → Nuxt 时代 → Next 时代）。§4 对应表里若出现旧路径，按本图读：`packages/domain/*` → `src/shared/*`，`packages/db` → `src/lib/server/db`，`server/api` → `src/app/api`。**以 §5 拓扑图为唯一准**（技术选型 §5 注）。枚举表 §5.1 的目录块仍写 `packages/domain/enums/`，落地位置是 `src/shared/enums/`。
+> **本文件里的 `src/app/lib/server/**` 于 2026-09-27 校正过一次**：本节原先写 `src/lib/server/**`，而 W0-1 实际建出来的层级、以及 `eslint.config.mjs` 里禁令① 的挂载点是 `src/app/lib/server/`（Next App Router 下 `lib` 在 `src/app/` 内）。旧箭头指着一个不存在的目录，派单时会被子代理照抄。技术选型 §5 注的同一处映射已一并改。
+
+> 路径改名已发生两次（Nest 时代 → Nuxt 时代 → Next 时代）。§4 对应表里若出现旧路径，按本图读：`packages/domain/*` → `src/shared/*`，`packages/db` → `src/app/lib/server/db`，`server/api` → `src/app/api`。**以 §5 拓扑图为唯一准**（技术选型 §5 注）。枚举表 §5.1 的目录块仍写 `packages/domain/enums/`，落地位置是 `src/shared/enums/`。
 
 ---
 
@@ -54,7 +59,7 @@ src/shared/**     →  任何一层           ❌
 |---|---|---|
 | 业务读写接口 | `src/app/api/<资源>/route.ts` | §13.5 禁令⑤ |
 | 表单 mutation 的编排 | Server Function，但**不承载第二套权限判断** | §13.2 对禁令⑤的加强 |
-| 数据范围判定 | `src/lib/server/scope/` + 仓储基类断言，显式 `withScope(event, handler)` | §4「ScopeResolver + 禁止裸表访问」行 |
+| 数据范围判定 | `src/app/lib/server/scope/` + 仓储基类断言，显式 `withScope(event, handler)` | §4「ScopeResolver + 禁止裸表访问」行 |
 | 状态机 / 规则求值 / 编号 / 期限计算 | `src/shared/`（纯 TS，可被前端复用） | 枚举表 §5.1；§4「期限计算」行。**注**：状态机与规则求值在 §4 无对应行，按 §5 拓扑归入 `src/shared/`（本轮新增口径，非引用） |
 | 字段加密 + HMAC 索引列 | `src/shared/crypto`，密钥从 env 注入，**不入库** | §4「字段加密 + HMAC 索引列」行 |
 | 审计写入 | 服务层单点包装（写成功后落 `activity_log`），不是 Interceptor/Guard | §4「`activity_log` 自动落审计」行 |

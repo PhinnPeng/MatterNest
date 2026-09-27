@@ -20,3 +20,6 @@ next-env.d.ts
 .env
 .env.*
 !.env.example
+
+# 一次性 spike 与探针的落盘处，不入库
+agent-work/
