@@ -49,3 +49,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: W0-1 仓库骨架 + 禁令① 可证伪断言
+<!-- trellis-session: v=2 fp=bbeb0c84388b4092 -->
+
+**Date**: 2026-09-27
+**Task**: W0-1 仓库骨架 + 禁令① 可证伪断言
+**Branch**: `main`
+
+### Summary
+
+按 §5 拓扑建骨架：package.json(Node 钉 22)/tsconfig strict/eslint flat/prettier/vitest/六个目录占位/.env.example 十项键名，不建 pnpm-workspace。新增 tools/lint-guard 用 lintText 以 src/shared 虚拟路径喂仓库真 config，五道断言给禁令① 的 lint 规则做回归，并把 files 段故意改坏验证它会 exit 1。pnpm verify 全绿。实测发现：typescript 已出 7.0.2 与 typescript-eslint peer(<6.1) 冲突，钉 5.9.3；@types/node 26 与 engines 22 不符，钉 22.20.4；技术选型 §7 假设 A 的"本机 Node 24"与实测 v22.22.2 不符已改正。阻塞上报：共享机 172.16.70.100 完全不可达（ping 全丢 + 30432/30090/30306 TIMEOUT），W0-5 前需确认。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `28af986` | feat(w0-1): 仓库骨架 — pnpm/Node22/TS strict/ESLint/Vitest + 禁令① 的可证伪断言 |
+
+### Status
+
+[OK] **Completed**
