@@ -37,6 +37,12 @@ src/shared/**  纯 TS：枚举 E01–E37 · Zod schema · ids · time · crypto�
 
 ## 2. 里程碑
 
+> **跟踪归位（2026-09-27）**：本节的 W0–W7 是**分解结构**，不是待办清单。待办一律登记在 Paca
+> 项目 `MatterNest`（前缀 `MATT`）：`MATT-1` 是地图卡，下面挂 8 张里程碑卡（`MATT-2/7/9/12/18/22/26/29` = M0…M7），
+> 再挂 23 张可独立复核的待办卡。口径是：**markdown 里的编号不算登记**，本文件只记"票面进度"，
+> 认领与状态看 Paca 板；两边打架时以本文件的进度注为事实源、以板子为待办源。
+> 建卡脚本 `agent-work/paca.mjs`（幂等，按标题去重），校验脚本 `agent-work/paca-verify.mjs`。
+
 | 阶段 | 内容 | 退出条件 |
 |---|---|---|
 | **M0 地基**（3–4 天） | 仓库骨架、Next+Tailwind+shadcn 装配、Drizzle+迁移管线、lint/CI、compose 开发栈、`src/shared` 枚举包落地、**T2 填 `.trellis/spec/` 12 份 + config packages 段** | N1/N2 通过；`pnpm db:generate && db:migrate` 在空库可重放；CI 有"CHECK 与值数组一致性"这条测试；**spec 里已写入 §13.5 八条禁令，bootstrap 任务关闭** |
