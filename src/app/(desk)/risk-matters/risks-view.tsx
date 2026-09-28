@@ -69,13 +69,13 @@ export function RisksView() {
       {
         id: "code",
         header: "编号",
-        size: 130,
+        size: 116,
         cell: ({ row }) => <span className="num">{row.original.code}</span>,
       },
       {
         id: "name",
         header: "事项名称",
-        size: 280,
+        size: 224,
         cell: ({ row }) => (
           <span className="flex items-center gap-1.5">
             <span className="min-w-0 truncate">{row.original.name}</span>
@@ -86,27 +86,27 @@ export function RisksView() {
       {
         id: "type",
         header: "类型",
-        size: 110,
+        size: 96,
         enableSorting: false,
         cell: ({ row }) => meta?.enums.riskTypes[row.original.type] ?? row.original.type,
       },
       {
         id: "risk_level",
         header: "等级",
-        size: 80,
+        size: 66,
         cell: ({ row }) =>
           meta?.levels.find((l) => l.code === row.original.level)?.name ?? row.original.level,
       },
       {
         id: "status",
         header: "状态",
-        size: 100,
+        size: 92,
         cell: ({ row }) => <StatusMark host="risk_matter" code={row.original.status} />,
       },
       {
         id: "conversion",
         header: "转案件",
-        size: 120,
+        size: 104,
         enableSorting: false,
         cell: ({ row }) =>
           row.original.conversionStatus === 1 ? (
@@ -123,7 +123,7 @@ export function RisksView() {
       {
         id: "amount",
         header: "预估影响",
-        size: 110,
+        size: 98,
         cell: ({ row }) => (
           <span className="num block text-right">{money(row.original.amount)}</span>
         ),
@@ -131,7 +131,7 @@ export function RisksView() {
       {
         id: "discover",
         header: "发现日",
-        size: 110,
+        size: 96,
         enableSorting: false,
         cell: ({ row }) => (
           <span className="num text-xs">{calDate(row.original.discoverDate)}</span>
@@ -140,13 +140,13 @@ export function RisksView() {
       {
         id: "owner_name",
         header: "负责人",
-        size: 120,
+        size: 100,
         cell: ({ row }) => row.original.ownerName,
       },
       {
         id: "updated_at",
         header: "更新",
-        size: 90,
+        size: 78,
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground">{fromNow(row.original.updatedAt)}</span>
         ),
@@ -154,7 +154,7 @@ export function RisksView() {
       {
         id: "actions",
         header: "",
-        size: 84,
+        size: 76,
         enableSorting: false,
         enableHiding: false,
         cell: ({ row }) => (

@@ -187,7 +187,21 @@ export function MatterDetail({ id }: { id: string }) {
             />
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border bg-card">
-              <Table>
+              <Table className="table-fixed">
+                {/*
+                  这张表原本没给列宽，auto layout 下结果被实测打出来：节点名只有 64px（"立案材料准备"被裁掉），
+                  而"时间"列因为要塞两串完整日期抢到了 359px。列宽是**语义优先级**，不该交给内容去抢。
+                  宽度写成静态 arbitrary 类而不是 style——Tailwind 能扫到字面量，就不用破行内 style 那条例外的量。
+                */}
+                <colgroup>
+                  <col className="w-[300px]" />
+                  <col className="w-[110px]" />
+                  <col className="w-[250px]" />
+                  <col className="w-[130px]" />
+                  <col className="w-[120px]" />
+                  <col className="w-[100px]" />
+                  <col className="w-[150px]" />
+                </colgroup>
                 <TableHeader>
                   <TableRow>
                     <TableHead>节点</TableHead>

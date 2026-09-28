@@ -158,7 +158,7 @@ function matterColumns(meta: Meta | undefined): LegacyColumnDef<MatterRow, unkno
     {
       id: "code",
       header: "内部编号",
-      size: 132,
+      size: 118,
       cell: ({ row }) => (
         <Link
           href={`/matters/${row.original.id}`}
@@ -172,7 +172,7 @@ function matterColumns(meta: Meta | undefined): LegacyColumnDef<MatterRow, unkno
     {
       id: "name",
       header: "案件名称",
-      size: 300,
+      size: 250,
       cell: ({ row }) => (
         <span className="flex items-center gap-1.5">
           <span className="min-w-0 truncate">{row.original.name}</span>
@@ -185,52 +185,52 @@ function matterColumns(meta: Meta | undefined): LegacyColumnDef<MatterRow, unkno
     {
       id: "cause",
       header: "案由",
-      size: 150,
+      size: 128,
       enableSorting: false,
       cell: ({ row }) => <span className="text-muted-foreground">{row.original.cause}</span>,
     },
     {
       id: "procedure",
       header: "程序",
-      size: 96,
+      size: 84,
       enableSorting: false,
       cell: ({ row }) => procName(row.original.procedure),
     },
     {
       id: "risk_level",
       header: "等级",
-      size: 80,
+      size: 66,
       cell: ({ row }) => levelName(row.original.level),
     },
     {
       id: "status",
       header: "状态",
-      size: 104,
+      size: 92,
       cell: ({ row }) => <StatusMark host="matter" code={row.original.status} />,
     },
     {
       id: "amount",
       header: "标的额",
-      size: 110,
+      size: 98,
       cell: ({ row }) => <span className="num block text-right">{money(row.original.amount)}</span>,
     },
     {
       id: "owner_name",
       header: "承办人",
-      size: 120,
+      size: 104,
       cell: ({ row }) => row.original.ownerName,
     },
     {
       id: "next_deadline",
       header: "最近到期",
-      size: 150,
+      size: 132,
       enableSorting: false,
       cell: ({ row }) => <DeadlineMark iso={row.original.nextDeadline} />,
     },
     {
       id: "updated_at",
       header: "更新",
-      size: 90,
+      size: 78,
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">{fromNow(row.original.updatedAt)}</span>
       ),

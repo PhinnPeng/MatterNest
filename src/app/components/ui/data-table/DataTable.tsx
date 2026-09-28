@@ -144,7 +144,19 @@ export function DataTable<TData extends Record<string, unknown>>(props: DataTabl
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
-        <Table>
+        <Table className="table-fixed">
+          {/*
+            table-fixed 只尊重**显式列宽**，所以尺寸必须从这里给。
+            之前只在列定义里传了 `size`——那是 TanStack 的元数据，没有 colgroup 消费它，
+            实测「程序」「等级」两列被 auto layout 压到 45px（刚好包住表头文字）。
+            flexRender 出来的列顺序（含列显隐后的可见列）都按 getVisibleLeafColumns 走，
+            所以 colgroup 与 th/td 永远是同一套宽度，不会错位。
+          */}
+          <colgroup>
+            {table.getVisibleLeafColumns().map((col) => (
+              <col key={String(col.id)} style={{ width: `${col.getSize()}px` }} />
+            ))}
+          </colgroup>
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
