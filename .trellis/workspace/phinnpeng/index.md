@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
-- **Last Active**: 2026-09-27
+- **Total Sessions**: 12
+- **Last Active**: 2026-09-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~464 | Active |
+| `journal-1.md` | ~572 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-09-28 | v6 改判：前端组件体系换成 antd 6，门禁扩到四 scope | `435131d` | `main` |
 | 11 | 2026-09-27 | W1 可跑 Demo：mn_ 前缀全量落地，登录→列表→详情→转案件走通 | `dcc5a2f`, `e126594` | `main` |
 | 10 | 2026-09-27 | W0-3 枚举 E01–E37：三重 CHECK 一致性机制，并修掉一个让反向检查形同虚设的裸约束名正则 | `faeca6e` | `main` |
 | 9 | 2026-09-27 | W0-4 迁移管线落地：三表 spike 真库裁定保留 Drizzle DSL；MinIO 凭据核实 | `d4865b6` | `main` |

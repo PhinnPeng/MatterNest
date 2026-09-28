@@ -462,3 +462,111 @@ registry 产出的文件不符合本仓 prettier 口径，落地后**只对那 8
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: v6 改判：前端组件体系换成 antd 6，门禁扩到四 scope
+<!-- trellis-session: v=2 fp=c44849a33fe7cf8c -->
+
+**Date**: 2026-09-28
+**Task**: v6 改判：前端组件体系换成 antd 6，门禁扩到四 scope
+**Branch**: `main`
+
+### Summary
+
+用户第二次否同一套观感并定方向，前端整层改判 Ant Design 6（技术选型 §13.6）。ProComponents 的 peer 不含 antd 6 故 Pro 出局，查询区与表格壳自写；禁令⑧ 的服务端分页门、Zod 单一校验源、404 语义、点+词 全部点名保持不变；色值收敛到 theme/brand.ts 并用 no-restricted-syntax 拦第二份定义；lint-guard 的断言 B 改成按命中条数、D2/E 改成按规则内容判断，四个 scope 都在真实路径反向红过。又量出 antd 初版 54px/行与 10px 横滚，改每列 ellipsis + 按实测文字排宽后 33px/行、溢出 0。
+
+### Main Changes
+
+### What was done
+
+用户第二次否同一套观感并定方向"整体使用 antd"，于是前端组件体系整批改判为 Ant Design 6（技术选型 v6，§13.6）。
+
+动手前先核两条一手事实，而不是先装：`antd@6.6.5` 的 peer 是 `react >= 18`（与本仓 React 19.3 兼容，成立）；
+`@ant-design/pro-components@2.8.10` 的 peer 只声明 `antd ^4.24.15` 与 `^5.11.2` 两个区间、**不含 antd 6**
+（不成立）——所以 ProTable/ProForm 出局，查询区与表格壳自己写：`components/list-toolbar.tsx`
+（关键词 500ms 去抖 + 状态/排序列/方向 + 含已归档）与 `DataTable.tsx` 改包 antd `Table`。
+
+整层重写：外壳（`Layout`/`Sider 216`/`Menu` 三组 + `Dropdown` 登出）、登录（SSR 空壳 + client `Form`）、
+工作台、案件列表/详情（`Tabs` + `Descriptions` + 节点 `Table` + 行内开始/完成/取消要原因）、
+事项列表与新建/转案件弹窗（`Form.List` 当事人，`represented` 用 Checkbox 因为 E06/E07 正交）、配置只读页。
+
+**刻意保持不变的东西**（这是这次改判唯一能证明"换库不等于重写口径"的部分）：
+禁令⑧ 的服务端分页门还在同一个文件里（`pageSize > 100` 直接抛，不静默夹小）、列上只给 `sorter: true`
+绝不给函数形态、页面壳不预取、鉴权在 handler 内、不可见 404、状态与到期一律"点 + 词"（颜色不是唯一通道）、
+主色只出现在三处。校验仍然单一来源：`components/form/zod-rules.ts` 从 `shared/schema` 的 Zod 推导 antd `rules`，
+服务端 `fieldIssues` 用 `form.setFields` 落回字段。
+
+### 色值收敛成唯一源
+
+新建 `src/app/theme/brand.ts`（`BRAND`/`INK`/`PAPER`/`alpha()`），它**不 import antd**——登录页是 Server Component，
+一旦引到 `theme/antd.ts` 就会把组件库拖进服务端 bundle，而它又需要同一个墨蓝色。
+`theme/antd.ts` 从此只做 antd token 映射。一次脚本化替换把 43 处内联灰改成 `INK.*`/`BRAND.*`，
+半透明从手写 `rgba(195,204,221,.62)` 改成 `alpha(BRAND.sider.item, .62)`（同一色只有一份十六进制）。
+
+### 门禁：3 条禁令 → 4 个 scope
+
+`tools/lint-guard/restricted-imports.mjs` 的禁令⑦ 换语义：现在拦的是"把第二套体系请回来"——
+`radix-ui`/`cva`/`@ant-design/pro-components`/`lucide-react`/`react-hook-form`/`date-fns`/`moment`/
+`antd/es|lib|dist/*` 深路径；**不再豁免 `components/ui/`**（那层现在包的是约定不是原语）。
+新增第五个 scope 用 `no-restricted-syntax` 拦色值字面量与手写 `rgb()/rgba()`（白 `#fff` 是唯一放过）。
+
+两处方法论升级，都是因为旧断言会假通过：
+1. 断言 B 从"命中数 > 0"改成**必须等于预期条数**（bad fixture 十条 group，写坏九条以前照样绿）；
+2. 新增 D2 + 把 E 改成**按规则内容判断**：禁令⑦ 现在挂 `src/app/**` 全域，`api/**` 与 `lib/server/**`
+   自然带着它，"规则在不在"分辨不出溢出——只看开关状态时三条 E 全假红，改判据后才对上。
+   顺带发现并堵了一个真实盲区：shell 那段 config 在后，会**整条覆盖**同名 `no-restricted-imports`，
+   于是 `page.tsx` 曾是禁令⑦ 的盲区，现在把两套 patterns 合并挂上去。
+3. **四个 scope 都反向红过**：fixtures 之外另在真实路径 `src/app/components/__probe_*.ts` 写违规文件跑
+   `npx eslint <该文件>`，确认 3 条 import 拦 + 3 条色值拦、而 `#fff` 放行，然后删掉探针。
+
+### 又量出来一处（换库不等于密度自动对了）
+
+生产构建 + 同源 1440×900 iframe 取 computed style：案件表 **54px/行**，10 列里 9 列 `white-space: normal`，
+内部编号在 124px 里折成两行（`<a>` 实测 36px 高）；表体 `scrollWidth - clientWidth = 10`（首屏就横滚）。
+修法不是调 padding，是**每列 `ellipsis: true` + 列宽按 canvas `measureText` 逐列量最长值**重排
+（案件 130/296/132/56/76/78/112/112/96/80 = 1168 ≤ 容器 1192）。
+改后 **33px/行、溢出 0**；事项表 **35px/行、溢出 0**（含行内 small 按钮，是合理下限）。
+教训与 v5 那次同源：`width` 在 `tableLayout: fixed` 下真的生效，但一列文字超宽就把整行撑高——**密度只能量出来**。
+
+### Errors and fixes
+
+1. **`ColumnsType` 在 antd 6 的顶层不叫这个名字**：顶层 index 导出的是 `TableColumnsType` 与 `FormRule`，
+   所以全部深路径 `antd/es/table`、`antd/es/form` 改成顶层取（顺手把它做成禁令，见上）。
+2. **`pnpm verify` 的 `format:check` 会先红**：迁移期写了 21 个不合 prettier 口径的文件。
+   只对 `src/**` 跑 `--write`，绝不跑 `pnpm format`（它会重排 `docs/**`，而 baseline 永不改写）。
+3. **`lint-guard` 的 E 断言一开始三条全红**：判据是"规则在该路径是否开着"，而禁令⑦ 挂全域后
+   `src/app/lib/server/probe.ts` 确实带着它。改成按 marker 判断（内容里有没有本 scope 的标识）才是对的。
+4. **`alpha()` 的输入约束**：只吃 6 位十六进制，`#fff` 会抛——所以深色栏那道 7% 白线写成
+   `alpha(BRAND.sider.active, 0.07)`（`#ffffff`），不是白名单里的 `#fff`。
+5. **Paca 评论读接口 405**：`/tasks/{id}/activities/comments` 只收 POST，GET 要用 `/tasks/{id}/activities`
+   再筛 comment 条目；第一次跑到这里抛错时前四步已经写成功了，所以第二次靠"先查再写"的守卫
+   全部判成"已勘过，跳过"，没有重复写。
+
+### Key takeaways
+
+- 换库时最容易被悄悄丢掉的是**门禁与不变量**，不是代码：`pageSize>100 直接抛`、`单一校验源`、
+  `404 语义`、`点+词` 这几条要逐条点名验证，否则"重写一遍"会顺手把它们写成软约束。
+- 一条 lint 规则的自证脚本必须**能按数量红**，只能"红一次"的断言在十条 group 里等于只测了一条。
+- 组件库给的默认密度不一定比手写的好：这次的症状（行高被折字撑高）只在量 `white-space` 与
+  每列实测文字宽度时才暴露，看截图只会得出"还行"。
+
+### Status
+
+[OK] **Completed**（antd 6 整层落地 + 门禁 + 文档 + Paca 归位）
+
+### Next Steps
+
+- 观感仍**没有人眼验过**（MATT-30 未关）：需要可见浏览器看 `wangkf → suny → hezp` 三档范围下的列表与详情。
+- v6 界面尾工已开成 MATT-33：1366/1920 两种视口复量列宽、`scrollToFirstError`、列显隐是否持久化（待裁定）。
+- 依赖外部条件的仍堵着：MinIO 服务账号（MATT-15 附件）、N4 多副本、N6 云之家通道、B7 密钥托管、G4 签字。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `435131d` | feat(frontend): v6 改判——组件体系换成 antd 6，门禁与色值单源同步落地 |
+
+### Status
+
+[OK] **Completed**
