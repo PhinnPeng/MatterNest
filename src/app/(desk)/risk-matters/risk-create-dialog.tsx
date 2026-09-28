@@ -1,25 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  Alert,
+  Button,
+  Col,
+  DatePicker,
+  Form,
+  Input,
+  Modal,
+  Result,
+  Row,
+  Select,
+  Space,
+} from "antd";
+import type { Dayjs } from "dayjs";
 
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
-import { riskCreateSchema, type RiskCreateInput } from "@/shared/schema/hosts";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/app/components/ui/dialog";
-import { Button } from "@/app/components/ui/button";
-import { SelectField, ServerIssues, TextField, TextareaField } from "@/app/components/form/fields";
-import { StateBlock } from "@/app/components/ui/state-block";
+import { pruneEmpty, riskCreateSchema, type RiskCreateInput } from "@/shared/schema/hosts";
+import { rulesFor, setFieldErrors } from "@/app/components/form/zod-rules";
 
-/** 新建风险事项（报备）。编号 `FX-YYYYMMDD-XXX` 同样由 DB 单语句取号。 */
+/**
+ * 新建风险事项（报备）。编号 `FX-YYYYMMDD-XXX` 同样由数据库单语句取号。
+ *
+ * 风险描述必填是规格要求：它是"这件事够不够条件立案"的判断依据，不是一句标题。
+ * 来源允许留空——来源不明的风险也要能报备（那一列可空，DB 的 CHECK 也放过了 NULL）。
+ */
+type FormValues = Omit<RiskCreateInput, "discoverDate"> & { discoverDate?: Dayjs | null };
+
 export function RiskCreateDialog({
   open,
   onOpenChange,
@@ -29,134 +38,169 @@ export function RiskCreateDialog({
 }) {
   const qc = useQueryClient();
   const { data: meta } = useMeta("risk_matter");
-  const [created, setCreated] = useState<{ id: string; code: string } | null>(null);
-  const [issues, setIssues] = useState<ApiFailure["issues"]>();
-
-  const {
-    control,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<RiskCreateInput>({
-    resolver: zodResolver(riskCreateSchema),
-    defaultValues: { name: "", description: "" },
+  const [form] = Form.useForm<FormValues>();
+  const mut = useMutation({
+    mutationFn: (values: RiskCreateInput) =>
+      api.post<{ id: string; code: string }>("/api/risk-matters", values),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["risk-matters"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+    },
   });
 
   useEffect(() => {
     if (open) {
-      reset({ name: "", description: "" });
-      setCreated(null);
-      setIssues(undefined);
+      form.resetFields();
+      mut.reset();
     }
-  }, [open, reset]);
+  }, [open]);
 
-  const mut = useMutation({
-    mutationFn: (values: RiskCreateInput) =>
-      api.post<{ id: string; code: string }>("/api/risk-matters", values),
-    onSuccess: (res) => {
-      setCreated(res);
-      qc.invalidateQueries({ queryKey: ["risk-matters"] });
-      qc.invalidateQueries({ queryKey: ["overview"] });
-    },
-    onError: (e) => setIssues(e instanceof ApiFailure ? e.issues : undefined),
-  });
+  const created = mut.data;
+
+  async function submit() {
+    const values = await form.validateFields().catch(() => null);
+    if (!values) return;
+    const { discoverDate, ...rest } = values;
+    const parsed = riskCreateSchema.safeParse(
+      pruneEmpty({
+        ...rest,
+        discoverDate: discoverDate ? discoverDate.format("YYYY-MM-DD") : undefined,
+      }),
+    );
+    if (!parsed.success) {
+      setFieldErrors(form, parsed.error.issues);
+      return;
+    }
+    mut.mutate(parsed.data);
+  }
+
+  if (created) {
+    return (
+      <Modal
+        open={open}
+        onCancel={() => onOpenChange(false)}
+        title="事项已报备"
+        footer={
+          <Space>
+            <Button
+              onClick={() => {
+                form.resetFields();
+                mut.reset();
+              }}
+            >
+              再报一条
+            </Button>
+            <Button type="primary" onClick={() => onOpenChange(false)}>
+              完成
+            </Button>
+          </Space>
+        }
+      >
+        <Result
+          status="success"
+          title={<span className="num">{created.code}</span>}
+          subTitle="编号由数据库取号生成；之后转案件时两本台账靠外键连着。"
+        />
+      </Modal>
+    );
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{created ? "事项已报备" : "新建风险事项"}</DialogTitle>
-          <DialogDescription>
-            {created
-              ? "编号由数据库取号生成，之后转案件时两本台账靠外键连着。"
-              : "风险描述必填 —— 它是这件事能不能立案的判断依据，不是一句标题。"}
-          </DialogDescription>
-        </DialogHeader>
-
-        {created ? (
-          <StateBlock
-            title={`事项编号 ${created.code}`}
-            hint="回到列表可以看到它，状态是配置的初始态。"
-            action={
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    reset({ name: "", description: "" });
-                    setCreated(null);
-                  }}
-                >
-                  再报一条
-                </Button>
-                <Button size="sm" onClick={() => onOpenChange(false)}>
-                  完成
-                </Button>
-              </div>
-            }
-          />
-        ) : (
-          <form onSubmit={handleSubmit((v) => mut.mutate(v))} className="grid gap-3.5" noValidate>
-            <TextField name="name" control={control} label="事项名称" required />
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              <SelectField
-                name="type"
-                control={control}
-                label="风险类型"
-                required
-                options={meta ? toOptions(meta.enums.riskTypes) : []}
-              />
-              <SelectField
-                name="level"
-                control={control}
-                label="风险等级"
-                required
+    <Modal
+      open={open}
+      onCancel={() => onOpenChange(false)}
+      title="新建风险事项"
+      width={640}
+      okText="报备"
+      confirmLoading={mut.isPending}
+      onOk={submit}
+    >
+      {mut.error ? (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
+        />
+      ) : null}
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark={false}
+        initialValues={{ amount: "", source: "" }}
+      >
+        <Row gutter={12}>
+          <Col span={24}>
+            <Form.Item label="事项名称" name="name" rules={rulesFor(riskCreateSchema, ["name"])}>
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item label="风险类型" name="type" rules={rulesFor(riskCreateSchema, ["type"])}>
+              <Select placeholder="请选择" options={meta ? toOptions(meta.enums.riskTypes) : []} />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item label="风险等级" name="level" rules={rulesFor(riskCreateSchema, ["level"])}>
+              <Select
+                placeholder="请选择"
                 options={(meta?.levels ?? []).map((l) => ({ value: l.code, label: l.name }))}
               />
-              <SelectField
-                name="source"
-                control={control}
-                label="来源"
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item
+              label="来源"
+              name="source"
+              rules={rulesFor(riskCreateSchema, ["source"])}
+              extra="可空：来源不明的风险也要能报备"
+            >
+              <Select
+                allowClear
+                placeholder="请选择"
                 options={meta ? toOptions(meta.enums.riskSources) : []}
-                hint="可空：来源不明的风险也要能报备"
               />
-              <TextField
-                name="amount"
-                control={control}
-                label="预估影响（元）"
-                hint="最多两位小数"
-              />
-              <TextField
-                name="discoverDate"
-                control={control}
-                type="date"
-                label="发现日期"
-                hint="留空按今天记"
-              />
-            </div>
-            <TextareaField
-              name="description"
-              control={control}
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item
+              label="预估影响（元）"
+              name="amount"
+              rules={rulesFor(riskCreateSchema, ["amount"])}
+            >
+              <Input placeholder="最多两位小数" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item label="发现日期" name="discoverDate" extra="留空按今天记">
+              <DatePicker style={{ width: "100%" }} />
+            </Form.Item>
+          </Col>
+          <Col span={24}>
+            <Form.Item
               label="风险描述"
-              required
-              rows={3}
-            />
-            <TextareaField name="measure" control={control} label="已采取措施" rows={2} />
-
-            <ServerIssues issues={issues} />
-            {errors.name ? <p className="text-xs text-destructive">{errors.name.message}</p> : null}
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                取消
-              </Button>
-              <Button type="submit" disabled={mut.isPending}>
-                {mut.isPending ? "提交中" : "报备"}
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
-      </DialogContent>
-    </Dialog>
+              name="description"
+              rules={rulesFor(riskCreateSchema, ["description"])}
+            >
+              <Input.TextArea
+                rows={3}
+                maxLength={5000}
+                showCount
+                placeholder="这件事为什么会变成诉讼或损失"
+              />
+            </Form.Item>
+          </Col>
+          <Col span={24}>
+            <Form.Item
+              label="已采取措施"
+              name="measure"
+              rules={rulesFor(riskCreateSchema, ["measure"])}
+            >
+              <Input.TextArea rows={2} maxLength={5000} />
+            </Form.Item>
+          </Col>
+        </Row>
+      </Form>
+    </Modal>
   );
 }

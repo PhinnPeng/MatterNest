@@ -28,29 +28,91 @@ export const SHARED_PATTERNS = [
 export const SHARED_RULE = { "no-restricted-imports": ["error", { patterns: SHARED_PATTERNS }] };
 
 /**
- * 禁令⑦（一套组件体系）：业务代码**不得直连原语包**。
+ * 禁令⑦（一套组件体系）—— v6 起这一条的意思是 **antd**，不再是"业务代码不许直连 radix"。
  *
- * 为什么这条值得被机器拦而不是靠 review：`radix-ui` 那个包在 v1.6 里把每个组件都
- * 以命名空间形式导出（`import { Select } from "radix-ui"`），直连写起来比走
- * `components/ui/` 那层**更短**，所以"图省事绕过封装"是默认会发生的事。
- * 一旦有人直连，主题令牌与 `data-slot` 约定就开始分叉，而分叉要很久以后才看得见。
+ * 换库之前，风险是"有人绕过 `components/ui/` 直接 import 原语"；换库之后，`radix`、
+ * `class-variance-authority`、`@tanstack/react-table` 已经从 `package.json` 里删掉了，
+ * 于是风险换了一副面孔，三种都会静默发生：
+ *   1. **把上一套体系请回来**：`date-fns`/`lucide-react`/`react-hook-form` 这类
+ *      "只是一个小工具"的依赖最容易在赶工时被加回来，加进来就出现两套格式化/图标/表单口径；
+ *   2. **把 Pro 装上**：`@ant-design/pro-components@2.8.10` 的 peer 是 `antd ^4.24.15 || ^5.11.2`，
+ *      **不含 antd 6** —— 装上能过 lint，运行时把样式拉回 v5，症状要过几屏才看得出来；
+ *   3. **走 antd 深路径**：`import type { ColumnsType } from "antd/es/table"` 这类写法
+ *      绕过顶层 barrel，也就绕过 `@ant-design/nextjs-registry` 的样式抽取；
+ *      顶层其实都有（`TableColumnsType`、`FormRule`），所以这不是"没得选"。
  *
- * 不拦 `lucide-react`：图标是叶子资源，包一层 `components/ui/icon.tsx` 只是加噪音。
+ * 与旧版的一处不同：**不再豁免 `components/ui/`**。那一层以前是"包原语的层"，
+ * 现在只是"包我们的约定的层"（表格门、状态语义、密度），没有需要碰深路径的理由。
+ * 真需要逃生口时改这条规则本身并说明理由——fixtures 会当场告诉你改坏了什么。
  */
 export const UI_PATTERNS = [
   {
-    group: ["radix-ui", "radix-ui/*", "@radix-ui", "@radix-ui/*"],
-    message: "禁令⑦：原语一律经 components/ui/ 那层，业务组件不得直连 radix",
+    group: ["antd/es", "antd/es/*", "antd/lib", "antd/lib/*", "antd/dist/*"],
+    message: '禁令⑦：antd 一律从顶层 "antd" 取（类型也在 index 上：TableColumnsType / FormRule）',
+  },
+  {
+    group: ["@ant-design/pro-components", "@ant-design/pro-components/*"],
+    message:
+      "禁令⑦：pro-components 的 peer 只到 antd 5，接在 antd 6 上会把样式拉回 v5 运行时；查询区用 components/list-toolbar，表格用 ui/data-table/DataTable",
+  },
+  {
+    group: ["radix-ui", "radix-ui/*", "@radix-ui", "@radix-ui/*", "class-variance-authority"],
+    message: "禁令⑦：上一套 shadcn 体系的依赖已删除，组件体系只有 antd",
   },
   {
     group: ["@tanstack/react-table", "@tanstack/react-table/*"],
-    message: "禁令⑦/⑧：表格一律经 components/ui/data-table/，直连等于绕过服务端分页那条门",
+    message:
+      "禁令⑦/⑧：表格只走 components/ui/data-table/DataTable（服务端分页 >100 直接抛的门在那儿）",
   },
   {
-    group: ["class-variance-authority"],
-    message: "禁令⑦：变体只在 components/ui/ 里定义，业务侧用 cn() 合并即可",
+    group: ["lucide-react", "lucide-react/*"],
+    message: "禁令⑦：图标只有 @ant-design/icons（两套图标混用是最先看得见的不一致）",
+  },
+  {
+    group: [
+      "react-hook-form",
+      "react-hook-form/*",
+      "@hookform/resolvers",
+      "@hookform/resolvers/*",
+      "formily",
+      "@formily/*",
+    ],
+    message:
+      "禁令⑦：表单只有 antd Form；校验规则从 shared 的 Zod 推导，见 components/form/zod-rules（单一规则源，不再第二份声明）",
+  },
+  {
+    group: ["date-fns", "date-fns/*", "moment", "moment/*", "luxon"],
+    message:
+      "禁令⑦：日期只有 dayjs（antd 的 DatePicker 认 dayjs；多一个库就多一套时区与格式化口径）",
   },
 ];
+
+/**
+ * 禁令⑦ 的第二半：**一个色只定义一次**。
+ *
+ * `src/app/theme/brand.ts` 是唯一的色值源，`theme/antd.ts` 只做 antd token 映射，
+ * 其余地方一律 `BRAND.primary` / `INK.muted`。理由不是洁癖：这一轮迁移里最费时间的
+ * 就是 40 多处内联灰——它们本来分散在两个组件库里各自"差不多"的灰里，改一次刻度要全仓搜。
+ *
+ * 白（`#fff` / `#ffffff`）放过：它没有刻度可言，写成常量反而更难读。
+ * 半透明不写字面量而是 `alpha(BRAND.sider.item, .62)`——同一个色只有一份十六进制。
+ * CSS 侧（`globals.css` 的纸色底与正文色）eslint 管不到，那边留了注释指向 brand.ts。
+ */
+export const COLOR_RULE = {
+  "no-restricted-syntax": [
+    "error",
+    {
+      selector: String.raw`Literal[value=/#(?!fff\b|ffffff\b)[0-9a-fA-F]{3,8}/]`,
+      message:
+        "禁令⑦：色值只在 src/app/theme/brand.ts 里定义，业务侧用 BRAND.* / INK.*（只有白 #fff 可以写出来）",
+    },
+    {
+      selector: String.raw`Literal[value=/[ra]gba?\(/]`,
+      message:
+        "禁令⑦：半透明用 theme/brand.ts 的 alpha(颜色, 透明度)，别再手写第二份 rgb()/rgba() 色值",
+    },
+  ],
+};
 
 /**
  * 禁令⑥（页面壳不预取业务数据）+ 禁令⑤（鉴权在 handler 内）：
@@ -71,13 +133,11 @@ export const SHELL_PATTERNS = [
   },
 ];
 
+/** 禁令⑦ 挂在 app 层全域（含 components/ui/，见上面那段说明） */
 export const UI_FILES_GLOB = "src/app/**/*.{ts,tsx}";
-export const UI_IGNORE_GLOBS = [
-  "src/app/components/ui/**", // 这一层就是用来包原语的
-  "src/app/lib/client/**", // 客户端数据层（react-query 的门面）
-  "src/app/api/**", // handler 层按定义要碰 DB
-  "src/app/lib/server/**",
-];
+export const UI_IGNORE_GLOBS = [];
+/** 唯一例外：主题那两个文件就是定义颜色的地方 */
+export const COLOR_IGNORE_GLOBS = ["src/app/theme/**"];
 export const SHELL_FILES_GLOBS = ["src/app/**/page.tsx", "src/app/**/layout.tsx"];
 
 export const GUARD_GLOBS = {

@@ -5,6 +5,69 @@
 
 ---
 
+## [未发布] — 2026-09-28 · v6 改判：前端组件体系由纯 shadcn 换成 **Ant Design 6**
+
+用户第二次否同一套观感并定方向"整体使用 antd"。换库前先核了两条一手事实：`antd@6.6.5` 的 peer 是
+`react >= 18`（与本仓 React 19.3 兼容），而 `@ant-design/pro-components@2.8.10` 的 peer 是
+**`antd ^4.24.15 || ^5.11.2`，不含 antd 6** —— 所以 **Pro 装不上**，ProTable/ProForm 那层（查询区 + 工具栏 +
+表单化弹窗）自己写。理由、继承/作废清单与代价记在 `docs/tech-stack-decision.md` **§13.6**。
+
+### Added
+
+- `src/app/theme/brand.ts`：**全站唯一色值源**（`BRAND` / `PAPER` / `INK` 四档墨阶 / `alpha()`）。
+  它刻意不 import antd，所以 Server Component 的登录壳也能取同一份色；`theme/antd.ts` 只做 token 映射。
+- `src/app/theme/antd.ts`：antd 主题与语义色一处定（`controlHeight=30`、`controlHeightSM=24`、
+  Table `cellPaddingBlockSM=5`/`fontSize=13`、`SEMANTIC_TONE`、`DEADLINE_TONE`、`SCOPE_HINT`）。
+- `components/list-toolbar.tsx`：自己写的那层"查询区"——关键词 **500ms 去抖**（去抖定时器落 `useRef`，
+  `keyword→text` 的同步放 `useEffect`，不在渲染期 `setState`）、Enter 立即提交、状态/排序/方向、含已归档。
+- `components/form/zod-rules.ts`（+ 5 条测试）：antd `rules` 从 `shared/schema` 的 **Zod 推导**，
+  服务端 `fieldIssues` 经 `form.setFields` 落回字段——**禁令⑧ 的"单一规则源"换库后一条没丢**。
+  踩到的 Zod 4 事实：`z.introspect` 不存在，检查项在 `node._zod.def.checks[i]._zod.def`；
+  剥壳只认 `Optional/Nullable/Default`，`ZodArray` 也有 `unwrap()`（认它会静默丢数组路径的规则，已写成回归）。
+- lint-guard 由三条禁令扩到**四个 scope、六道断言**（新增"色值单源"用 `no-restricted-syntax`）：
+  拦截清单按 antd 重述——`radix-ui`/`cva`/`pro-components`/`lucide-react`/`react-hook-form`/`date-fns`/
+  `antd|lib|es` 深路径，以及色值字面量与手写 `rgba()`。断言 B 从"命中数 > 0"改成**等于预期条数**
+  （十条 group 写坏九条也照样绿的那种假通过），并加 D2"挂载点上生效的确实是这份规则"
+  （防后段 config 整条覆盖同名规则）。**四个 scope 都反向红过**（fixtures + 真实路径探针）。
+- `src/app/theme/brand.spec.ts`（5 条）：`alpha()` 的换算与坏输入立刻抛，以及"同一语义不出现两份色值"。
+
+### Changed
+
+- **页面与组件全部重写到 antd**：外壳（`Layout`/`Sider 216`/`Menu` 三组 + `Dropdown` 登出）、登录（SSR 空壳 +
+  client `Form`）、工作台、案件列表/详情（`Tabs` + `Descriptions` + 节点 `Table` + 内联开始/完成/取消）、
+  事项列表与转案件/新建弹窗（`Form.List` 当事人）、配置只读页。标记件改为 Badge"点 + 词"与描边 Tag。
+- **provider 顺序定为** `QueryClientProvider > AntdRegistry > ConfigProvider(locale, theme) > App`
+  —— `AntdRegistry` 在 `ConfigProvider` 外面，否则 SSR 抽不到 token 样式。
+- **日期库换成 `dayjs`**：`shared/time/zh-cn.ts` 的 pattern 从 date-fns token 重写（`yyyy`/`dd` 在 dayjs 里会
+  原样输出成 `yyyy年9月0日`；`EEE` 核心不支持，`WEEKDAY_PATTERN` 因此删除），测试钉的是**输出字符串**不是 token。
+- 禁令⑦⑧ 的现行文字改写（§13.6.2），`.trellis/spec/frontend/*` 六份 + backend 两份随之同步。
+
+### Removed
+
+- shadcn 那一套整段删干净，不留"以后可能用得上"：14 个原语件、`cn()` 与 `lib/utils.ts`、`components.json`、
+  `globals.css` 里的语义色变量块、`ui/table-density.spec.ts`（守的原语已不存在）。
+- spike 目录（`app/spike`、`components/spike`、`api/spike`、`lib/server/spike`、`shared/schema/spike-matter.ts`）——
+  N1/N7 的结论已进研究文档与技术选型，代码留在这里只会变成第二套"能跑但没人维护"的页面。
+- 依赖 11 个：`shadcn` `cn` `tw-animate-css` `radix-ui` `class-variance-authority` `lucide-react`
+  `@tanstack/react-table` `date-fns` `react-day-picker` `react-hook-form` `@hookform/resolvers`。
+
+### Fixed（换库之后又量出来的一处）
+
+- **列表行高与横向溢出**：antd 初版量出案件表 **54px/行**（10 列里 9 列非 `nowrap`，内部编号折成两行）、
+  表体溢出 **10px**。修法是每列 `ellipsis: true` + 列宽按 canvas `measureText` 实测最长值重排，
+  改后 **33px/行、溢出 0**；事项表 **35px/行、溢出 0**。教训与 v5 那次同源：
+  `width` 在 `tableLayout: fixed` 下真的生效，但**一列文字超宽就会把整行撑高**——密度只能量出来，看不出来。
+
+### 验证
+
+`pnpm verify` 全绿（prettier / eslint / tsc / **vitest 58 条 · 9 文件** / lint-guard 四 scope），
+`next build` 出 19 条路由，`pnpm db:check` 12/12，生产构建上跑 `agent-work/smoke-demo.mjs`
+**68 条真实 HTTP 断言全通过并自动清场**（含"壳不漏业务数据"与"生产包不含演示口令清单"）。
+**未验的部分要说清**：观感是否"可以了"属于人眼判断，本轮只给数值证据；附件直传（W3-7 的 MinIO service account）
+与事项状态流转、进展/费用/@提及、两张报表、规则与通知、用户与角色页仍未做。
+
+---
+
 ## [未发布] — 2026-09-27 · 前端"效果不好"量出来是一处覆盖回归，不是选库选错
 
 用户反馈前端效果不好，问要不要改用 AntD Pro。先量再答：在 1440×900 的同源 iframe 里取 computed style，

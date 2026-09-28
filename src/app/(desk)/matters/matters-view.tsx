@@ -1,21 +1,21 @@
 "use client";
 
+import { INK } from "@/app/theme/brand";
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { PlusIcon } from "lucide-react";
+import { Button, Space, Typography } from "antd";
+import { PlusOutlined } from "@ant-design/icons";
+import type { TableColumnsType } from "antd";
 
-import { api, useMeta, type Meta } from "@/app/lib/client/api";
+import { api, useMeta } from "@/app/lib/client/api";
 import { toQuery, useListState } from "@/app/lib/client/use-list-state";
 import { fromNow, money } from "@/app/lib/client/format";
-import { SORTABLE_COLUMNS } from "@/shared/schema/list-query";
 import { ListToolbar } from "@/app/components/list-toolbar";
-import { PageHeader } from "@/app/components/page-header";
-import { DataTable, type LegacyColumnDef } from "@/app/components/ui/data-table/DataTable";
+import { PageHeader, MetaItem } from "@/app/components/page-header";
+import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
-import { Button } from "@/app/components/ui/button";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { MatterCreateDialog } from "./matter-create-dialog";
 
@@ -36,6 +36,7 @@ type MatterRow = {
 };
 type ListResult = { items: MatterRow[]; page: number; pageSize: number; total: number };
 
+/** 排序键 → 表头文案。键集合与 `SORTABLE_COLUMNS` 逐字相等，那条约束由服务层编译期守着。 */
 const SORT_LABEL: Record<string, string> = {
   code: "内部编号",
   name: "案件名称",
@@ -54,8 +55,8 @@ export function MattersView() {
   const [creating, setCreating] = useState(false);
 
   /**
-   * key 里带全部查询参数：换页/换筛选时旧请求的结果不会被当成新数据的缓存命中，
-   * 而 `placeholderData: undefined` 是故意的 —— 保留上一页会让"点了没变"和"正在加载"分不开。
+   * queryKey 里带全部查询参数：换页/换筛选时旧结果不会被当成新数据的缓存命中。
+   * 不保留上一页的占位数据——那会让"点了没变"和"正在加载"分不开。
    */
   const { data, isFetching, isError, error } = useQuery({
     queryKey: ["matters", state],
@@ -67,7 +68,112 @@ export function MattersView() {
     [meta],
   );
 
-  const columns = useMemo<LegacyColumnDef<MatterRow, unknown>[]>(() => matterColumns(meta), [meta]);
+  const columns = useMemo<TableColumnsType<MatterRow>>(() => {
+    const levelName = (code: string) => meta?.levels.find((l) => l.code === code)?.name ?? code;
+    return [
+      {
+        key: "code",
+        title: "内部编号",
+        width: 130,
+        ellipsis: true,
+        sorter: true,
+        sortOrder: sortOrderOf("code", state.sortBy, state.sortDir),
+        render: (_, r) => (
+          <a className="num" style={{ fontSize: 13 }}>
+            {r.internalCode}
+          </a>
+        ),
+      },
+      {
+        key: "name",
+        title: "案件名称",
+        width: 296,
+        sorter: true,
+        sortOrder: sortOrderOf("name", state.sortBy, state.sortDir),
+        ellipsis: true,
+        render: (_, r) => (
+          <Space size={6}>
+            <span
+              style={{ maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis" }}
+              title={r.name}
+            >
+              {r.name}
+            </span>
+            {r.isArchived ? <FlagMark title="已归档：默认不出现在列表里">归档</FlagMark> : null}
+          </Space>
+        ),
+      },
+      {
+        key: "cause",
+        title: "案由",
+        width: 132,
+        ellipsis: true,
+        render: (_, r) => <span style={{ color: INK.secondary }}>{r.cause}</span>,
+      },
+      {
+        key: "procedure",
+        title: "程序",
+        width: 56,
+        ellipsis: true,
+        render: (_, r) => meta?.enums.procedures[r.procedure] ?? r.procedure,
+      },
+      {
+        key: "risk_level",
+        title: "等级",
+        width: 76,
+        ellipsis: true,
+        sorter: true,
+        sortOrder: sortOrderOf("risk_level", state.sortBy, state.sortDir),
+        render: (_, r) => levelName(r.level),
+      },
+      {
+        key: "status",
+        title: "状态",
+        width: 78,
+        ellipsis: true,
+        sorter: true,
+        sortOrder: sortOrderOf("status", state.sortBy, state.sortDir),
+        render: (_, r) => <StatusMark host="matter" code={r.status} />,
+      },
+      {
+        key: "amount",
+        title: "标的额",
+        width: 112,
+        ellipsis: true,
+        align: "right",
+        sorter: true,
+        sortOrder: sortOrderOf("amount", state.sortBy, state.sortDir),
+        render: (_, r) => <span className="num">{money(r.amount)}</span>,
+      },
+      {
+        key: "owner_name",
+        title: "承办人",
+        width: 112,
+        ellipsis: true,
+        sorter: true,
+        sortOrder: sortOrderOf("owner_name", state.sortBy, state.sortDir),
+        render: (_, r) => r.ownerName,
+      },
+      {
+        key: "next_deadline",
+        title: "最近到期",
+        width: 96,
+        ellipsis: true,
+        render: (_, r) => <DeadlineMark iso={r.nextDeadline} />,
+      },
+      {
+        key: "updated_at",
+        title: "更新",
+        width: 80,
+        ellipsis: true,
+        sorter: true,
+        sortOrder: sortOrderOf("updated_at", state.sortBy, state.sortDir),
+        render: (_, r) => (
+          <span style={{ fontSize: 12, color: INK.muted }}>{fromNow(r.updatedAt)}</span>
+        ),
+      },
+    ];
+  }, [meta, state.sortBy, state.sortDir]);
 
   if (isError) {
     return (
@@ -76,7 +182,7 @@ export function MattersView() {
         title="案件列表读不到"
         hint={error instanceof Error ? error.message : "未知错误"}
         action={
-          <Button variant="outline" size="sm" onClick={() => push({})}>
+          <Button size="small" onClick={() => push({})}>
             重试
           </Button>
         }
@@ -85,18 +191,14 @@ export function MattersView() {
   }
 
   return (
-    <div className="mx-auto max-w-[1400px]">
+    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       <PageHeader
         title="案件"
         meta={
-          <>
-            <span>立案到归档一条链；可见范围由服务端逐条判定，不是前端筛的。</span>
-            {state.includeArchived ? <FlagMark tone="warn">已含归档</FlagMark> : null}
-          </>
+          <MetaItem label="">立案到归档一条链；可见范围由服务端逐条判定，不是前端筛的。</MetaItem>
         }
         actions={
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <PlusIcon />
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
             新建案件
           </Button>
         }
@@ -111,129 +213,42 @@ export function MattersView() {
         sortBy={state.sortBy}
         sortDir={state.sortDir}
         onSort={(k, d) => push({ sortBy: k, sortDir: d })}
-        sortOptions={SORTABLE_COLUMNS.map((k) => ({ value: k, label: SORT_LABEL[k] ?? k }))}
+        sortOptions={Object.entries(SORT_LABEL).map(([value, label]) => ({ value, label }))}
         includeArchived={state.includeArchived}
         onIncludeArchived={(v) => push({ includeArchived: v })}
         busy={isFetching}
       />
 
-      <div className="pt-3">
-        <DataTable
-          columns={columns}
-          rows={data?.items ?? []}
-          total={data?.total ?? 0}
-          page={state.page}
-          pageSize={state.pageSize}
-          sortBy={state.sortBy}
-          sortDir={state.sortDir}
-          loading={isFetching}
-          rowKey={(r) => r.id}
-          onRowOpen={(r) => router.push(`/matters/${r.id}`)}
-          onPageChange={(p) => push({ page: p })}
-          onSortChange={(k, d) => push({ sortBy: k, sortDir: d })}
-          empty={
-            state.keyword || state.status ? (
-              <>
-                当前筛选下没有可见案件。清掉关键词或状态再看一次；如果同事能看见而你不能，
-                那是数据范围（<span className="num">L1/L2/L3</span>）的差异。
-              </>
-            ) : (
-              "还没有案件。点右上「新建案件」，内部编号会由数据库单语句取号。"
-            )
-          }
-        />
-      </div>
+      <DataTable<MatterRow>
+        columns={columns}
+        rows={data?.items ?? []}
+        rowKey={(r) => r.id}
+        total={data?.total ?? 0}
+        page={state.page}
+        pageSize={state.pageSize}
+        loading={isFetching}
+        onRowOpen={(r) => router.push(`/matters/${r.id}`)}
+        onPageChange={(p) => push({ page: p })}
+        onSortChange={(k, d) => push({ sortBy: k, sortDir: d })}
+        hideable={[
+          { key: "cause", title: "案由" },
+          { key: "procedure", title: "程序" },
+        ]}
+        empty={
+          state.keyword || state.status ? (
+            <Typography.Text style={{ fontSize: 12 }}>
+              当前筛选下没有可见案件。清掉关键词或状态再看一次；如果同事能看见而你不能，
+              那是数据范围（L1/L2/L3）的差异。
+            </Typography.Text>
+          ) : (
+            <Typography.Text style={{ fontSize: 12 }}>
+              还没有案件。点右上「新建案件」，内部编号会由数据库单语句取号。
+            </Typography.Text>
+          )
+        }
+      />
 
-      <MatterCreateDialog open={creating} onOpenChange={setCreating} meta={meta} />
+      <MatterCreateDialog open={creating} onOpenChange={setCreating} />
     </div>
   );
-}
-
-/** 列定义。id 一律用服务端白名单里的那 8 个键（表头点击即排序），非排序列显式 `enableSorting: false`。 */
-function matterColumns(meta: Meta | undefined): LegacyColumnDef<MatterRow, unknown>[] {
-  const levelName = (code: string) => meta?.levels.find((l) => l.code === code)?.name ?? code;
-  const procName = (code: string) => meta?.enums.procedures[code] ?? code;
-
-  return [
-    {
-      id: "code",
-      header: "内部编号",
-      size: 118,
-      cell: ({ row }) => (
-        <Link
-          href={`/matters/${row.original.id}`}
-          className="num text-primary underline-offset-4 hover:underline"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {row.original.internalCode}
-        </Link>
-      ),
-    },
-    {
-      id: "name",
-      header: "案件名称",
-      size: 250,
-      cell: ({ row }) => (
-        <span className="flex items-center gap-1.5">
-          <span className="min-w-0 truncate">{row.original.name}</span>
-          {row.original.isArchived ? (
-            <FlagMark title="已归档：默认不出现在列表里">归档</FlagMark>
-          ) : null}
-        </span>
-      ),
-    },
-    {
-      id: "cause",
-      header: "案由",
-      size: 128,
-      enableSorting: false,
-      cell: ({ row }) => <span className="text-muted-foreground">{row.original.cause}</span>,
-    },
-    {
-      id: "procedure",
-      header: "程序",
-      size: 84,
-      enableSorting: false,
-      cell: ({ row }) => procName(row.original.procedure),
-    },
-    {
-      id: "risk_level",
-      header: "等级",
-      size: 66,
-      cell: ({ row }) => levelName(row.original.level),
-    },
-    {
-      id: "status",
-      header: "状态",
-      size: 92,
-      cell: ({ row }) => <StatusMark host="matter" code={row.original.status} />,
-    },
-    {
-      id: "amount",
-      header: "标的额",
-      size: 98,
-      cell: ({ row }) => <span className="num block text-right">{money(row.original.amount)}</span>,
-    },
-    {
-      id: "owner_name",
-      header: "承办人",
-      size: 104,
-      cell: ({ row }) => row.original.ownerName,
-    },
-    {
-      id: "next_deadline",
-      header: "最近到期",
-      size: 132,
-      enableSorting: false,
-      cell: ({ row }) => <DeadlineMark iso={row.original.nextDeadline} />,
-    },
-    {
-      id: "updated_at",
-      header: "更新",
-      size: 78,
-      cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">{fromNow(row.original.updatedAt)}</span>
-      ),
-    },
-  ];
 }

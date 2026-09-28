@@ -2,6 +2,8 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import prettierConfig from "eslint-config-prettier";
 import {
+  COLOR_IGNORE_GLOBS,
+  COLOR_RULE,
   SHELL_FILES_GLOBS,
   SHELL_PATTERNS,
   SHARED_PATTERNS,
@@ -45,7 +47,8 @@ export default tseslint.config(
     },
   },
   {
-    // 禁令⑦（一套组件体系）：业务代码不得直连原语包，components/ui/ 那一层除外
+    // 禁令⑦（一套组件体系 = antd）：业务侧不得引入第二套体系、第二家图标/表单/日期库，
+    // 也不得走 antd 深路径绕过 registry。v6 起不再豁免 components/ui/ —— 那层现在包的是约定，不是原语。
     files: [UI_FILES_GLOB],
     ignores: UI_IGNORE_GLOBS,
     rules: {
@@ -53,10 +56,19 @@ export default tseslint.config(
     },
   },
   {
+    // 禁令⑦ 的第二半：一个色只定义一次（唯一源 src/app/theme/brand.ts）
+    files: [UI_FILES_GLOB],
+    ignores: COLOR_IGNORE_GLOBS,
+    rules: COLOR_RULE,
+  },
+  {
     // 禁令⑥/⑤（页面壳不预取业务数据、鉴权在 handler 内）
+    // 这里必须把⑦ 的 patterns 一起带上：eslint 后段会**整条覆盖**同名规则，
+    // 只写 SHELL_PATTERNS 的话 page.tsx 就会变成⑦ 的盲区（页面壳恰恰是最容易顺手 import 错东西的地方）。
     files: SHELL_FILES_GLOBS,
     rules: {
-      "no-restricted-imports": ["error", { patterns: SHELL_PATTERNS }],
+      "no-restricted-imports": ["error", { patterns: [...SHELL_PATTERNS, ...UI_PATTERNS] }],
+      ...COLOR_RULE,
     },
   },
   {

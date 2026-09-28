@@ -1,48 +1,58 @@
+"use client";
+
+import { INK } from "@/app/theme/brand";
 import type { ReactNode } from "react";
-import { cn } from "cn";
+import { Card, Divider, Flex, Typography } from "antd";
 
 /**
- * 页面头：**编号/名称/状态**这类"必须出现在第一屏"的信息放这里，操作按钮靠右。
- * 详情页与列表页共用一个形状，是为了让"标题占多宽、副信息第几行"在全站只有一个答案。
+ * 页面头：**编号 / 名称 / 状态**这类"必须在第一屏出现"的信息放这里，操作靠右。
+ * 列表页与详情页共用一个形状，是为了让"标题占多宽、副信息第几行"在全站只有一个答案。
  */
 export function PageHeader({
   eyebrow,
   title,
   meta,
   actions,
-  className,
 }: {
   eyebrow?: ReactNode;
   title: ReactNode;
   meta?: ReactNode;
   actions?: ReactNode;
-  className?: string;
 }) {
   return (
-    <div
-      className={cn("flex flex-wrap items-start justify-between gap-x-6 gap-y-3 pb-3", className)}
-    >
-      <div className="min-w-0">
-        {eyebrow ? <div className="mb-1 flex items-center gap-2 text-xs">{eyebrow}</div> : null}
-        <h2 className="truncate text-lg leading-7 font-semibold">{title}</h2>
+    <Flex align="flex-start" justify="space-between" gap={16} wrap style={{ marginBottom: 12 }}>
+      <div style={{ minWidth: 0 }}>
+        {eyebrow ? (
+          <Flex align="center" gap={8} wrap style={{ marginBottom: 2 }}>
+            {eyebrow}
+          </Flex>
+        ) : null}
+        <Typography.Title level={4} style={{ margin: 0, lineHeight: "28px" }}>
+          {title}
+        </Typography.Title>
         {meta ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <Flex
+            align="center"
+            gap={12}
+            wrap
+            style={{ marginTop: 4, fontSize: 12, color: INK.muted }}
+          >
             {meta}
-          </div>
+          </Flex>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
-    </div>
+      {actions ? <Flex gap={8}>{actions}</Flex> : null}
+    </Flex>
   );
 }
 
-/** 顶栏下方的"键 : 值"一行（案号 / 承办人 / 立案日…）。刻意不做成两列网格：字段重要性差别很大，等宽网格会把"案由"和"币种"摆成一样的重量。 */
+/** 详情页顶栏下方的"键 : 值"一行（刻意不做等宽网格：字段重要性差别很大） */
 export function MetaItem({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-baseline gap-1.5 text-xs">
-      <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 truncate text-foreground">{children}</dd>
-    </div>
+    <Flex gap={6} align="baseline">
+      <span style={{ color: INK.muted, fontSize: 12 }}>{label}</span>
+      <span style={{ fontSize: 13 }}>{children}</span>
+    </Flex>
   );
 }
 
@@ -50,21 +60,49 @@ export function MetaItem({ label, children }: { label: string; children: ReactNo
 export function SectionTitle({
   children,
   count,
-  action,
+  extra,
 }: {
   children: ReactNode;
   count?: number;
-  action?: ReactNode;
+  extra?: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 pb-1.5">
-      <h3 className="flex items-baseline gap-1.5 text-sm font-medium">
+    <Flex align="center" justify="space-between" gap={12} style={{ marginBottom: 6 }}>
+      <Typography.Text strong style={{ fontSize: 13 }}>
         {children}
         {count !== undefined ? (
-          <span className="num text-xs text-muted-foreground">{count}</span>
+          <span className="num" style={{ color: INK.muted, fontWeight: 400, marginLeft: 6 }}>
+            {count}
+          </span>
         ) : null}
-      </h3>
-      {action}
-    </div>
+      </Typography.Text>
+      {extra}
+    </Flex>
   );
 }
+
+/** 详情 Tab 里的分区卡片 */
+export function Section({
+  title,
+  count,
+  extra,
+  children,
+}: {
+  title: ReactNode;
+  count?: number;
+  extra?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Card
+      size="small"
+      title={<SectionTitle count={count}>{title}</SectionTitle>}
+      extra={extra}
+      styles={{ body: { padding: 12 } }}
+    >
+      {children}
+    </Card>
+  );
+}
+
+export const VDivider = () => <Divider type="vertical" style={{ margin: "0 2px" }} />;

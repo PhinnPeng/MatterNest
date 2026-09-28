@@ -21,7 +21,7 @@ MatterNest/
 │  ├─ api/**              Route Handlers —— 唯一业务写入口；每个 handler 内 withScope()
 │  ├─ api/auth/**         双通道登录：/local、/yunzhijia/callback（技术选型 §3.4、§4 末两行）
 │  ├─ (auth)/ (desk)/ …   页面壳（前端规范，见 ../frontend/directory-structure.md）
-│  ├─ components/ui/      shadcn 复制件 + 自封装，前端唯一依赖层
+│  ├─ components/ui/      自封装约定层（DataTable · FileUpload · 状态/到期标记）
 │  └─ lib/server/         服务端专用：db、ScopeResolver、签名、session、云之家客户端
 │                          —— 这一层可以 import Node API
 │     ├─ db/schema/*.ts    schema 真相（`index.ts` 是唯一入口，漏挂 = generate 看不见）

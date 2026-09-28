@@ -1,48 +1,52 @@
 "use client";
 
+import { INK } from "@/app/theme/brand";
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftIcon } from "lucide-react";
+import {
+  App as AntdApp,
+  Avatar,
+  Button,
+  Card,
+  Descriptions,
+  Empty,
+  Flex,
+  Input,
+  List,
+  Space,
+  Table,
+  Tabs,
+  Tag,
+  Typography,
+} from "antd";
+import { ArrowLeftOutlined } from "@ant-design/icons";
+import type { TableColumnsType } from "antd";
 
 import { api, ApiFailure, useMeta, type MatterDetail as Matter } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
-import { MetaItem, PageHeader, SectionTitle } from "@/app/components/page-header";
+import { PageHeader, MetaItem } from "@/app/components/page-header";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
-import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { StateBlock } from "@/app/components/ui/state-block";
-import { Skeleton } from "@/app/components/ui/skeleton";
-import { Button } from "@/app/components/ui/button";
-import { Input } from "@/app/components/ui/input";
-import { Label } from "@/app/components/ui/label";
-import { Separator } from "@/app/components/ui/separator";
-import { Textarea } from "@/app/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/app/components/ui/table";
-import { nodeStatusSchema } from "@/shared/schema/hosts";
-import type { NodeStatus } from "@/shared/enums/business";
+import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 
 /**
  * 案件详情。
  *
- * 三条实现约束：
- *   · 404 走"不可见或不存在"这一句措辞，不写"案件不存在" —— 服务层对两者都给 404
+ * 三条实现约束没随换库变：
+ *   · 404 走"不可见或不存在"这一句措辞，不写"案件不存在"——服务层对两者都给 404
  *     （权限草案 §1 元规则 3），文案不能把这个区别说漏；
- *   · 状态、节点、评论三处写操作成功后一起失效 `["matter", id]` 与 `["matters"]`：
- *     详情页要立刻看到新状态，返回列表也要看见；
+ *   · 状态/节点/评论写成功后一起失效 `["matter", id]` 与 `["matters"]` 与 `["overview"]`：
+ *     详情页要立刻看到新状态，回列表和工作台也要看见；
  *   · 取消节点必须填原因，这条在**服务层与 DB CHECK 各有一道**
- *     （`ck_mn_matter_node_cancel_reason`），前端只是提前提示。
+ *     （`ck_mn_matter_node_cancel_reason`），前端只是提前拦一次。
  */
+type Node = Matter["nodes"][number];
+
 export function MatterDetail({ id }: { id: string }) {
   const qc = useQueryClient();
+  const { message } = AntdApp.useApp();
   const { data: meta } = useMeta("matter");
   const [statusOpen, setStatusOpen] = useState(false);
 
@@ -52,13 +56,7 @@ export function MatterDetail({ id }: { id: string }) {
   });
 
   if (isPending) {
-    return (
-      <div className="mx-auto max-w-[1180px] space-y-4">
-        <Skeleton className="h-16" />
-        <Skeleton className="h-9 w-96" />
-        <Skeleton className="h-64" />
-      </div>
-    );
+    return <Card size="small" loading style={{ maxWidth: 1180, margin: "0 auto" }} />;
   }
 
   if (isError) {
@@ -75,12 +73,11 @@ export function MatterDetail({ id }: { id: string }) {
               : "未知错误"
         }
         action={
-          <Button asChild variant="outline" size="sm">
-            <Link href="/matters">
-              <ArrowLeftIcon />
+          <Link href="/matters">
+            <Button size="small" icon={<ArrowLeftOutlined />}>
               回案件列表
-            </Link>
-          </Button>
+            </Button>
+          </Link>
         }
       />
     );
@@ -96,21 +93,96 @@ export function MatterDetail({ id }: { id: string }) {
     qc.invalidateQueries({ queryKey: ["overview"] });
   };
 
+  const nodeColumns: TableColumnsType<Node> = [
+    {
+      title: "节点",
+      dataIndex: "name",
+      width: 280,
+      render: (_, n) => (
+        <>
+          <div style={{ fontSize: 13 }}>{n.name}</div>
+          {n.remark ? <div style={{ fontSize: 11, color: INK.muted }}>{n.remark}</div> : null}
+        </>
+      ),
+    },
+    {
+      title: "类型",
+      dataIndex: "nodeType",
+      width: 96,
+      render: (v: string) => <span style={{ fontSize: 12, color: INK.secondary }}>{v}</span>,
+    },
+    {
+      title: "时间",
+      width: 224,
+      render: (_, n) =>
+        n.isTimeConfirmed ? (
+          <span className="num" style={{ fontSize: 12 }}>
+            {dateTime(n.startTime)}
+            {n.timeType === "range" ? ` → ${dateTime(n.endTime)}` : ""}
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, color: INK.faint }}>时间未确认</span>
+        ),
+    },
+    {
+      title: "到期",
+      width: 118,
+      render: (_, n) =>
+        n.status === "not_started" || n.status === "in_progress" ? (
+          <DeadlineMark iso={n.deadlineTime} />
+        ) : (
+          <span style={{ color: INK.faint }}>—</span>
+        ),
+    },
+    {
+      title: "负责人",
+      width: 104,
+      render: (_, n) => <span style={{ fontSize: 12 }}>{n.ownerName ?? "—"}</span>,
+    },
+    {
+      title: "状态",
+      width: 104,
+      render: (_, n) => (
+        <Space size={4}>
+          <span
+            style={{
+              fontSize: 12,
+              color: n.status === "cancelled" ? INK.faint : undefined,
+              textDecoration: n.status === "cancelled" ? "line-through" : undefined,
+            }}
+          >
+            {meta?.enums.nodeStatuses[n.status] ?? n.status}
+          </span>
+          {n.sourceKind !== "manual" ? (
+            <Tag
+              bordered={false}
+              title={`来源：${n.sourceKind}`}
+              style={{ fontSize: 10, marginInlineEnd: 0 }}
+            >
+              {meta?.enums.nodeSourceKinds?.[n.sourceKind] ?? n.sourceKind}
+            </Tag>
+          ) : null}
+        </Space>
+      ),
+    },
+    {
+      title: "操作",
+      width: 148,
+      render: (_, n) => <NodeActions node={n} matterId={m.id} onDone={invalidate} />,
+    },
+  ];
+
   return (
-    <div className="mx-auto max-w-[1180px]">
+    <div style={{ maxWidth: 1180, margin: "0 auto" }}>
       <PageHeader
         eyebrow={
           <>
-            <Link
-              href="/matters"
-              className="inline-flex items-center gap-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <ArrowLeftIcon className="size-3.5" />
-              案件
+            <Link href="/matters" style={{ fontSize: 12 }}>
+              <ArrowLeftOutlined /> 案件
             </Link>
-            <span className="num text-foreground">{m.internalCode}</span>
+            <Typography.Text className="num">{m.internalCode}</Typography.Text>
             <StatusMark host="matter" code={m.status} />
-            {m.isArchived ? <FlagMark tone="neutral">已归档</FlagMark> : null}
+            {m.isArchived ? <FlagMark>已归档</FlagMark> : null}
             {m.closingDate ? <FlagMark tone="info">已结案</FlagMark> : null}
           </>
         }
@@ -130,409 +202,398 @@ export function MatterDetail({ id }: { id: string }) {
             <MetaItem label="更新">{fromNow(m.updatedAt)}</MetaItem>
           </>
         }
-        actions={
-          <Button size="sm" variant="outline" onClick={() => setStatusOpen(true)}>
-            变更状态
-          </Button>
-        }
+        actions={<Button onClick={() => setStatusOpen(true)}>变更状态</Button>}
       />
 
-      <Tabs defaultValue="nodes">
-        <TabsList>
-          <TabsTrigger value="basic">基本信息</TabsTrigger>
-          <TabsTrigger value="nodes">
-            工作节点
-            <TabCount n={m.nodes.length} />
-          </TabsTrigger>
-          <TabsTrigger value="people">
-            参与人
-            <TabCount n={m.staff.length + m.parties.length} />
-          </TabsTrigger>
-          <TabsTrigger value="log">
-            过程记录
-            <TabCount n={m.progress.length + m.comments.length} />
-          </TabsTrigger>
-          <TabsTrigger value="activity">
-            活动
-            <TabCount n={m.activity.length} />
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="basic">
-          <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Basic label="内部编号" value={<span className="num">{m.internalCode}</span>} />
-            <Basic label="正式案号" value={<span className="num">{m.caseNo}</span>} />
-            <Basic label="案件类型" value={meta?.enums.caseTypes[m.caseType] ?? m.caseType} />
-            <Basic
-              label="我方诉讼地位"
-              value={meta?.enums.litigationRoles[m.litigationRole] ?? m.litigationRole}
-            />
-            <Basic label="受理法院" value={m.court ?? "—"} />
-            <Basic label="币种" value={m.currency} />
-            <Basic label="结案日期" value={calDate(m.closingDate)} />
-            <Basic label="归档时间" value={dateTime(m.archivedAt)} />
-            <Basic label="最近进展" value={dateTime(m.lastProgressAt)} />
-          </dl>
-          <Separator className="my-4" />
-          <p className="max-w-prose text-sm leading-relaxed whitespace-pre-wrap">
-            {m.description?.trim() ? m.description : "没有填写基本情况。"}
-          </p>
-        </TabsContent>
-
-        <TabsContent value="nodes">
-          {m.nodes.length === 0 ? (
-            <StateBlock
-              title="还没有工作节点"
-              hint="节点是提醒的唯一入口：确认时间并设了期限，才会进工作台的到期清单。"
-            />
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-border bg-card">
-              <Table className="table-fixed">
-                {/*
-                  这张表原本没给列宽，auto layout 下结果被实测打出来：节点名只有 64px（"立案材料准备"被裁掉），
-                  而"时间"列因为要塞两串完整日期抢到了 359px。列宽是**语义优先级**，不该交给内容去抢。
-                  宽度写成静态 arbitrary 类而不是 style——Tailwind 能扫到字面量，就不用破行内 style 那条例外的量。
-                */}
-                <colgroup>
-                  <col className="w-[300px]" />
-                  <col className="w-[110px]" />
-                  <col className="w-[250px]" />
-                  <col className="w-[130px]" />
-                  <col className="w-[120px]" />
-                  <col className="w-[100px]" />
-                  <col className="w-[150px]" />
-                </colgroup>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>节点</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>时间</TableHead>
-                    <TableHead>到期</TableHead>
-                    <TableHead>负责人</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead className="w-40">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {m.nodes.map((n) => (
-                    <NodeRow key={n.id} matterId={m.id} node={n} meta={meta} onDone={invalidate} />
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="people">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <section>
-              <SectionTitle count={m.staff.length}>承办与协办</SectionTitle>
-              <ul className="divide-y divide-border/70 rounded-lg border border-border bg-card">
-                {m.staff.map((s) => (
-                  <li key={s.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                    <span>{s.displayName}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {meta?.enums.staffRoles[s.staffRole] ?? s.staffRole}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-            <section>
-              <SectionTitle count={m.parties.length}>当事人</SectionTitle>
-              <ul className="divide-y divide-border/70 rounded-lg border border-border bg-card">
-                {m.parties.map((p) => (
-                  <li
-                    key={p.id}
-                    className="flex items-center justify-between gap-2 px-3 py-2 text-sm"
+      <Card size="small" styles={{ body: { padding: "0 12px 12px" } }}>
+        <Tabs
+          defaultActiveKey="nodes"
+          items={[
+            {
+              key: "basic",
+              label: "基本信息",
+              children: (
+                <>
+                  <Descriptions
+                    size="small"
+                    column={{ xs: 1, sm: 2, lg: 3 }}
+                    items={[
+                      {
+                        key: "code",
+                        label: "内部编号",
+                        children: <span className="num">{m.internalCode}</span>,
+                      },
+                      {
+                        key: "caseNo",
+                        label: "正式案号",
+                        children: <span className="num">{m.caseNo}</span>,
+                      },
+                      {
+                        key: "type",
+                        label: "案件类型",
+                        children: meta?.enums.caseTypes[m.caseType] ?? m.caseType,
+                      },
+                      {
+                        key: "role",
+                        label: "我方诉讼地位",
+                        children: meta?.enums.litigationRoles[m.litigationRole] ?? m.litigationRole,
+                      },
+                      { key: "court", label: "受理法院", children: m.court ?? "—" },
+                      { key: "currency", label: "币种", children: m.currency },
+                      { key: "closing", label: "结案日期", children: calDate(m.closingDate) },
+                      { key: "archived", label: "归档时间", children: dateTime(m.archivedAt) },
+                      { key: "progress", label: "最近进展", children: dateTime(m.lastProgressAt) },
+                    ]}
+                  />
+                  <Typography.Paragraph
+                    style={{ fontSize: 13, whiteSpace: "pre-wrap", marginBottom: 0 }}
                   >
-                    <span className="min-w-0">
-                      <span className="block truncate">{p.name}</span>
-                      <span className="block truncate text-[0.68rem] text-muted-foreground">
-                        {meta?.enums.partyTypes[p.type] ?? p.type}
-                        {p.idNumber ? ` · ${p.idNumber}` : ""}
-                      </span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">
-                        {meta?.enums.litigationRoles[p.partyRole] ?? p.partyRole}
-                      </span>
-                      {p.represented ? <FlagMark tone="info">我方代理</FlagMark> : null}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="log">
-          <CommentComposer matterId={m.id} onDone={invalidate} />
-          <div className="mt-4 grid gap-6 lg:grid-cols-2">
-            <section>
-              <SectionTitle count={m.progress.length}>案件进展</SectionTitle>
-              {m.progress.length === 0 ? (
-                <p className="px-1 text-xs text-muted-foreground">这条链路上还没有进展记录。</p>
+                    {m.description?.trim() ? m.description : "没有填写基本情况。"}
+                  </Typography.Paragraph>
+                </>
+              ),
+            },
+            {
+              key: "nodes",
+              label: `工作节点 (${m.nodes.length})`,
+              children: m.nodes.length ? (
+                <Table<Node>
+                  size="small"
+                  rowKey={(n) => n.id}
+                  columns={nodeColumns}
+                  dataSource={m.nodes}
+                  pagination={false}
+                />
               ) : (
-                <ul className="space-y-2">
-                  {m.progress.map((p) => (
-                    <li key={p.id} className="rounded-lg border border-border bg-card px-3 py-2">
-                      <p className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
-                        <span>{meta?.enums.progressTypes[p.progressType] ?? p.progressType}</span>
-                        <span className="num">{calDate(p.progressDate)}</span>
-                      </p>
-                      <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap">
-                        {p.content}
-                      </p>
-                      {p.nextPlan ? (
-                        <p className="mt-1 text-xs text-muted-foreground">下一步：{p.nextPlan}</p>
-                      ) : null}
-                      <p className="mt-1 text-[0.68rem] text-muted-foreground">{p.author}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-            <section>
-              <SectionTitle count={m.comments.length}>评论</SectionTitle>
-              {m.comments.length === 0 ? (
-                <p className="px-1 text-xs text-muted-foreground">还没有评论。</p>
-              ) : (
-                <ul className="space-y-2">
-                  {m.comments.map((c) => (
-                    <li key={c.id} className="rounded-lg border border-border bg-card px-3 py-2">
-                      <p className="flex items-baseline justify-between gap-2 text-[0.68rem] text-muted-foreground">
-                        <span>{c.author}</span>
-                        <span>{fromNow(c.createdAt)}</span>
-                      </p>
-                      <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap">{c.body}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="activity">
-          <ul className="divide-y divide-border/70 rounded-lg border border-border bg-card">
-            {m.activity.map((a) => (
-              <li key={a.id} className="flex items-baseline gap-3 px-3 py-2 text-sm">
-                <span className="w-40 shrink-0 text-[0.68rem] text-muted-foreground">
-                  {dateTime(a.createdAt)}
-                </span>
-                <span className="w-24 shrink-0 truncate text-xs">
-                  {meta?.enums.auditActions[a.action] ?? a.action}
-                </span>
-                <span className="min-w-0 flex-1 truncate">
-                  {a.operator}
-                  {a.reason ? <span className="text-muted-foreground"> · {a.reason}</span> : null}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </TabsContent>
-      </Tabs>
+                <StateBlock
+                  title="还没有工作节点"
+                  hint="节点是提醒的唯一入口：确认时间并设了期限，才会进工作台的到期清单。"
+                />
+              ),
+            },
+            {
+              key: "people",
+              label: `参与人 (${m.staff.length + m.parties.length})`,
+              children: (
+                <Flex gap={16} wrap align="flex-start">
+                  <Card
+                    size="small"
+                    title={`承办与协办 (${m.staff.length})`}
+                    style={{ flex: "1 1 320px" }}
+                  >
+                    <List
+                      size="small"
+                      dataSource={m.staff}
+                      locale={{
+                        emptyText: (
+                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有参与人" />
+                        ),
+                      }}
+                      renderItem={(s) => (
+                        <List.Item
+                          actions={[
+                            <span key="r" style={{ fontSize: 12, color: INK.muted }}>
+                              {meta?.enums.staffRoles[s.staffRole] ?? s.staffRole}
+                            </span>,
+                          ]}
+                        >
+                          <Space size={6}>
+                            <Avatar size={20} style={{ fontSize: 11 }}>
+                              {s.displayName.slice(0, 1)}
+                            </Avatar>
+                            <span style={{ fontSize: 13 }}>{s.displayName}</span>
+                          </Space>
+                        </List.Item>
+                      )}
+                    />
+                  </Card>
+                  <Card
+                    size="small"
+                    title={`当事人 (${m.parties.length})`}
+                    style={{ flex: "1 1 320px" }}
+                  >
+                    <List
+                      size="small"
+                      dataSource={m.parties}
+                      locale={{
+                        emptyText: (
+                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有当事人" />
+                        ),
+                      }}
+                      renderItem={(p) => (
+                        <List.Item
+                          actions={[
+                            <Space key="a" size={4}>
+                              <span style={{ fontSize: 12, color: INK.muted }}>
+                                {meta?.enums.litigationRoles[p.partyRole] ?? p.partyRole}
+                              </span>
+                              {p.represented ? <FlagMark tone="info">我方代理</FlagMark> : null}
+                            </Space>,
+                          ]}
+                        >
+                          <>
+                            <div style={{ fontSize: 13 }}>{p.name}</div>
+                            <div style={{ fontSize: 11, color: INK.muted }}>
+                              {meta?.enums.partyTypes[p.type] ?? p.type}
+                              {p.idNumber ? ` · ${p.idNumber}` : ""}
+                            </div>
+                          </>
+                        </List.Item>
+                      )}
+                    />
+                  </Card>
+                </Flex>
+              ),
+            },
+            {
+              key: "log",
+              label: `过程记录 (${m.progress.length + m.comments.length})`,
+              children: (
+                <LogTab
+                  matterId={m.id}
+                  progress={m.progress}
+                  comments={m.comments}
+                  onDone={invalidate}
+                />
+              ),
+            },
+            {
+              key: "activity",
+              label: `活动 (${m.activity.length})`,
+              children: (
+                <List
+                  size="small"
+                  dataSource={m.activity}
+                  locale={{
+                    emptyText: (
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有活动记录" />
+                    ),
+                  }}
+                  renderItem={(a) => (
+                    <List.Item>
+                      <Flex gap={12} align="baseline" wrap>
+                        <span
+                          className="num"
+                          style={{ fontSize: 12, color: INK.muted, minWidth: 148 }}
+                        >
+                          {dateTime(a.createdAt)}
+                        </span>
+                        <Tag bordered={false} style={{ fontSize: 11 }}>
+                          {meta?.enums.auditActions[a.action] ?? a.action}
+                        </Tag>
+                        <span style={{ fontSize: 13 }}>
+                          {a.operator}
+                          {a.reason ? <span style={{ color: INK.muted }}> · {a.reason}</span> : ""}
+                        </span>
+                      </Flex>
+                    </List.Item>
+                  )}
+                />
+              ),
+            },
+          ]}
+        />
+      </Card>
 
       <StatusDialog
         target={target}
         statuses={meta?.statuses ?? m.statuses}
         open={statusOpen}
         onOpenChange={setStatusOpen}
+        onDone={() => {
+          invalidate();
+          message.success("状态已变更");
+        }}
       />
     </div>
   );
 }
 
-function TabCount({ n }: { n: number }) {
-  return <span className="num text-[0.7rem] text-muted-foreground">{n}</span>;
-}
+/** 节点行内的状态动作：就地做，不跳页——节点是详情页最高频的操作 */
+function NodeActions({
+  node,
+  matterId,
+  onDone,
+}: {
+  node: Node;
+  matterId: string;
+  onDone: () => void;
+}) {
+  const { message } = AntdApp.useApp();
+  const [cancelling, setCancelling] = useState(false);
+  const [reason, setReason] = useState("");
 
-function Basic({ label, value }: { label: string; value: React.ReactNode }) {
+  const mut = useMutation({
+    mutationFn: (body: { status: string; cancelReason?: string }) =>
+      api.post(`/api/matters/${matterId}/nodes/${node.id}`, body),
+    onSuccess: () => {
+      onDone();
+      message.success("节点已更新");
+    },
+    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "操作失败"),
+  });
+
+  const open = node.status === "not_started" || node.status === "in_progress";
+
+  if (cancelling) {
+    return (
+      <Space size={4}>
+        <Input
+          autoFocus
+          size="small"
+          style={{ width: 96 }}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="取消原因（必填）"
+          aria-label="取消原因"
+        />
+        <Button
+          size="small"
+          type="primary"
+          disabled={!reason.trim() || mut.isPending}
+          onClick={() => {
+            mut.mutate({ status: "cancelled", cancelReason: reason.trim() });
+            setCancelling(false);
+          }}
+        >
+          确认
+        </Button>
+        <Button size="small" type="text" onClick={() => setCancelling(false)}>
+          否
+        </Button>
+      </Space>
+    );
+  }
+
   return (
-    <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 text-sm">{value}</dd>
-    </div>
+    <Space size={4}>
+      {node.status === "not_started" ? (
+        <Button
+          size="small"
+          disabled={mut.isPending}
+          onClick={() => mut.mutate({ status: "in_progress" })}
+        >
+          开始
+        </Button>
+      ) : null}
+      {open ? (
+        <Button
+          size="small"
+          type="primary"
+          disabled={mut.isPending}
+          onClick={() => mut.mutate({ status: "completed" })}
+        >
+          完成
+        </Button>
+      ) : null}
+      {node.status !== "cancelled" ? (
+        <Button size="small" type="text" onClick={() => setCancelling(true)}>
+          取消
+        </Button>
+      ) : null}
+    </Space>
   );
 }
 
-/** 单行节点：状态动作就地做，不跳页 —— 节点是详情页最高频的操作。 */
-function NodeRow({
+function LogTab({
   matterId,
-  node,
-  meta,
+  progress,
+  comments,
   onDone,
 }: {
   matterId: string;
-  node: Matter["nodes"][number];
-  meta: ReturnType<typeof useMeta>["data"];
+  progress: Matter["progress"];
+  comments: Matter["comments"];
   onDone: () => void;
 }) {
-  const [reason, setReason] = useState<string | null>(null);
-
-  const mut = useMutation({
-    mutationFn: (body: { status: NodeStatus; cancelReason?: string }) =>
-      api.post(`/api/matters/${matterId}/nodes/${node.id}`, body),
-    onSuccess: onDone,
-  });
-
-  const label = (s: string) => meta?.enums.nodeStatuses[s] ?? s;
-  const open = node.status === "not_started" || node.status === "in_progress";
-
-  return (
-    <TableRow>
-      <TableCell>
-        <span className="block">{node.name}</span>
-        {node.remark ? (
-          <span className="block text-[0.68rem] text-muted-foreground">{node.remark}</span>
-        ) : null}
-      </TableCell>
-      <TableCell className="text-xs text-muted-foreground">{node.nodeType}</TableCell>
-      <TableCell className="num text-xs">
-        {node.isTimeConfirmed ? (
-          node.timeType === "range" ? (
-            <>
-              {dateTime(node.startTime)}
-              <span className="text-muted-foreground"> → </span>
-              {dateTime(node.endTime)}
-            </>
-          ) : (
-            dateTime(node.startTime)
-          )
-        ) : (
-          <span className="text-muted-foreground">时间未确认</span>
-        )}
-      </TableCell>
-      <TableCell>
-        {open ? (
-          <DeadlineMark iso={node.deadlineTime} />
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-      </TableCell>
-      <TableCell className="text-xs">{node.ownerName ?? "—"}</TableCell>
-      <TableCell>
-        <div className="flex items-center gap-1.5">
-          <span
-            className={
-              node.status === "completed"
-                ? "text-teal-700"
-                : node.status === "cancelled"
-                  ? "text-muted-foreground line-through"
-                  : ""
-            }
-          >
-            {label(node.status)}
-          </span>
-          {node.sourceKind !== "manual" ? (
-            <FlagMark title={`来源：${node.sourceKind}`}>{node.sourceKind}</FlagMark>
-          ) : null}
-        </div>
-      </TableCell>
-      <TableCell>
-        {reason !== null ? (
-          <div className="flex items-center gap-1.5">
-            <Input
-              autoFocus
-              value={reason ?? ""}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="取消原因（必填）"
-              aria-label="取消原因"
-              className="h-7"
-            />
-            <Button
-              size="xs"
-              disabled={!reason?.trim() || mut.isPending}
-              onClick={() => {
-                const parsed = nodeStatusSchema.safeParse({
-                  status: "cancelled",
-                  cancelReason: reason,
-                });
-                if (!parsed.success) return;
-                mut.mutate({ status: "cancelled", cancelReason: reason?.trim() });
-                setReason(null);
-              }}
-            >
-              确认
-            </Button>
-            <Button size="xs" variant="ghost" onClick={() => setReason(null)}>
-              否
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1">
-            {node.status === "not_started" ? (
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={mut.isPending}
-                onClick={() => mut.mutate({ status: "in_progress" })}
-              >
-                开始
-              </Button>
-            ) : null}
-            {open ? (
-              <Button
-                size="xs"
-                disabled={mut.isPending}
-                onClick={() => mut.mutate({ status: "completed" })}
-              >
-                完成
-              </Button>
-            ) : null}
-            {node.status !== "cancelled" ? (
-              <Button
-                size="xs"
-                variant="ghost"
-                className="text-muted-foreground"
-                onClick={() => setReason("")}
-              >
-                取消
-              </Button>
-            ) : null}
-          </div>
-        )}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function CommentComposer({ matterId, onDone }: { matterId: string; onDone: () => void }) {
+  const { message } = AntdApp.useApp();
+  const { data: meta } = useMeta("matter");
   const [body, setBody] = useState("");
-  const [error, setError] = useState<string | null>(null);
 
   const mut = useMutation({
     mutationFn: () => api.post(`/api/matters/${matterId}/comments`, { body: body.trim() }),
     onSuccess: () => {
       setBody("");
-      setError(null);
       onDone();
+      message.success("评论已发布");
     },
-    onError: (e) => setError(e instanceof ApiFailure ? e.message : "提交失败"),
+    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "提交失败"),
   });
 
   return (
-    <div className="grid gap-1.5">
-      <Label htmlFor="comment-body">写一条评论</Label>
-      <Textarea
-        id="comment-body"
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        rows={2}
-        maxLength={2000}
-        placeholder="记录一个结论、一次沟通，或一个待确认的点"
-      />
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          disabled={body.trim().length === 0 || mut.isPending}
-          onClick={() => mut.mutate()}
-        >
-          {mut.isPending ? "提交中" : "发布"}
-        </Button>
-        {error ? <span className="text-xs text-destructive">{error}</span> : null}
+    <Flex gap={16} wrap align="flex-start">
+      <div style={{ flex: "1 1 320px" }}>
+        <Space direction="vertical" size={8} style={{ display: "flex", marginBottom: 12 }}>
+          <Input.TextArea
+            rows={2}
+            maxLength={2000}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="记录一个结论、一次沟通，或一个待确认的点"
+          />
+          <Button
+            type="primary"
+            size="small"
+            disabled={!body.trim() || mut.isPending}
+            onClick={() => mut.mutate()}
+          >
+            发布评论
+          </Button>
+        </Space>
+        <List
+          size="small"
+          header={<span style={{ fontSize: 13 }}>评论 ({comments.length})</span>}
+          dataSource={comments}
+          locale={{
+            emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有评论" />,
+          }}
+          renderItem={(c) => (
+            <List.Item>
+              <>
+                <div style={{ fontSize: 11, color: INK.muted }}>
+                  {c.author} · {fromNow(c.createdAt)}
+                </div>
+                <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{c.body}</div>
+              </>
+            </List.Item>
+          )}
+        />
       </div>
-    </div>
+
+      <div style={{ flex: "1 1 320px" }}>
+        <List
+          size="small"
+          header={<span style={{ fontSize: 13 }}>案件进展 ({progress.length})</span>}
+          dataSource={progress}
+          locale={{
+            emptyText: (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="这条链路上还没有进展记录（写进展的端点还没做）"
+              />
+            ),
+          }}
+          renderItem={(p) => (
+            <List.Item>
+              <>
+                <Flex justify="space-between" gap={8}>
+                  <span style={{ fontSize: 12, color: INK.secondary }}>
+                    {meta?.enums.progressTypes[p.progressType] ?? p.progressType}
+                  </span>
+                  <span className="num" style={{ fontSize: 12, color: INK.muted }}>
+                    {calDate(p.progressDate)}
+                  </span>
+                </Flex>
+                <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{p.content}</div>
+                {p.nextPlan ? (
+                  <div style={{ fontSize: 12, color: INK.muted }}>下一步：{p.nextPlan}</div>
+                ) : null}
+                <div style={{ fontSize: 11, color: INK.faint }}>{p.author}</div>
+              </>
+            </List.Item>
+          )}
+        />
+      </div>
+    </Flex>
   );
 }

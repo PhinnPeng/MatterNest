@@ -13,8 +13,8 @@
 4. **schema 演进只用 `generate` + `migrate`，开发期也不用 `push`**：`push` 检测不到已有索引 `.where()`/表达式变化，而软删 partial unique 是权限模型骨架，用 push 会出现"代码改了、库没改、CI 还绿"的静默漂移。
 5. **业务读写一律 `/api/**` Route Handler**，且**鉴权必须在每个 handler 内部 `withScope()`**——Next 官方明令不得只依赖 proxy/middleware（matcher 排除路径会连带跳过该路径上的 Server Function）。Server Function 只做编排，不承载第二套权限判断。返回体一律 JSON，不可见资源 **404**。
 6. **页面壳不得预取业务数据**：SSR 只出外壳与静态文案，一切业务读取发生在鉴权后的 `/api/**`。否则行级数据范围被页面壳绕开。（替代原"整站 SPA"那条。）
-7. **前端只允许一套组件体系：shadcn + Tailwind。** 禁止为单个控件引入第二套带样式的库（MUI / AntD / Chakra 等）；清单里没有的件一律自封装进 `components/ui/`。业务组件不得直接 import 原语包（Radix UI），必须经 `components/ui/` 那层，将来换原语只改一层。
-8. **表格一律经 `components/ui/data-table/DataTable.tsx` 封装并强制服务端分页/排序/筛选**（每页上限 100）——理由不是性能而是权限：客户端全量拉取再本地筛等于绕过 `ScopeResolver`（权限草案 §4）。表单库**只用 react-hook-form + Zod resolver**（与 `shared/schema` 同源），日期库全项目只允许一个；组件内不得自带第二套校验规则。
+7. **前端只允许一套组件体系：Ant Design 6 + Tailwind v4（只管容器布局）。**（v6 改判，现行文字见技术选型 §13.6.2。）三个机器可拦的子条款：不得引入第二套体系或第二家叶子库（`radix-ui`/`class-variance-authority`/`@ant-design/pro-components`/`lucide-react`/`react-hook-form`/`date-fns`）；不得走 antd 深路径（一律顶层 `"antd"`，类型用 `TableColumnsType`/`FormRule`）；色值只在 `src/app/theme/brand.ts` 定义。清单里没有的件一律自封装进 `components/ui/`（现状只剩 FileUpload 的预签名直传那段）。
+8. **表格一律经 `components/ui/data-table/DataTable.tsx` 封装并强制服务端分页/排序/筛选**（每页上限 100）——理由不是性能而是权限：客户端全量拉取再本地筛等于绕过 `ScopeResolver`（权限草案 §4）。表单**只用 antd `Form`**（v6 改判，§13.6.2），规则从 `shared/schema` 的 Zod 经 `components/form/zod-rules.ts` 推导；日期库全项目只允许 `dayjs`；组件内不得自带第二套校验规则。
 
 外加两条部署级：**(a)** 多副本必须共配 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 与 `deploymentId`，且不使用 `'use cache'`/跨实例共享缓存；**(b)** worker 与 app 都要处理 SIGTERM，留 10–30s drain，outbox 投递不得在关闭时被掐断。
 
@@ -52,10 +52,10 @@
 
 | 项 | 状态 | 出处 |
 |---|---|---|
-| N1 spike（Next+Tailwind+shadcn 装配、组件落点、`cn` 包、中文 locale） | **✅ 已通过（2026-09-27）** | `docs/research-nextjs-stack.md` §5/§6.4 |
+| N1 spike（Next+Tailwind 装配、组件落点、中文 locale） | **✅ 已通过（2026-09-27）**；⚑ v6（2026-09-28）组件体系改判 antd 6，落点与 locale 结论继承，`cn`/`shadcn` 那两条随依赖删除 | `docs/research-nextjs-stack.md` §5/§6.4 |
 | N2/N3/N4/N5/N6 spike（`withScope` 404 / worker+锁+drain / 双副本加密键 / 预签名 PUT+nginx / 云之家 OIDC） | **门禁 G1 剩余项，未跑** | `docs/research-nextjs-stack.md` §5 |
 | N7 spike（DataTable + 动态数组表单） | **逻辑层通过（2026-09-27）**；浏览器交互层未验（内置浏览器 hidden/0×0 导致不 hydration，非应用缺陷） | 同上 §7 |
-| 原版 shadcn 的 React 组件清单（有没有现成上传件） | **抓取失败，未核到** → `FileUpload` 按自封装排期 | 技术选型 §13.4、P1-18 |
+| 现成上传件（v5 问的是 shadcn 清单，v6 问的是 antd `Upload`） | antd `Upload` 只给选择与进度 UI，**预签名 PUT 直传那段仍要自封装** → `FileUpload` 按自封装排期 | 技术选型 §13.4、P1-18 |
 | 中文 locale（Calendar / Date Picker 月份、星期、周起始） | 未证实，必须实测 | 技术选型 §12.4 |
 | 云之家能否列举在职成员 | 未确认 → 离职回收可能退化为"登录时校验 + 未登录告警 + 人工停用"，**这是要签字接受的风险，不是已具备能力** | P1-16、技术选型 §3.4 |
 | `node:worker_threads` 类方案 | 原 Nitro 时代的待验项；Next 下 `worker/` 是独立进程，别再引这条 | 技术选型 §12.4 / §13.2 |

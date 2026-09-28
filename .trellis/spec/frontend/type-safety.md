@@ -26,18 +26,22 @@ src/shared/
 
 ## 校验规则只有一套
 
-禁令⑧后半：表单库**只用 react-hook-form + Zod resolver**（与 `shared/schema` 同源），日期库全项目只允许一个；**组件内不得自带第二套校验规则**。
+禁令⑧后半（v6 文字见 §13.6.2）：表单库**只用 antd `Form`**，校验规则从 `shared/schema` 的 Zod **推导**；日期库全项目只允许 `dayjs`；**组件内不得自带第二套校验规则**。
 
 ```ts
-// 目标形态（未落地）
+// 现行形态（已落地）：规则不重写一遍，从同一份 Zod 出
 import { matterCreateSchema } from "@/shared/schema/matter";
-const form = useForm<z.infer<typeof matterCreateSchema>>({
-  resolver: zodResolver(matterCreateSchema),
-});
+import { rulesFor, setFieldErrors } from "@/app/components/form/zod-rules";
+
+<Form.Item name={["parties", 0, "client_name"]} rules={rulesFor(matterCreateSchema, ["parties", 0, "client_name"])}>
+// 服务端返回的 fieldIssues 落回字段：setFieldErrors(form, issues)
 ```
 
-服务端同一份 schema 再跑一次（客户端校验只是体验，不是防线）。跨字段规则（如 `ck_node_time_shape` 的 range/point 形态约束）在 schema 里用 `superRefine` 表达一次，DB 侧 CHECK 与之对齐——**不要在前端另写一套 if**。
-- **表单 schema 不要用 `.default()`**（N7 实测）：Zod 的 `.default()` 会让 input 类型带 `?`、output 类型不带，`useForm<T>` 与 `zodResolver` 的类型因此对不上。默认值写进 `defaultValues`，schema 里用 `.optional()`。
+`zod-rules.ts` 读的是 Zod 4 的内部形状（`node._zod.def.checks[i]._zod.def`，`check: "min_length" | "max_length" | "string_format"`）——**`z.introspect` 在 Zod 4 里不存在**，别按 v3 的直觉写。剥壳时只认 `ZodOptional/ZodNullable/ZodDefault`：`ZodArray` 也有 `unwrap()`，认它会把数组层的规则静默吃掉（`zod-rules.spec.ts` 有那条回归）。
+
+服务端同一份 schema 再跑一次（客户端校验只是体验，不是防线——所以 `Form.Item` 上的星号是体验，拦截在服务层）。跨字段规则（如 `ck_node_time_shape` 的 range/point 形态约束）在 schema 里用 `superRefine` 表达一次，DB 侧 CHECK 与之对齐——**不要在前端另写一套 if**。
+- **表单 schema 不要用 `.default()`**：它让 input 与 output 类型不一致，`Form.Item` 的初始值与提交值类型因此对不上。默认值写进 `<Form initialValues>`，schema 里用 `.optional()`。
+- 日期字段在表单里存 `Dayjs`，**提交前在一处转 `YYYY-MM-DD`**（见各弹窗的 `toValues()`）；不要多个调用点各自 `format()`。
 
 ---
 
@@ -56,4 +60,4 @@ const form = useForm<z.infer<typeof matterCreateSchema>>({
 
 ## 未证实项的处理方式
 
-需要第三方库的类型但能力未核（例：N2–N7 涉及的行为；**shadcn 件清单与 react-day-picker 中文 locale 已于 N1 核完**，见 `research-nextjs-stack.md` §6.4）→ 先在 `docs/research-nextjs-stack.md` 补核或跑对应 spike，**不要**先写 `as any` 占位再"回头补"。历史教训：本会话曾把代理域名抓来的结论当已核事实，最终撤回。
+需要第三方库的类型但能力未核（例：N2–N6 涉及的行为）→ 先在 `docs/research-nextjs-stack.md` 补核或跑对应 spike，**不要**先写 `as any` 占位再"回头补"。历史教训有两条：① 本仓曾把代理域名抓来的结论当已核事实，最终撤回；② v5→v6 换库时按 v3 直觉写了 `z.introspect`、按 date-fns 直觉写了 `yyyy` token，**"另一个库应该也这样"就是未核项**，一律先量再写。

@@ -6,6 +6,3 @@
  * 所以下拉一律用这个串表示"全部"，**出网前再转回 undefined**（见各 view 的 onStatus）。
  */
 export const ALL = "__all__";
-
-/** 表单里"未选"的同一个角色（与 `components/form/fields.tsx` 的 UNSET 同义，共用一个字面量避免两串） */
-export { UNSET } from "@/app/components/form/fields";

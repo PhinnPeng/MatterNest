@@ -1,42 +1,46 @@
 "use client";
 
+import { BRAND, INK } from "@/app/theme/brand";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
-import { RefreshCwIcon } from "lucide-react";
+import {
+  Button,
+  Card,
+  Col,
+  Divider,
+  Flex,
+  List,
+  Progress,
+  Row,
+  Space,
+  Statistic,
+  Tag,
+  Typography,
+} from "antd";
+import { ReloadOutlined } from "@ant-design/icons";
 
-import { useMeta } from "@/app/lib/client/api";
-import { useOverview } from "@/app/lib/client/api";
-import { PageHeader, SectionTitle } from "@/app/components/page-header";
-import { StatusMark } from "@/app/components/ui/status-mark";
+import { useMeta, useOverview } from "@/app/lib/client/api";
+import { PageHeader } from "@/app/components/page-header";
 import { StateBlock } from "@/app/components/ui/state-block";
-import { Skeleton } from "@/app/components/ui/skeleton";
-import { Button } from "@/app/components/ui/button";
 import { fromNow, dateTime } from "@/app/lib/client/format";
-import { cn } from "cn";
+import { DEADLINE_TONE } from "@/app/theme/antd";
 
 /**
  * 工作台。开场放的是**到期压力**，不是四个大数字方块：
  * 这张页要回答的第一问是"今天有什么会过期"，所以临期清单排第一，案件总数只是背景信息。
+ *
+ * 与列表页共用同一套后端口径：所有数字都来自 `/api/overview`，
+ * 那里每个读数都过 `scopedWhere`，且**归档不计入**（归档是终态且列表默认隐藏）。
  */
+function daysLeft(iso: string | null): number | null {
+  if (!iso) return null;
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+}
+
 export function Workbench() {
-  const { data, isPending, isError, error, refetch } = useOverview();
+  const { data, isPending, isError, error } = useOverview();
   const { data: meta } = useMeta("matter");
   const qc = useQueryClient();
-
-  if (isError) {
-    return (
-      <StateBlock
-        tone="error"
-        title="工作台读数没拿到"
-        hint={error instanceof Error ? error.message : "未知错误"}
-        action={
-          <Button variant="outline" size="sm" onClick={() => void refetch()}>
-            重试
-          </Button>
-        }
-      />
-    );
-  }
 
   const day = new Date().toLocaleDateString("zh-CN", {
     year: "numeric",
@@ -45,295 +49,281 @@ export function Workbench() {
     weekday: "long",
   });
 
+  if (isError) {
+    return (
+      <StateBlock
+        tone="error"
+        title="工作台读数没拿到"
+        hint={error instanceof Error ? error.message : "未知错误"}
+        action={
+          <Button
+            size="small"
+            onClick={() => void qc.invalidateQueries({ queryKey: ["overview"] })}
+          >
+            重试
+          </Button>
+        }
+      />
+    );
+  }
+
+  const upcoming = data?.upcoming ?? [];
+  const statusColor = (semantics: string) =>
+    semantics === "closed"
+      ? BRAND.success
+      : semantics === "in_progress"
+        ? BRAND.primary
+        : semantics === "archived"
+          ? INK.faint
+          : INK.rail;
+
   return (
-    <div className="mx-auto max-w-[1180px]">
+    <div style={{ maxWidth: 1180, margin: "0 auto" }}>
       <PageHeader
-        eyebrow={<span className="text-muted-foreground">{day}</span>}
+        eyebrow={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {day}
+          </Typography.Text>
+        }
         title="今天该动手的"
         actions={
           <Button
-            variant="ghost"
-            size="sm"
+            icon={<ReloadOutlined />}
             onClick={() => {
               // 两个查询一起失效：只刷 overview 会留着上一个账号缓存的字典
               void qc.invalidateQueries({ queryKey: ["overview"] });
               void qc.invalidateQueries({ queryKey: ["meta"] });
             }}
           >
-            <RefreshCwIcon />
             刷新
           </Button>
         }
       />
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        {/* 左：到期清单 */}
-        <section>
-          <SectionTitle count={data?.upcoming.length}>节点到期</SectionTitle>
-          {isPending ? (
-            <div className="space-y-1.5">
-              {[0, 1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-11" />
-              ))}
-            </div>
-          ) : !data?.upcoming.length ? (
-            <StateBlock
-              title="没有待办节点"
-              hint="所有已确认时间的节点都完成了。新建节点会在案件详情页的「工作节点」里出现。"
-              action={
-                <Button asChild variant="outline" size="sm">
-                  <Link href="/matters">去案件列表</Link>
-                </Button>
-              }
-            />
-          ) : (
-            <ul className="divide-y divide-border/70 rounded-lg border border-border bg-card">
-              {data.upcoming.map((n) => {
-                const days = n.deadlineTime
-                  ? Math.ceil((new Date(n.deadlineTime).getTime() - Date.now()) / 86_400_000)
-                  : null;
-                const overdue = days !== null && days < 0;
-                const soon = days !== null && days >= 0 && days <= 3;
-                return (
-                  <li key={n.id}>
-                    <Link
-                      href={`/matters/${n.hostId}`}
-                      className="flex items-baseline gap-3 px-3 py-2.5 outline-none transition-colors hover:bg-primary/[0.04] focus-visible:bg-primary/[0.06]"
-                    >
-                      {/* 左侧一条色带承担"危险程度"，文字仍写完整日期：色带只是让扫读更快，不是唯一通道 */}
-                      <span
-                        aria-hidden
-                        className={cn(
-                          "h-8 w-0.5 shrink-0 self-center rounded-full",
-                          overdue ? "bg-destructive" : soon ? "bg-amber-500" : "bg-transparent",
-                        )}
-                      />
-                      <span className="w-[5.5rem] shrink-0 self-center">
-                        <StatusMark host="matter" code={n.status} className="text-xs" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm">{n.name}</span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          <span className="num">{n.hostCode}</span> · {n.hostName}
-                          {n.owner ? ` · ${n.owner}` : ""}
-                        </span>
-                      </span>
-                      <span className="shrink-0 self-center text-right">
-                        <span
-                          className={cn(
-                            "num block text-sm",
-                            overdue
-                              ? "text-destructive"
-                              : soon
-                                ? "text-amber-700"
-                                : "text-foreground",
-                          )}
-                        >
-                          {days === null
-                            ? "未定"
-                            : overdue
-                              ? `逾期 ${-days} 天`
-                              : days === 0
-                                ? "今天"
-                                : `剩 ${days} 天`}
-                        </span>
-                        <span className="block text-[0.68rem] text-muted-foreground">
-                          {dateTime(n.deadlineTime)}
-                        </span>
-                      </span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        {/* 右：计数 + 活动 */}
-        <div className="space-y-5">
-          <section>
-            <SectionTitle>范围读数</SectionTitle>
-            <dl className="divide-y divide-border/70 rounded-lg border border-border bg-card text-sm">
-              <Read
-                label="在办案件"
-                value={data?.matters.total}
-                note="未归档，含已结案"
-                href="/matters"
-              />
-              <Read
-                label="逾期节点"
-                value={data?.nodes.overdue}
-                tone={data?.nodes.overdue ? "bad" : undefined}
-                note="已确认时间且未完成"
-              />
-              <Read
-                label="7 日内到期"
-                value={data?.nodes.within7}
-                tone={data?.nodes.within7 ? "warn" : undefined}
-                note="不含逾期"
-              />
-              <Read
-                label="风险事项"
-                value={data?.risks.total}
-                note={data ? `其中已转案件 ${data.risks.converted} 条` : undefined}
-                href="/risk-matters"
-              />
-            </dl>
-            {meta ? (
-              <StatusStrip
-                statuses={meta.statuses}
-                byStatus={data?.matters.byStatus ?? {}}
-                total={data?.matters.total ?? 0}
-              />
-            ) : null}
-          </section>
-
-          <section>
-            <SectionTitle count={data?.recent.length}>最近动作</SectionTitle>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} lg={15}>
+          <Card
+            size="small"
+            title="节点到期"
+            extra={
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                含已逾期，按期限升序
+              </Typography.Text>
+            }
+            styles={{ body: { padding: upcoming.length ? 0 : 24 } }}
+          >
             {isPending ? (
-              <div className="space-y-1.5">
-                {[0, 1, 2].map((i) => (
-                  <Skeleton key={i} className="h-9" />
-                ))}
-              </div>
-            ) : !data?.recent.length ? (
-              <StateBlock title="还没有活动记录" hint="建案、改状态、加评论都会记在这里。" />
+              <Card.Grid style={{ width: "100%", padding: 24 }}>加载中…</Card.Grid>
+            ) : !upcoming.length ? (
+              <StateBlock
+                title="没有待办节点"
+                hint="所有已确认时间的节点都完成了。新建节点在案件详情页的「工作节点」里。"
+                action={
+                  <Link href="/matters">
+                    <Button size="small" type="primary">
+                      去案件列表
+                    </Button>
+                  </Link>
+                }
+              />
             ) : (
-              <ul className="divide-y divide-border/70 rounded-lg border border-border bg-card">
-                {data.recent.map((r) => {
-                  const body = (
-                    <>
-                      <span className="block truncate text-sm">
-                        <span className="num">{r.hostCode ?? "—"}</span> · {r.actionLabel}
-                      </span>
-                      <span className="block truncate text-[0.68rem] text-muted-foreground">
-                        {r.operator} · {fromNow(r.createdAt)}
-                        {r.reason ? ` · ${r.reason}` : ""}
-                      </span>
-                    </>
-                  );
+              <List
+                dataSource={upcoming}
+                renderItem={(n) => {
+                  const d = daysLeft(n.deadlineTime);
+                  const overdue = d !== null && d < 0;
+                  const soon = d !== null && d >= 0 && d <= 3;
+                  const color = overdue
+                    ? DEADLINE_TONE.overdue.color
+                    : soon
+                      ? DEADLINE_TONE.soon.color
+                      : "transparent";
                   return (
-                    <li key={r.id} className="px-3 py-2">
-                      {r.hostId ? (
-                        <Link
-                          href={`/${r.kind === "matter" ? "matters" : "risk-matters"}/${r.hostId}`}
-                          className="block outline-none hover:bg-primary/[0.04]"
+                    <List.Item
+                      key={n.id}
+                      style={{ padding: "8px 12px" }}
+                      actions={[
+                        <span
+                          key="d"
+                          style={{
+                            color: color === "transparent" ? undefined : color,
+                            fontVariantNumeric: "tabular-nums",
+                            fontSize: 13,
+                            minWidth: 92,
+                            textAlign: "right",
+                          }}
                         >
-                          {body}
-                        </Link>
-                      ) : (
-                        body
-                      )}
-                    </li>
+                          {d === null
+                            ? "未定"
+                            : d < 0
+                              ? `逾期 ${-d} 天`
+                              : d === 0
+                                ? "今天"
+                                : `剩 ${d} 天`}
+                        </span>,
+                      ]}
+                    >
+                      {/* 左侧一条 3px 色带承担"危险程度"，文字仍写完整日期：色带只让扫读更快，不是唯一通道 */}
+                      <div style={{ display: "flex", gap: 10, minWidth: 0 }}>
+                        <span
+                          style={{
+                            width: 3,
+                            borderRadius: 2,
+                            background: color,
+                            alignSelf: "stretch",
+                            flex: "0 0 auto",
+                          }}
+                        />
+                        <div style={{ minWidth: 0 }}>
+                          <Link href={`/matters/${n.hostId}`} style={{ color: "inherit" }}>
+                            <Typography.Text style={{ fontSize: 13 }} strong>
+                              {n.name}
+                            </Typography.Text>
+                          </Link>
+                          <div style={{ fontSize: 12, color: INK.muted }}>
+                            <span className="num">{n.hostCode}</span> · {n.hostName}
+                            {n.owner ? ` · ${n.owner}` : ""} · {dateTime(n.deadlineTime)}
+                          </div>
+                        </div>
+                      </div>
+                    </List.Item>
                   );
-                })}
-              </ul>
+                }}
+              />
             )}
-          </section>
-        </div>
-      </div>
-    </div>
-  );
-}
+          </Card>
+        </Col>
 
-function Read({
-  label,
-  value,
-  note,
-  href,
-  tone,
-}: {
-  label: string;
-  value: number | undefined;
-  note?: string;
-  href?: string;
-  tone?: "bad" | "warn";
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 px-3 py-2">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="flex items-baseline gap-2">
-        {note ? <span className="text-[0.68rem] text-muted-foreground">{note}</span> : null}
-        {href ? (
-          <Link
-            href={href}
-            className={cn(
-              "num text-base underline-offset-4 hover:underline",
-              tone === "bad" && "text-destructive",
-              tone === "warn" && "text-amber-700",
-            )}
-          >
-            {value ?? "—"}
-          </Link>
-        ) : (
-          <span
-            className={cn(
-              "num text-base",
-              tone === "bad" && "text-destructive",
-              tone === "warn" && "text-amber-700",
-            )}
-          >
-            {value ?? "—"}
-          </span>
-        )}
-      </dd>
-    </div>
-  );
-}
+        <Col xs={24} lg={9}>
+          <Space direction="vertical" size={16} style={{ display: "flex" }}>
+            <Card size="small" title="范围读数">
+              <Row gutter={[0, 4]}>
+                <Col span={12}>
+                  <Statistic
+                    title={
+                      <Link href="/matters" style={{ color: "inherit" }}>
+                        在办案件
+                      </Link>
+                    }
+                    value={data?.matters.total ?? 0}
+                    valueStyle={{ fontSize: 20 }}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Statistic
+                    title="逾期节点"
+                    value={data?.nodes.overdue ?? 0}
+                    valueStyle={{
+                      fontSize: 20,
+                      color: data?.nodes.overdue ? DEADLINE_TONE.overdue.color : undefined,
+                    }}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Statistic
+                    title="7 日内到期"
+                    value={data?.nodes.within7 ?? 0}
+                    valueStyle={{
+                      fontSize: 20,
+                      color: data?.nodes.within7 ? DEADLINE_TONE.soon.color : undefined,
+                    }}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Statistic
+                    title={
+                      <Link href="/risk-matters" style={{ color: "inherit" }}>
+                        风险事项
+                      </Link>
+                    }
+                    value={data?.risks.total ?? 0}
+                    suffix={
+                      data ? (
+                        <span style={{ fontSize: 11, color: INK.muted }}>
+                          已转 {data.risks.converted}
+                        </span>
+                      ) : null
+                    }
+                    valueStyle={{ fontSize: 20 }}
+                  />
+                </Col>
+              </Row>
 
-/**
- * 状态分布条。分段而不是饼图：一期只有四个状态，条形能直接读长短，
- * 饼图要转脖子比对角度。颜色沿用 StatusMark 那一套语义色（同一个值在两张页上不是两个颜色）。
- *
- * ⚠ 这里是全站**唯一**一处行内 `style`，因为它给的是**运行时几何**（占比来自数据库），
- * 不是外观覆盖 —— Tailwind 无法为任意百分比生成类名。样式三条② 禁的是用行内 style
- * 绕过令牌改颜色/间距；这条例外已按同一措辞写进 `spec/frontend/styling.md`，
- * 免得下一个人以为规则被悄悄放宽了。
- */
-function StatusStrip({
-  statuses,
-  byStatus,
-  total,
-}: {
-  statuses: { code: string; name: string; semantics: string }[];
-  byStatus: Record<string, number>;
-  total: number;
-}) {
-  const tone = (semantics: string) =>
-    semantics === "closed"
-      ? "bg-teal-600"
-      : semantics === "in_progress"
-        ? "bg-primary"
-        : semantics === "archived"
-          ? "bg-muted-foreground/40"
-          : "bg-slate-400";
+              {meta && data?.matters.total ? (
+                <>
+                  <Divider style={{ margin: "12px 0" }} />
+                  <Flex vertical gap={4}>
+                    {meta.statuses.map((s) => {
+                      const n = data.matters.byStatus[s.code] ?? 0;
+                      return (
+                        <Flex key={s.code} align="center" gap={8}>
+                          <span style={{ width: 56, fontSize: 12, color: INK.secondary }}>
+                            {s.name}
+                          </span>
+                          <Progress
+                            percent={Math.round((n / data.matters.total) * 100)}
+                            size="small"
+                            showInfo={false}
+                            strokeColor={statusColor(s.semantics)}
+                            style={{ flex: 1, margin: 0 }}
+                          />
+                          <span
+                            className="num"
+                            style={{ width: 24, textAlign: "right", fontSize: 12 }}
+                          >
+                            {n}
+                          </span>
+                        </Flex>
+                      );
+                    })}
+                  </Flex>
+                </>
+              ) : null}
+            </Card>
 
-  return (
-    <div className="mt-2">
-      <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
-        {total > 0
-          ? statuses.map((s) => {
-              const n = byStatus[s.code] ?? 0;
-              return n ? (
-                <span
-                  key={s.code}
-                  title={`${s.name} ${n}`}
-                  className={cn(tone(s.semantics))}
-                  style={{ width: `${(n / total) * 100}%` }}
+            <Card
+              size="small"
+              title="最近动作"
+              extra={
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {data?.recent.length ?? 0}
+                </Typography.Text>
+              }
+              styles={{ body: { padding: data?.recent.length ? 0 : 24 } }}
+            >
+              {!data?.recent.length ? (
+                <StateBlock title="还没有活动记录" hint="建案、改状态、加评论都会记在这里。" />
+              ) : (
+                <List
+                  dataSource={data.recent}
+                  renderItem={(r) => (
+                    <List.Item style={{ padding: "6px 12px" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <Space size={6} wrap>
+                          <Tag bordered={false} style={{ fontSize: 11, marginInlineEnd: 0 }}>
+                            {r.actionLabel}
+                          </Tag>
+                          <Link
+                            href={`/${r.kind === "matter" ? "matters" : "risk-matters"}/${r.hostId}`}
+                          >
+                            <span className="num" style={{ fontSize: 12 }}>
+                              {r.hostCode ?? "—"}
+                            </span>
+                          </Link>
+                        </Space>
+                        <div style={{ fontSize: 11, color: INK.muted }}>
+                          {r.operator} · {fromNow(r.createdAt)}
+                          {r.reason ? ` · ${r.reason}` : ""}
+                        </div>
+                      </div>
+                    </List.Item>
+                  )}
                 />
-              ) : null;
-            })
-          : null}
-      </div>
-      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.68rem] text-muted-foreground">
-        {statuses.map((s) => (
-          <li key={s.code} className="flex items-center gap-1.5">
-            <span aria-hidden className={cn("size-1.5 rounded-full", tone(s.semantics))} />
-            {s.name}
-            <span className="num">{byStatus[s.code] ?? 0}</span>
-          </li>
-        ))}
-      </ul>
+              )}
+            </Card>
+          </Space>
+        </Col>
+      </Row>
     </div>
   );
 }

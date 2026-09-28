@@ -1,180 +1,186 @@
 "use client";
 
+import { alpha, BRAND, INK } from "@/app/theme/brand";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useMemo } from "react";
+import { App as AntdApp, Avatar, Dropdown, Layout, Menu, Space, Tag, Typography } from "antd";
+import type { MenuProps } from "antd";
 import {
-  LayoutDashboardIcon,
-  LogOutIcon,
-  ScaleIcon,
-  SettingsIcon,
-  ShieldAlertIcon,
-} from "lucide-react";
+  DashboardOutlined,
+  ExportOutlined,
+  FileTextOutlined,
+  LogoutOutlined,
+  SafetyCertificateOutlined,
+  SettingOutlined,
+} from "@ant-design/icons";
+
 import { api, useActor } from "@/app/lib/client/api";
 import { DATA_SCOPE_LABELS, type DataScope } from "@/shared/enums/targets";
-import { cn } from "cn";
+import { SCOPE_HINT } from "@/app/theme/antd";
 
 /**
- * 应用外壳：深色左侧主菜单 + 浅色内容区（用户指定"左侧主菜单"）。
+ * 应用外壳（antd `Layout` + 深色 `Menu`）。
  *
- * 三条实现约束：
- *   · 这个组件是**客户端**的，但它只读 `/api/session` 拿"我是谁"来渲染菜单和登出按钮 ——
- *     禁令⑥ 说的是页面壳不许预取业务数据；会话不是业务数据，而且它决定菜单可见性，
- *     放在这里比在每个 page 里重复一次更不易漏。
- *   · 菜单项写死在代码里而不是从配置表读：一期只有 4 个入口，读配置会变成
- *     "配置表里没配 → 菜单空白"这种查不出来的故障。等真有角色差异化菜单时再改，
- *     而且那时也必须服务端裁一遍（菜单隐藏从来不是权限）。
- *   · 退出用 POST 而不是 GET：GET 退出会被浏览器预取、被链接爬虫触发。
+ * 三条实现约束没随换库变：
+ *   · 它仍是客户端组件、只读 `/api/session`——菜单可见性必须由它决定，
+ *     但**服务端每个 handler 仍各自判范围**（禁令⑤），菜单隐藏从来不是权限；
+ *   · 菜单项写死在代码里不从配置表读：一期只有 4 个入口，读配置会变成
+ *     "配置没配 → 菜单空白"这种查不出来的故障；
+ *   · 退出走 POST，不用 GET——GET 会被预取和爬虫触发。
  */
+const { Header, Sider, Content } = Layout;
 
-type NavItem = { href: string; label: string; icon: typeof ScaleIcon; hint: string };
+type Item = { key: string; label: string; icon: React.ReactNode; hint: string };
 
-const NAV: { group: string; items: NavItem[] }[] = [
+const NAV: { type: "group"; label: string; children: Item[] }[] = [
   {
-    group: "今日",
-    items: [{ href: "/", label: "工作台", icon: LayoutDashboardIcon, hint: "临期与在办总览" }],
+    type: "group",
+    label: "今日",
+    children: [{ key: "/", label: "工作台", icon: <DashboardOutlined />, hint: "临期与在办总览" }],
   },
   {
-    group: "业务",
-    items: [
-      { href: "/matters", label: "案件", icon: ScaleIcon, hint: "立案到归档全生命周期" },
+    type: "group",
+    label: "业务",
+    children: [
+      { key: "/matters", label: "案件", icon: <FileTextOutlined />, hint: "立案到归档全生命周期" },
       {
-        href: "/risk-matters",
+        key: "/risk-matters",
         label: "风险事项",
-        icon: ShieldAlertIcon,
+        icon: <SafetyCertificateOutlined />,
         hint: "报备、跟踪、转案件",
       },
     ],
   },
   {
-    group: "系统",
-    items: [{ href: "/config", label: "配置", icon: SettingsIcon, hint: "状态与等级字典（只读）" }],
+    type: "group",
+    label: "系统",
+    children: [
+      { key: "/config", label: "配置字典", icon: <SettingOutlined />, hint: "状态与等级（只读）" },
+    ],
   },
 ];
 
-/**
- * 顶栏标题。规则很简单：**取当前路径命中的最长菜单前缀**，详情页也归到它的入口名下
- * （`/matters/123` 顶栏仍写"案件"，具体编号在页面自己的 PageHeader 里）。
- * 这样标题只有一处来源，不会出现"菜单叫案件、顶栏叫案卷管理"。
- */
 function titleOf(pathname: string): string {
-  let best = { prefix: "/", label: "工作台" };
-  for (const section of NAV) {
-    for (const item of section.items) {
-      const hit = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-      if (hit && item.href.length > best.prefix.length)
-        best = { prefix: item.href, label: item.label };
+  let best = { key: "/", label: "工作台" };
+  for (const g of NAV) {
+    for (const it of g.children) {
+      const hit = it.key === "/" ? pathname === "/" : pathname.startsWith(it.key);
+      if (hit && it.key.length > best.key.length) best = { key: it.key, label: it.label };
     }
   }
   return best.label;
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "/";
   const router = useRouter();
+  const { message } = AntdApp.useApp();
   const { data: actor } = useActor();
-  const title = titleOf(pathname ?? "/");
+
+  const items: MenuProps["items"] = useMemo(
+    () =>
+      NAV.map((g) => ({
+        key: g.label,
+        type: "group" as const,
+        label: g.label,
+        children: g.children.map((it) => ({ key: it.key, icon: it.icon, label: it.label })),
+      })),
+    [],
+  );
 
   async function logout() {
     await api.post("/api/auth/logout");
+    message.success("已退出");
     router.replace("/login");
   }
 
   return (
-    <div className="flex min-h-dvh">
-      <aside className="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <div className="flex h-12 items-baseline gap-2 border-b border-sidebar-border px-4">
-          <span className="text-[0.95rem] font-semibold tracking-tight text-sidebar-foreground">
+    <Layout style={{ minHeight: "100vh" }}>
+      <Sider width={216} theme="dark" breakpoint="lg" collapsedWidth={0}>
+        <div style={{ padding: "14px 16px 10px", lineHeight: 1.35 }}>
+          <Typography.Text strong style={{ color: "#fff", fontSize: 15, letterSpacing: 0.2 }}>
             MatterNest
-          </span>
-          <span className="text-[0.7rem] text-sidebar-foreground/55">风险事项 · 案件</span>
+          </Typography.Text>
+          <div style={{ color: alpha(BRAND.sider.item, 0.62), fontSize: 11 }}>风险事项 · 案件</div>
         </div>
-
-        <nav className="flex-1 overflow-y-auto px-2 py-3">
-          {NAV.map((section) => (
-            <div key={section.group} className="mb-4">
-              <p className="px-2 pb-1 text-[0.68rem] text-sidebar-foreground/45">{section.group}</p>
-              <ul className="space-y-px">
-                {section.items.map((item) => {
-                  const active =
-                    item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-                  const Icon = item.icon;
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        aria-current={active ? "page" : undefined}
-                        className={cn(
-                          "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[0.84rem] outline-none transition-colors",
-                          "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                          active
-                            ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                            : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-                        )}
-                      >
-                        {/* 当前项靠左侧 2px 电蓝标出，不靠整块高亮：深色底上整块填色会把注意力从内容区抢走 */}
-                        <span
-                          aria-hidden
-                          className={cn(
-                            "-ml-2 h-4 w-0.5 rounded-full bg-sidebar-primary transition-opacity",
-                            active ? "opacity-100" : "opacity-0",
-                          )}
-                        />
-                        <Icon className="size-4 shrink-0 opacity-80" />
-                        <span className="truncate">{item.label}</span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
+        <Menu
+          theme="dark"
+          mode="inline"
+          items={items}
+          selectedKeys={[
+            pathname === "/"
+              ? "/"
+              : (NAV.flatMap((g) => g.children).find(
+                  (i) => pathname.startsWith(i.key) && i.key !== "/",
+                )?.key ?? "/"),
+          ]}
+          onClick={({ key }) => router.push(key)}
+          style={{ borderInlineEnd: "none", paddingBottom: 8 }}
+        />
+        {actor ? (
+          <div
+            style={{
+              padding: "10px 16px",
+              borderTop: `1px solid ${alpha(BRAND.sider.active, 0.07)}`,
+            }}
+          >
+            <div style={{ color: alpha(BRAND.sider.item, 0.9), fontSize: 12 }}>
+              数据范围 · {DATA_SCOPE_LABELS[actor.dataScope as DataScope]?.zh ?? actor.dataScope}
             </div>
-          ))}
-        </nav>
-
-        <div className="border-t border-sidebar-border px-4 py-3 text-[0.7rem] leading-relaxed text-sidebar-foreground/55">
-          {actor ? (
-            (() => {
-              const label = DATA_SCOPE_LABELS[actor.dataScope as DataScope];
-              if (!label) return <p>数据范围 · {actor.dataScope}</p>;
-              // L2/L3 的 formula 是真解释（"∪ 我协办的…""不含他人加给我的…"），
-              // L1 的那句只是把"全所"重说一遍 —— 重复就不显示。
-              const addsInfo = !label.formula.startsWith(label.zh);
-              return (
-                <>
-                  <p className="text-sidebar-foreground/80">数据范围 · {label.zh}</p>
-                  {addsInfo ? <p>{label.formula}</p> : null}
-                </>
-              );
-            })()
-          ) : (
-            <p>内部系统 · 未登录</p>
-          )}
-        </div>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col pl-60">
-        <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between gap-4 border-b border-border bg-background/92 px-5 backdrop-blur supports-backdrop-filter:bg-background/78">
-          <h1 className="truncate text-[0.95rem] font-medium">{title}</h1>
-          <div className="flex shrink-0 items-center gap-3">
-            {actor && (
-              <>
-                <span className="text-xs text-muted-foreground">
-                  {actor.displayName}
-                  <span className="num"> · {actor.userId.slice(-6)}</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={logout}
-                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  <LogOutIcon className="size-3.5" />
-                  退出
-                </button>
-              </>
-            )}
+            <div style={{ color: alpha(BRAND.sider.item, 0.55), fontSize: 11, marginTop: 2 }}>
+              {SCOPE_HINT[actor.dataScope] ?? "—"}
+            </div>
           </div>
-        </header>
-        <main className="min-w-0 flex-1 px-5 py-4">{children}</main>
-      </div>
-    </div>
+        ) : null}
+      </Sider>
+
+      <Layout>
+        <Header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderBottom: `1px solid ${INK.line}`,
+            background: "#fff",
+          }}
+        >
+          <Space size={10}>
+            <Link href={pathname === "/" ? "/" : pathname}>
+              <Typography.Text style={{ fontSize: 15, fontWeight: 500 }}>
+                {titleOf(pathname)}
+              </Typography.Text>
+            </Link>
+          </Space>
+          {actor ? (
+            <Dropdown
+              menu={{
+                items: [
+                  { key: "logout", icon: <LogoutOutlined />, label: "退出登录", onClick: logout },
+                ],
+              }}
+            >
+              <Space size={8} style={{ cursor: "pointer" }}>
+                <Avatar size={24} style={{ background: BRAND.primary, fontSize: 12 }}>
+                  {actor.displayName.slice(0, 1)}
+                </Avatar>
+                <Typography.Text style={{ fontSize: 13 }}>{actor.displayName}</Typography.Text>
+                <Tag bordered={false} style={{ marginInlineEnd: 0, fontSize: 11 }}>
+                  {DATA_SCOPE_LABELS[actor.dataScope as DataScope]?.zh ?? actor.dataScope}
+                </Tag>
+              </Space>
+            </Dropdown>
+          ) : (
+            <Typography.Link href="/login">
+              <Space size={4}>
+                <ExportOutlined />
+                去登录
+              </Space>
+            </Typography.Link>
+          )}
+        </Header>
+        <Content style={{ padding: 16, overflow: "auto" }}>{children}</Content>
+      </Layout>
+    </Layout>
   );
 }

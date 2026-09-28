@@ -1,43 +1,45 @@
-import { cn } from "cn";
+import { INK } from "@/app/theme/brand";
+import { Tooltip } from "antd";
+
 import { dateTime } from "@/app/lib/client/format";
+import { DEADLINE_TONE } from "@/app/theme/antd";
 
 /**
  * 到期标记（规则 3 的可视化落点：临期与逾期必须一眼扫得到）。
  *
- * 分档阈值 3/7 天来自节点提醒配置的默认档位（seed 里 `remind_days = {7,3,1}`），
- * 这里刻意**不**读那个数组：列表要的是"这条现在危不危险"的一次性判断，
- * 每行再去解析数组会让表格渲染变成 O(行×档)。真按节点提醒发消息是 P2 扫描器的事。
+ * 逾期写成"逾期 N 天"而不是只把数字标红——同状态标记那条理由：**颜色不能是唯一通道**
+ * （色觉障碍与灰阶打印都会让"红色=逾期"失效，而期限是要被引用和被扫读的东西）。
  *
- * 逾期用文字"逾期 N 天"而不是只把数字标红 —— 同 StatusMark 那条理由：颜色不能是唯一通道。
+ * 分档阈值 3/7 天与节点提醒默认档 `{7,3,1}` 同源，但这里**不读那一列**：
+ * 列表要的是"这条现在危不危险"的一次性判断，每行再解析数组会把渲染变成 O(行×档)。
+ * 真按节点档位发消息是 M5 扫描器的事（那张表也是它唯一的写入口）。
  */
-export function DeadlineMark({
-  iso,
-  className,
-}: {
-  iso: string | null | undefined;
-  className?: string;
-}) {
-  if (!iso) return <span className="text-muted-foreground/60">未定</span>;
+export function DeadlineMark({ iso }: { iso: string | null | undefined }) {
+  if (!iso) return <span style={{ color: INK.faint, fontSize: 12 }}>未定</span>;
 
-  const due = new Date(iso).getTime();
-  const days = Math.ceil((due - Date.now()) / 86_400_000);
-  const tone =
-    days < 0
-      ? { dot: "bg-destructive", text: "text-destructive", label: `逾期 ${-days} 天` }
-      : days <= 3
-        ? { dot: "bg-amber-500", text: "text-amber-700", label: `剩 ${days} 天` }
-        : days <= 7
-          ? { dot: "bg-primary", text: "text-foreground", label: `剩 ${days} 天` }
-          : { dot: "bg-muted-foreground/40", text: "text-muted-foreground", label: null };
+  const days = Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+  const bucket = days < 0 ? "overdue" : days <= 3 ? "soon" : days <= 7 ? "near" : "later";
+  const label =
+    bucket === "later"
+      ? dateTime(iso)
+      : days < 0
+        ? `逾期 ${-days} 天`
+        : days === 0
+          ? "今天"
+          : `剩 ${days} 天`;
 
   return (
-    <span
-      title={dateTime(iso)}
-      className={cn("inline-flex items-center gap-1.5 text-sm", className)}
-      data-days={days}
-    >
-      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", tone.dot)} />
-      <span className={cn("num", tone.text)}>{tone.label ?? dateTime(iso)}</span>
-    </span>
+    <Tooltip title={dateTime(iso)}>
+      <span
+        data-days={days}
+        style={{
+          color: DEADLINE_TONE[bucket].color,
+          fontVariantNumeric: "tabular-nums",
+          fontSize: 13,
+        }}
+      >
+        {label}
+      </span>
+    </Tooltip>
   );
 }

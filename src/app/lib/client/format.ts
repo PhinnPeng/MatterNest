@@ -1,4 +1,5 @@
-import { format } from "date-fns";
+import dayjs from "dayjs";
+
 import {
   DATE_COMPACT_PATTERN,
   DATE_DISPLAY_PATTERN,
@@ -6,41 +7,47 @@ import {
 } from "@/shared/time/zh-cn";
 
 /**
- * 展示层格式化。**只在客户端组件里用**，服务端不格式化 —— 一旦两边各格式一份，
- * 列表与详情就会出现"同一条记录两个日期写法"。
+ * 展示层格式化。**只在客户端组件里用**，服务端不格式化——
+ * 两边各格式一份，列表与详情就会出现"同一条记录两个日期写法"。
  *
- * 时间戳一律是 DB 的 `timestamptz`（ISO 串），到期倒计时用完整日期时间；
- * 日历日期（立案日/发现日）是 `date` 列，不带时刻，所以单独一个 pattern。
- * pattern 常量来自 `@/shared/time/zh-cn`，不在这里重复字面量。
+ * 日期库换成了 dayjs：这不是风格选择，是**约束**——antd 的 `DatePicker`/`ConfigProvider`
+ * 只认 dayjs。仓库里同时留 date-fns 与 dayjs 会让"月份显示成 September"这类事故无法归因，
+ * 所以 `date-fns` 已随本次迁移从依赖里移除（守卫：`zod-rules.spec.ts` 同级的 `format.spec.ts`
+ * 断言产出串，见下）。pattern 一律引 `@/shared/time/zh-cn`，不在这里重复字面量。
  */
 
 export function dateTime(value: string | null | undefined): string {
-  return value ? format(new Date(value), DEADLINE_COUNTDOWN_PATTERN) : "—";
+  return value ? dayjs(value).format(DEADLINE_COUNTDOWN_PATTERN) : "—";
 }
 
 /** 相对时间：列表里"3 天前"比"2026年9月24日 14:02"更适合扫读 */
 export function fromNow(value: string | null | undefined): string {
   if (!value) return "—";
-  const diffMs = Date.now() - new Date(value).getTime();
-  const min = Math.round(diffMs / 60_000);
-  if (min < 1) return "刚刚";
-  if (min < 60) return `${min} 分钟前`;
-  const hr = Math.round(min / 60);
+  const diffMin = Math.round((Date.now() - dayjs(value).valueOf()) / 60_000);
+  if (diffMin < 1) return "刚刚";
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const hr = Math.round(diffMin / 60);
   if (hr < 24) return `${hr} 小时前`;
   const day = Math.round(hr / 24);
   if (day < 31) return `${day} 天前`;
-  return format(new Date(value), DATE_DISPLAY_PATTERN);
+  return dayjs(value).format(DATE_DISPLAY_PATTERN);
 }
 
+/**
+ * 日历日期（`date` 列，无时刻）。
+ *
+ * ⚠ 刻意不经过 `dayjs(...)`：驱动回来的是 `'YYYY-MM-DD'` 字符串，
+ * 交给 Date/dayjs 解析会按本地时区解释，在负时区上会**漂一天**。
+ * 立案日与发现日属于"纸面上的那天"，不是某个瞬间——这条与修订稿 §12.2 同源。
+ */
 export function calDate(value: string | null | undefined): string {
-  // `date` 列回来的是 'YYYY-MM-DD'（无时区）。直接 format(new Date(...)) 会按 UTC 解析、
-  // 在东八区显示成同一天，但在负时区会漂一天 —— 所以这里按字符串截，不经过 Date。
   if (!value) return "—";
   const [y, m, d] = value.slice(0, 10).split("-");
   if (!y || !m || !d) return value;
   return `${y}年${Number(m)}月${Number(d)}日`;
 }
 
+/** 表单 `<input type=date>` / antd DatePicker 的回填值（同样是纯日期串） */
 export const isoDate = (value: string | null | undefined): string =>
   value ? value.slice(0, 10) : "";
 
@@ -52,7 +59,7 @@ export function money(value: string | null | undefined): string {
   return `${grouped}${frac ? `.${frac}` : ""}`;
 }
 
-/**  compact 金额：工作台卡片上用，表格里仍用完整值 */
+/** 紧凑金额：工作台卡片与合计行用，表格里仍给完整值 */
 export function moneyCompact(value: string | number | null | undefined): string {
   const n = typeof value === "number" ? value : Number(value ?? 0);
   if (!Number.isFinite(n)) return "0";

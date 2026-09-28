@@ -18,11 +18,11 @@
 | `PRD-phase1-permission-design-draft.md` | 权限与数据范围 | **v4**（新增 §4.1 可见用户集、裁定 P-4/P-5/P-6） |
 | `PRD-phase1-enums-and-schemas.md` | **取值权威源** | **定稿 v3**（E01–E37，补 `UNCONVERT` 与认证四组取值） |
 | `PRD-phase1-risk-to-case-mapping.md` | 转案件字段映射 | **定稿 v2**（指针与幂等行修正） |
-| `tech-stack-decision.md` | 技术选型 | **v5**：全栈 **Next.js 16**（React + 纯 shadcn + Tailwind v4），后端仍 TS 同仓；认证双通道（我方适配云之家）。§11/§12 的 Nuxt 结论已被 §13 取代 |
+| `tech-stack-decision.md` | 技术选型 | **v6**：全栈 **Next.js 16**（React + **Ant Design 6** + Tailwind v4 只管容器布局），后端仍 TS 同仓；认证双通道（我方适配云之家）。§11/§12 的 Nuxt 结论已被 §13 取代，**v5 的纯 shadcn 前端结论已被 §13.6 取代** |
 | `implementation-plan-v1.md` | **落地方案**：门禁 / 里程碑 M0–M7 / 工作分解 WBS / 规范条款 / 验收门禁 / AI 派单边界 | v1，与本文同源 |
 | `research-nuxt-fullstack-nitro.md` | 一手核验：Nitro/session/上传/Drizzle DDL | v3 依据；框架结论部分已过期，C1/C3/C4 已搬进技术选型 §13.2 |
-| `research-nuxt-table-vue-ui.md` | 一手核验：表格能力与 shadcn-vue 端口 | v4 依据；作对照保留，现行结论看 v5 |
-| `research-nextjs-stack.md` | 一手核验：Next 16 proxy 运行时 / 鉴权落点 / 调度 / 多副本 / 自托管 | **v5 依据**，含 N1–N7 spike 通过标准 |
+| `research-nuxt-table-vue-ui.md` | 一手核验：表格能力与 shadcn-vue 端口 | v4 依据；作对照保留，现行结论看 **§13.6** |
+| `research-nextjs-stack.md` | 一手核验：Next 16 proxy 运行时 / 鉴权落点 / 调度 / 多副本 / 自托管 | **v5 依据**，含 N1–N7 spike 通过标准；⚑ 其中"组件体系=shadcn"那部分已被技术选型 §13.6 改判为 antd 6，Next/后端侧结论不变 |
 
 ### 0.2 冲突裁决链
 
@@ -45,6 +45,7 @@
 | master-v3 | 2026-09-26（同日） | 认证决策落定：**云之家 + 本地密码双通道**（密码只给兜底账号；首登自动建号落 `pending`）。新增 F6-8…F6-11 与 3 张认证外挂表、枚举 E34–E37 与 `USER_ACTIVATED`；§7 假设 C 作废并新增 E/F；技术选型 §2/§5/"216 例"/§10 条目四处矛盾修平。 | 技术选型 §3.4 |
 | master-v4 | 2026-09-26（同日） | 认证口径最终定为**我方适配云之家**（非改造平台），连带离职回收降级为待签字风险（P1-16）；前端定稿纯 shadcn **（当时落点为 Vue 端口）**，P1-17 结案（**PC 浏览器为主**）；补做 `research-nuxt-table-vue-ui.md` 一手核验并登记未证实项 | 技术选型 §3.3/§7/§12、研究文档 |
 | **master-v5** | 2026-09-26（同日） | 技术选型升 **v5**：前端换 **Next.js 16 + React + 纯 shadcn**，后端仍 TS 同仓（明确**不进 Python**——shadcn 一等来自 React，与后端语言无关；换 Python 会破枚举表 §5.1 单一事实源）。新增 `implementation-plan-v1.md` 落地方案与 `research-nextjs-stack.md` 一手核验（Next 16 proxy 默认 Node 运行时、鉴权须落在每个 handler、多副本两个必需变量） | 技术选型 §13 |
+| **master-v6** | 2026-09-28 | 技术选型升 **v6**：**前端组件体系由纯 shadcn 改判为 Ant Design 6**（用户两次否同一套观感并定方向；`@ant-design/pro-components` 的 peer 不含 antd 6 ⇒ ProTable/ProForm 出局，查询区与表格壳自己写）。禁令⑦⑧ 改写为"体系唯一 + 色值单源 + 服务端分页门不变"，日期库换 `dayjs`，表单校验仍从 `shared/schema` 的 Zod 推导。**需求、权限模型、枚举、里程碑与门禁一条没变**；11 项依赖出仓、14 个 shadcn 原语删除、Demo 轮约 1.5 天视觉工作作废（代价记在 §13.6.4） | 技术选型 §13.6 |
 
 ---
 

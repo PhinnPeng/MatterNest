@@ -9,7 +9,7 @@
 | 层 | 用什么 | 不放什么 |
 |---|---|---|
 | **服务端态**（案件/事项/通知/配置列表） | `@tanstack/react-query`（§2「服务端数据」行） | 不放 Redux/Zustand；不放组件内 `useState` 手抄一份 |
-| **表单态** | react-hook-form（+ Zod resolver） | 不放全局 store；不放 query cache |
+| **表单态** | antd `Form`（`Form.useForm()` + `Form.List` 管数组卡）；校验规则由 `shared/schema` 的 Zod 经 `components/form/zod-rules.ts` **推导**，不是第二份声明 | 不放全局 store；不放 query cache；不在组件里另写 `rules`（禁令⑧）|
 | **局部 UI 态**（开合、当前 Tab、列显隐） | 组件 `useState` | 不放能影响数据范围的"筛选态"——那属服务端态 |
 | **URL 态**（列表的 `page/pageSize/sortBy/sortDir/filters`） | 搜索参数（使分享链接可复现同一视图） | 不放 id 类敏感集合、不放 token |
 
@@ -20,7 +20,7 @@ URL 态这一层是本次填 spec 时**新定的建议口径**（规格件未写
 ## 一期**不引入**任何全局状态库
 
 - 不装 Redux / Zustand / Jotai / MobX。业务后台的共享状态其实只有"当前登录者是谁 + 他的范围档"，那一份由后端每次请求现算（§2），前端拿副本反而造成权限不一致。
-- 不装 `next-intl` / i18n 框架。本项目**没有第二套语言**，需要的是组件的**中文 locale**（**已于 N1 实测通过**：`date-fns` 的 `zhCN` 给「九月 2026」与星期单字，口径集中在 `src/shared/time/zh-cn.ts`，且 `Locale` 只能在 client 侧 import——见 `component-guidelines.md` 的日期条）。
+- 不装 `next-intl` / i18n 框架。本项目**没有第二套语言**，需要的是组件的**中文 locale**：v6 起由 antd 的 `ConfigProvider locale={zhCN}`（`antd/locale/zh_CN`）与 `dayjs` 的 `zh-cn` 一起给，都在 `components/providers.tsx` **客户端侧**设置；文案口径集中在 `src/shared/time/zh-cn.ts`。**两条 v5 实测、v6 换库后仍然成立的硬事实**：① 含函数的 locale 不能在 Server Component 里当 prop 传给 client 件（prerender 会炸）；② dayjs 不认 date-fns 的 token——`yyyy`/`dd` 会原样输出成 `yyyy年9月0日`，`EEE` 核心也不支持。
 
 ---
 

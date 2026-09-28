@@ -1,160 +1,164 @@
 # Component Guidelines
 
-> 组件体系、 props 约定、四件重活怎么拿。
-> 来源：`docs/tech-stack-decision.md` §3.3（含样式三条与成本表）、§13.5 禁令⑦⑧、§13.1。
+> 组件体系、props 约定、四件重活怎么拿、密度怎么量出来。
+> 来源：`docs/tech-stack-decision.md` **§13.6（v6 现行）**、§13.5 禁令①⑤⑥⑧、`research-nextjs-stack.md`。
+> ⚠ 本文件在 v5 写的是 shadcn，**v6（2026-09-28）整批改判为 Ant Design 6**。凡是"为什么走这条路"的判断（密集表格最重、
+> 缺件必须自封装、一套刻度、颜色不能是唯一通道）一路保留；凡是"某个包名/API"的事实全部按 antd 重写，
+> 旧事实只在标 ~~历史~~ 或"v5 那轮"的段落里留着，**不要照抄进代码**。
 
 ---
 
-## 唯一体系（禁令⑦，逐字）
+## 唯一体系（禁令⑦ 现行文字，§13.6.2）
 
-**前端只允许一套组件体系：shadcn + Tailwind。** 禁止为单个控件引入第二套带样式的库（MUI / AntD / Chakra 等）；清单里没有的件一律自封装进 `components/ui/`。业务组件不得直接 import 原语包（Radix UI），必须经 `components/ui/` 那层，将来换原语只改一层。
+**前端只允许一套组件体系：Ant Design 6 + Tailwind v4，Tailwind 只管容器布局。** 三个可机器化的子条款：
 
-为什么走这条路（§3.3，判断依据要记住，别在实现时又想要组件库）：组件源码复制进仓库、**没有黑盒 API**，agent 能读能改；Tailwind 是模型写得最熟的样式语言；不受组件库版本天花板约束；无障碍（键盘导航、焦点管理、aria）由无样式原语兜住——"自研必定做错的那部分"不用自己做。
+1. **不得引入第二套体系或第二家叶子库**——现在要防的不是"引一套带样式的库"（那条在 v5 也禁），而是**具体这几个名字**：
+   `radix-ui` / `class-variance-authority`（上一套体系的残余，依赖已从 `package.json` 删除）、
+   `@ant-design/pro-components`（见下）、`lucide-react`（图标只有 `@ant-design/icons`）、
+   `react-hook-form` + `@hookform/resolvers`（表单只有 antd `Form`）、`date-fns` / `moment`（日期只有 `dayjs`）。
+2. **不得走 antd 深路径**：一律顶层 `"antd"`。类型也在 index 上——`TableColumnsType`、`FormRule`
+   都是从顶层取，**不要写 `from "antd/es/table"`**（那是 v5→v6 过渡期我自己踩过的）。
+3. **一个色只定义一次**：色值唯一源是 `src/app/theme/brand.ts`（`BRAND` / `INK` / `PAPER` / `alpha()`）。
 
-**"纯 shadcn"与"用不用 TanStack Table"不是选择题**：shadcn 的 Data Table 本就 built using TanStack Table，它是 headless 状态层（只管排序/分页/筛选/选择/列模型，不管长什么样），用它**不构成**引入第二套视觉体系。真正会破坏"纯"的只有一个动作：为某个缺件去引一套带样式的库。
+**为什么 Pro 不在范围内（一手事实，别再去试）**：
+`@ant-design/pro-components@2.8.10` 的 peer 是 **`antd ^4.24.15 || ^5.11.2`，不含 antd 6**。
+装上能过 lint，运行时把样式配置拉回 v5 那一套，症状要过几屏才看得见。所以 ProTable/ProForm 出局，
+列表壳与表单弹窗自己写：`components/list-toolbar.tsx`、`components/ui/data-table/DataTable.tsx`、几个 `Modal + Form`。
+Pro 那三件便利（查询区 / 工具栏 / 表单化弹窗）本来就是薄封装，不可替代的能力没有丢，丢的是"少写 80 行"。
 
-落地即：`shadcn + Tailwind v4 + @tanstack/react-table 自封装 DataTable`。
+这三条都不是靠 review 守的：`tools/lint-guard/` 挂了**两个 scope**（体系 + 色值单源），
+每个 scope 六道断言，`pnpm verify` 每次都跑——**加新守卫必须先反向红一次**（见 quality-guidelines）。
+
+> **v5 那段"为什么不用组件库"的理由（源码进仓、无黑盒、不受版本天花板）没有一条被证伪，但它没赢过另一件事实**：
+> 一期是密集后台表格 + 动态表单 + 一堆带无障碍的复杂件，而用户两次否同一套观感。
+> 判断依据要记住，别在实现时又想要回 shadcn——**换库的代价已经写在 §13.6.4，两套并存才是更大的代价**。
 
 ---
 
-## 样式体系约定三条（§3.3 原样，进本文件）
+## 样式体系约定三条（v6 重述）
 
-1. **间距与色彩只用 Tailwind 令牌，不留第二套刻度。**
-2. **覆盖组件默认样式一律走 `cn()` 合并，禁止行内 style 与 `!important`。**
-3. **业务组件不得直接依赖原语包（Radix UI），一律经 `components/ui/` 那层封装**，将来换原语只改一层。
-   原语包名是**选定的、不是唯一的**：shadcn CLI 4.21.0 的 `base` 合法值为 `radix | base | aria`，本仓选 **radix**（2026-09-27 实测）。所以这条禁的是"绕过 `components/ui/` 直接引原语"这个动作，而不是某个包名——将来若换 `base`/`aria`，禁令不变、括号里的名字跟着换。
+1. **组件内尺寸一律交给 antd token**（`theme/antd.ts` 的 `token` / `components.*`），不用 Tailwind 去顶开。
+   密度是一处可调的刻度：`controlHeight=30`、`controlHeightSM=24`、`fontSizeSM=12`、
+   Table `cellPaddingBlockSM=5` / `cellPaddingInlineSM=10` / `fontSize=13`。
+   **`size="small"` 是全局口径，不是每表自选**——散着写就会长出第二套间距。
+2. **Tailwind 只用于容器布局**（flex / gap / 宽高 / 文字排版），不用于组件外观覆盖。
+   `globals.css` 里只剩 preflight + 一个 `.num` 工具类（等宽 + tabular-nums），**shadcn 那套语义色变量已整段删除**；
+   不要在任何配置里复活 `corePlugins: { preflight: false }` 或 `--primary/--muted/--sidebar` 那种令牌——
+   两套令牌并存必然出现"这页用 `bg-primary`、那页用 `colorPrimary`"的分叉。
+3. **覆盖 antd 默认样式优先用 `styles` / `classNames` 语义槽与 token**，实在不行才写行内 `style`；`!important` 一律禁止。
+   颜色永远从 `theme/brand.ts` 取：`BRAND.primary` 而不是 `#2f5fe0`，半透明写 `alpha(色, .62)` 而不是手写 `rgba(...)`。
 
-> 历史上那条 `corePlugins: { preflight: false }` + AntD 走 `ConfigProvider` 令牌的约定，是为"两套体系共存"打的补丁；现在只有一套，**整段作废**，不要在任何配置里复活它。
+> 表格的表头/正文视觉锚点由 token 决定（表头 `headerBg #f2f4f8` + `headerColor INK.secondary`，正文 13px 主墨色）——
+> 这条是 v5 那轮量出来的教训的 antd 版本，别再退回"表头和正文同字色同字号"。
 
 ---
 
-## 四件重活（§3.3 成本表，一期前端的主要工作量）
+## 四件重活（一期前端的主要工作量，v6 的拿法）
 
 | 件 | 现成度 | 落地方式 |
 |---|---|---|
-| 密集表格（案件/事项/当事人/我的关注/通知 5 张 + 详情内嵌表） | **底座已探通** | `components/ui/data-table/DataTable.tsx` 已有可运行参照实现（N7 spike）：受控 `page/pageSize/sortBy/sortDir`、只装 `getCoreRowModel`、`manualSorting/Filtering/Pagination` 全开、`pageSize > 100` 直接抛。**禁止客户端全量排序**（禁令⑧，理由是权限不是性能）。W3-1 剩的是接真接口与筛选面板 |
-| 转案件动态表单（N 个案件卡片 + 跨卡复制 + 每卡 10+ 字段联动校验） | **可行性已验** | react-hook-form + Zod resolver（与 `shared/schema` 同源）。N7 实测：`useFieldArray` + `summarizeIssues()` 能把 `cases[2].client_name` 渲染成「第 3 张卡 · 当事人名称」；**id 类字段不参与复制**用白名单 `COPYABLE_FIELDS` 实现（不是靠约定），并有`COPYABLE ∩ NON_COPYABLE = ∅` 的断言 |
-| 附件上传（预签名 PUT 直传 + 进度 + 白名单 + 多文件） | **逻辑自封装 + 展示层有现成件** | `FileUpload.tsx` 只做「选文件 → 向 `/api/**` 申请预签名 PUT → 直传 MinIO → 回报对象 key」；**列表项 / 上传态 / 删除按钮用 shadcn 的 `Attachment`**（官方定位：附件展示件，带 `idle|uploading|processing|error|done`，见研究文档 §3.2）。后端不中转文件流（C3），请求体上限由 nginx 设死；框架侧不设 body 上限 |
-| 日期与法律期限（含"剩 N 天"） | **已验可用** | `Calendar`（`react-day-picker@10.0.1` + `date-fns@4.4.0`）已装，实测渲染出「九月 2026」与星期单字；中文口径统一从 `src/shared/time/zh-cn.ts` 取（**展示禁用 date-fns 预设 `P`，它给 `26-09-27`**）。⚠ **`Locale` 含函数，不能在 Server Component 里当 prop 传给 client 件**——必须 client 侧 import，见 `src/app/components/app-calendar.tsx`。期限计算仍走 `shared/time` |
+| 密集表格（案件/事项/当事人/我的关注/通知 5 张 + 详情内嵌表） | **件本身现成，密度要量** | `components/ui/data-table/DataTable.tsx` 包 antd `Table`：受控 `page/pageSize/sortBy/sortDir`、`tableLayout="fixed"` + `scroll.x=列宽合计`、列上**只给 `sorter: true`**、`pageSize > 100` 直接抛。**禁止客户端全量排序**（禁令⑧，理由是权限不是性能）。列显隐、合计行、空态都在这层 |
+| 转案件动态表单（N 个案件卡片 + 跨卡复制 + 每卡 10+ 字段联动校验） | **现成** | antd `Form` + `Form.List`（数组卡）。校验规则**不重写第二份**：`components/form/zod-rules.ts` 从 `shared/schema` 的 Zod 推导 `rules`，服务端 `fieldIssues` 用 `form.setFields` 落回字段。跨卡复制仍用白名单 `COPYABLE_FIELDS`（不是靠约定），`COPYABLE ∩ NON_COPYABLE = ∅` 有断言 |
+| 附件上传（预签名 PUT 直传 + 进度 + 白名单 + 多文件） | **仍要自封装** | `Upload` 只管选文件与进度 UI，**预签名 PUT 直传 MinIO 这段必须自己写**（`FileUpload.tsx`：选文件 → 向 `/api/**` 申请预签名 PUT → 直传 → 回报对象 key）。后端不中转文件流（C3），请求体上限由 nginx 设死。⚠ 未做：W3-7 的 MinIO service account 还没批 |
+| 日期与法律期限（含"剩 N 天"） | **现成** | antd `DatePicker`（自带 zh_CN，`ConfigProvider locale` 给）；**格式化与期限计算走 `dayjs` + `src/shared/time/zh-cn.ts` 的 pattern**。两条实测硬事实：`yyyy`/`dd` 是 **date-fns** 的 token，dayjs 里会原样输出 `yyyy年9月0日`；`EEE` 不受 dayjs 核心支持（`WEEKDAY_PATTERN` 因此删除）。日历不再自己装（v5 的 `react-day-picker` 已移除） |
 
-**压缩手段**：先把 `DataTable.tsx` 封好——它一张覆盖 5 个列表页，是全项目复用率最高的一块。"+1~1.5 周"是 v4 就接受的确定成本，v5 换回 React 后明显缩小，但**省下多少要等 N1 spike 实测才写数字**，不要拿估算当承诺。
+**压缩手段**不变：先把 `DataTable.tsx` 封好——它一张覆盖 5 个列表页，是全项目复用率最高的一块。
 
 ---
 
 ## Props 与组成约定
 
-- 表格类组件的入参一律**受控**：`page/pageSize/sortBy/sortDir/filters`（禁令⑧），内部不偷偷维护自己的分页态。
-- 表单字段：控件本身无状态偏好，值与错误都来自 react-hook-form；`FormField` 的 `name` 必须与 Zod schema 的 key 一致，编译期可查。
-- 枚举展示：`{valueArray, 中文名字典}` 从 `src/shared/enums/<file>.ts` 同一份导入，**禁止**在组件里写 `{civil_commercial: '民事商事'}` 这类第二份字典（§5.1 单一事实源）。
-- 详情类页面的 Tab 组件不自行判权限——它拿到的就是"已过 `withScope` 的 DTO"；不可见时后端给 404/占位，前端不做本地过滤（那是绕过 ScopeResolver 的另一种形态）。
+- 表格类组件的入参一律**受控**：`page/pageSize/sortBy/sortDir/filters`（禁令⑧），内部不偷偷维护自己的分页态；
+  状态落在 URL 上（`use-list-state`），刷新/后退/把链接发给同事才对得上同一个视图。
+- 列定义：`TableColumnsType<Row>`，每列给 `width` + `ellipsis: true`（防换行撑高，见"密度"一节）；
+  排序态用 `sortOrderOf(key, sortBy, sortDir)` 换算成 antd 的 `'ascend' | 'descend'`，**不要给 `sorter` 传函数**。
+- 表单字段：值与错误都来自 antd `Form`；`Form.Item` 的 `name` 必须与 Zod schema 的 key 一致，
+  数组字段用 `[index, 'field']` 路径（`zod-rules.spec.ts` 里那条数组路径回归就是它）。
+- 日期字段：表单里存 `Dayjs`，**提交前一处转 `YYYY-MM-DD`**（见 create/convert 弹窗的 `toValues()`），别在多处各自格式化。
+- 枚举展示：`{valueArray, 中文名字典}` 从 `src/shared/enums/<file>.ts` 或 `/api/meta` 取，**禁止**在组件里写第二份字典。
+- 状态与到期标记统一走 `ui/status-mark.tsx`（Badge 点 + 词）与 `ui/deadline-mark.tsx`（"逾期 N 天 / 剩 N 天"），
+  **颜色不能是唯一通道**（灰阶打印与色觉障碍都会让"绿点=结案"失效）。
+- 空态/错误态走 `ui/state-block.tsx`：说清下一步能干什么，不留一句"暂无数据"。
+- 详情类页面的 Tab 不自行判权限——它拿到的就是"已过 `withScope` 的 DTO"；不可见时后端给 404，前端不做本地过滤。
 - 服务端专用能力（session、db、云之家客户端）不得 import 进任何客户端组件。
+- **Server Component 里一个 antd 组件都不能出现**（全带 hook，SSR 直接抛）。登录页那种纯外壳用原生标签 + 内联样式，
+  色值从 `theme/brand.ts` 取——那个文件不 import antd，就是为了让 SSR 壳也能用同一份色。
 
 ---
 
-## 装配现状（W0-2 实跑，2026-09-27）
+## 装配现状（v6，2026-09-28）
 
-已装并可运行：`next@16.3.6` + `react@19.3.0` + `tailwindcss@4.3.3`（CSS-first，`@import "tailwindcss"`，**没有 `tailwind.config.js`**）+ `cn()`（`src/app/lib/utils.ts`，带 3 条行为测试）。`pnpm build` 出 `.next/standalone`。
+已装：`next@16.3.6` + `react@19.3.0` + `antd@6.6.5` + `@ant-design/icons@6.3.4` +
+`@ant-design/nextjs-registry@1.3.0`（peer 需要 `@ant-design/cssinjs@2.1.2`，故它是直接依赖）+ `dayjs` +
+`tailwindcss@4.3.3`（CSS-first，**没有 `tailwind.config.js`**）。已删：`shadcn`、`components.json`、`cn`、
+`clsx`/`tailwind-merge`、`radix-ui`、`class-variance-authority`、`@tanstack/react-table`、`date-fns`、
+`react-day-picker`、`react-hook-form`、`@hookform/resolvers`、`tw-animate-css`。
 
-**已落地**（同日代理通了之后跑完，详证 `research-nextjs-stack.md` §6.4）：`components.json`（`style: radix-nova`，aliases 指向 `@/app/components{,/ui}`）+ 六个件 `button card input dialog attachment calendar`。三条对写码有直接影响的实测事实：① **`cn()` 现在来自 shadcn 官方 npm 包 `cn`**（maintainer `shadcn`、repo `shadcn-ui/cn`、零依赖；查过不是被抢注的同名包），生成的件写 `import { cn } from "cn"`，本仓的 `src/app/lib/utils.ts` 只做 `export { cn } from "cn"`，**`clsx` 与 `tailwind-merge` 已移除**（留着就是两套 cn 实现）；② **原语包是统一的 `radix-ui`（1.6.7），不是 `@radix-ui/*` 分散包**；③ 跑 CLI 会改 `layout.tsx` / `globals.css`，**必须 review diff**——它注入的 `next/font/google`（构建期去外网取字体）已移除，内网私有化部署不能让 `pnpm build` 依赖外网，字体改系统栈。
+Provider 顺序是有意义的：`QueryClientProvider > AntdRegistry > ConfigProvider(locale, theme) > App`。
+**`AntdRegistry` 必须在 `ConfigProvider` 外面**，否则 SSR 的样式抽取拿不到 token，首屏无样式闪一下。
 
-两条装配期踩到的事实要记住：**不要用 `create-next-app`**（它默认生成 `AGENTS.md`，会覆盖本仓的 Trellis 受管块）；**Next 会把 `tsconfig.json` 的 `jsx` 强改为 `react-jsx`**，其余严格项不会被回退。
+装配期两条事实继续有效：**不要用 `create-next-app`**（默认生成 `AGENTS.md`，会覆盖本仓的 Trellis 受管块）；
+**Next 会把 `tsconfig.json` 的 `jsx` 强改为 `react-jsx`**，其余严格项不会回退。
+另外 npm 侧要显式出口（本机的"域名级定向重置"结论仍成立）：`HTTPS_PROXY=http://127.0.0.1:7897 pnpm add …`。
+
+---
 
 ## 缺件的处理流程（写死，避免每次临时决定）
 
-1. 先查 `docs/research-nextjs-stack.md` §3.1/§3.2 是否已登记该件。**一条教训写在这**：§3.1 曾因「registry 清单里没有 `upload` 这个名字」就结案「没有现成上传件」，后来从官方仓读到 `attachment` 才发现**名字不等于能力**——判「有没有件」要同时看**清单 + 官方 description/源码**，不能只看命名。
-2. 没有 → 在 `components/ui/<件名>/` 自封装，只用已有原语 + Tailwind。
-3. 只有在"自封装成本明显高于一个**无样式** headless 库"时，才允许新增依赖（如 `@tanstack/react-table` 这类 headless 层），且必须：写进本文件 + 技术选型 §13.5 禁令⑦的例外说明。**带样式的库一律禁止**，没有例外。
+1. 先查 antd 官方组件清单有没有这个件（`DatePicker`/`Upload`/`Descriptions`/`Tabs`/`Badge` 都是现成的）。
+2. 没有 → 在 `components/ui/<件名>/` 自封装（现状只有 **FileUpload** 这一类：预签名直传那段必须自己写）。
+3. **不允许**为了一个缺件引入第二个体系。v5 那条"允许无样式 headless 库"的例外**随 TanStack 一起作废**——
+   antd 已经覆盖一期全部需求，再引 headless 层就是第二套状态模型。
 
 ---
 
 ## 常见错误
 
-1. 为了一个日期范围选择器装 MUI/AntD → 禁令⑦，且会带进第二套间距与色彩刻度。
-2. 直接 `import { Dialog } from "@radix-ui/react-dialog"` → 绕过 `components/ui/`，换原语时要改遍业务代码。
-3. 用 `style={{margin:'8px'}}` 或 `!important` 压 shadcn 默认样式。
-4. 在业务组件里再写一份枚举中文字典。
-5. 让 `DataTable` 支持"一次性拉全量再本地排序"（哪怕只是"临时"）——禁令⑧的真实理由是权限，不是性能。
+1. `import { Select } from "antd/es/select"` 或 `import type { ColumnsType } from "antd/es/table"`
+   → 禁令⑦，走顶层；类型名是 `TableColumnsType` / `FormRule`。
+2. 装 `@ant-design/pro-components` 省那 80 行 → peer 不含 antd 6，禁令⑦ 的 fixture 专门有一条拦它。
+3. 用 `style={{ color: "#7a828f" }}` 这种字面量色 → 禁令⑦ 色值单源；写 `INK.muted`。
+   （v6 迁移时一次量出 43 处内联灰，这就是它为什么值得被机器拦。）
+4. 在组件里再写一份枚举中文字典，或再写一份 `rules` 而不从 Zod 推导。
+5. 让 `DataTable` 支持"一次性拉全量再本地排序"（哪怕只是"临时"）——禁令⑧ 的真实理由是权限。
+6. 给列写 `sorter: { multiple: 1 }` 之类的**第二个参数**：v5 那轮 `sorter: { position }` 就是非法 key 且被静默忽略，
+   同类错误不要换个库再犯一次。
+7. 把 antd 组件写进 Server Component（登录页那个壳就是为此用原生标签写的）。
 
 ---
 
-## TanStack Table 的版本决定与五条坑（N7 spike，2026-09-27）
+## 表格密度契约（两轮回归换来的三条）
 
-**决定：留在 `@tanstack/react-table` v9，但显式从 `@tanstack/react-table/legacy` 引入。**
-v9 是破坏性改版：主入口没有 `useReactTable` / `getCoreRowModel` / `VisibilityState`，泛型改成 feature-first
-（`ColumnDef<TFeatures, TData, TValue>`；把 TData 写在第一位会报 `does not satisfy the constraint 'TableFeatures'`）。
-shadcn 的 Data Table 文档与示例都按 v8 形状写，所以走官方 legacy 入口（`useLegacyTable` / `getXRowModel` /
-`LegacyColumnDef`）：不降级锁死升级路，函数名本身也声明了"这是 v8 形状"，读代码的人不会被误导。
+**v5 那次（TanStack + shadcn）**：`shadcn add -o` 把自封装 `ui/table.tsx` 换成 registry 默认版，
+密度假设没跟着复核，1440×900 同源 iframe 量出：表头无底槽、表头与正文同 `14px/text-foreground`、
+单元格内边距掉到 `p-2`、「程序」「等级」两列被 auto layout 压到 45px；根因是**传给 TanStack 的 `size` 只是元数据，
+没人消费它**。修法是补 `<colgroup>` + `table-fixed`（提交 `2217b08`）。
 
-写表/表单时必须避开的五个坑（每一条都是真撞过的）：
+**v6 这次（antd）换了个面孔**：`width` 在 `tableLayout: fixed` 下**真的生效**，但只要有一列文字超出列宽，
+`white-space: normal` 就把整行撑高——量出案件表 **54px/行**（10 列里 9 列非 nowrap，内部编号折成两行）、
+表体横向**溢出 10px**。修法不是调 padding，是**每列 `ellipsis: true` + 宽度按实测文字**（用 canvas `measureText`
+逐列量最长值），改完 **33px/行、溢出 0**，事项表 **35px/行**（含行内 small 按钮，是合理下限）。
 
-1. `RowSelectionState` 在 v9 是 `Record<string, true>`，写 `boolean` 类型不过。
-2. 选择列要 `enableHiding: false`，且列显隐工具条只渲染 `col.getCanHide()` 的列——否则工具条会冒出一个文案为 `select` 的按钮。
-3. **表单 schema 里不要用 Zod 的 `.default()`**：它让 input 与 output 类型不一致，`useForm<T>` + `zodResolver` 直接类型不匹配。
-   默认值一律写进 `defaultValues`。
-4. `useSearchParams()` 必须包在 `Suspense` 里，否则 Next 16 构建期就报错。所有列表页共用这个结构。
-5. 测试里用 `@/...` 需要 `vitest.config.mts` 的 `resolve.alias`——**vitest 不读 `tsconfig.paths`**。
+所以这一层的契约是：
 
----
+1. **每列都给 `width` 与 `ellipsis`**，`scroll.x` = 列宽合计；列宽合计要 ≤ 容器实测宽（1440 视口下是 1192px）。
+2. 密度改动只改 `theme/antd.ts` 的 token，**不在页面里用 Tailwind 顶单元格内边距**。
+3. **密度只能被量出来，不能被看出来**：浏览器面板在本会话是 0×0/hidden，截图不可用，
+   口径是"同源 iframe 固定 1440×900 + computed style + rect"，探针脚本见 `agent-work/`（gitignore，临时物）。
 
-## shadcn registry 的取用口径（Demo 那轮，2026-09-27）
+> 守卫的历史：v5 用 `ui/table-density.spec.ts` **读源码类名**断言（因为官方版行为正常、只是不密集，行为测试拦不住覆盖事故）。
+> v6 已经没有 `ui/table.tsx` 这个原语，那个 spec 随之删除；现在守密度的是 lint 的两个 scope + 上面这三条约定。
+> 那条**方法论**留着：第一版守卫用 `function TableHeader[\s\S]*?bg-muted\/40`，`[\s\S]*?` 会跨函数漂移到
+> `TableFooter` 附近，删掉表头底色照样绿——**新守卫必须反向红一次**，且切片匹配不要跨函数。
 
-**取件要带代理环境变量**，否则 `ECONNRESET`（`docs/research-nextjs-stack.md` §6.3 的"域名级定向重置"仍然成立，
-只是当时忘了它需要显式出口）。可直接复用的命令：
+## 行内 `style` 的例外（照旧，但判据换了）
 
-```bash
-HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 \
-  node --use-env-proxy ./node_modules/shadcn/dist/index.js add -y <件名...>
-```
+禁令不再看"是不是 Tailwind 类"，看的是**值从哪来**：
 
-三个踩点：
-
-1. `npx --no-install shadcn@latest add …` 会报 `npx canceled due to missing packages and no YES option`——
-   本仓已把 `shadcn` 装成 dependency，**直接跑本地包**，不要用 npx。
-   另外 `.bin/shadcn` 是 shell wrapper，`node <它>` 会当 JS 解析报错，要指到 `dist/index.js`。
-2. 非交互必须带 `-y`；要覆盖已有件再加 `-o`，且**只列真正要换的件名**——
-   `-o` 会把列出的件全部重写（本轮用 `add -y -o badge label select separator table tabs textarea skeleton`
-   换掉 8 件自封装实现，`button/card/dialog/…` 与全部领域件不受影响，事后逐个 `diff` 确认过）。
-3. **registry 产出的文件不符合本仓 prettier 口径**，落地后立刻对这 8 个文件单独 `prettier --write`；
-   绝不要跑 `pnpm format`（=`prettier --write .`）——它会重排 `docs/**`，
-   而 `docs/PRD-phase1-baseline-v0.md` 永不改写。
-
-**领域件（不是 registry 件）一律自封装并留在 `components/ui/`**：`status-mark`、`deadline-mark`、`state-block`、
-`data-table/DataTable`。它们的价值是**口径**（状态=点+词、空态要给下一步、表格只装当页），不是样式。
-
-## 行内 `style` 的例外（只有"运行时几何"这一类）
-
-禁令⑦/样式三条② 说"覆盖组件默认样式一律走 `cn()`，禁止行内 style 与 `!important`"。
-这条禁的是**用行内 style 绕过令牌改外观**（颜色、间距、字号、阴影），不是"任何 `style` 属性都不许出现"：
-当数值来自运行时（数据库、列模型），Tailwind 扫不到字面量、生成不出类名，此时 `style` 是平台唯一的通道。
-
-现存的合法两处，都是**宽度**且值在运行时才知道：
-
-| 位置 | 值来源 | 为什么不能是类名 |
+| 位置 | 值来源 | 为什么只能 `style` |
 |---|---|---|
-| `(desk)/workbench.tsx` 状态分布条 | 各状态计数算出的百分比 | 百分比是任意值 |
-| `ui/data-table/DataTable.tsx` 的 `<col>` | `column.getSize()` | 列宽由调用方的列定义决定 |
+| `(desk)/workbench.tsx` 状态分布条 | 各状态计数算出的百分比 | 运行时任意值 |
+| 深色导航与登录页墨蓝面板的底色/文字色 | `theme/brand.ts` 常量（SSR 壳不能用 antd 组件） | Server Component 渲染边界 |
 
-**能给字面量就不要用 `style`**：详情页节点表的列宽是固定的，那里就写成静态 arbitrary 类
-（`<col className="w-[300px]" />`），Tailwind 扫得到，也就不必再占一条例外。
-除这两处外任何 `style` 出现都按违规处理（`common errors` 第 3 条不变）。
-
-## 表格密度契约（2026-09-27 的一次真实回归）
-
-`shadcn add -o` 会把已存在的自封装件**换成 registry 默认版**。这一轮它覆盖了 `ui/table.tsx`，
-而 `DataTable` 对密度的假设没跟着复核，后果全是可量的（1440×900 同源 iframe 实测）：
-表头无底槽、表头与正文同为 `14px/text-foreground`（整张表没有视觉锚点）、单元格内边距掉到 `p-2`、
-「程序」「等级」两列被 auto layout 压到 45px。
-
-三条约定：
-
-1. 密度契约由 `ui/table-density.spec.ts` 守着——它**读源码类名**断言，不是行为测试。
-   理由：官方版行为完全正常，只是不密集，行为测试拦不住这类覆盖事故。
-   守卫自己的坑也踩过：第一版用 `function TableHeader[\s\S]*?bg-muted\/40`，
-   `[\s\S]*?` 会跨函数漂移到 `TableFooter` 的 `bg-muted/50` 附近，删掉表头底色照样绿。
-   现在一律先按函数体切片再匹配。**新守卫必须反向红一次**这条在这里同样成立。
-2. `table-fixed` **不写在原语里**，由需要列宽的调用方（`DataTable`、详情页节点表）自己传。
-   写进原语会把没有 `<colgroup>` 的表（配置页那种）所有列平均切，长文本列反而被挤扁。
-3. 列宽是**语义优先级**，不该交给内容去抢：详情页节点表没给宽度时，"时间"列因为要塞两串完整日期抢到 359px，
-   而主列"节点"只剩 64px（名字被裁）。
-
-
+**能给 token 就绝不用 `style`**：尺寸走 `theme/antd.ts`，颜色走 `BRAND`/`INK`。
+除这两类之外任何 `style` 出现都按违规处理（`common errors` 第 3 条不变）。

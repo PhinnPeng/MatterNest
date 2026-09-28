@@ -1,180 +1,47 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-/*
- ---break---
- */
-@custom-variant dark (&:is(.dark *));
 
 /*
- * Tailwind v4 的入口写法（无 tailwind.config.js 的 CSS-first 配置）。
- * 样式三条（技术选型 §3.3）：① 间距与色彩只用 Tailwind 令牌，不留第二套刻度；
- * ② 覆盖组件默认样式一律走 cn() 合并，禁止行内 style 与 !important；
- * ③ 业务组件不得直接依赖原语包，一律经 components/ui/ 那层。
- * 原来的 `corePlugins: { preflight: false }` + AntD ConfigProvider 令牌是为两套体系共存打的补丁，
- * 现在只有一套，那条约定整段作废。
+ * Tailwind v4 入口（无 tailwind.config.js 的 CSS-first 配置）。
+ *
+ * **这版只管两件事**：preflight + 少量布局工具类。组件的外观、尺寸、色彩全部交给
+ * antd 的 token（`src/app/theme/antd.ts` 一处定义）。
+ *
+ * 为什么不再留 shadcn 那套语义色变量（`--primary/--muted/--sidebar/...`）：
+ * 换到 antd 后如果两套令牌并存，就一定出现"这个页面用 `bg-primary`、那个用
+ * `colorPrimary`"的分叉——那正是本仓禁令⑦ 一开始要防的事。
+ * 迁移的诚实做法是**把旧的那套删干净**，而不是留着"以后可能用得上"。
+ *
+ * 三条样式约定（原"样式三条"按 antd 重述，spec/frontend 同步）：
+ *   ① 组件内尺寸一律走 antd token（`theme.components.*`），不用 Tailwind 去顶开
+ *      —— 两套间距刻度会在这里第二次长出来；
+ *   ② Tailwind 只用于**容器布局**（flex/gap/宽高/文字排版），不用于组件外观覆盖；
+ *   ③ 覆盖 antd 默认样式优先用 `styles`/`classNames` 语义槽与 token，
+ *      实在不行才写行内 style；`!important` 一律禁止。
+ *      守卫见 `tools/lint-guard/check.mjs` 的禁令⑦（现在禁的是"重新引入第二套体系"）。
  */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-heading: var(--font-sans);
-  /* 系统字体栈。刻意不用 next/font/google —— 那是构建期去外网取字体，
-     本系统是内网私有化部署（技术选型 §6），不能让 pnpm build 依赖外网。
-     shadcn init 原本在这里写的是自引用 `var(--font-sans)`（配合它注入的 Geist），
-     去掉 Geist 后必须换成真栈，否则 --font-sans 自引用失效。 */
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
-    "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-}
-/*
- ---break---
- */
-:root {
-  /*
-   * MatterNest 一期主题（2026-09-27）。基调：**冷墨纸 + 电蓝**，为"律师每天盯 40 分钟表格"设计。
-   *
-   * 三条理由，避免被当成装饰性配色：
-   *   · 背景不是纯白而是带一点蓝灰的纸色 —— 满屏 btree 表格长时间阅读，纯白的对比噪声更累；
-   *   · 主色只在"当前页/主操作/焦点"三处出现（电蓝），表格内部一律安静，
-   *     否则每行都有颜色 = 没有颜色，临期与逾期就淹在装饰里；
-   *   · 语义色（结案/归档/逾期/待补）只给"点 + 词"，不给整块底色 —— 状态要能被扫读，不能靠色觉分辨。
-   * 深色侧栏只承担导航这一件事；内容区永远是浅色（内网 PC 宽屏，一期不做窄屏，P1-17）。
-   */
-  --background: oklch(0.975 0.006 250);
-  --foreground: oklch(0.243 0.028 258);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.243 0.028 258);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.243 0.028 258);
-  --primary: oklch(0.556 0.217 265);
-  --primary-foreground: oklch(0.985 0.004 250);
-  --secondary: oklch(0.962 0.011 250);
-  --secondary-foreground: oklch(0.32 0.03 258);
-  --muted: oklch(0.962 0.011 250);
-  --muted-foreground: oklch(0.556 0.028 255);
-  --accent: oklch(0.945 0.028 258);
-  --accent-foreground: oklch(0.32 0.045 262);
-  --destructive: oklch(0.55 0.2 26);
-  --border: oklch(0.902 0.014 252);
-  --input: oklch(0.902 0.014 252);
-  --ring: oklch(0.556 0.217 265);
-  --chart-1: oklch(0.556 0.217 265);
-  --chart-2: oklch(0.62 0.13 185);
-  --chart-3: oklch(0.66 0.15 62);
-  --chart-4: oklch(0.55 0.2 26);
-  --chart-5: oklch(0.52 0.03 258);
-  /* 8px：比默认 10px 收一点。表格里到处是小控件，圆角一大就显软 */
-  --radius: 0.5rem;
-  /* 侧栏是"深色那一块"，用语义变量而不是硬编码，方便将来整体换暗色 */
-  --sidebar: oklch(0.262 0.04 262);
-  --sidebar-foreground: oklch(0.94 0.012 250);
-  --sidebar-primary: oklch(0.62 0.19 265);
-  --sidebar-primary-foreground: oklch(0.98 0.004 250);
-  --sidebar-accent: oklch(0.33 0.05 262);
-  --sidebar-accent-foreground: oklch(0.97 0.006 250);
-  --sidebar-border: oklch(0.36 0.05 262);
-  --sidebar-ring: oklch(0.62 0.19 265);
-}
-/*
- ---break---
- */
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
-/*
- ---break---
- */
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+  html,
+  body {
+    height: 100%;
   }
   body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
+    /* 纸色底：长时间读表，纯白的对比噪声更累（沿用 v5 那条判断，与用哪个库无关） */
+    background: #f7f8fa;
+    color: #1f2533;
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
+      "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
   }
 }
 
 /*
- ---break---
- */
-/*
- * 项目级工具类。**只用上面的令牌**（样式三条①：不留第二套间距/色彩刻度）。
- * 放这里而不是散进各组件，是为了让"电蓝只出现在三处"这条约束可被 grep 检查。
+ * 项目级工具类。**只留这一个**：数字与编号用等宽 + 表格数字，
+ * 否则同一列里"8,420,000.00 / 760,000.00"数位对不齐，扫读要靠字符宽度猜。
+ * antd 没有提供这个（它的 `Statistic` 只管数字本身），所以这是唯一值得留的自定义类。
  */
 @utility num {
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   letter-spacing: -0.01em;
-}
-@utility hairline-b {
-  border-bottom: 1px solid var(--color-border);
 }

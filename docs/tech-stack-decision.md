@@ -1,8 +1,8 @@
-# MatterNest 第一期技术选型（T1）v5
+# MatterNest 第一期技术选型（T1）v6
 
-> 状态：**v5 —— 全栈 Next.js 16（React + 纯 shadcn + Tailwind v4），后端仍 TS 同仓（Route Handlers + Server Functions），不进 Python**；认证为云之家 + 本地密码双通道（我方适配云之家）。§13 是现行结论；§11/§12 的 Nuxt 路线已被取代，但其中 C1/C3/C4 与 Drizzle 相关结论**仍然有效**。
-> 核验依据：`research-nextjs-stack.md`（Next 16.3.6 官方文档）、`research-nuxt-table-vue-ui.md`（TanStack/shadcn 能力）、`research-nuxt-fullstack-nitro.md`（Nitro/Drizzle 一手核验，框架结论部分已过期）。
-> 版本沿革：v1 定 NestJS + Drizzle + React/AntD；v2 补并发与迁移论证、前端改 AntD+Tailwind 混用、新增快速上线切法；v3 以核验定稿全栈 Nuxt；v4 认证改双通道并定"适配云之家"、前端由 Element Plus 改判纯 shadcn-vue、修平四处矛盾；**v5（2026-09-26）为拿 shadcn 一等待遇把前端换成 Next.js + React，后端随之从 Nitro 移到 Next Route Handlers，语言栈不变**——理由与代价见 §13。
+> 状态：**v6 —— 全栈 Next.js 16（React + Ant Design 6 + Tailwind v4），后端仍 TS 同仓（Route Handlers + Server Functions），不进 Python**；认证为云之家 + 本地密码双通道（我方适配云之家）。§13 是现行结论，其中**禁令⑦⑧ 的现行文字在 §13.6**（v6 覆盖 §13.5 的 7、8 两条）；§11/§12 的 Nuxt 路线已被取代，但其中 C1/C3/C4 与 Drizzle 相关结论**仍然有效**。
+> 核验依据：`research-nextjs-stack.md`（Next 16.3.6 官方文档）、`research-nuxt-table-vue-ui.md`（TanStack/shadcn 能力，v6 起只作对照）、`research-nuxt-fullstack-nitro.md`（Nitro/Drizzle 一手核验，框架结论部分已过期）。
+> 版本沿革：v1 定 NestJS + Drizzle + React/AntD；v2 补并发与迁移论证、前端改 AntD+Tailwind 混用、新增快速上线切法；v3 以核验定稿全栈 Nuxt；v4 认证改双通道并定"适配云之家"、前端由 Element Plus 改判纯 shadcn-vue、修平四处矛盾；v5（2026-09-26）为拿 shadcn 一等待遇把前端换成 Next.js + React，后端随之从 Nitro 移到 Next Route Handlers，语言栈不变；**v6（2026-09-28）前端组件体系由纯 shadcn 改判回 Ant Design 6**——两次否同一套观感 + ProComponents 的 peer 只到 antd 5 这条一手事实，理由、继承/作废清单与代价见 §13.6。
 > 本文是决策记录，不是教程。T2 阶段把 `.trellis/spec/` 的 12 个空模板按本文填成项目约定。
 
 ---
@@ -32,8 +32,8 @@
 | ORM / 查询 | **Drizzle ORM** + `postgres`(pg) 驱动 | 见 §3.2 |
 | 迁移 | **drizzle-kit 生成 + 手写 SQL 补丁段**，SQL 文件进版本库 | 见 §3.2 |
 | 校验/契约 | **Zod**，schema 定义在 `shared/schema` | 一处定义 → DTO 校验、前端表单规则、OpenAPI 三方复用（OpenAPI 由 `zod-openapi` 生成，没有 Nest 装饰器可白拿） |
-| 前端 | ~~AntD 5 与 Tailwind/shadcn 混用~~ ⚑ ~~Nuxt + 纯 shadcn-vue~~ → **Next.js 16 + React + 纯 shadcn 原版 + Tailwind v4 + 自封装 `DataTable.tsx`（`@tanstack/react-table`）** | 见 §3.3。换回 React 的唯一动机是拿 shadcn 一等待遇（Blocks / 主题工具 / registry / MCP），继承与作废清单见 §13 |
-| 服务端数据 | **`@tanstack/react-query`**（与表格 `@tanstack/react-table` 同族，状态层同源） | 列表分页/筛选/详情缓存是本项目的主战场，手写缓存必然出错 |
+| 前端 | ~~AntD 5 与 Tailwind/shadcn 混用~~ ⚑ ~~Nuxt + 纯 shadcn-vue~~ ⚑ ~~Next.js 16 + React + 纯 shadcn + TanStack Table~~ → **Next.js 16 + React + Ant Design 6 + Tailwind v4（只管容器布局）+ 自封装 `DataTable.tsx`（包 antd `Table`）** | 见 §13.6。v5 换回 React 的动机是拿 shadcn 一等待遇；v6 因用户两次否观感 + ProComponents peer 只到 antd 5 改判回 antd，继承与作废清单见 §13.6.3 |
+| 服务端数据 | **`@tanstack/react-query`**（v6 起表格不再用 `@tanstack/react-table`，但状态层留 react-query） | 列表分页/筛选/详情缓存是本项目的主战场，手写缓存必然出错 |
 | 认证 | **双通道**：云之家登录（授权码换 eid/openId → 绑定本所账号）+ 本地用户名密码；会话统一走服务端 session 表 + httpOnly cookie | 见 §3.4 |
 | 对象存储 | **MinIO**（S3 兼容）自建 | 法律文件不出内网；后端签 60s URL，不直暴 MinIO |
 | 定时任务 | ~~`@nestjs/schedule`~~ ⚑ ~~Nitro scheduled tasks~~ → **独立 `worker` 容器 + `node-cron` + PG `pg_try_advisory_lock` 单飞**（Next 无内置调度器） | 见 §3.5 与 §12.2 C1、`research-nextjs-stack.md` §2.3（多副本重复触发的老风险不变，只是调度器换成自己的） |
@@ -158,9 +158,10 @@ schema 真相    packages/db/schema/*.ts        （Drizzle，供类型安全查�
          （枚举表 §5.1 已把 codegen 改为手写 + 测试）
 ```
 
-### 3.3 前端：纯 shadcn（React 原版）+ Tailwind（v5 再重写）
+### 3.3 前端：纯 shadcn（React 原版）+ Tailwind（v5 再重写；**v6 已被 §13.6 取代**）
 
-> 本节历史：v2 论证"AntD 5 与 Tailwind 混用"→ v4 按 Vue 现实重写为"纯 shadcn-vue"→ **v5 因换回 Next.js，落到原版 shadcn（React）**。判断里成立的部分一路保留下来：密集表格与动态表单最重、shadcn 买的是"源码进仓 + 无黑盒"、缺件必须自己封装。Vue 端口的核验留在 `research-nuxt-table-vue-ui.md` 里作为对照，不再是指南。
+> ⚠ **本节写的是 v5 的论证，现行结论在 §13.6。** 留着不删有两个用处：① 下面那张"密集表格与动态表单的成本表"是**组件库无关**的，v6 只是换了实现它的库，成本项一项没消失（FileUpload 依然要自封装）；② "纯一套体系"这条判断在 v6 更硬了——它现在由 lint 的**两个 scope**（体系 + 色值单源）机器拦住，而不是靠 review。
+> 本节历史：v2 论证"AntD 5 与 Tailwind 混用"→ v4 按 Vue 现实重写为"纯 shadcn-vue"→ v5 因换回 Next.js，落到原版 shadcn（React）→ **v6（2026-09-28）改判 Ant Design 6**。判断里成立的部分一路保留下来：密集表格与动态表单最重、缺件必须自己封装。Vue 端口的核验留在 `research-nuxt-table-vue-ui.md` 里作为对照，不再是指南。
 
 **先认这条路线买到了什么**：组件源码复制进仓库、没有黑盒 API，agent 能读能改；Tailwind 是模型写得最熟的样式语言；不受组件库版本天花板约束；无障碍（键盘导航、焦点管理、aria）由无样式原语兜住，不必自研必定做错的那部分。这几条正是本项目"由 agent 大量实现"前提下的主要收益。**v5 额外拿到的**：官方 CLI 与 registry 一等支持（安装页列的六个框架全是 React 系）、Blocks 成品区块、主题工具、面向 agent 的 MCP 工具。
 
@@ -527,7 +528,61 @@ N1 装配与 CLI 能力现场看 / N2 一条带 `withScope` 的 404 查询 / N3 
 4. **schema 演进只用 `generate` + `migrate`，开发期也不用 `push`**：`push` 检测不到已有索引 `.where()`/表达式变化，而软删 partial unique 是权限模型骨架，用 push 会出现"代码改了、库没改、CI 还绿"的静默漂移。
 5. **业务读写一律 `/api/**` Route Handler**，且**鉴权必须在每个 handler 内部 `withScope()`**——Next 官方明令不得只依赖 proxy/middleware（matcher 排除路径会连带跳过该路径上的 Server Function）。Server Function 只做编排，不承载第二套权限判断。返回体一律 JSON，不可见资源 **404**。
 6. **页面壳不得预取业务数据**：SSR 只出外壳与静态文案，一切业务读取发生在鉴权后的 `/api/**`。否则行级数据范围被页面壳绕开。（替代原"整站 SPA"那条。）
-7. **前端只允许一套组件体系：shadcn + Tailwind。** 禁止为单个控件引入第二套带样式的库（MUI / AntD / Chakra 等）；清单里没有的件一律自封装进 `components/ui/`。业务组件不得直接 import 原语包（Radix UI），必须经 `components/ui/` 那层，将来换原语只改一层。
-8. **表格一律经 `components/ui/data-table/DataTable.tsx` 封装并强制服务端分页/排序/筛选**（每页上限 100）——理由不是性能而是权限：客户端全量拉取再本地筛等于绕过 `ScopeResolver`（权限草案 §4）。表单库**只用 react-hook-form + Zod resolver**（与 `shared/schema` 同源），日期库全项目只允许一个；组件内不得自带第二套校验规则。
+7. **前端只允许一套组件体系：shadcn + Tailwind。** ⚑ **v6 已改判，现行文字见 §13.6.2**——体系换成 Ant Design 6，"不得引第二套带样式的库"这条里点名禁止的对象相应反过来（现在禁的是 shadcn/radix 回归、ProComponents、lucide、react-hook-form、date-fns，以及 antd 深路径与第二处色值定义）。原句保留是为了让"哪一条被推翻"看得见。
+8. **表格一律经 `components/ui/data-table/DataTable.tsx` 封装并强制服务端分页/排序/筛选**（每页上限 100）——理由不是性能而是权限：客户端全量拉取再本地筛等于绕过 `ScopeResolver`（权限草案 §4）。~~表单库**只用 react-hook-form + Zod resolver**（与 `shared/schema` 同源）~~ ⚑ **v6 改判：表单只用 antd `Form`，规则由 `shared/schema` 的 Zod 经 `components/form/zod-rules.ts` 推导**；"单一来源、组件内不得自带第二套校验规则"这条实质不变（§13.6.2）。日期库全项目只允许一个——v6 起那个库是 `dayjs`。
 
 外加两条部署级：**(a)** 多副本必须共配 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 与 `deploymentId`，且不使用 `'use cache'`/跨实例共享缓存；**(b)** worker 与 app 都要处理 SIGTERM，留 10–30s drain，outbox 投递不得在关闭时被掐断。
+
+## 13.6 v6 改判（2026-09-28）：前端组件体系由纯 shadcn 改为 **Ant Design 6**
+
+> 触发方式是**用户两次否同一套观感**，不是我判定 shadcn 的能力不够。第一次反馈"效果不好"，我按量不猜：在同源 1440×900 iframe 里取 computed style 与 rect，量出案件表**行高 39px、表头 40px、十列宽 `[133,304,160,45,45,72,109,146,74,70]`**——「程序」「等级」被挤到 45px，因为 auto layout 下传给 TanStack 的 `size` 根本不生效；表头与正文同字色同字号，整张表没有视觉锚点。修完那次回归（`2217b08`）用户仍否，并明确定方向"整体使用 antd"。**这条是决策不是提议，本节按改判记录，不写"待评估"。**
+
+### 13.6.1 两条一手事实（后面有人想"顺手把 Pro 装上"时先看这里）
+
+| 主张 | 核验 | 结论 |
+| --- | --- | --- |
+| `antd@6.6.5` 能配 React 19 | `antd` 的 peer 是 `react >= 18` | **成立**，本仓 React 19.3 直接可用 |
+| `@ant-design/pro-components` 能用 | 2.8.10 的 peer 只声明 **`antd ^4.24.15`** 与 **`^5.11.2`** 两个大版本区间，**不含 antd 6** | **不成立**：装上能过 lint，运行时把样式拉回 v5 那套 CSS-in-JS 配置，症状要过几屏才看得见。所以 ProTable / ProForm 出局，**禁令⑦ 明确把它写进拦截清单** |
+
+Pro 那三件便利（查询区、工具栏、表单化弹窗）本来就是薄封装，不可替代的能力没有丢，丢的是"少写 80 行"：`components/list-toolbar.tsx`（去抖关键词 + 状态/排序 + 含已归档）、`components/ui/data-table/DataTable.tsx`（受控分页 + 列宽 + 服务端排序）、几个 `Modal + Form` 弹窗。
+
+### 13.6.2 禁令⑦ 与禁令⑧ 的现行文字（覆盖 §13.5 的 7、8 两条）
+
+7. **前端只允许一套组件体系：Ant Design 6 + Tailwind v4（Tailwind 只管容器布局）。** 三个可机器化的子条款：
+   - **不得引入第二套体系或第二家叶子库**：`radix-ui`/`class-variance-authority`（上一套的残余，依赖已删）、`@ant-design/pro-components`、`lucide-react`（图标只有 `@ant-design/icons`）、`react-hook-form`+`@hookform/resolvers`（表单只有 antd Form）、`date-fns`/`moment`（日期只有 `dayjs`，antd 的 DatePicker 认它）；
+   - **不得走 antd 深路径**：一律顶层 `"antd"`，类型也在 index 上（`TableColumnsType`、`FormRule`），`antd/es/*` 会绕过 `@ant-design/nextjs-registry` 的样式抽取；
+   - **一个色只定义一次**：色值唯一源是 `src/app/theme/brand.ts`（`BRAND`/`INK`/`PAPER`/`alpha()`），`theme/antd.ts` 只做 token 映射，业务侧写 `BRAND.primary` 而不是 `#2f5fe0`；半透明用 `alpha(色, 透明度)`，不许手写第二份 `rgba()`。白 `#fff` 是唯一放过字面量的颜色。
+8. **表格一律经 `components/ui/data-table/DataTable.tsx`**：受控 `page/pageSize/sortBy/sortDir`、`pageSize > 100` **直接抛**、列上只给 `sorter: true`（**绝不再给第二个参数**，历史上给过 `position` 那个非法 key 且被静默忽略）、**禁止客户端全量排序**（客户端全量筛 = 绕过 `scopedWhere`，理由不是性能而是权限）。表单校验仍然单一来源——`shared/schema` 的 Zod，经 `components/form/zod-rules.ts` 推导成 antd `rules`（见 §13.6.3）。
+
+### 13.6.3 v5 → v6 的继承与作废
+
+| v5 那条 | v6 怎么办 |
+| --- | --- |
+| 禁令① `src/shared/**` 纯 TS | **完全继承**。且它反过来改了一个测试：`shared/time/zh-cn.spec.ts` 原先读 `fs` 断言源码里没有 date-fns token，禁令① 直接把 `node:fs` 拦了——**是门禁设计了测试，不是测试设计了门禁**，那条断言删掉 |
+| 禁令⑤⑥（鉴权在 handler 内、页面壳不预取） | **完全继承**，并新增一条渲染边界：登录页是 Server Component，**一个 antd 组件都不能出现**（antd 组件全带 hook，SSR 里直接抛），所以左侧墨蓝面板用原生标签 + 内联样式写死 |
+| 禁令⑧ 的"react-hook-form + Zod resolver" | **作废**：表单状态归 antd `Form`，校验规则仍从 `shared/schema` 的 Zod **推导**（`zod-rules.ts` 读 `_zod.def.checks`，把 `min_length`/`max_length` 翻成 `rules`），服务端返回的 `fieldIssues` 用 `form.setFields` 落到字段上——**不写第二份规则**这条没变 |
+| 自封装 `DataTable`（TanStack headless 状态层） | **作废**：TanStack 出局，`DataTable` 改为包 antd `Table`；服务端分页那条门原样保留在同一个文件里 |
+| `cn()` / `components.json` / shadcn 复制件（14 个原语） | **删除**，`globals.css` 里那套 shadcn 语义色变量（`--primary/--muted/--sidebar`）一并删干净——**两套令牌并存必然出现"这页用 `bg-primary`、那页用 `colorPrimary`"的分叉，而禁令⑦ 一开始就是防这个** |
+| `react-day-picker` + `date-fns` 中文 locale | **作废**：日历与日期选择归 antd（自带 zh_CN），格式化归 `dayjs`；`shared/time/zh-cn.ts` 的 pattern 常量从 date-fns token 改写成 dayjs token。**踩到的一条硬事实：`yyyy`/`dd` 是 date-fns 的 token，dayjs 里会原样输出 `yyyy年9月0日`**；`EEE` 也不受 dayjs 核心支持，`WEEKDAY_PATTERN` 因此删除 |
+| 密度靠 Tailwind 类手工压 | **改为 token 一处调**：`controlHeightSM=24`、`cellPaddingBlockSM=5`、`cellPaddingInlineSM=10`、`fontSizeSM=12`、Table `fontSize=13`；`size="small"` 是全局口径而不是每表自选 |
+
+### 13.6.4 改判的代价（如实记，不当作没花）
+
+- 已落地的 14 个 shadcn 原语 + 页面层全部重写一遍，Demo 那一轮约 **1.5 天**的视觉工作作废。
+- 换库**没有**改变的东西：`mn_` 表结构、迁移与 seed、`/api/**` handler、权限三档、404 语义、Zod 单一规则源、服务端分页上限、冒烟脚本的 68 条断言。
+- 换来的：表格密度与表头/正文字色分离、控件尺寸有官方刻度、DatePicker/Descriptions/Tabs/Badge 等**一期要用的密集后台件不再需要自封装**（FileUpload 仍然没有，仍按自封装排期）。
+- 尚未验的部分：**人眼观感不在机器断言的能力范围内**。这一轮的数值证据见下，最终是否"可以了"仍需用户开可见浏览器过一遍。
+
+### 13.6.5 数值证据（同源 1440×900 iframe，`next start` 生产构建）
+
+| 量 | v6 初版 | 本轮修后 |
+| --- | --- | --- |
+| 案件表行高 | **54px**（10 列里 9 个单元格非 nowrap，内部编号被折成两行） | **33px**（全部 `nowrap`，行高 = 20.4 行距 + 5+5 内边距） |
+| 表体横向溢出 | **10px**（出横向滚动条） | **0**（列宽合计 1168 ≤ 容器 1192） |
+| 事项表行高 / 溢出 | — | **35px**（含行内 `size="small"` 按钮）/ **0** |
+| 表头 vs 正文 | 字色 `rgb(90,100,120)` vs `rgba(0,0,0,.88)`、底 `rgb(242,244,248)`、字号 13 | 同（这条 v6 初版就对了，回归在高度不在配色） |
+| 控件 | 按钮 30px / 输入 29.3px / Select 29–30px / 复选 16px | 同（`controlHeight=30`、`controlHeightSM=24` 生效） |
+| 外壳 | Sider 216px、菜单项 34px、`rgb(29,36,51)` 墨蓝底 | 同 |
+| 状态标记 | 每行一个 Badge，点色 `rgb(47,95,224)` / `rgba(0,0,0,.25)` / `rgb(82,196,26)` 三色可分 | 同（"点 + 词"，颜色不是唯一通道） |
+
+**量出来的教训值得单独记一条**：`width` 在 `tableLayout: fixed` 下是真的，但**只要有一列的文字超出列宽，`white-space: normal` 就会把整行撑高**——这是 auto layout 时代"列宽不生效"那个坑的续集。所以密度不是调 `padding` 调出来的，是**每列都 nowrap + 宽度按实测文字**出来的，而"实测"只能靠量，不是靠估。
