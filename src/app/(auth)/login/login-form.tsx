@@ -4,7 +4,7 @@ import { INK } from "@/app/theme/brand";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Form, Input, List, Space, Tag, Typography } from "antd";
+import { Alert, Button, Form, Input, Space, Tag, Typography } from "antd";
 
 import { api, ApiFailure } from "@/app/lib/client/api";
 import { loginSchema } from "@/shared/schema/hosts";
@@ -60,13 +60,23 @@ export function LoginForm() {
   }
 
   return (
-    <div style={{ width: 320 }}>
-      <Typography.Title level={4} style={{ marginBottom: 4 }}>
+    <div>
+      <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>
         登录
       </Typography.Title>
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 20 }}>
+      <Typography.Paragraph style={{ fontSize: 12, color: INK.secondary, marginBottom: 22 }}>
         用本所账号。连续失败不会锁定，但每次都会记进审计。
       </Typography.Paragraph>
+
+      {serverError ? (
+        <Alert
+          type="error"
+          showIcon
+          message={serverError}
+          style={{ marginBottom: 16 }}
+          role="alert"
+        />
+      ) : null}
 
       <Form<FormValues>
         form={form}
@@ -76,51 +86,51 @@ export function LoginForm() {
         initialValues={{ username: "", password: "" }}
       >
         <Form.Item label="账号" name="username" rules={rulesFor(loginSchema, ["username"])}>
-          <Input autoFocus autoComplete="username" allowClear />
+          <Input size="large" autoFocus autoComplete="username" allowClear />
         </Form.Item>
         <Form.Item label="口令" name="password" rules={rulesFor(loginSchema, ["password"])}>
-          <Input.Password autoComplete="current-password" />
+          <Input.Password size="large" autoComplete="current-password" />
         </Form.Item>
-        {serverError ? (
-          <Alert type="error" showIcon message={serverError} style={{ marginBottom: 12 }} />
-        ) : null}
-        <Button type="primary" htmlType="submit" block loading={busy}>
+        <Button size="large" type="primary" htmlType="submit" block loading={busy}>
           登录
         </Button>
       </Form>
 
       {process.env.NODE_ENV !== "production" ? (
-        <div style={{ marginTop: 28, borderTop: `1px solid ${INK.line}`, paddingTop: 12 }}>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 6 }}>
+        <div style={{ marginTop: 26, borderTop: `1px solid ${INK.line}`, paddingTop: 12 }}>
+          <Typography.Paragraph style={{ fontSize: 11, color: INK.secondary, marginBottom: 6 }}>
             演示账号（口令 = 账号，点一下填入）。换一个账号登就能看到同一张表行数不同——
             那是服务端范围谓词在起作用，不是前端筛的。
           </Typography.Paragraph>
-          <List
-            size="small"
-            dataSource={DEMO}
-            renderItem={(d) => (
-              <List.Item
-                style={{ padding: "4px 0", cursor: "pointer" }}
+          {/* 用 text Button 而不是带 onClick 的 div：这块要能用键盘走到（Tab + Enter） */}
+          <Space direction="vertical" size={2} style={{ width: "100%" }}>
+            {DEMO.map((d) => (
+              <Button
+                key={d.username}
+                type="text"
+                size="small"
+                block
+                style={{ textAlign: "left", paddingInline: 6 }}
                 onClick={() => {
                   form.setFieldsValue({ username: d.username, password: d.username });
                 }}
               >
-                <Space size={6} wrap>
+                <Space size={6}>
                   <span className="num" style={{ fontSize: 12 }}>
                     {d.username}
                   </span>
-                  <span style={{ fontSize: 11, color: INK.muted }}>{d.who}</span>
+                  <span style={{ fontSize: 11, color: INK.secondary }}>{d.who}</span>
                   <Tag
                     bordered={false}
-                    style={{ fontSize: 10, lineHeight: "16px", marginInlineEnd: 0 }}
+                    style={{ fontSize: 11, lineHeight: "16px", marginInlineEnd: 0 }}
                   >
                     {d.scope}
                   </Tag>
                 </Space>
-              </List.Item>
-            )}
-          />
-          <Typography.Text type="secondary" style={{ fontSize: 10 }}>
+              </Button>
+            ))}
+          </Space>
+          <Typography.Text style={{ fontSize: 11, color: INK.secondary }}>
             另有 qiangl（未开通）：登录应与口令错误给同一句提示。
           </Typography.Text>
         </div>

@@ -26,12 +26,22 @@
     height: 100%;
   }
   body {
-    /* 纸色底：长时间读表，纯白的对比噪声更累（沿用 v5 那条判断，与用哪个库无关） */
+    /* 纸色底：长时间读表，纯白的对比噪声更累（沿用 v5 那条判断，与用哪个库无关）。
+       ⚠ 这三处色值与 theme/brand.ts 同源——CSS 侧 import 不到 TS 常量，改色必须两处一起改。 */
     background: #f7f8fa;
     color: #1f2533;
     font-family:
       -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
       "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  }
+  /*
+   * 选中文本：默认那套系统蓝在这张页面上会同时压在纸白与墨蓝两种底上，
+   * 所以给一个不依赖背景的实色——主色底 + 白字，两种表面都可读。
+   * 值同 BRAND.primary / BRAND.sider.active。
+   */
+  ::selection {
+    background: #2f5fe0;
+    color: #fff;
   }
 }
 
