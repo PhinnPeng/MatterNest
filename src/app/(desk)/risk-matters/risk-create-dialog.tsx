@@ -127,6 +127,7 @@ export function RiskCreateDialog({
         form={form}
         layout="vertical"
         requiredMark={false}
+        scrollToFirstError={{ block: "center", behavior: "smooth" }}
         initialValues={{ amount: "", source: "" }}
       >
         <Row gutter={12}>

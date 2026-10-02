@@ -112,14 +112,16 @@ export function setFieldErrors(
   form: FormInstance,
   issues: readonly { path: readonly PropertyKey[] | string; message: string }[],
 ) {
-  form.setFields(
-    issues.map((i) => ({
-      name: (typeof i.path === "string"
+  const names = issues.map(
+    (i) =>
+      (typeof i.path === "string"
         ? i.path.split(".").map(seg)
         : i.path.map((p) => seg(String(p)))) as never,
-      errors: [i.message],
-    })) as never,
   );
+  form.setFields(issues.map((i, n) => ({ name: names[n], errors: [i.message] })) as never);
+  // 服务端打回来的错误常常在视口外（转案件一屏 10+ 项），标红了也等于没发生：
+  // 把人带到第一个出错的字段上。客户端校验失败那条路径由 Form 的 scrollToFirstError 负责。
+  if (names.length > 0) form.scrollToField(names[0], { block: "center", behavior: "smooth" });
 }
 
 /** DTO 路径段：数字段要转回来，`parties.0.name` 才指得到那一条当事人 */

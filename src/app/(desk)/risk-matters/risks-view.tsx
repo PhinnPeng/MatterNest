@@ -79,7 +79,7 @@ export function RisksView() {
       {
         key: "name",
         title: "事项名称",
-        width: 268,
+        width: 220,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("name", state.sortBy, state.sortDir),
@@ -98,7 +98,7 @@ export function RisksView() {
       {
         key: "type",
         title: "类型",
-        width: 84,
+        width: 76,
         ellipsis: true,
         render: (_, r) => meta?.enums.riskTypes[r.type] ?? r.type,
       },
@@ -123,7 +123,7 @@ export function RisksView() {
       {
         key: "conversion",
         title: "转案件",
-        width: 96,
+        width: 88,
         ellipsis: true,
         render: (_, r) =>
           r.conversionStatus === 1 ? (
@@ -147,7 +147,7 @@ export function RisksView() {
       {
         key: "discover",
         title: "发现日",
-        width: 96,
+        width: 88,
         ellipsis: true,
         render: (_, r) => (
           <span className="num" style={{ fontSize: 12 }}>
@@ -158,7 +158,7 @@ export function RisksView() {
       {
         key: "owner_name",
         title: "负责人",
-        width: 104,
+        width: 96,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("owner_name", state.sortBy, state.sortDir),

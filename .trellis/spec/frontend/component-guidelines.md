@@ -127,7 +127,7 @@ Provider 顺序是有意义的：`QueryClientProvider > AntdRegistry > ConfigPro
 
 ---
 
-## 表格密度契约（两轮回归换来的三条）
+## 表格密度契约（三轮回归换来的四条）
 
 **v5 那次（TanStack + shadcn）**：`shadcn add -o` 把自封装 `ui/table.tsx` 换成 registry 默认版，
 密度假设没跟着复核，1440×900 同源 iframe 量出：表头无底槽、表头与正文同 `14px/text-foreground`、
@@ -141,10 +141,15 @@ Provider 顺序是有意义的：`QueryClientProvider > AntdRegistry > ConfigPro
 
 所以这一层的契约是：
 
-1. **每列都给 `width` 与 `ellipsis`**，`scroll.x` = 列宽合计；列宽合计要 ≤ 容器实测宽（1440 视口下是 1192px）。
+1. **每列都给 `width` 与 `ellipsis`**，`scroll.x` = 列宽合计；列宽合计要 ≤ **最窄支持视口**的容器实测宽。
+   三个数都量过：1366 下容器 **1118px**（内网下限，必须一起量——只量 1440 会让两张表在 1366 各溢出 50 / 70px）、
+   1440 下 1192px、1920 下 1400px（列表容器有 `maxWidth: 1400`）。现在两张表的合计是 **1100 / 1108**。
 2. 密度改动只改 `theme/antd.ts` 的 token，**不在页面里用 Tailwind 顶单元格内边距**。
-3. **密度只能被量出来，不能被看出来**：浏览器面板在本会话是 0×0/hidden，截图不可用，
-   口径是"同源 iframe 固定 1440×900 + computed style + rect"，探针脚本见 `agent-work/`（gitignore，临时物）。
+3. **`ellipsis` 只在单元格内容是纯字符串时自动补 `title`**：一旦 `render` 包了 `<span>`/`<Tag>`，
+   被裁的文字就没有任何找回路径——案由列在 1366 下几乎每行被裁而悬停无提示，就是这么漏的。要显式写 `title`。
+4. **密度只能被量出来，不能被看出来**：浏览器面板在本会话是 0×0/hidden，截图不可用，
+   口径是"同源 iframe 固定视口 + computed style + rect"，且**iframe 里的查询要轮询到出行再量**
+   （冷加载 6s 内可能还是骨架，量到 0 行会误判成"表没了"），探针脚本见 `agent-work/`（gitignore，临时物）。
 
 > 守卫的历史：v5 用 `ui/table-density.spec.ts` **读源码类名**断言（因为官方版行为正常、只是不密集，行为测试拦不住覆盖事故）。
 > v6 已经没有 `ui/table.tsx` 这个原语，那个 spec 随之删除；现在守密度的是 lint 的两个 scope + 上面这三条约定。

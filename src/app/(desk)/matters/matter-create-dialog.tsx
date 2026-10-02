@@ -137,6 +137,7 @@ export function MatterCreateDialog({
         form={form}
         layout="vertical"
         requiredMark={false}
+        scrollToFirstError={{ block: "center", behavior: "smooth" }}
         style={{ marginTop: 8 }}
         initialValues={{ parties: [], description: "", amount: "", caseNo: "", court: "" }}
       >

@@ -87,7 +87,7 @@ export function MattersView() {
       {
         key: "name",
         title: "案件名称",
-        width: 296,
+        width: 248,
         sorter: true,
         sortOrder: sortOrderOf("name", state.sortBy, state.sortDir),
         ellipsis: true,
@@ -106,9 +106,15 @@ export function MattersView() {
       {
         key: "cause",
         title: "案由",
-        width: 132,
+        width: 120,
         ellipsis: true,
-        render: (_, r) => <span style={{ color: INK.secondary }}>{r.cause}</span>,
+        // 1366 下这一列几乎每行都被裁（案由普遍 8–12 字），所以必须给 title：
+        // antd 的 ellipsis 只在单元格内容是**纯字符串**时自动补 title，包一层 span 就没了。
+        render: (_, r) => (
+          <span title={r.cause} style={{ color: INK.secondary }}>
+            {r.cause}
+          </span>
+        ),
       },
       {
         key: "procedure",
@@ -148,7 +154,7 @@ export function MattersView() {
       {
         key: "owner_name",
         title: "承办人",
-        width: 112,
+        width: 104,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("owner_name", state.sortBy, state.sortDir),

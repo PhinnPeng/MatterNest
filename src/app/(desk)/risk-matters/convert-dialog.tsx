@@ -134,7 +134,12 @@ export function ConvertDialog({
           message={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
         />
       ) : null}
-      <Form form={form} layout="vertical" requiredMark={false}>
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark={false}
+        scrollToFirstError={{ block: "center", behavior: "smooth" }}
+      >
         <Row gutter={12}>
           <Col span={24}>
             <Form.Item label="案件名称" name="name" rules={rulesFor(convertSchema, ["name"])}>
