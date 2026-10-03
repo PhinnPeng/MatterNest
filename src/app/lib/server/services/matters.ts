@@ -1,7 +1,8 @@
-import { and, asc, count as dcount, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, count as dcount, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { z } from "zod";
 import { nextId } from "@/shared/ids/snowflake";
 import { listQuerySchema, SORTABLE_COLUMNS } from "@/shared/schema/list-query";
+import { needsChangeReason } from "@/shared/schema/status-transition";
 import { getDb } from "../db/client";
 import {
   activityLog,
@@ -15,6 +16,10 @@ import {
   statusConfig,
 } from "../db/schema";
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
+import { ownsAttribution } from "../scope/guards";
+import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
+import { insertNewParties, planPartyLinks } from "./parties";
+import type { PartyLinkInput } from "./parties";
 import type { Actor } from "../auth/auth";
 import { nextCode } from "./numbering";
 import { initialStatusCode, hostStatusRows } from "./statuses";
@@ -169,6 +174,12 @@ export async function getMatter(actor: Actor, id: string) {
     db
       .select({
         id: matterParty.id,
+        /**
+         * 当事人**本体**的 id。这里只给关联行 id 是不够的：转案件与快速新增的差别就是
+         * "这一行是不是共享实体"（§7.2），前端要跳当事人详情、要提示"改名称会同步到 N 个案件"
+         * （映射 §2.6）都得用它。
+         */
+        partyId: matterParty.partyId,
         partyRole: matterParty.partyRole,
         represented: matterParty.represented,
         name: party.name,
@@ -253,14 +264,8 @@ export async function createMatter(
     filingDate?: string | null;
     ownerId?: string;
     description?: string | null;
-    parties?: {
-      name: string;
-      type: string;
-      partyRole: string;
-      represented: boolean;
-      idType?: string | null;
-      idNumber?: string | null;
-    }[];
+    /** 引用既有（`partyId`）或快速新增（名称+类型），见 `services/parties.ts` */
+    parties?: PartyLinkInput[];
   },
 ) {
   const db = await getDb();
@@ -270,6 +275,10 @@ export async function createMatter(
 
   /** 初始态从配置表取，不写字面量 —— 理由见 `services/statuses.ts` */
   const initial = await initialStatusCode("matter");
+  /** P1 预设节点同理由：取配置必须在进事务之前，事务内再向池子要一条连接会互等成死锁 */
+  const presetNodes = await planPresetNodesFor("matter");
+  /** 当事人「引用既有」优先于「再建一份」，读取同样全部在事务外（见 `services/parties.ts`） */
+  const partyPlan = await planPartyLinks(input.parties ?? []);
 
   await db.transaction(async (tx) => {
     await tx.insert(matter).values({
@@ -305,25 +314,18 @@ export async function createMatter(
             },
           ]),
     ]);
-    for (const p of input.parties ?? []) {
-      const pid = BigInt(nextId());
-      await tx.insert(party).values({
-        id: pid,
-        name: p.name,
-        type: p.type,
-        idType: p.idType ?? null,
-        idNumber: p.idNumber ?? null,
-        createdBy: BigInt(actor.userId),
-        updatedBy: BigInt(actor.userId),
-      });
+    await insertNewParties(tx, partyPlan.rows, BigInt(actor.userId));
+    for (const r of partyPlan.rows) {
       await tx.insert(matterParty).values({
         id: BigInt(nextId()),
         hostId: id,
-        partyId: pid,
-        partyRole: p.partyRole,
-        represented: p.represented,
+        partyId: r.partyId,
+        partyRole: r.partyRole,
+        represented: r.represented,
+        sortOrder: r.sortOrder,
       });
     }
+    await insertPlannedNodes(tx, "matter", id, presetNodes, BigInt(actor.userId));
     await logActivity(tx, actor, {
       matterId: id,
       action: "MATTER_CREATED",
@@ -332,51 +334,79 @@ export async function createMatter(
     });
   });
 
-  return { id: String(id), internalCode: code };
+  // `name_conflicts` 是**提示**不是错误：数据已经按"新建一行"落库了，
+  // 前端据此在当事人区挂一句"库里已有同名当事人，确认不是同一家？"（F3-3）
+  return { id: String(id), internalCode: code, nameConflicts: partyPlan.nameConflicts };
 }
 
 /**
  * 状态变更。
- * 偏离推荐路径时 `reason` 必填（修订稿 §3.3 第 3 条）；置为归档语义的状态要同时翻 `is_archived`，
- * 否则列表的 partial index 与"终态不可逆"判定都会指错地方。撤销归档另需 `can_unarchive`（路由层判）。
+ *
+ * 三道判定按"先贵后贱"排：可见性 → 归属 → 原因。
+ *   · 可见性由 `scopedWhere` 单点保证，不可见与不存在一律 `not_found`（→ 404，元规则 3）；
+ *   · 归属是护栏 1（权限草案 §2.2）：改状态要承办人本人、L1 或 `is_admin`，
+ *     否则"可见即可操作"会退化成"同所任何人都能推走别人的案子"；
+ *   · 原因是偏离判定（修订稿 §3.3 第 3 条）：走推荐路径不要原因，跳进归档恒要。
+ *
+ * 置为归档语义的状态要同时翻 `is_archived`，否则列表的 partial index 与"终态不可逆"
+ * 判定都会指错地方。撤销归档另需 `can_unarchive`（路由层判，那里才拿得到特权）。
  */
 export async function changeStatus(
   actor: Actor,
   id: string,
   to: string,
   reason?: string | null,
-): Promise<{ ok: true } | { ok: false; why: "not_found" | "reason_required" | "unchanged" }> {
+): Promise<
+  { ok: true } | { ok: false; why: "not_found" | "reason_required" | "unchanged" | "forbidden" }
+> {
   const db = await getDb();
   const [cur] = await db
-    .select({ status: matter.status, isArchived: matter.isArchived })
+    .select({
+      status: matter.status,
+      isArchived: matter.isArchived,
+      ownerId: matter.ownerId,
+    })
     .from(matter)
     .where(scopedWhere("matter", actor, eq(matter.id, BigInt(id))))
     .limit(1);
   if (!cur) return { ok: false, why: "not_found" };
+  if (!ownsAttribution(actor, cur.ownerId)) return { ok: false, why: "forbidden" };
   if (cur.status === to) return { ok: false, why: "unchanged" };
 
-  const [target] = await db
-    .select({ semantics: statusConfig.semantics, name: statusConfig.name })
+  // 当前态与目标态一起取：偏离判定要两边的 code 与语义（§3.3 第 3 条）
+  const rows = await db
+    .select({
+      code: statusConfig.code,
+      semantics: statusConfig.semantics,
+      nextStatusCodes: statusConfig.nextStatusCodes,
+    })
     .from(statusConfig)
-    .where(and(eq(statusConfig.hostType, "matter"), eq(statusConfig.code, to)))
-    .limit(1);
+    .where(and(eq(statusConfig.hostType, "matter"), inArray(statusConfig.code, [cur.status, to])));
+  const curRow = rows.find((r) => r.code === cur.status);
+  const target = rows.find((r) => r.code === to);
   if (!target) return { ok: false, why: "not_found" };
 
-  // 一期没有"推荐路径表"（第一期任意启用态可跳转，修订稿 §3.3），
-  // 因此只强制"归档/结案要写原因"，等 M4 有推荐路径后再按偏离判定
-  const needsReason = target.semantics === "archived" || target.semantics === "closed";
-  if (needsReason && !reason?.trim()) return { ok: false, why: "reason_required" };
+  if (
+    needsChangeReason({
+      from: cur.status,
+      fromNextCodes: curRow?.nextStatusCodes ?? [],
+      to,
+      toSemantics: target.semantics,
+    }) &&
+    !reason?.trim()
+  )
+    return { ok: false, why: "reason_required" };
 
   await db.transaction(async (tx) => {
+    const now = new Date().toISOString();
     await tx
       .update(matter)
       .set({
         status: to,
         isArchived: target.semantics === "archived",
-        archivedAt:
-          target.semantics === "archived" ? new Date().toISOString() : cur.isArchived ? null : null,
+        archivedAt: target.semantics === "archived" ? now : null,
         updatedBy: BigInt(actor.userId),
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       })
       .where(eq(matter.id, BigInt(id)));
     await logActivity(tx, actor, {
@@ -447,6 +477,8 @@ export async function setNodeStatus(
       name: matterNode.name,
       matterId: matterNode.hostId,
       status: matterNode.status,
+      startTime: matterNode.startTime,
+      isTimeConfirmed: matterNode.isTimeConfirmed,
     })
     .from(matterNode)
     .innerJoin(matter, eq(matter.id, matterNode.hostId))
@@ -462,12 +494,29 @@ export async function setNodeStatus(
   if (!node) return null;
   if (status === "cancelled" && !cancelReason?.trim())
     return { ok: false as const, why: "reason_required" as const };
+  if (status === "confirm_time" && !node.startTime)
+    return { ok: false as const, why: "time_missing" as const };
+
+  /**
+   * `pending`（时间待定）与 `confirm_time`（标已确认）是**命令**，不是第五、第六个状态：
+   * 它们只翻 `is_time_confirmed`，`status` 一列保持原值。
+   *
+   * 三条理由：
+   *   · E21 只有四值，库里塞进 `pending` 会撞 `ck_mn_matter_node_status`（表现是一条 500）；
+   *   · 之前把这一步写成"待定 ⇒ status=not_started"，于是给一个**进行中**的举证节点改待定
+   *     会把它拉回未开始 —— 时间没定 ≠ 活儿没在干；
+   *   · `confirm_time` 要求 `start_time` 已填：确认一个空时间会让节点带 `deadline_time=null`
+   *     进提醒扫描的 partial index，扫到了也算不出"还剩几天"。
+   */
+  const isTimeCommand = status === "pending" || status === "confirm_time";
+  const toStatus = isTimeCommand ? node.status : status;
 
   await db.transaction(async (tx) => {
     await tx
       .update(matterNode)
       .set({
-        status,
+        status: toStatus,
+        ...(isTimeCommand ? { isTimeConfirmed: status === "confirm_time" } : {}),
         cancelReason: status === "cancelled" ? cancelReason : null,
         completedAt: status === "completed" ? new Date().toISOString() : null,
         completedBy: status === "completed" ? BigInt(actor.userId) : null,
@@ -486,7 +535,16 @@ export async function setNodeStatus(
       targetType: "matter_node",
       targetId: node.id,
       reason: status === "cancelled" ? cancelReason : null,
-      diffs: { status: { from: node.status, to: status, label: NODE_STATUS_LABELS } },
+      // 时间命令记的是那一对布尔，不是一条"状态从 X 到 X"的空 diff —— 活动日志要能看出
+      // "谁把它标成待定的"，而 `status` 那列当时根本没动
+      diffs: isTimeCommand
+        ? {
+            is_time_confirmed: {
+              from: node.isTimeConfirmed,
+              to: status === "confirm_time",
+            },
+          }
+        : { status: { from: node.status, to: toStatus, label: NODE_STATUS_LABELS } },
     });
   });
   return { ok: true as const };

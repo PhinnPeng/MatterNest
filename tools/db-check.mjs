@@ -21,6 +21,11 @@
  *   C6 日界口径：`::date` 与 `AT TIME ZONE 'Asia/Shanghai'` 结果不同 → 证明禁用 `now()::date`
  *   C7 bigint 服务端往返精确；C7b 回报驱动把 int8 解析成了什么（P1-19 的由来）
  *   C8 事务内 DDL 可回滚（W0-4 迁移的执行姿势）
+ *   C9 迁移已落地（`mn_status_config` 在库里）；C10 约束实撞（partial unique / 表级 CHECK / 生成列）
+ *   C11 seed 八状态齐（每宿主 4 态、恰好一个初始态与一个归档态）
+ *   C12 `next_status_codes` 在库里真是 `text[]`（0001 那条手写补丁生效了才算）
+ *   C13 推荐后继已落库（6/8 行非空 —— 空数组在服务层等于"不限制"，偏离判定就永不为真）
+ *   C14 `mn_app_user.is_admin` 已建列且持有者 1–2 人（草案 §3 的逃生口，人手都有等于没有）
  */
 
 const MIN_MAJOR = 15;
@@ -267,6 +272,42 @@ try {
       `seed 八状态（修订稿 §3.2）：${seeded.join(" ") || "空表 —— 跑 pnpm db:seed"}`,
     );
   }
+
+  // ---- 这一轮改进落到库里的三条结构事实（纸面说了不算，全只读）----
+  // C12 `next_status_codes` 必须真是 `text[]`：0000 基线建成了 `text`，而 schema 与两侧快照都是
+  //     `text[]` ⇒ `db:generate` 不再给任何 diff，只有查 information_schema 能发现。
+  //     失败形态不是"读出来是字符串"，而是 seed 一句 `42804: …不能赋给类型 text 的列`。
+  const arrType = (
+    await sql`select data_type from information_schema.columns
+               where table_name = 'mn_status_config' and column_name = 'next_status_codes'`
+  )[0]?.data_type;
+  record(
+    arrType === "ARRAY" ? "ok" : "fail",
+    "C12",
+    `next_status_codes 实际类型 = ${arrType ?? "(无此列)"}（要求 ARRAY，见 0001 迁移的手写补丁）`,
+  );
+
+  // C13 推荐后继真的落库了：八个内置态里 6 行有后继（每宿主的归档态是终态，留空）
+  const nextFilled = (
+    await sql`select count(*)::int as n from mn_status_config where next_status_codes <> '{}'::text[]`
+  )[0]?.n;
+  record(
+    nextFilled === 6 ? "ok" : "fail",
+    "C13",
+    `已配推荐后继的状态行 = ${nextFilled ?? 0}（要求 6：空数组在服务层等于"不限制"，偏离判定就永不为真）`,
+  );
+
+  // C14 `is_admin` 列存在且恰好一人：它是"绕过范围的最后开关"，人手都有就等于没有
+  const adminCol = (
+    await sql`select count(*)::int as n from information_schema.columns
+               where table_name = 'mn_app_user' and column_name = 'is_admin'`
+  )[0]?.n;
+  const adminUsers = (await sql`select count(*)::int as n from mn_app_user where is_admin`)[0]?.n;
+  record(
+    adminCol === 1 && adminUsers >= 1 && adminUsers <= 2 ? "ok" : "fail",
+    "C14",
+    `mn_app_user.is_admin 建列=${adminCol === 1 ? "是" : "否"} · 持有者 ${adminUsers ?? 0} 人（草案 §3：仅 1–2 人）`,
+  );
 
   // ---- 环境概况（不判定）----
   record("info", "ENV", (await sql`select version() as v`)[0].v);

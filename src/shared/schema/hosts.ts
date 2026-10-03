@@ -46,16 +46,40 @@ export const matterCreateSchema = z.object({
     .or(z.literal("")),
   description: z.string().trim().max(5000).optional().or(z.literal("")),
   ownerId: idField("承办人").optional(),
+  /**
+   * 当事人区：两种写法并存（F2-15「关联 + 快速新增」）。
+   *   · 带 `partyId` —— 引用库里已登记的这一行，不新建；
+   *   · 不带 `partyId` —— 快速新增，此时名称与类型是必填（由下面 `superRefine` 保证，
+   *     字段本身放宽成可选，是为了让"缺什么"报在**当事人那一行**上，而不是笼统一条 enum 失败）。
+   * 服务端还会在 `(type, id_number)` 精确命中时自动复用既有行，见 `services/parties.ts`。
+   */
   parties: z
     .array(
-      z.object({
-        name: z.string().trim().min(2, "请输入当事人名称").max(200),
-        type: z.enum(PARTY_TYPES, { message: "请选择当事人类型" }),
-        partyRole: z.enum(LITIGATION_ROLES, { message: "请选择诉讼地位" }),
-        represented: z.boolean(),
-        idType: z.enum(ID_TYPES).optional().or(z.literal("")),
-        idNumber: z.string().trim().max(64).optional().or(z.literal("")),
-      }),
+      z
+        .object({
+          partyId: idField("当事人").optional().or(z.literal("")),
+          name: z.string().trim().max(200).optional().or(z.literal("")),
+          type: z.enum(PARTY_TYPES).optional().or(z.literal("")),
+          partyRole: z.enum(LITIGATION_ROLES, { message: "请选择诉讼地位" }),
+          represented: z.boolean(),
+          idType: z.enum(ID_TYPES).optional().or(z.literal("")),
+          idNumber: z.string().trim().max(64).optional().or(z.literal("")),
+        })
+        .superRefine((p, ctx) => {
+          if (p.partyId) return;
+          if (!p.name || p.name.trim().length < 2)
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["name"],
+              message: "新建当事人要填名称（至少 2 个字），或改成选择已登记的当事人",
+            });
+          if (!p.type)
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["type"],
+              message: "请选择当事人类型（它决定证件号的校验规则）",
+            });
+        }),
     )
     .default([]),
 });
@@ -94,7 +118,11 @@ export const convertSchema = matterCreateSchema.omit({
 
 export const statusChangeSchema = z.object({
   to: z.string().trim().min(1, "请选择目标状态").max(32),
-  /** 归档/结案必填由服务层判（它才知道目标态的 semantics），这里只管长度 */
+  /**
+   * 「什么时候必须填」由 `shared/schema/status-transition.ts` 的 `needsChangeReason` 判
+   * —— 前后端同一个谓词，前端据此决定要不要把原因输入框亮出来，服务层据此拒收。
+   * 这里只管长度；配置表可以随时改 `next_status_codes`，写死在 DTO 里就是第二次定义一遍配置。
+   */
   reason: z.string().trim().max(500).optional().or(z.literal("")),
 });
 
@@ -104,8 +132,32 @@ export const commentSchema = z.object({
 });
 
 export const nodeStatusSchema = z.object({
-  status: z.enum(["not_started", "in_progress", "completed", "cancelled"]),
+  /**
+   * `pending` / `confirm_time` **不是**第五、第六个节点状态（E21 只有四值），
+   * 它们是 §6.1 那个合并视图的两个**命令**：把 `is_time_confirmed` 落下去或抬上来，
+   * `status` 一列不动。库里永远只存四值之一 —— 真加一个 `pending` 状态等于给节点做
+   * 第二套生命周期，提醒扫描与规则 5/6 的 `status IN (...)` 立刻对不上。
+   *
+   * 服务层收到这两个值时不写 `status`（见 `setNodeStatus` 的 `toStatus`），
+   * 所以把 `pending` 当状态传给一个已完成的节点也不会把它拉回未开始。
+   */
+  status: z.enum([
+    "not_started",
+    "in_progress",
+    "completed",
+    "cancelled",
+    "pending",
+    "confirm_time",
+  ]),
   cancelReason: z.string().trim().max(200).optional().or(z.literal("")),
+});
+
+/**
+ * 当事人检索（建案下拉的数据源）。`min(1)` 是刻意的：空关键字等于"把全所当事人都列出来"，
+ * 而 §7.2 的可见性只保证"我相关的那些"，一次全量列举仍然是一个枚举探测面。
+ */
+export const partySearchSchema = z.object({
+  q: z.string().trim().min(1, "请输入至少一个字").max(40),
 });
 
 export const loginSchema = z.object({

@@ -90,7 +90,16 @@ export function useActor() {
 /** 两个宿主。值域与 `mn_status_config.host_type` 的 CHECK 同源（枚举表 E08）。 */
 export type HostKind = "matter" | "risk_matter";
 
-export type StatusRow = { code: string; name: string; semantics: string };
+/**
+ * `/api/meta` 的状态行。带上 `nextStatusCodes` 是为了让前端与服务层跑**同一个**偏离谓词
+ * （`shared/schema/status-transition.ts`）—— 不带就只能"永远显示原因框"或"永远不显示"。
+ */
+export type StatusRow = {
+  code: string;
+  name: string;
+  semantics: string;
+  nextStatusCodes: string[];
+};
 export type LevelRow = { code: string; name: string };
 
 /** `/api/meta` 的响应。字典分两半的理由见那个 route handler 的注释。 */
@@ -212,6 +221,30 @@ export function useMeta(host: HostKind) {
 /** 把枚举字典变成 `<select>` 的选项，避免每个表单自己写一遍 map */
 export function toOptions(labels: Record<string, string>) {
   return Object.entries(labels).map(([value, label]) => ({ value, label }));
+}
+
+/**
+ * 当事人检索的一行。只回**证件号尾四位**用于消歧 —— 明文查看是另一条链路
+ * （§7.3：要 `can_read_plain` 且记 `SENSITIVE_FIELD_READ`），一个搜索下拉不构成那次查看。
+ */
+export type PartyHit = { id: string; name: string; type: string; idNumberTail: string };
+export type PartySearchResult = { items: PartyHit[]; truncated: boolean };
+
+/**
+ * 建案时「引用既有当事人」下拉（F2-15）。
+ *
+ * 关键字为空**不发请求**：服务端 `partySearchSchema` 的 `min(1)` 也会拒，但把
+ * "打开表单就敲一次列举"挡在客户端这一侧更诚实 —— §4.1 拒绝裸 `/users` 列表是同一个理由。
+ * `staleTime` 30 秒：同一次建案里反复搜同一家不该反复敲库。
+ */
+export function usePartySearch(keyword: string) {
+  const kw = keyword.trim();
+  return useQuery({
+    queryKey: ["party-search", kw],
+    queryFn: () => api.get<PartySearchResult>(`/api/parties?q=${encodeURIComponent(kw)}`),
+    enabled: kw.length > 0,
+    staleTime: 30_000,
+  });
 }
 
 /** 工作台读数（`/api/overview`，口径与列表一致：归档不计入） */

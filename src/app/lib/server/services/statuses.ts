@@ -29,11 +29,23 @@ export async function initialStatusCode(host: HostKind): Promise<string> {
   return row.code;
 }
 
-/** 宿主的状态字典（详情页要拿语义判断"要不要填原因"，列表筛选也用它） */
+/**
+ * 宿主的状态字典（详情页要拿语义判断"要不要填原因"，列表筛选也用它）。
+ *
+ * 带上 `next_status_codes` 是为了让**前端与服务层跑同一个谓词**
+ * （`shared/schema/status-transition.ts`）：不带上就只能"永远显示原因框"或"永远不显示"，
+ * 两种都比后端真实判定差 —— 前者让人给正常流转编原因，后者让人在提交时才被撞。
+ */
 export async function hostStatusRows(host: HostKind) {
   const db = await getDb();
   return db
-    .select({ code: statusConfig.code, name: statusConfig.name, semantics: statusConfig.semantics })
+    .select({
+      code: statusConfig.code,
+      name: statusConfig.name,
+      semantics: statusConfig.semantics,
+      nextStatusCodes: statusConfig.nextStatusCodes,
+      sortOrder: statusConfig.sortOrder,
+    })
     .from(statusConfig)
     .where(and(eq(statusConfig.hostType, host), eq(statusConfig.isEnabled, true)))
     .orderBy(statusConfig.sortOrder);

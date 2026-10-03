@@ -123,6 +123,20 @@ ON CONFLICT ("code") DO NOTHING;
 UPDATE "mn_risk_matter" SET "is_archived" = true, "archived_at" = now() - interval '10 days', "archived_by" = 103 WHERE "code" = 'FX-20260915-004' AND "is_archived" = false;
 UPDATE "mn_risk_matter" SET "converted_at" = now() - interval '6 days', "converted_by" = 102 WHERE "code" = 'FX-20260922-001' AND "converted_at" IS NULL;
 
+-- ── 事项的当事人 ───────────────────────────────────────
+-- 这批行不能省：修订稿 §6.2 把"每案 ≥1 个当事人"定成**转案件确认时**的校验，
+-- 而映射 §2.6 的新案件当事人是「引用事项已关联的同一批 party 行」。事项这边要是空的，
+-- 演示里每条"转案件"都会撞那条校验，功能看着就像坏了。
+INSERT INTO "mn_risk_matter_party"
+  ("id", "risk_matter_id", "party_id", "party_role", "represented", "sort_order")
+VALUES
+  (8451, 8301, 6002, 'defendant', true, 1),
+  (8452, 8301, 6001, 'plaintiff', false, 2),
+  (8453, 8302, 6004, 'defendant', true, 1),
+  (8454, 8303, 6004, 'plaintiff', false, 1),
+  (8455, 8304, 6003, 'plaintiff', false, 1)
+ON CONFLICT ("risk_matter_id", "party_id") DO NOTHING;
+
 INSERT INTO "mn_risk_matter_staff" ("id", "risk_matter_id", "user_id", "staff_role")
 VALUES
   (8401, 8301, 102, 'owner'),

@@ -20,15 +20,18 @@ ON CONFLICT ("code") DO NOTHING;
 
 -- 六个演示账号：主任 / 风控合伙人 / 承办律师两名 / 助理 / IT
 -- 覆盖到 L1/L2/L3 三档，才能当场看出"同一条案件不同人看到不一样"
-INSERT INTO "mn_app_user" ("id", "username", "display_name", "password_hash", "is_enabled", "activation_status")
+-- `is_admin` 只给主任一个人（权限草案 §3：独立于角色的最后开关，仅 1–2 人）。
+-- 它**只**绕过数据范围，不给任何特权；写 seed 而不是留人手工 UPDATE，是为了让
+-- "重放一次 seed 就有可用逃生口"成立——真出事时手上要有能跑的东西。
+INSERT INTO "mn_app_user" ("id", "username", "display_name", "password_hash", "is_enabled", "is_admin", "activation_status")
 VALUES
-  (101, 'wangkf', '王凯锋（主任）', '68f21edfbd96a6bd89c63473e649092706fc1a9aede5ded2df2b214fe93f0f99803ff22b61d47fc9bd367111999e62d57b4984ba4c6a6072327e3b9c7d9811d6', true, 'active'),
-  (102, 'lichen', '李晨（风控合伙人）', '1a8e9b6eec303940927392f63f058668b30912d58a30e848c5e88c5a51f4538a57f03a3d1b4d0e82a4440eed5b46ae42e962ca01e6824dcf8412019660257a16', true, 'active'),
-  (103, 'zhaolj', '赵凌（承办律师）', '6cefdcd9b0df94d00096481db197afff8f6867ba03650757daff36a0062be9616657b20bbd254fd61eb23f7f8356e30e7443f5d1173c00b938636bc246143cc1', true, 'active'),
-  (104, 'suny', '孙奕（助理）', '93050968b2e618cf7150ec92018041347dbc45ded606a7fa1a30a45d16ac48223ad96115d0d68b12d170291f89ceb3b874027711d199e67a7600cc0bd773484c', true, 'active'),
-  (105, 'hezp', '何哲培（IT）', 'e58a2f396ad8d851441d7f38c91dad50850bfdbf0413de35af418e7ef2cac7918ba195457d33f4bd82d8e7f0cdd3d232d6aa3465ee60ed09bca185074d3d8dab', true, 'active'),
-  (106, 'qiangl', '强玲（待开通）', 'e5da5e73d25ec9ceeee11d98c12ddc73c0405ffd3230c9173cf537170a6134bd42b2246cd47480e7a9525eb7bec30bd6e00c380647c2ead4f56dca1e49ec81c7', true, 'pending')
-ON CONFLICT ("username") DO UPDATE SET "password_hash" = excluded."password_hash";
+  (101, 'wangkf', '王凯锋（主任）', '68f21edfbd96a6bd89c63473e649092706fc1a9aede5ded2df2b214fe93f0f99803ff22b61d47fc9bd367111999e62d57b4984ba4c6a6072327e3b9c7d9811d6', true, true, 'active'),
+  (102, 'lichen', '李晨（风控合伙人）', '1a8e9b6eec303940927392f63f058668b30912d58a30e848c5e88c5a51f4538a57f03a3d1b4d0e82a4440eed5b46ae42e962ca01e6824dcf8412019660257a16', true, false, 'active'),
+  (103, 'zhaolj', '赵凌（承办律师）', '6cefdcd9b0df94d00096481db197afff8f6867ba03650757daff36a0062be9616657b20bbd254fd61eb23f7f8356e30e7443f5d1173c00b938636bc246143cc1', true, false, 'active'),
+  (104, 'suny', '孙奕（助理）', '93050968b2e618cf7150ec92018041347dbc45ded606a7fa1a30a45d16ac48223ad96115d0d68b12d170291f89ceb3b874027711d199e67a7600cc0bd773484c', true, false, 'active'),
+  (105, 'hezp', '何哲培（IT）', 'e58a2f396ad8d851441d7f38c91dad50850bfdbf0413de35af418e7ef2cac7918ba195457d33f4bd82d8e7f0cdd3d232d6aa3465ee60ed09bca185074d3d8dab', true, false, 'active'),
+  (106, 'qiangl', '强玲（待开通）', 'e5da5e73d25ec9ceeee11d98c12ddc73c0405ffd3230c9173cf537170a6134bd42b2246cd47480e7a9525eb7bec30bd6e00c380647c2ead4f56dca1e49ec81c7', true, false, 'pending')
+ON CONFLICT ("username") DO UPDATE SET "password_hash" = excluded."password_hash", "is_admin" = excluded."is_admin";
 -- 上面这行是 DO UPDATE 而不是 DO NOTHING：口令摘要属于"可重放的演示配置"，
 -- 首轮 seed 我算错过一次摘要（把用户名拼成 `用户名@MatterNest-demo` 去哈希，
 -- 而校验函数哈希的是口令本身），DO NOTHING 会让错值永远留在库里、登录恒定 401。

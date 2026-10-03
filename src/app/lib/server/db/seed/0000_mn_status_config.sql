@@ -20,3 +20,21 @@ VALUES
   (7, 'closed', '已结案', 'green', 'risk_matter', 'closed', true, false, 3),
   (8, 'archived', '已归档', 'gray', 'risk_matter', 'archived', true, false, 4)
 ON CONFLICT ("host_type", "code") DO NOTHING;
+
+-- 推荐路径落进 `next_status_codes`（修订稿 §3.3 第 2 条：按 sort_order 串联 semantics 序列）。
+--
+-- 为什么必须填：这条数组是"偏离判定"的唯一数据源 —— 空数组在服务层等于"不限制"
+-- （§3.3 第 3 条），于是**线上永远是零条原因记录**，而 §3.3 设计的那个可解释链路
+-- 恰好要靠这些原因才能被审出来。填了它，「待受理 → 已结案」这种跳法才会要求解释。
+-- 归档态留空是终态：它没有推荐后继，离开它走的是 `can_unarchive` 那条特权出口。
+--
+-- 用 UPDATE 而不是把列并进上面的 INSERT：`ON CONFLICT DO NOTHING` 对已存在的八行
+-- 不生效，而 seed 要能在跑过第一轮的老库上重放出正确状态（W1-6 的幂等口径）。
+UPDATE "mn_status_config" AS s
+SET "next_status_codes" = CASE "code"
+  WHEN 'pending' THEN '{in_progress}'::text[]
+  WHEN 'in_progress' THEN '{closed}'::text[]
+  WHEN 'closed' THEN '{archived}'::text[]
+  ELSE '{}'::text[]
+END
+WHERE "is_system" AND "next_status_codes" = '{}';

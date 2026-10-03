@@ -5,14 +5,16 @@ import { matter, matterStaff, riskMatter, riskMatterStaff } from "../db/schema";
 /**
  * 数据范围谓词（权限草案 §4）—— **全项目唯一一处**决定"谁能看见哪些宿主行"。
  *
- * 四条实现约束，都不是风格：
- *   1. **默认拒绝**：返回 `undefined`（= 不加谓词）只允许 L1 `all` 拿到；
+ * 五条实现约束，都不是风格：
+ *   1. **默认拒绝**：返回 `undefined`（= 不加谓词）只允许 `is_admin` 与 L1 `all` 拿到；
  *      反过来写（默认放行、按需收窄）就是"哪次忘了套谓词"即泄露。
  *   2. 仓储与页面不许自己拼可见性条件（§4「禁止裸表访问」），只能经 `scopedWhere`。
  *   3. L3 刻意**不含** `*_staff` 的协办/关注行 —— §1 写的是 `owned = 我承办 ∪ 我创建`，
  *      最容易写成"L2 少一个 OR"。
  *   4. 未知范围值按 `owned` 处理，不 fallthrough 到全部（枚举值域由 DB CHECK 守着，
  *      这里是第二道：万一库里塞进历史值也不能变成 L1）。
+ *   5. `is_admin` 排在最前且**只**放开范围（§3 的逃生口），特权一律另判 ——
+ *      写成"is_admin 顺带给全套特权"就等于把四个特权开关变成摆设。
  */
 
 export type HostKind = "matter" | "risk_matter";
@@ -47,7 +49,13 @@ function narrow(scope: DataScope): DataScope {
  * `EXISTS (… *_staff)` 那一条依赖 `ix_mn_*_staff_user`（§5 明写"权限必需"而非性能优化）：
  * 没有它，每个 L2 用户的列表都会退化成对宿主表的半表扫。
  */
-export function visibility(host: HostKind, scope: DataScope, userId: string): SQL | undefined {
+export function visibility(
+  host: HostKind,
+  scope: DataScope,
+  userId: string,
+  isAdmin = false,
+): SQL | undefined {
+  if (isAdmin) return undefined; // §3 逃生口：只放开范围，不碰特权
   const s = narrow(scope);
   if (s === "all") return undefined;
   const h = HOSTS[host];
@@ -76,13 +84,13 @@ export function visibility(host: HostKind, scope: DataScope, userId: string): SQ
  */
 export function scopedWhere(
   host: HostKind,
-  actor: { dataScope: DataScope; userId: string },
+  actor: { dataScope: DataScope; userId: string; isAdmin?: boolean },
   ...extra: (SQL | undefined)[]
 ): SQL {
   const h = HOSTS[host];
   const parts = [
     sql`NOT ${h.table.isDeleted}`,
-    visibility(host, actor.dataScope, actor.userId),
+    visibility(host, actor.dataScope, actor.userId, actor.isAdmin ?? false),
     ...extra,
   ].filter((x): x is SQL => Boolean(x));
   return and(...parts) ?? sql`false`;

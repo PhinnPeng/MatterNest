@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
+  AutoComplete,
   Button,
   Checkbox,
   Col,
@@ -16,12 +17,66 @@ import {
   Row,
   Select,
   Space,
+  Typography,
 } from "antd";
 import type { Dayjs } from "dayjs";
 
-import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
+import {
+  api,
+  ApiFailure,
+  toOptions,
+  useMeta,
+  usePartySearch,
+  type PartyHit,
+} from "@/app/lib/client/api";
 import { matterCreateSchema, pruneEmpty, type MatterCreateInput } from "@/shared/schema/hosts";
 import { rulesFor, setFieldErrors } from "@/app/components/form/zod-rules";
+
+/**
+ * 当事人名称框：既是输入框也是「引用既有」的入口（F2-15「关联 + 快速新增」在一个控件里）。
+ *
+ * 为什么用 AutoComplete 而不是旁边再加一列下拉：780px 的框里这一行已经有名称/类型/诉讼地位/
+ * 我方代理/删除五格，再加一格就会在 1366 视口上横向滚动 —— 那是刚被单独修过的一类缺陷。
+ *
+ * 只在**同名唯一命中**时才落 `partyId`。库里本来就有两家同名公司时（`select` 按名字回填无法
+ * 区分是哪一家），宁可不引用：让服务层按 §7.2 的口径新建一行并回 `name_conflicts` 提示，
+ * 也比"把 A 公司的案子挂到 B 公司身上"好 —— 后者没有任何一处会报错，而它恰恰是最贵的错。
+ */
+function PartyNameInput({
+  value,
+  onChange,
+  onPick,
+}: {
+  value?: string;
+  onChange?: (v: string) => void;
+  onPick: (hit: PartyHit | null) => void;
+}) {
+  const [kw, setKw] = useState("");
+  const { data } = usePartySearch(kw);
+  const hits = data?.items ?? [];
+  return (
+    <AutoComplete
+      value={value ?? ""}
+      options={hits.map((p) => ({
+        value: p.name,
+        label: `${p.name}${p.idNumberTail ? ` · 尾号 ${p.idNumberTail}` : ""}`,
+      }))}
+      filterOption={false}
+      onSearch={setKw}
+      // 打字一律先清引用（否则改了名字还带着上一次的 partyId，等于悄悄指向另一个人）；
+      // antd 在选中项时是 `onChange` 后紧接 `onSelect`，所以这里清、那里再落，顺序是稳的
+      onChange={(v) => {
+        onPick(null);
+        onChange?.(typeof v === "string" ? v : "");
+      }}
+      onSelect={(v) => {
+        const same = hits.filter((p) => p.name === v);
+        if (same.length === 1) onPick(same[0]!);
+      }}
+      placeholder="名称（输入可引用已登记的当事人）"
+    />
+  );
+}
 
 /**
  * 新建案件。
@@ -69,14 +124,18 @@ export function MatterCreateDialog({
     }
   }, [open]);
 
-  const created = mut.data as { id: string; internalCode: string } | undefined;
+  const created = mut.data as
+    { id: string; internalCode: string; nameConflicts?: { name: string }[] } | undefined;
+  /** 当事人区每行的当前值，只用来判断"这一行是不是已经引用了库里的人"（显示引用态） */
+  const partyRows = Form.useWatch("parties", form);
 
   function toValues(v: FormValues): MatterCreateInput {
     const { filingDate, parties, ...rest } = v;
     return {
       ...pruneEmpty(rest),
       filingDate: filingDate ? filingDate.format("YYYY-MM-DD") : undefined,
-      parties: (parties ?? []).filter((p) => p?.name),
+      // 留 `partyId` 那一批：只引用不填名称也是合法行（名称由库里那一行带来）
+      parties: (parties ?? []).filter((p) => p?.partyId || p?.name),
     } as unknown as MatterCreateInput;
   }
 
@@ -119,6 +178,20 @@ export function MatterCreateDialog({
           title={<span className="num">{created.internalCode}</span>}
           subTitle="内部编号由数据库取号生成，不可编辑。案号留空时先用它占位，正式立案后回详情改。"
         />
+        {/*
+          同名当事人不自动合并（`services/parties.ts` 判定 4），但"没合并"这件事必须让人看见：
+          库里已有同名行还新建一行，正是当事人详情页"涉及案件"少一半的成因。
+          建案已经成功，所以这是**提示**而不是错误，放在 Result 下面而不是挡在提交前。
+        */}
+        {created.nameConflicts && created.nameConflicts.length > 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message={`库里已有同名当事人：${created.nameConflicts
+              .map((c) => c.name)
+              .join("、")}。本案按新建一行登记；确认是同一家请到当事人页合并引用。`}
+          />
+        ) : null}
       </Modal>
     );
   }
@@ -260,8 +333,25 @@ export function MatterCreateDialog({
                         rules={rulesFor(matterCreateSchema, ["parties", 0, "name"])}
                         style={{ marginBottom: 0 }}
                       >
-                        <Input placeholder="名称" />
+                        <PartyNameInput
+                          onPick={(hit) => {
+                            // 名字之外的两格跟着引用行走：选了库里这一行，类型就不该再手挑一次
+                            form.setFieldValue(
+                              ["parties", f.name, "partyId"],
+                              hit?.id ?? undefined,
+                            );
+                            if (hit) form.setFieldValue(["parties", f.name, "type"], hit.type);
+                          }}
+                        />
                       </Form.Item>
+                      {/* 引用态要显出来：没有这一句，用户分不清"改的是全局那一家"还是"只写进本案卷" */}
+                      {partyRows?.[f.name]?.partyId ? (
+                        <div style={{ fontSize: 12, marginTop: 2 }}>
+                          <Typography.Text type="secondary">
+                            已引用库中当事人 · 名称是共享信息，会同步到所有案卷
+                          </Typography.Text>
+                        </div>
+                      ) : null}
                     </Col>
                     <Col span={5}>
                       <Form.Item name={[f.name, "type"]} style={{ marginBottom: 0 }}>

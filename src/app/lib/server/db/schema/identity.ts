@@ -62,6 +62,12 @@ export const appUser = pgTable(
     passwordHash: varchar("password_hash", { length: 256 }),
     /** 可用性：离职/停用即 false（与 E37 的"未开通"正交，两者都不参与数据范围判定） */
     isEnabled: boolean("is_enabled").notNull().default(true),
+    /**
+     * 权限草案 §3：**独立于角色的最后开关**，只绕过数据范围，不给任何特权。
+     * 存在的理由是"误删角色导致无人可管"这个逃生口 —— 所以第一期就要有列，
+     * 且只给 1–2 个账号（seed 里是主任）。判定见 `scope/visibility.ts` 的第一行短路。
+     */
+    isAdmin: boolean("is_admin").notNull().default(false),
     activationStatus: varchar("activation_status", { length: 16 }).notNull().default("active"),
     /** 吊销全部会话用（离职回收链路，权限草案 §5） */
     tokenVersion: fk("token_version")

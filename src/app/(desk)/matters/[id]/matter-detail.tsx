@@ -491,6 +491,36 @@ function NodeActions({
           取消
         </Button>
       ) : null}
+      {/*
+        「改待定」是 §6.1 那个合并视图的反方向：开庭时间没定下来时，节点要退出提醒扫描
+        （扫描器的 partial index 只吃 `is_time_confirmed`，修订稿 §6.1）。
+        它不改 E21 的四值状态，只把 `is_time_confirmed` 落回 false —— 服务层那边同一次翻译。
+      */}
+      {open && node.isTimeConfirmed ? (
+        <Button
+          size="small"
+          type="text"
+          disabled={mut.isPending}
+          onClick={() => mut.mutate({ status: "pending" })}
+        >
+          改待定
+        </Button>
+      ) : null}
+      {/*
+        反方向只在**时间已经填了**的时候给：`confirm_time` 要的是"这个时间算数了"，
+        空时间点确认会被服务层拒（`why: "time_missing"`），因为 `deadline_time` 还是 null，
+        扫描器捞到它也算不出还剩几天。
+      */}
+      {open && !node.isTimeConfirmed && node.startTime ? (
+        <Button
+          size="small"
+          type="text"
+          disabled={mut.isPending}
+          onClick={() => mut.mutate({ status: "confirm_time" })}
+        >
+          标已确认
+        </Button>
+      ) : null}
     </Space>
   );
 }

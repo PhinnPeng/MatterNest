@@ -1,8 +1,17 @@
 import { and, asc, count as dcount, desc, eq, sql } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
 import { getDb } from "../db/client";
-import { matter, matterStaff, riskMatter, riskMatterCase, riskMatterStaff } from "../db/schema";
+import {
+  matter,
+  matterStaff,
+  matterParty,
+  riskMatter,
+  riskMatterCase,
+  riskMatterParty,
+  riskMatterStaff,
+} from "../db/schema";
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
+import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 import type { Actor } from "../auth/auth";
 import { nextCode } from "./numbering";
 import { initialStatusCode } from "./statuses";
@@ -94,6 +103,8 @@ export async function createRiskMatter(
   const owner = BigInt(input.ownerId ?? actor.userId);
   // 在**进入事务前**取：事务内再向池子要一条连接去查配置，池子满时会互等成死锁
   const initial = await initialStatusCode("risk_matter");
+  /** 清单#3「事项默认 3 个节点」由 seed 的 3 行 `preset_on_create` 承载（修订稿 §4 P1） */
+  const presetNodes = await planPresetNodesFor("risk_matter");
   await db.transaction(async (tx) => {
     await tx.insert(riskMatter).values({
       id,
@@ -114,6 +125,7 @@ export async function createRiskMatter(
     await tx
       .insert(riskMatterStaff)
       .values({ id: BigInt(nextId()), hostId: id, userId: owner, staffRole: "owner" });
+    await insertPlannedNodes(tx, "risk_matter", id, presetNodes, BigInt(actor.userId));
     await logActivity(tx, actor, {
       riskMatterId: id,
       targetType: "risk_matter",
@@ -125,8 +137,20 @@ export async function createRiskMatter(
 }
 
 /**
- * 转案件。返回新案件的内部编号，前端据此跳详情。
+ * 转案件的结果。`null` 只表示"这条事项你看不见或不存在"（→ 404，元规则 3），
+ * 业务性拒绝改成带原因的联合，因为前端要对「先给事项加当事人」这句话给出**下一步动作**，
+ * 而不是回一句"操作失败"。
+ */
+export type ConvertResult =
+  { ok: true; id: string; internalCode: string } | { ok: false; why: "not_found" | "no_parties" };
+
+/**
+ * 转案件（映射矩阵 §2）。返回新案件的内部编号，前端据此跳详情。
  * 幂等性：同一事项可多次转（`converted_case_count` 递增），因为"已转案件"是与结案正交的第二事实（§3.4）。
+ *
+ * 当事人是**引用同一批 `mn_party` 行**、不是克隆（§2.6）：这就是为什么这里复制
+ * `risk_matter_party` 的 `party_id` 而不是新建当事人。复制 `party_role` 作为默认值，
+ * 逐案可改 —— 风险阶段的角色与诉讼阶段的角色通常一致，但不保证（§2.6 原话）。
  */
 export async function convertToCase(
   actor: Actor,
@@ -141,19 +165,34 @@ export async function convertToCase(
     level: string;
     filingDate?: string | null;
   },
-) {
+): Promise<ConvertResult> {
   const db = await getDb();
   const [src] = await db
     .select()
     .from(riskMatter)
     .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
     .limit(1);
-  if (!src) return null; // → 404，不给 403
+  if (!src) return { ok: false, why: "not_found" };
+
+  // 引用事项已关联的当事人。一条都没有就直接拒：修订稿 §6.2 把"每案 ≥1 当事人"定在
+  // **转案件确认**这个校验时机上，放过就会建出一件没有对手方也没有委托方的案卷。
+  const srcParties = await db
+    .select({
+      partyId: riskMatterParty.partyId,
+      partyRole: riskMatterParty.partyRole,
+      represented: riskMatterParty.represented,
+      sortOrder: riskMatterParty.sortOrder,
+    })
+    .from(riskMatterParty)
+    .where(eq(riskMatterParty.hostId, BigInt(riskId)))
+    .orderBy(asc(riskMatterParty.sortOrder));
+  if (srcParties.length === 0) return { ok: false, why: "no_parties" };
 
   const { code } = await nextCode("matter");
   const caseId = BigInt(nextId());
-  // 同 createRiskMatter：取初始态要在进事务之前，别在事务里向池子再要一条连接
+  // 同 createRiskMatter：取初始态与预设节点都要在进事务之前，别在事务里向池子再要一条连接
   const initial = await initialStatusCode("matter");
+  const presetNodes = await planPresetNodesFor("matter");
   await db.transaction(async (tx) => {
     await tx.insert(matter).values({
       id: caseId,
@@ -188,6 +227,17 @@ export async function convertToCase(
             },
           ]),
     ]);
+    for (const p of srcParties) {
+      await tx.insert(matterParty).values({
+        id: BigInt(nextId()),
+        hostId: caseId,
+        partyId: p.partyId,
+        partyRole: p.partyRole,
+        represented: p.represented,
+        sortOrder: p.sortOrder,
+      });
+    }
+    await insertPlannedNodes(tx, "matter", caseId, presetNodes, BigInt(actor.userId));
     await tx
       .insert(riskMatterCase)
       .values({ id: BigInt(nextId()), riskMatterId: BigInt(riskId), matterId: caseId });
@@ -211,5 +261,5 @@ export async function convertToCase(
       payload: { case_ids: [String(caseId)], from: src.code },
     });
   });
-  return { id: String(caseId), internalCode: code };
+  return { ok: true, id: String(caseId), internalCode: code };
 }

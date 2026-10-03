@@ -54,6 +54,11 @@ export type Actor = {
   displayName: string;
   /** 多角色取最宽并集（权限草案 §2）；比较逻辑只有 `widestDataScope` 一处 */
   dataScope: DataScope;
+  /**
+   * `mn_app_user.is_admin`：绕过数据范围的最后开关（草案 §3）。
+   * 它**不是**第五个特权开关 —— 只放开"看得见哪些行"，不给出 `can_unarchive` 之类的不可逆动作。
+   */
+  isAdmin: boolean;
   privileges: {
     canUnarchive: boolean;
     canReadPlain: boolean;
@@ -115,6 +120,7 @@ export const readActor = cache(async (): Promise<Actor | null> => {
       userId: appUser.id,
       displayName: appUser.displayName,
       isEnabled: appUser.isEnabled,
+      isAdmin: appUser.isAdmin,
       activationStatus: appUser.activationStatus,
       expiresAt: authSession.expiresAt,
     })
@@ -145,6 +151,7 @@ export const readActor = cache(async (): Promise<Actor | null> => {
     userId: String(row.userId),
     displayName: row.displayName,
     dataScope: widestDataScope(grants.map((g) => g.dataScope as DataScope)),
+    isAdmin: row.isAdmin,
     privileges: {
       canUnarchive: grants.some((g) => g.canUnarchive),
       canReadPlain: grants.some((g) => g.canReadPlain),

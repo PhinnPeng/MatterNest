@@ -8,6 +8,13 @@
       "when": 1790507165620,
       "tag": "0000_mn_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790994523580,
+      "tag": "0001_mn_is_admin_and_next_codes",
+      "breakpoints": true
     }
   ]
 }
