@@ -2,6 +2,9 @@
 # 也会破坏"按行号取证"的可追溯性。
 docs/
 .trellis/
+# Trellis 托管的平台文件（init --dsh 生成）：由 trellis update 纳管，不受本仓库 prettier 重排
+.dsh/
+.agents/
 CHANGELOG.md
 AGENTS.md
 pnpm-lock.yaml
