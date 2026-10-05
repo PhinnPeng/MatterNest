@@ -8,7 +8,7 @@ import { json, query, withActor } from "@/app/lib/server/http";
  * 三条口径都不是风格：
  *   · 谓词是草案 §7.2「我对它关联的至少一个宿主可见」，**不是**当事人自己的范围 ——
  *     `mn_party` 是跨案件共享实体，没有 owner_id，照抄宿主谓词会套不上；
- *   · 关键字必填（`partySearchSchema.min(1)`）：空关键字等于全所当事人一次列举，
+ *   · 关键字必填（`partySearchSchema.min(1)`）：空关键字等于全公司当事人一次列举，
  *     与 §4.1 拒绝裸 `/users` 列表同一个理由；
  *   · 只回证件号**尾四位**用于消歧。明文查看是另一条链路（§7.3：要 `can_read_plain`
  *     且记 `SENSITIVE_FIELD_READ`），一个搜索下拉不构成那次查看。

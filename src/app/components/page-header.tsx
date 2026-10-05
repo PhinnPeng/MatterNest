@@ -27,7 +27,12 @@ export function PageHeader({
             {eyebrow}
           </Flex>
         ) : null}
-        <Typography.Title level={4} style={{ margin: 0, lineHeight: "28px" }}>
+        {/* 语义上这是每页唯一的 h1（登录页也是 h1，全站标题层级才有唯一的根），
+            但视觉尺寸仍钉在原 h4 的 16px：读屏结构要修，成熟观感不能跟着一起动。 */}
+        <Typography.Title
+          level={1}
+          style={{ margin: 0, lineHeight: "28px", fontSize: 16, fontWeight: 600 }}
+        >
           {title}
         </Typography.Title>
         {meta ? (

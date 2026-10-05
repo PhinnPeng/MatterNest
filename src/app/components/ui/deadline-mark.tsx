@@ -15,7 +15,7 @@ import { DEADLINE_TONE } from "@/app/theme/antd";
  * 真按节点档位发消息是 M5 扫描器的事（那张表也是它唯一的写入口）。
  */
 export function DeadlineMark({ iso }: { iso: string | null | undefined }) {
-  if (!iso) return <span style={{ color: INK.faint, fontSize: 12 }}>未定</span>;
+  if (!iso) return <span style={{ color: INK.muted, fontSize: 12 }}>未定</span>;
 
   const days = Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
   const bucket = days < 0 ? "overdue" : days <= 3 ? "soon" : days <= 7 ? "near" : "later";

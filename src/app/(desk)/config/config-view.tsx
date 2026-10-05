@@ -34,7 +34,7 @@ export function ConfigView() {
 
   const statusColumns = [
     {
-      title: "code",
+      title: "编码",
       dataIndex: "code",
       width: 120,
       render: (v: string) => <span className="num">{v}</span>,
@@ -45,7 +45,7 @@ export function ConfigView() {
       dataIndex: "semantics",
       render: (v: string) => (
         <Space size={6}>
-          <Tag bordered={false}>{m.enums.semantics?.[v] ?? v}</Tag>
+          <Tag variant="filled">{m.enums.semantics?.[v] ?? v}</Tag>
           <Typography.Text type="secondary" className="num" style={{ fontSize: 11 }}>
             {v}
           </Typography.Text>
@@ -56,10 +56,7 @@ export function ConfigView() {
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
-      <PageHeader
-        title="配置字典"
-        meta={<span>只读。左侧菜单里没有编辑入口是因为一期没做写接口，不是权限问题。</span>}
-      />
+      <PageHeader title="配置字典" />
 
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
@@ -106,7 +103,7 @@ export function ConfigView() {
               dataSource={m.levels}
               columns={[
                 {
-                  title: "code",
+                  title: "编码",
                   dataIndex: "code",
                   width: 120,
                   render: (v: string) => <span className="num">{v}</span>,

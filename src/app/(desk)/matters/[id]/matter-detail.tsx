@@ -121,7 +121,7 @@ export function MatterDetail({ id }: { id: string }) {
             {n.timeType === "range" ? ` → ${dateTime(n.endTime)}` : ""}
           </span>
         ) : (
-          <span style={{ fontSize: 12, color: INK.faint }}>时间未确认</span>
+          <span style={{ fontSize: 12, color: INK.muted }}>时间未确认</span>
         ),
     },
     {
@@ -155,9 +155,9 @@ export function MatterDetail({ id }: { id: string }) {
           </span>
           {n.sourceKind !== "manual" ? (
             <Tag
-              bordered={false}
+              variant="filled"
               title={`来源：${n.sourceKind}`}
-              style={{ fontSize: 10, marginInlineEnd: 0 }}
+              style={{ fontSize: 11, marginInlineEnd: 0 }}
             >
               {meta?.enums.nodeSourceKinds?.[n.sourceKind] ?? n.sourceKind}
             </Tag>
@@ -378,7 +378,7 @@ export function MatterDetail({ id }: { id: string }) {
                         >
                           {dateTime(a.createdAt)}
                         </span>
-                        <Tag bordered={false} style={{ fontSize: 11 }}>
+                        <Tag variant="filled" style={{ fontSize: 11 }}>
                           {meta?.enums.auditActions[a.action] ?? a.action}
                         </Tag>
                         <span style={{ fontSize: 13 }}>
@@ -553,7 +553,7 @@ function LogTab({
   return (
     <Flex gap={16} wrap align="flex-start">
       <div style={{ flex: "1 1 320px" }}>
-        <Space direction="vertical" size={8} style={{ display: "flex", marginBottom: 12 }}>
+        <Space orientation="vertical" size={8} style={{ display: "flex", marginBottom: 12 }}>
           <Input.TextArea
             rows={2}
             maxLength={2000}

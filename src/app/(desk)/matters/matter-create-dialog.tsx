@@ -324,7 +324,7 @@ export function MatterCreateDialog({
         <Form.List name="parties">
           {(fields, { add, remove }) => (
             <Form.Item label="当事人" style={{ marginBottom: 0 }}>
-              <Space direction="vertical" size={6} style={{ display: "flex" }}>
+              <Space orientation="vertical" size={6} style={{ display: "flex" }}>
                 {fields.map((f) => (
                   <Row key={f.key} gutter={8} align="middle">
                     <Col span={9}>

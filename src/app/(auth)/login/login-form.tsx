@@ -21,10 +21,10 @@ import { rulesFor } from "@/app/components/form/zod-rules";
  * 演示账号提示块只在非生产渲染：这套 seed 的口令等于用户名，生产绝不能带这段文案。
  */
 const DEMO = [
-  { username: "wangkf", who: "主任", scope: "全所 L1" },
-  { username: "lichen", who: "风控合伙人", scope: "全所 L1" },
-  { username: "zhaolj", who: "承办律师（兼两角色）", scope: "L1 + 撤归档" },
-  { username: "suny", who: "助理", scope: "我参与 L2" },
+  { username: "wangkf", who: "总经理", scope: "全公司 L1" },
+  { username: "lichen", who: "风控总监", scope: "全公司 L1" },
+  { username: "zhaolj", who: "项目负责人（兼两角色）", scope: "L1 + 撤归档" },
+  { username: "suny", who: "专员", scope: "我参与 L2" },
   { username: "hezp", who: "IT", scope: "我承办 L3 + 管配置" },
 ];
 
@@ -65,7 +65,7 @@ export function LoginForm() {
         登录
       </Typography.Title>
       <Typography.Paragraph style={{ fontSize: 12, color: INK.secondary, marginBottom: 22 }}>
-        用本所账号。连续失败不会锁定，但每次都会记进审计。
+        用公司账号。连续失败不会锁定，但每次都会记进审计。
       </Typography.Paragraph>
 
       {serverError ? (
@@ -103,7 +103,7 @@ export function LoginForm() {
             那是服务端范围谓词在起作用，不是前端筛的。
           </Typography.Paragraph>
           {/* 用 text Button 而不是带 onClick 的 div：这块要能用键盘走到（Tab + Enter） */}
-          <Space direction="vertical" size={2} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={2} style={{ width: "100%" }}>
             {DEMO.map((d) => (
               <Button
                 key={d.username}
@@ -121,7 +121,7 @@ export function LoginForm() {
                   </span>
                   <span style={{ fontSize: 11, color: INK.secondary }}>{d.who}</span>
                   <Tag
-                    bordered={false}
+                    variant="filled"
                     style={{ fontSize: 11, lineHeight: "16px", marginInlineEnd: 0 }}
                   >
                     {d.scope}

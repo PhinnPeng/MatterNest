@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Checkbox, Dropdown, Flex, Pagination, Table, Typography } from "antd";
+import { Button, Card, Checkbox, Dropdown, Flex, Pagination, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 
+import { INK } from "@/app/theme/brand";
 import { MAX_PAGE_SIZE } from "@/shared/schema/list-query";
 
 /**
@@ -77,13 +78,16 @@ export function DataTable<T extends object>({
   );
 
   return (
-    <Flex vertical gap={8}>
-      <Flex align="center" justify="space-between" gap={12}>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          共 <span className="num">{total}</span> 条 · 第 <span className="num">{page}</span> 页 ·
-          每页 <span className="num">{pageSize}</span> 条 · 排序与分页都在服务端做
+    <Card
+      size="small"
+      styles={{ body: { padding: 0 } }}
+      title={
+        <Typography.Text style={{ fontSize: 12, color: INK.muted, fontWeight: 400 }}>
+          共 <span className="num">{total}</span> 条
         </Typography.Text>
-        {hideable?.length ? (
+      }
+      extra={
+        hideable?.length ? (
           <Dropdown
             trigger={["click"]}
             menu={{
@@ -108,9 +112,9 @@ export function DataTable<T extends object>({
           >
             <Button size="small">列</Button>
           </Dropdown>
-        ) : null}
-      </Flex>
-
+        ) : null
+      }
+    >
       <Table<T>
         size="small"
         rowKey={(r) => rowKey(r)}
@@ -145,7 +149,20 @@ export function DataTable<T extends object>({
       />
 
       {total > pageSize ? (
-        <Flex justify="flex-end">
+        <Flex
+          align="center"
+          justify="space-between"
+          gap={12}
+          style={{
+            borderTop: `1px solid ${INK.line}`,
+            padding: "10px 12px",
+          }}
+        >
+          <Typography.Text style={{ fontSize: 12, color: INK.muted }}>
+            第 <span className="num">{page}</span> /{" "}
+            <span className="num">{Math.ceil(total / pageSize)}</span> 页 · 每页{" "}
+            <span className="num">{pageSize}</span> 条
+          </Typography.Text>
           {/* showSizeChanger 关掉：每页条数由 URL 参数决定，页内改会让"分享出去的链接"对不上 */}
           <Pagination
             size="small"
@@ -157,7 +174,7 @@ export function DataTable<T extends object>({
           />
         </Flex>
       ) : null}
-    </Flex>
+    </Card>
   );
 }
 

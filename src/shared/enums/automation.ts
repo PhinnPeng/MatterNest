@@ -81,7 +81,7 @@ export const ACTION_CONFIG_KEYS: Record<ActionType, readonly string[]> = {
 export const NOTIFY_RECEIVERS = ["owner", "co_owner", "follower", "custom"] as const;
 export type NotifyReceiver = (typeof NOTIFY_RECEIVERS)[number];
 export const NOTIFY_RECEIVER_LABELS: Record<NotifyReceiver, string> = {
-  owner: "承办人",
+  owner: "负责人",
   co_owner: "协办人",
   follower: "关注人",
   custom: "指定人员",

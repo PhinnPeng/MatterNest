@@ -65,7 +65,7 @@ export const appUser = pgTable(
     /**
      * 权限草案 §3：**独立于角色的最后开关**，只绕过数据范围，不给任何特权。
      * 存在的理由是"误删角色导致无人可管"这个逃生口 —— 所以第一期就要有列，
-     * 且只给 1–2 个账号（seed 里是主任）。判定见 `scope/visibility.ts` 的第一行短路。
+     * 且只给 1–2 个账号（seed 里是总经理）。判定见 `scope/visibility.ts` 的第一行短路。
      */
     isAdmin: boolean("is_admin").notNull().default(false),
     activationStatus: varchar("activation_status", { length: 16 }).notNull().default("active"),

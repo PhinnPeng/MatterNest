@@ -45,7 +45,7 @@ export const matterCreateSchema = z.object({
     .optional()
     .or(z.literal("")),
   description: z.string().trim().max(5000).optional().or(z.literal("")),
-  ownerId: idField("承办人").optional(),
+  ownerId: idField("负责人").optional(),
   /**
    * 当事人区：两种写法并存（F2-15「关联 + 快速新增」）。
    *   · 带 `partyId` —— 引用库里已登记的这一行，不新建；
@@ -153,7 +153,7 @@ export const nodeStatusSchema = z.object({
 });
 
 /**
- * 当事人检索（建案下拉的数据源）。`min(1)` 是刻意的：空关键字等于"把全所当事人都列出来"，
+ * 当事人检索（建案下拉的数据源）。`min(1)` 是刻意的：空关键字等于"把全公司当事人都列出来"，
  * 而 §7.2 的可见性只保证"我相关的那些"，一次全量列举仍然是一个枚举探测面。
  */
 export const partySearchSchema = z.object({

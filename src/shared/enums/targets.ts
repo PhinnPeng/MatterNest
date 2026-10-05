@@ -15,7 +15,7 @@ export type DataScope = (typeof DATA_SCOPES)[number];
 export const DEFAULT_DATA_SCOPE: DataScope = "participating";
 /** 权限草案 §1 给的是集合描述而非短名，故 label 取描述缩句，另存 `scope` 便于 UI 直接展示公式 */
 export const DATA_SCOPE_LABELS: Record<DataScope, { zh: string; formula: string }> = {
-  all: { zh: "全所", formula: "全所每一案件/事项" },
+  all: { zh: "全公司", formula: "全公司每一案件/事项" },
   participating: { zh: "我参与的", formula: "我承办的 ∪ 我协办的 ∪ 我被加为关注人的 ∪ 我创建的" },
   owned: { zh: "我承办的", formula: "我承办的 ∪ 我创建的（不含他人加给我的协办/关注）" },
 };
@@ -45,9 +45,9 @@ export const TARGET_TYPE_LABELS: Record<TargetType, string> = {
 /** E04 `*_staff.staff_role`：除 `owner` 外可多行 */
 export const STAFF_ROLES = ["owner", "co_owner", "follower"] as const;
 export type StaffRole = (typeof STAFF_ROLES)[number];
-/** 权限草案 §2.2 的原词：承办人 / 协办人 / 关注人 */
+/** 权限草案 §2.2 的原词：负责人 / 协办人 / 关注人 */
 export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
-  owner: "承办人",
+  owner: "负责人",
   co_owner: "协办人",
   follower: "关注人",
 };

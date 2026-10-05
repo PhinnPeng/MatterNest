@@ -12,7 +12,7 @@ import { api, useMeta } from "@/app/lib/client/api";
 import { toQuery, useListState } from "@/app/lib/client/use-list-state";
 import { calDate, fromNow, money } from "@/app/lib/client/format";
 import { ListToolbar } from "@/app/components/list-toolbar";
-import { MetaItem, PageHeader } from "@/app/components/page-header";
+import { PageHeader } from "@/app/components/page-header";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { FlagMark, StatusMark } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
@@ -74,7 +74,11 @@ export function RisksView() {
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("code", state.sortBy, state.sortDir),
-        render: (_, r) => <span className="num">{r.code}</span>,
+        render: (_, r) => (
+          <span className="num" style={{ fontSize: 12, color: INK.secondary }}>
+            {r.code}
+          </span>
+        ),
       },
       {
         key: "name",
@@ -87,7 +91,12 @@ export function RisksView() {
           <Space size={6}>
             <span
               title={r.name}
-              style={{ maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis" }}
+              style={{
+                maxWidth: 190,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                fontWeight: 500,
+              }}
             >
               {r.name}
             </span>
@@ -131,7 +140,7 @@ export function RisksView() {
               已转 · {r.convertedCaseCount}
             </FlagMark>
           ) : (
-            <span style={{ fontSize: 12, color: INK.faint }}>未转</span>
+            <span style={{ fontSize: 12, color: INK.muted }}>未转</span>
           ),
       },
       {
@@ -215,11 +224,6 @@ export function RisksView() {
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       <PageHeader
         title="风险事项"
-        meta={
-          <MetaItem label="">
-            报备后跟踪，够立案条件的转成案件 —— 两本台账靠外键连起来，中间不断链。
-          </MetaItem>
-        }
         actions={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
             新建事项

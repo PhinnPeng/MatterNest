@@ -195,7 +195,7 @@ export function Workbench() {
         </Col>
 
         <Col xs={24} lg={9}>
-          <Space direction="vertical" size={16} style={{ display: "flex" }}>
+          <Space orientation="vertical" size={16} style={{ display: "flex" }}>
             <Card size="small" title="范围读数">
               <Row gutter={[0, 4]}>
                 <Col span={12}>
@@ -206,16 +206,18 @@ export function Workbench() {
                       </Link>
                     }
                     value={data?.matters.total ?? 0}
-                    valueStyle={{ fontSize: 20 }}
+                    styles={{ content: { fontSize: 20 } }}
                   />
                 </Col>
                 <Col span={12}>
                   <Statistic
                     title="逾期节点"
                     value={data?.nodes.overdue ?? 0}
-                    valueStyle={{
-                      fontSize: 20,
-                      color: data?.nodes.overdue ? DEADLINE_TONE.overdue.color : undefined,
+                    styles={{
+                      content: {
+                        fontSize: 20,
+                        color: data?.nodes.overdue ? DEADLINE_TONE.overdue.color : undefined,
+                      },
                     }}
                   />
                 </Col>
@@ -223,9 +225,11 @@ export function Workbench() {
                   <Statistic
                     title="7 日内到期"
                     value={data?.nodes.within7 ?? 0}
-                    valueStyle={{
-                      fontSize: 20,
-                      color: data?.nodes.within7 ? DEADLINE_TONE.soon.color : undefined,
+                    styles={{
+                      content: {
+                        fontSize: 20,
+                        color: data?.nodes.within7 ? DEADLINE_TONE.soon.color : undefined,
+                      },
                     }}
                   />
                 </Col>
@@ -244,7 +248,7 @@ export function Workbench() {
                         </span>
                       ) : null
                     }
-                    valueStyle={{ fontSize: 20 }}
+                    styles={{ content: { fontSize: 20 } }}
                   />
                 </Col>
               </Row>
@@ -300,7 +304,7 @@ export function Workbench() {
                     <List.Item style={{ padding: "6px 12px" }}>
                       <div style={{ minWidth: 0 }}>
                         <Space size={6} wrap>
-                          <Tag bordered={false} style={{ fontSize: 11, marginInlineEnd: 0 }}>
+                          <Tag variant="filled" style={{ fontSize: 11, marginInlineEnd: 0 }}>
                             {r.actionLabel}
                           </Tag>
                           <Link

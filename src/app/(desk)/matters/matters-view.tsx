@@ -12,7 +12,7 @@ import { api, useMeta } from "@/app/lib/client/api";
 import { toQuery, useListState } from "@/app/lib/client/use-list-state";
 import { fromNow, money } from "@/app/lib/client/format";
 import { ListToolbar } from "@/app/components/list-toolbar";
-import { PageHeader, MetaItem } from "@/app/components/page-header";
+import { PageHeader } from "@/app/components/page-header";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
@@ -42,7 +42,7 @@ const SORT_LABEL: Record<string, string> = {
   name: "案件名称",
   status: "状态",
   risk_level: "风险等级",
-  owner_name: "承办人",
+  owner_name: "负责人",
   amount: "标的额",
   created_at: "创建时间",
   updated_at: "最近更新",
@@ -79,9 +79,9 @@ export function MattersView() {
         sorter: true,
         sortOrder: sortOrderOf("code", state.sortBy, state.sortDir),
         render: (_, r) => (
-          <a className="num" style={{ fontSize: 13 }}>
+          <span className="num" style={{ fontSize: 12, color: INK.secondary }}>
             {r.internalCode}
-          </a>
+          </span>
         ),
       },
       {
@@ -94,7 +94,12 @@ export function MattersView() {
         render: (_, r) => (
           <Space size={6}>
             <span
-              style={{ maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis" }}
+              style={{
+                maxWidth: 190,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                fontWeight: 500,
+              }}
               title={r.name}
             >
               {r.name}
@@ -153,7 +158,7 @@ export function MattersView() {
       },
       {
         key: "owner_name",
-        title: "承办人",
+        title: "负责人",
         width: 104,
         ellipsis: true,
         sorter: true,
@@ -200,9 +205,6 @@ export function MattersView() {
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       <PageHeader
         title="案件"
-        meta={
-          <MetaItem label="">立案到归档一条链；可见范围由服务端逐条判定，不是前端筛的。</MetaItem>
-        }
         actions={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
             新建案件

@@ -58,8 +58,8 @@ const SORTABLE: Record<(typeof SORTABLE_COLUMNS)[number], SQL> = {
   name: sql`${matter.name}`,
   status: sql`${matter.status}`,
   risk_level: sql`${matter.level}`,
-  // 承办人姓名不在案件表上（列表靠相关子查询带出），排序沿用同一个子查询，
-  // 否则"看到的承办人"与"排出来的承办人"可能不是同一个表达式。
+  // 负责人姓名不在案件表上（列表靠相关子查询带出），排序沿用同一个子查询，
+  // 否则"看到的负责人"与"排出来的负责人"可能不是同一个表达式。
   owner_name: sql`(select u.display_name from mn_app_user u where u.id = ${matter.ownerId})`,
   amount: sql`${matter.amount}`,
   created_at: sql`${matter.createdAt}`,
@@ -120,7 +120,7 @@ export async function listMatters(actor: Actor, q: ListQuery) {
   };
 }
 
-/** 承办人姓名：同一次查询里带出来，避免列表页 N+1 */
+/** 负责人姓名：同一次查询里带出来，避免列表页 N+1 */
 function appUserName() {
   return sql<string>`(select u.display_name from mn_app_user u where u.id = ${matter.ownerId})`;
 }
@@ -344,8 +344,8 @@ export async function createMatter(
  *
  * 三道判定按"先贵后贱"排：可见性 → 归属 → 原因。
  *   · 可见性由 `scopedWhere` 单点保证，不可见与不存在一律 `not_found`（→ 404，元规则 3）；
- *   · 归属是护栏 1（权限草案 §2.2）：改状态要承办人本人、L1 或 `is_admin`，
- *     否则"可见即可操作"会退化成"同所任何人都能推走别人的案子"；
+ *   · 归属是护栏 1（权限草案 §2.2）：改状态要负责人本人、L1 或 `is_admin`，
+ *     否则"可见即可操作"会退化成"同公司任何人都能推走别人的案子"；
  *   · 原因是偏离判定（修订稿 §3.3 第 3 条）：走推荐路径不要原因，跳进归档恒要。
  *
  * 置为归档语义的状态要同时翻 `is_archived`，否则列表的 partial index 与"终态不可逆"

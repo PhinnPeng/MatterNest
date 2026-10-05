@@ -71,40 +71,25 @@ export default function LoginPage() {
             <span style={{ color: "#fff", fontSize: 15, fontWeight: 600, letterSpacing: 0.2 }}>
               MatterNest
             </span>
-            <span style={{ fontSize: 11, color: alpha(BRAND.sider.item, 0.62) }}>律所内部系统</span>
+            <span style={{ fontSize: 11, color: alpha(BRAND.sider.item, 0.62) }}>企业内部系统</span>
           </div>
 
           <div style={{ maxWidth: 520 }}>
             <h1
               style={{
                 color: "#fff",
-                fontSize: 26,
-                lineHeight: "38px",
+                fontSize: 22,
+                lineHeight: "32px",
                 fontWeight: 600,
-                margin: "0 0 16px",
-              }}
-            >
-              风险事项从报备到转案件，
-              <br />
-              一条链子上都有人看得见。
-            </h1>
-            <ul
-              style={{
-                padding: 0,
                 margin: 0,
-                listStyle: "none",
-                fontSize: 13,
-                lineHeight: "25px",
               }}
             >
-              <li>· 案件与事项两套宿主，共用同一套节点、参与人、活动记录结构。</li>
-              <li>· 可见范围按「全所 / 我参与 / 我承办」三档，服务端逐条请求判定。</li>
-              <li>· 归档是终态：默认从列表消失，撤销归档要专门权限并留原因。</li>
-            </ul>
+              风险事项与案件全生命周期
+            </h1>
           </div>
 
           <div style={{ fontSize: 11, color: alpha(BRAND.sider.item, 0.72) }}>
-            数据留在本所内网，不外发。
+            数据留在公司内网，不外发。
           </div>
         </aside>
 

@@ -102,7 +102,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Typography.Text strong style={{ color: "#fff", fontSize: 15, letterSpacing: 0.2 }}>
             MatterNest
           </Typography.Text>
-          <div style={{ color: alpha(BRAND.sider.item, 0.62), fontSize: 11 }}>风险事项 · 案件</div>
+          <div style={{ color: alpha(BRAND.sider.item, 0.82), fontSize: 11 }}>风险事项 · 案件</div>
         </div>
         <Menu
           theme="dark"
@@ -128,7 +128,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div style={{ color: alpha(BRAND.sider.item, 0.9), fontSize: 12 }}>
               数据范围 · {DATA_SCOPE_LABELS[actor.dataScope as DataScope]?.zh ?? actor.dataScope}
             </div>
-            <div style={{ color: alpha(BRAND.sider.item, 0.55), fontSize: 11, marginTop: 2 }}>
+            <div style={{ color: alpha(BRAND.sider.item, 0.72), fontSize: 11, marginTop: 2 }}>
               {SCOPE_HINT[actor.dataScope] ?? "—"}
             </div>
           </div>
@@ -165,7 +165,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   {actor.displayName.slice(0, 1)}
                 </Avatar>
                 <Typography.Text style={{ fontSize: 13 }}>{actor.displayName}</Typography.Text>
-                <Tag bordered={false} style={{ marginInlineEnd: 0, fontSize: 11 }}>
+                <Tag variant="filled" style={{ marginInlineEnd: 0, fontSize: 11 }}>
                   {DATA_SCOPE_LABELS[actor.dataScope as DataScope]?.zh ?? actor.dataScope}
                 </Tag>
               </Space>

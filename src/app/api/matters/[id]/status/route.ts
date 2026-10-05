@@ -26,7 +26,7 @@ import {
  * 而 `scopedWhere` 里的 `NOT is_deleted` 顺带把"已删除的案件能不能被改状态"也堵上了。
  *
  * 归档的两个条件不合并成一次判定：`can_unarchive` 是特权（§2.1，"影响别人或不可逆"），
- * 承办人本人没有；护栏 1 的归属判定在服务层里做。合起来会让"owner 归档自己的案子"变复杂。
+ * 负责人本人没有；护栏 1 的归属判定在服务层里做。合起来会让"owner 归档自己的案子"变复杂。
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const parsed = await body(req, statusChangeSchema);
@@ -50,7 +50,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (r.ok) return json({ ok: true });
     if (r.why === "not_found") return notFound();
     if (r.why === "reason_required") return reasonRequired();
-    // 可见但不是承办人：403 是诚实的答复（这条你看得见，只是轮不到你推状态）
+    // 可见但不是负责人：403 是诚实的答复（这条你看得见，只是轮不到你推状态）
     if (r.why === "forbidden") return attributionRequired();
     return fail(422, "unchanged", "目标状态与当前状态相同");
   });

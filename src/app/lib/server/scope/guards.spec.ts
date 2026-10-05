@@ -5,14 +5,14 @@ import { canAddParticipant, ownsAttribution } from "./guards";
  * 归属护栏（权限草案 §2.2）的单测盯的是**唯一那个反向**：
  * 「能看见」不等于「能改归属」。
  *
- * 这一类断言必须钉住的具体事故：L2/L3 的协办人把案子状态推走、甚至把承办人改成自己。
+ * 这一类断言必须钉住的具体事故：L2/L3 的协办人把案子状态推走、甚至把负责人改成自己。
  * 所以"同一个人、同一条案件、换个 staff_role 判定就不同"要逐个跑一遍，
  * 不能只看"三种范围各一条"就以为覆盖到了。
  */
 describe("guards/ownsAttribution：护栏 1 的主体判定", () => {
   const OWNER = "103";
 
-  it("承办人本人可以改（L3 也行 —— 这是护栏 1 的第一句）", () => {
+  it("负责人本人可以改（L3 也行 —— 这是护栏 1 的第一句）", () => {
     expect(ownsAttribution({ userId: OWNER, dataScope: "owned" }, OWNER)).toBe(true);
   });
 
@@ -38,7 +38,7 @@ describe("guards/ownsAttribution：护栏 1 的主体判定", () => {
     expect(ownsAttribution({ userId: "105", dataScope: "owned", isAdmin: true }, OWNER)).toBe(true);
   });
 
-  it("bigint 与 string 混用仍然相等（漏转的失败形态是承办人自己也改不动）", () => {
+  it("bigint 与 string 混用仍然相等（漏转的失败形态是负责人自己也改不动）", () => {
     expect(ownsAttribution({ userId: OWNER, dataScope: "owned" }, BigInt(OWNER))).toBe(true);
   });
 });
@@ -53,7 +53,7 @@ describe("guards/canAddParticipant：§4.1 可见用户集收窄", () => {
     ).toBe(false);
   });
 
-  it("L1 可以加全所任何启用用户", () => {
+  it("L1 可以加全公司任何启用用户", () => {
     expect(canAddParticipant({ userId: "103", dataScope: "all" }, "105")).toBe(true);
   });
 

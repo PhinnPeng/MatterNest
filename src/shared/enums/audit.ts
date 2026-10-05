@@ -104,7 +104,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   STATUS_CHANGED: "状态变更",
   ARCHIVED: "归档",
   UNARCHIVED: "撤销归档",
-  OWNER_CHANGED: "变更承办人",
+  OWNER_CHANGED: "变更负责人",
   CONVERTED_TO_CASE: "转为案件",
   UNCONVERT: "撤销转案件",
   NODE_COMPLETED: "节点完成",

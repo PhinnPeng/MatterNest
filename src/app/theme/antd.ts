@@ -33,6 +33,15 @@ export const antdThemeConfig: ThemeConfig = {
     colorInfo: BRAND.primary,
     colorBgLayout: PAPER,
     colorBgContainer: "#ffffff",
+    // 文本色从 antd 默认的半透明黑（.65/.45/.25）改挂本仓墨阶：
+    // 那三个默认值在纸色底分别约 8.0/4.1/2.4，后两档做 12–14px 正文/占位都低于 4.5:1，
+    // 且与本仓"一个语义一个值"的墨阶打架（`type="secondary"` 会绕过 INK 走库默认）。
+    colorText: INK.body,
+    colorTextSecondary: INK.secondary,
+    colorTextTertiary: INK.muted,
+    colorTextDescription: INK.muted,
+    // 占位符 craft-floor 要求 ≥4.5:1：用 muted（≈5:1）而不是库默认 .25
+    colorTextQuaternary: INK.muted,
     borderRadius: 6,
     fontSize: 14,
     // 密集表格与筛选条靠这一档：默认 32 的控件在 10 列表格里显肿
@@ -102,7 +111,7 @@ export const DEADLINE_TONE = {
 
 /** 数据范围三档的一句话说明（左侧菜单底部用） */
 export const SCOPE_HINT: Record<string, string> = {
-  all: "全所：每一案件/事项",
+  all: "全公司：每一案件/事项",
   participating: "我参与：承办 ∪ 协办 ∪ 关注 ∪ 创建",
   owned: "我承办：承办 ∪ 创建（不含他人加给我的协办/关注）",
 };

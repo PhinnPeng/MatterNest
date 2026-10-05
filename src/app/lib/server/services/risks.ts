@@ -198,7 +198,7 @@ export async function convertToCase(
       id: caseId,
       internalCode: code,
       caseNo: code,
-      // 描述**不继承**（P0-1）：只带事项名称作为初始案由说明，正文留空由承办人逐案填
+      // 描述**不继承**（P0-1）：只带事项名称作为初始案由说明，正文留空由负责人逐案填
       name: input.name,
       cause: input.cause,
       caseType: input.caseType,

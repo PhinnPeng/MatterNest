@@ -65,10 +65,10 @@ export const reasonRequired = (): NextResponse =>
  *
  * 给 403 而不是 404 是有意的：404 的口径是"不可见或不存在"（元规则 3），
  * 而这里对方本来就看得见这条宿主 —— 报 404 会让协办人以为案子被删了，
- * 反复去找承办人确认。两种 4xx 的分工就是"能不能看见"与"能不能改归属"。
+ * 反复去找负责人确认。两种 4xx 的分工就是"能不能看见"与"能不能改归属"。
  */
 export const attributionRequired = (): NextResponse =>
-  fail(403, "attribution_required", "只有承办人或具备全局范围的角色能改这条记录的归属与状态");
+  fail(403, "attribution_required", "只有负责人或具备全局范围的角色能改这条记录的归属与状态");
 
 /**
  * 路径参数里的 id → BigInt，不合法给 **400**（不是 500）。

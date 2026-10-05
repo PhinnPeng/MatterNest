@@ -18,7 +18,7 @@ export const DATA_SCOPE_WIDTH: Record<DataScope, number> = {
  * 多角色取最宽并集（§2 注：既要管系统又要能撤销归档的人给两个角色，不新增第 6 个角色）。
  *
  * **空数组按最小权限的 `owned` 兜底**，不是放行：账号没绑角色是配置事故，
- * 让它看到全所等于把配置错误升级成数据泄露。
+ * 让它看到全公司等于把配置错误升级成数据泄露。
  */
 export function widestDataScope(scopes: readonly DataScope[]): DataScope {
   if (scopes.length === 0) return "owned";
