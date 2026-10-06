@@ -1,18 +1,17 @@
 "use client";
 
 import { INK } from "@/app/theme/brand";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Space, Typography } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { Button, Input, Select, Space, Typography } from "antd";
+import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { TableColumnsType } from "antd";
 
 import { api, useMeta } from "@/app/lib/client/api";
 import { toQuery, useListState } from "@/app/lib/client/use-list-state";
 import { calDate, fromNow, money } from "@/app/lib/client/format";
-import { ListToolbar } from "@/app/components/list-toolbar";
-import { PageHeader } from "@/app/components/page-header";
+import { FilterField, QueryFilter } from "@/app/components/query-filter";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { FlagMark, StatusMark } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
@@ -37,11 +36,13 @@ type RiskRow = {
 type ListResult = { items: RiskRow[]; page: number; pageSize: number; total: number };
 
 /**
- * 事项列表。
+ * 风险事项列表（在办）。
  *
- * 与案件列表差两件事，都写在规格里：
+ * 与案件列表**同一套壳**（查询区卡 + 表格卡），差两件事，都写在规格里：
  *   · 状态筛选**不收进枚举**而用配置字典（事项状态同样配置驱动，见 `/api/risk-matters` 那段注释）；
  *   · 行上没有"改状态"，旗舰动作是**转案件**（修订稿 §3.4）。
+ *
+ * 归档不在这里：这是在办列表，只出 待受理/进行中/已结案，已归档由 `/archive` 承接。
  *
  * 事项侧**没有单独详情页**，也**没有状态流转端点**——这是范围决定不是遗漏，
  * 已记在 CHANGELOG 的「未做」与 MATT-1 的「已知会误导人的两处」里。
@@ -55,15 +56,36 @@ export function RisksView() {
   const [converting, setConverting] = useState<RiskRow | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const { data, isFetching, isError, error } = useQuery({
+  const [kw, setKw] = useState(state.keyword);
+  const [st, setSt] = useState(state.status);
+  useEffect(() => {
+    setKw(state.keyword);
+    setSt(state.status);
+  }, [state.keyword, state.status]);
+
+  const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["risk-matters", state],
     queryFn: () => api.get<ListResult>(`/api/risk-matters?${toQuery(state)}`),
   });
 
+  /** 状态值域来自 `/api/meta`，剔掉归档（它属于归档视图）；按 semantics 判而非硬编码 code。 */
   const statusOptions = useMemo(
-    () => (meta?.statuses ?? []).map((s) => ({ value: s.code, label: s.name })),
+    () =>
+      (meta?.statuses ?? [])
+        .filter((s) => s.semantics !== "archived")
+        .map((s) => ({ value: s.code, label: s.name })),
     [meta],
   );
+
+  function submit() {
+    push({ keyword: kw.trim(), status: st });
+  }
+
+  function reset() {
+    setKw("");
+    setSt("");
+    push({ keyword: "", status: "" });
+  }
 
   const columns = useMemo<TableColumnsType<RiskRow>>(
     () => [
@@ -83,25 +105,23 @@ export function RisksView() {
       {
         key: "name",
         title: "事项名称",
-        width: 220,
+        width: 204,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("name", state.sortBy, state.sortDir),
         render: (_, r) => (
-          <Space size={6}>
-            <span
-              title={r.name}
-              style={{
-                maxWidth: 190,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                fontWeight: 500,
-              }}
-            >
-              {r.name}
-            </span>
-            {r.isArchived ? <FlagMark>归档</FlagMark> : null}
-          </Space>
+          <span
+            title={r.name}
+            style={{
+              display: "block",
+              maxWidth: 200,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              fontWeight: 500,
+            }}
+          >
+            {r.name}
+          </span>
         ),
       },
       {
@@ -156,7 +176,9 @@ export function RisksView() {
       {
         key: "discover",
         title: "发现日",
-        width: 88,
+        // 112 而不是 88：`calDate` 输出的是"2026年9月22日"，88 会把日号截成"2026年9月2…"。
+        // 日期被裁掉一位比名字被裁危险得多——它看起来仍像一个完整日期。
+        width: 112,
         ellipsis: true,
         render: (_, r) => (
           <span className="num" style={{ fontSize: 12 }}>
@@ -176,7 +198,7 @@ export function RisksView() {
       {
         key: "updated_at",
         title: "更新",
-        width: 78,
+        width: 72,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("updated_at", state.sortBy, state.sortDir),
@@ -222,39 +244,38 @@ export function RisksView() {
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
-      <PageHeader
-        title="风险事项"
-        actions={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
-            新建事项
-          </Button>
-        }
-      />
-
-      <ListToolbar
-        keyword={state.keyword}
-        onKeyword={(v) => push({ keyword: v })}
-        status={state.status}
-        onStatus={(v) => push({ status: v })}
-        statusOptions={statusOptions}
-        sortBy={state.sortBy}
-        sortDir={state.sortDir}
-        onSort={(k, d) => push({ sortBy: k, sortDir: d })}
-        sortOptions={[
-          { value: "code", label: "编号" },
-          { value: "name", label: "名称" },
-          { value: "status", label: "状态" },
-          { value: "risk_level", label: "等级" },
-          { value: "owner_name", label: "负责人" },
-          { value: "amount", label: "预估影响" },
-          { value: "updated_at", label: "最近更新" },
-        ]}
-        includeArchived={state.includeArchived}
-        onIncludeArchived={(v) => push({ includeArchived: v })}
-        busy={isFetching}
-      />
+      <QueryFilter onSearch={submit} onReset={reset} busy={isFetching}>
+        <FilterField label="关键词" htmlFor="risk-keyword" width={280}>
+          <Input
+            id="risk-keyword"
+            allowClear
+            value={kw}
+            placeholder="编号 / 名称 / 措施"
+            onChange={(e) => setKw(e.target.value)}
+            onPressEnter={submit}
+          />
+        </FilterField>
+        <FilterField label="状态" width={160}>
+          <Select
+            allowClear
+            placeholder="全部"
+            value={st || undefined}
+            options={statusOptions}
+            onChange={(v) => setSt(v ?? "")}
+          />
+        </FilterField>
+      </QueryFilter>
 
       <DataTable<RiskRow>
+        title="风险事项列表"
+        tools={
+          <Space size={8}>
+            <Button icon={<ReloadOutlined />} onClick={() => void refetch()} />
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
+              新建事项
+            </Button>
+          </Space>
+        }
         columns={columns}
         rows={data?.items ?? []}
         rowKey={(r) => r.id}
@@ -272,7 +293,7 @@ export function RisksView() {
           <Typography.Text style={{ fontSize: 12 }}>
             {state.keyword || state.status
               ? "当前筛选下没有可见事项。清掉条件再看一次；范围不同看到的条数就不同。"
-              : "还没有风险事项。点右上「新建事项」报备一条。"}
+              : "还没有在办风险事项。点右上「新建事项」报备一条。"}
           </Typography.Text>
         }
       />

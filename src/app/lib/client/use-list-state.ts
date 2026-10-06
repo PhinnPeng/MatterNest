@@ -25,7 +25,8 @@ export type ListState = {
   sortDir: "asc" | "desc";
   keyword: string;
   status: string;
-  includeArchived: boolean;
+  /** 归档视图（二态）：false=在办列表，true=归档视图。取代旧的"混入"开关。 */
+  archivedOnly: boolean;
 };
 
 export function useListState(defaults?: Partial<ListState>) {
@@ -42,7 +43,7 @@ export function useListState(defaults?: Partial<ListState>) {
       sortDir: sp.get("sortDir") === "asc" ? "asc" : "desc",
       keyword: sp.get("keyword") ?? "",
       status: sp.get("status") ?? "",
-      includeArchived: sp.get("includeArchived") === "1" || sp.get("includeArchived") === "true",
+      archivedOnly: sp.get("archivedOnly") === "1" || sp.get("archivedOnly") === "true",
     }),
     [sp, defaults?.pageSize, defaults?.sortBy],
   );
@@ -89,6 +90,6 @@ export function toQuery(s: ListState): string {
   p.set("sortDir", s.sortDir);
   if (s.keyword) p.set("keyword", s.keyword);
   if (s.status) p.set("status", s.status);
-  if (s.includeArchived) p.set("includeArchived", "1");
+  if (s.archivedOnly) p.set("archivedOnly", "1");
   return p.toString();
 }

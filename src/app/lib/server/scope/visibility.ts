@@ -96,9 +96,16 @@ export function scopedWhere(
   return and(...parts) ?? sql`false`;
 }
 
-/** 归档默认隐藏（§3.3：归档是终态、列表默认不显示），带 `includeArchived` 才放出 */
-export function archivedFilter(host: HostKind, includeArchived: boolean): SQL | undefined {
-  return includeArchived ? undefined : sql`NOT ${HOSTS[host].table.isArchived}`;
+/**
+ * 归档过滤（§3.3：归档是终态，在办列表默认不显示）。
+ *
+ * **二态**：`archivedOnly=false` 看在办（`NOT is_archived`），`true` 看归档（`is_archived`）。
+ * 旧版是 `includeArchived` 的"混入"语义——混着看会让 `is_archived` 这个 partial index
+ * 前缀失效（§12.1），也分不清"这条还要不要跟"。
+ */
+export function archivedFilter(host: HostKind, archivedOnly: boolean): SQL {
+  const t = HOSTS[host].table;
+  return archivedOnly ? sql`${t.isArchived}` : sql`NOT ${t.isArchived}`;
 }
 
 /** 关键词命中案号/名称/案由；ILIKE 前后模糊，走不了 btree —— 一期接受，量大时再上 pg_trgm */

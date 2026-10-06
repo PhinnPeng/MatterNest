@@ -32,23 +32,27 @@ export const SORTABLE_COLUMNS = [
 /**
  * 可筛选的状态：四个内置 code 就是 seed 里 `mn_status_config.code` 的取值。
  * 与 `status` 列的 CHECK 由 `enum-check.spec.ts` 保证同源，所以这里能收成枚举。
- * `archived` 单列出现是有意的 —— 它同时受下面 `includeArchived` 的影响，见那里的注释。
+ * `archived` 仍在值域里（它是一个合法 code），但**在办列表的前端不再提供这一项**——
+ * 归档由独立的归档视图承接，见下面 `archivedOnly`。
  */
 export const FILTERABLE_STATUSES = ["pending", "in_progress", "closed", "archived"] as const;
 
 /**
- * 归档位默认隐藏（修订稿 §12.1：`is_archived` 是 partial index 前缀，列表默认视图必须能吃到它）。
- * 所以"看已归档"是一个**显式动作**而不是筛选项 —— 只选 `status=archived` 而不开这个开关，
- * 结果是空表；这不是 bug，是"默认视图不带归档"这条规格的直接后果。
+ * 归档视图开关（**二态**，取代旧的 `includeArchived`）。
+ *
+ * 旧语义是"在办里混进归档"：默认 `NOT is_archived`，勾上就不加谓词。它有两个问题——
+ * 混着看时 `is_archived` 这个 partial index 前缀用不上（修订稿 §12.1），
+ * 而且列表里"这条还要不要跟"分不出来（归档是终态）。
+ * 所以改成二选一：`false`（默认）= 在办列表，`true` = 归档视图。
  *
  * 取值四个都收（`1/true/0/false`）再自己转，**不用** `z.coerce.boolean()`：
- * 后者是 `Boolean("false") === true`，会把"取消勾选"静默变成"一直显示归档"。
- * 裸 `yes/no` 仍然拒绝 —— 手打的参数写错该红，但 `false` 是前端与手打都会写的写法，不该 400。
+ * 后者是 `Boolean("false") === true`，会把"退出归档视图"静默变成"一直看归档"。
+ * 裸 `yes/no` 仍然拒绝 —— 手打的参数写错该红。
  *
  * 单独导出是给事项列表那份 schema 复用：两张宿主的状态值域来源不同（一个可 enum、一个配置驱动），
  * 所以两份 schema 不能整个合，但这个开关的语义必须一模一样。
  */
-export const includeArchivedField = z
+export const archivedOnlyField = z
   .enum(["1", "true", "0", "false"])
   .optional()
   .transform((v) => v === "1" || v === "true");
@@ -60,7 +64,7 @@ export const listQuerySchema = z.object({
   sortDir: z.enum(["asc", "desc"]).default("desc"),
   status: z.enum(FILTERABLE_STATUSES).optional(),
   keyword: z.string().trim().min(1).max(60).optional(),
-  includeArchived: includeArchivedField,
+  archivedOnly: archivedOnlyField,
 });
 
 export type ListQuery = z.infer<typeof listQuerySchema>;

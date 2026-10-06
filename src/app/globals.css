@@ -43,6 +43,35 @@
     background: #2f5fe0;
     color: #fff;
   }
+
+  /*
+   * 滚动条：列表页是主要的滚动面，而滚动条是这张页面上**唯一还没被调校过的表面**——
+   * 浏览器默认那套系统灰不属于任何一个设计体系（craft-floor 的 browser surfaces 一条）。
+   * 滑块用 INK.rail、悬停用 INK.faint，轨道透明（纸色底已经是面）。
+   * 同 ::selection 的处境：CSS 侧 import 不到 theme/brand.ts，改色两处一起改。
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #c8ccd4 transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    /* border + background-clip 造出"滑块比轨道窄"的留白，比直接加 margin 稳 */
+    background: #c8ccd4;
+    background-clip: content-box;
+    border: 2px solid transparent;
+    border-radius: 5px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a4abb8;
+    background-clip: content-box;
+  }
 }
 
 /*

@@ -10,6 +10,7 @@ import {
   DashboardOutlined,
   ExportOutlined,
   FileTextOutlined,
+  InboxOutlined,
   LogoutOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
@@ -43,12 +44,18 @@ const NAV: { type: "group"; label: string; children: Item[] }[] = [
     type: "group",
     label: "业务",
     children: [
-      { key: "/matters", label: "案件", icon: <FileTextOutlined />, hint: "立案到归档全生命周期" },
+      { key: "/matters", label: "案件", icon: <FileTextOutlined />, hint: "立案到结案全生命周期" },
       {
         key: "/risk-matters",
         label: "风险事项",
         icon: <SafetyCertificateOutlined />,
         hint: "报备、跟踪、转案件",
+      },
+      {
+        key: "/archive",
+        label: "已归档",
+        icon: <InboxOutlined />,
+        hint: "终态记录：撤销归档需专门权限",
       },
     ],
   },

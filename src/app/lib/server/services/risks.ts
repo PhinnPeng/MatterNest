@@ -1,5 +1,6 @@
-import { and, asc, count as dcount, desc, eq, sql } from "drizzle-orm";
+import { and, asc, count as dcount, desc, eq, sql, type SQL } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
+import { SORTABLE_COLUMNS } from "@/shared/schema/list-query";
 import { getDb } from "../db/client";
 import {
   matter,
@@ -29,6 +30,24 @@ import { logActivity } from "./activity";
  * 基线 3.4 那句"带入描述与金额"已被 §P0-1 判为被覆盖。
  */
 
+/**
+ * 排序键 → 列，与案件侧共用同一套白名单（`shared/schema/list-query` 的 `SORTABLE_COLUMNS`）。
+ *
+ * 写成 `Record<白名单, SQL>` 而不是 `Record<string, SQL>`：少一个键编译期就报缺属性，
+ * 不会出现"表头点了、数据没动"（本表此前只收 `sortDir`、不收 `sortBy`，
+ * 前端那一列排序箭头全是死控件——这个映射就是来补上的）。
+ */
+const SORTABLE: Record<(typeof SORTABLE_COLUMNS)[number], SQL> = {
+  code: sql`${riskMatter.code}`,
+  name: sql`${riskMatter.name}`,
+  status: sql`${riskMatter.status}`,
+  risk_level: sql`${riskMatter.level}`,
+  owner_name: sql`(select u.display_name from mn_app_user u where u.id = ${riskMatter.ownerId})`,
+  amount: sql`${riskMatter.amount}`,
+  created_at: sql`${riskMatter.createdAt}`,
+  updated_at: sql`${riskMatter.updatedAt}`,
+};
+
 export async function listRiskMatters(
   actor: Actor,
   q: {
@@ -36,17 +55,19 @@ export async function listRiskMatters(
     pageSize: number;
     keyword?: string;
     status?: string;
-    includeArchived?: boolean;
+    sortBy?: (typeof SORTABLE_COLUMNS)[number];
+    archivedOnly?: boolean;
     sortDir?: "asc" | "desc";
   },
 ) {
   const db = await getDb();
   const where = and(
     scopedWhere("risk_matter", actor),
-    archivedFilter("risk_matter", Boolean(q.includeArchived)),
+    archivedFilter("risk_matter", Boolean(q.archivedOnly)),
     q.status ? eq(riskMatter.status, q.status) : undefined,
     keywordFilter("risk_matter", q.keyword),
   );
+  const sortCol = SORTABLE[q.sortBy ?? "updated_at"];
   const [total] = await db.select({ n: dcount() }).from(riskMatter).where(where);
   const rows = await db
     .select({
@@ -61,16 +82,14 @@ export async function listRiskMatters(
       conversionStatus: riskMatter.conversionStatus,
       convertedCaseCount: riskMatter.convertedCaseCount,
       isArchived: riskMatter.isArchived,
+      archivedAt: riskMatter.archivedAt,
       discoverDate: riskMatter.discoverDate,
       updatedAt: riskMatter.updatedAt,
       ownerName: sql<string>`(select u.display_name from mn_app_user u where u.id = ${riskMatter.ownerId})`,
     })
     .from(riskMatter)
     .where(where)
-    .orderBy(
-      q.sortDir === "asc" ? asc(riskMatter.updatedAt) : desc(riskMatter.updatedAt),
-      desc(riskMatter.id),
-    )
+    .orderBy(q.sortDir === "asc" ? asc(sortCol) : desc(sortCol), desc(riskMatter.id))
     .limit(q.pageSize)
     .offset((q.page - 1) * q.pageSize);
 

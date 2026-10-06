@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, includeArchivedField } from "@/shared/schema/list-query";
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  SORTABLE_COLUMNS,
+  archivedOnlyField,
+} from "@/shared/schema/list-query";
 import { riskCreateSchema, pruneEmpty } from "@/shared/schema/hosts";
 import { createRiskMatter, listRiskMatters } from "@/app/lib/server/services/risks";
 import { body, json, query, withActor } from "@/app/lib/server/http";
@@ -14,9 +19,11 @@ const listSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
   keyword: z.string().trim().max(60).optional(),
   status: z.string().trim().max(32).optional(),
+  // 与案件侧同一套排序列白名单（同一份定义从 shared 引，禁令⑧）：不接受自由字符串。
+  sortBy: z.enum(SORTABLE_COLUMNS).default("updated_at"),
   sortDir: z.enum(["asc", "desc"]).default("desc"),
   // 同一个字段定义从 shared 引，不在这里重写一遍（禁令⑧：校验规则单源）
-  includeArchived: includeArchivedField,
+  archivedOnly: archivedOnlyField,
 });
 
 export async function GET(req: Request) {

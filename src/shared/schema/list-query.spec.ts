@@ -47,13 +47,13 @@ describe("listQuerySchema", () => {
     expect(listQuerySchema.safeParse({ keyword: "x".repeat(61) }).success).toBe(false);
   });
 
-  it("includeArchived：URL 里的 'false' 不能被判成 true", () => {
+  it("archivedOnly：URL 里的 'false' 不能被判成 true", () => {
     // 反面教材是 z.coerce.boolean() —— Boolean("false") === true，
-    // 那会让"取消勾选含归档"静默变成"一直显示归档"。
-    expect(listQuerySchema.parse({ includeArchived: "false" }).includeArchived).toBe(false);
-    expect(listQuerySchema.parse({ includeArchived: "1" }).includeArchived).toBe(true);
-    expect(listQuerySchema.parse({}).includeArchived).toBe(false);
-    expect(listQuerySchema.safeParse({ includeArchived: "yes" }).success).toBe(false);
+    // 那会让"退出归档视图"静默变成"一直看归档"。
+    expect(listQuerySchema.parse({ archivedOnly: "false" }).archivedOnly).toBe(false);
+    expect(listQuerySchema.parse({ archivedOnly: "1" }).archivedOnly).toBe(true);
+    expect(listQuerySchema.parse({}).archivedOnly).toBe(false);
+    expect(listQuerySchema.safeParse({ archivedOnly: "yes" }).success).toBe(false);
   });
 });
 

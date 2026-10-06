@@ -70,7 +70,7 @@ export async function listMatters(actor: Actor, q: ListQuery) {
   const db = await getDb();
   const where = and(
     scopedWhere("matter", actor),
-    archivedFilter("matter", Boolean(q.includeArchived)),
+    archivedFilter("matter", Boolean(q.archivedOnly)),
     q.status ? eq(matter.status, q.status) : undefined,
     keywordFilter("matter", q.keyword),
   );
@@ -95,6 +95,7 @@ export async function listMatters(actor: Actor, q: ListQuery) {
       level: matter.level,
       status: matter.status,
       isArchived: matter.isArchived,
+      archivedAt: matter.archivedAt,
       ownerName: appUserName(),
       updatedAt: matter.updatedAt,
       nextDeadline: sql<string | null>`(select min(n.deadline_time) from mn_matter_node n
