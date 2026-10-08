@@ -7,8 +7,8 @@
 
 ## 现状声明（读之前必须知道）
 
-- 本仓**当前零应用代码**：仓库根只有 `docs/`、`CHANGELOG.md`、`AGENTS.md`、`.trellis/`（实测 `ls`：无 `src/`、无 `worker/`、无 `package.json`）。
-- 因此下列规范是**规格件已裁定的约束**，不是从既有代码归纳出的模式。Trellis 引导任务原本要求"document reality, not ideals"，本仓的 reality 是"M0 尚未开工"，所以这里记的是**开工即生效的约束**。
+- M0 之后 `src/` 已有可跑实现：`src/app/api/**` 路由、`src/app/lib/server/{auth,scope,services,db}` 均已落地；下列规范既有的现状已核对过代码。
+- 其中与代码示例对齐的模式见：[API Route Conventions](./api-route-conventions.md)、[Auth & Guards](./auth-guards.md)。
 - 凡未跑过 spike 的能力一律标 `UNVERIFIED`，不得当既有实现写代码（`docs/research-nextjs-stack.md` §5、`docs/tech-stack-decision.md` §12.4）。
 
 ---
@@ -20,6 +20,8 @@
 | [Directory Structure](./directory-structure.md) | 单 app 拓扑、依赖方向、命名 | 技术选型 §5、§4 |
 | [Database Guidelines](./database-guidelines.md) | Drizzle/迁移/软删 partial unique/CHECK 一致性/编号/加密 | 技术选型 §13.5 禁令①–④、§3.2b/§3.2c；枚举表 §5；修订稿 §12 |
 | [Error Handling](./error-handling.md) | 404 而非 403、JSON 契约、`withScope` 默认拒绝 | 技术选型 §13.5 禁令⑤、§13.3-1；权限草案 §4 |
+| [API Route Conventions](./api-route-conventions.md) | `/api/**` handler 骨架、`body`/`query`/`withActor` 出口、BigInt 序列化 | `src/app/api`、`src/app/lib/server/http.ts` |
+| [Auth & Guards](./auth-guards.md) | session/cookie/readActor、withActor/requirePrivilege、ownsAttribution 护栏 | `src/app/lib/server/auth`、`src/app/lib/server/scope` |
 | [Logging Guidelines](./logging-guidelines.md) | `activity_log` 同事务、动作闭集、应用日志与脱敏 | 权限草案 §7.3；枚举表 §3/§5.4；技术选型 §7 |
 | [Quality Guidelines](./quality-guidelines.md) | 八条禁令 + 验收门禁 + CI 必须拦得住的东西 | 技术选型 §13.5/§13.3；落地方案 §4/§5 |
 

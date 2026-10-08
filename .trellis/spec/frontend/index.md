@@ -24,6 +24,7 @@
 | [Hook Guidelines](./hook-guidelines.md) | react-query 取数、mutation 失效、自定义 hook | 技术选型 §2、§13.6 |
 | [State Management](./state-management.md) | 服务端态/客户端态分界、禁跨用户缓存 | 技术选型 §12.5、§13.3-3 |
 | [Type Safety](./type-safety.md) | DTO/枚举/校验同源，Zod 单源规则 → antd rules | 枚举表 §5.1、禁令⑧ |
+| [Form Guidelines](./form-guidelines.md) | antd Form + `zod-rules` 适配器、`applyServerIssues`、Dayjs→YYYY-MM-DD 提交转换 | `components/form/zod-rules.ts`、各弹窗 |
 | [Quality Guidelines](./quality-guidelines.md) | 页面壳零业务数据、表格 ≤100、lint 门禁、验收 | 技术选型 §13.5/§13.6、落地方案 §4/§5 |
 
 ---

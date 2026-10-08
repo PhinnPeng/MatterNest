@@ -23,6 +23,7 @@ These guides help you **ask the right questions before coding**.
 |-------|---------|-------------|
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Identify patterns and reduce duplication | When you notice repeated patterns |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Think through data flow across layers | Features spanning multiple layers |
+| [Testing Guidelines](./testing-guidelines.md) | vitest 就近 `*.spec.ts` 模式：造数函数、形状断言、反向用例 | Writing or reviewing tests |
 
 ---
 
