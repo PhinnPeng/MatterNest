@@ -19,3 +19,17 @@ If you're using Codex or another agent-capable tool, additional project-scoped h
 Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
 <!-- TRELLIS:END -->
+
+## Agent skills
+
+### Issue tracker
+
+Two linked surfaces: Trellis `.trellis/tasks/` owns the task record and lifecycle, Paca owns the board view. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles, each label equal to its name; they live on the Paca side because Trellis `task.json` has no label field. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+single-context — one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
