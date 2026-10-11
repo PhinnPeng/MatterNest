@@ -138,6 +138,22 @@ export const convertSchema = z
   // 显式拒才能让它在联调时就红。
   .strict();
 
+/**
+ * 撤销转案件关联（修订稿 §3.4 / 映射矩阵 §5.1）。
+ *
+ * `reason` 在 schema 就 `.min(1)`，不是留给服务层兜：枚举表 §3.2 把 `UNCONVERT`
+ * 列为**原因必填**，而 schema 是前后端共用的同一道门——放服务层就意味着前端
+ * 能让用户空着提交、再靠一次 422 才发现。
+ */
+export const unconvertSchema = z
+  .object({
+    caseId: idField("案件"),
+    reason: z.string().trim().min(1, "撤销必须填原因").max(500, "原因别超过 500 字"),
+  })
+  .strict();
+
+export type UnconvertInput = z.infer<typeof unconvertSchema>;
+
 export const statusChangeSchema = z.object({
   to: z.string().trim().min(1, "请选择目标状态").max(32),
   /**

@@ -6,6 +6,8 @@ import {
   matter,
   matterStaff,
   matterParty,
+  matterNode,
+  matterProgress,
   riskMatter,
   riskMatterCase,
   riskMatterParty,
@@ -349,4 +351,130 @@ export async function convertToCase(
     ok: true,
     cases: caseIds.map((cid, i) => ({ id: String(cid), internalCode: codes[i]!.code })),
   };
+}
+
+/** 阻止撤销的原因。列出来而不是并成一个布尔：前端要逐条告诉用户"还差什么" */
+export type UnconvertBlocker = "progress" | "nodes";
+
+export type UnconvertResult =
+  | { ok: true; caseId: string; remaining: number }
+  | { ok: false; why: "not_found" | "not_linked" | "reason_required" }
+  | { ok: false; why: "blocked"; blockers: UnconvertBlocker[] };
+
+/**
+ * 撤销转案件关联（修订稿 §3.4 + 映射矩阵 §5.1）。
+ *
+ * **只删 `risk_matter_case` 关联行，案件本身保留为独立案件。**
+ * 修订稿 §3.4 原文：「不允许人工设置或回滚为 0：若需撤销，只能删除 `risk_matter_case` 关联行」，
+ * 理由是"否则会出现事项显示已转案件但关联已被清空"。所以这里不碰 `mn_matter` 的任何列——
+ * 删案件会连同用户后来在它上面做的登记一起抹掉，而那不是"撤销一次转案件"。
+ *
+ * 前置：**目标案件无进展/费用/节点（除 P1 预设外）**。
+ * 预设节点由系统在建案时生成（`source_kind='preset'`），用户还没动手；
+ * 不排除它就等于"刚转出来的案件永远撤不掉"（映射矩阵 §5.1 原话）。
+ *
+ * **已知缺口（属 T9）**：`mn_matter_expense` 表**尚不存在**，所以"费用"这条前置
+ * 目前**形同虚设**。T9 落费用表时必须把 `expenses` 加进下面的 `blockers` 判定，
+ * 否则费用录满的案件也能被撤。已在 T9 票面记为验收项，不靠注释备忘。
+ *
+ * **不自动解除归档**（映射矩阵 §5.1）：自动回滚归档等于让一次动作隐式解开另一次
+ * 状态变更，审计链会断。已归档的案件保持归档，需人工持 `can_unarchive` 撤销。
+ * 同理**不写 outbox**：§5.1 只要求 `activity_log(UNCONVERT)`，且规则 7 只监听
+ * `0 → 1` 这一次变更，撤销方向没有已定义的消费者。
+ */
+export async function unconvertFromCase(
+  actor: Actor,
+  riskId: string,
+  caseId: string,
+  input: { reason: string },
+): Promise<UnconvertResult> {
+  // reason 必填（枚举表 §3.2）。空串要在进库前拒——审计里存一条"无理由撤销"
+  // 等于没审计，而撤销是本链路上唯一不可逆的动作。
+  const reason = input.reason.trim();
+  if (!reason) return { ok: false, why: "reason_required" };
+
+  const db = await getDb();
+  const [src] = await db
+    .select()
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
+    .limit(1);
+  if (!src) return { ok: false, why: "not_found" };
+
+  // 关联行必须存在：本函数只管"走转案件链路生成"的案件。
+  // 直接新建的案件没有关联行，它的删除走 F2-5 软删，不受本函数约束（§5.1 末段）。
+  const [link] = await db
+    .select({ id: riskMatterCase.id })
+    .from(riskMatterCase)
+    .where(
+      and(
+        eq(riskMatterCase.riskMatterId, BigInt(riskId)),
+        eq(riskMatterCase.matterId, BigInt(caseId)),
+      ),
+    )
+    .limit(1);
+  if (!link) return { ok: false, why: "not_linked" };
+
+  const blockers: UnconvertBlocker[] = [];
+  const [progressRows] = await db
+    .select({ n: dcount() })
+    .from(matterProgress)
+    .where(eq(matterProgress.matterId, BigInt(caseId)));
+  if ((progressRows?.n ?? 0) > 0) blockers.push("progress");
+
+  // **排除 preset**：系统在建案瞬间生成的那批节点不算用户投入。
+  // 与 matters.ts 同口径：宿主列是 `host_id`（多态表按宿主拆表但列名统一），
+  // 且要排掉软删行——已软删的节点同样不算"还投入在上面"。
+  const [nodeRows] = await db
+    .select({ n: dcount() })
+    .from(matterNode)
+    .where(
+      and(
+        eq(matterNode.hostId, BigInt(caseId)),
+        sql`${matterNode.sourceKind} <> 'preset'`,
+        sql`NOT ${matterNode.isDeleted}`,
+      ),
+    );
+  if ((nodeRows?.n ?? 0) > 0) blockers.push("nodes");
+
+  if (blockers.length > 0) return { ok: false, why: "blocked", blockers };
+
+  const remaining = await db.transaction(async (tx) => {
+    await tx.delete(riskMatterCase).where(eq(riskMatterCase.id, link.id));
+
+    // 计数同样用 COUNT(*) 重算。与 convertToCase 同一口径——这正是它当初被改掉的原因：
+    // 累加在撤销之后会永久偏移，而它是"已转 N 个案件"徽标的唯一数据源。
+    const [cnt] = await tx
+      .select({ n: dcount() })
+      .from(riskMatterCase)
+      .where(eq(riskMatterCase.riskMatterId, BigInt(riskId)));
+    const rest = Number(cnt?.n ?? 0);
+
+    // 归零才回 0 + 清时间戳。事项若还挂着别的案件，徽标就该继续显示"已转 N 个"，
+    // 清成 0 会让用户以为"转过但没了"，而关联其实还在。
+    await tx
+      .update(riskMatter)
+      .set({
+        conversionStatus: rest > 0 ? 1 : 0,
+        convertedAt: rest > 0 ? src.convertedAt : null,
+        convertedBy: rest > 0 ? src.convertedBy : null,
+        convertedCaseCount: rest,
+        updatedBy: BigInt(actor.userId),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(riskMatter.id, BigInt(riskId)));
+
+    await logActivity(tx, actor, {
+      matterId: BigInt(caseId),
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter",
+      targetId: BigInt(riskId),
+      action: "UNCONVERT",
+      reason,
+      payload: { case_id: caseId, converted_case_count: rest },
+    });
+    return rest;
+  });
+
+  return { ok: true, caseId, remaining };
 }

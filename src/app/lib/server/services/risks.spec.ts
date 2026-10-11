@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_CASES_PER_CONVERT } from "./risks";
-import { convertSchema } from "@/shared/schema/hosts";
+import { convertSchema, unconvertSchema } from "@/shared/schema/hosts";
 
 /**
  * 转案件的请求边界（T2）。
@@ -84,6 +84,45 @@ describe("案号与金额：不再被整体 omit", () => {
     // 这条要真的拒：放过就会让"描述不复制"变成"描述可自由填写"，
     // 而映射矩阵 §2.5 要的是案件侧保留来源引用、不留会各自漂移的副本。
     const r = convertSchema.safeParse({ cases: [card({ description: "随手写段描述" })] });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("unconvertSchema：撤销转案件", () => {
+  it("接受完整输入", () => {
+    const r = unconvertSchema.safeParse({ caseId: "1800000000000000001", reason: "转错了事项" });
+    expect(r.success).toBe(true);
+  });
+
+  it("**拒绝空原因** —— 枚举表 §3.2 把 UNCONVERT 列为原因必填", () => {
+    // 这是最容易漏的一条：撤销是这条链上唯一**不可逆**的动作，
+    // 审计里存一条"无理由撤销"等于没审计。
+    const r = unconvertSchema.safeParse({ caseId: "1800000000000000001", reason: "" });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.message).join(" ")).toContain("撤销必须填原因");
+    }
+  });
+
+  it("拒绝纯空白的 reason —— trim 后为空也算没填", () => {
+    // 只判 `length > 0` 的话，全角空格能过；服务端再 trim 就成了无理由撤销。
+    const r = unconvertSchema.safeParse({ caseId: "1800000000000000001", reason: "　 \n" });
+    expect(r.success).toBe(false);
+  });
+
+  it("拒绝非数字 caseId —— 路由要拿它当 bigint 主键用", () => {
+    const r = unconvertSchema.safeParse({ caseId: "abc", reason: "理由" });
+    expect(r.success).toBe(false);
+  });
+
+  it("strict：拒绝顺手改案件字段 —— 撤销只准动关联", () => {
+    // 若允许把案件字段一起带进来，"撤销"就变成了"改案"，两件事混在一个事务里，
+    // 之后谁也说不清这次到底动过什么。
+    const r = unconvertSchema.safeParse({
+      caseId: "1800000000000000001",
+      reason: "理由",
+      name: "偷偷改个案件名",
+    });
     expect(r.success).toBe(false);
   });
 });
