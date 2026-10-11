@@ -18,3 +18,7 @@ next-types/**/*.ts
 
 # 一次性 spike/探针的落盘处（同时已 gitignore）：不参与格式与 lint
 agent-work/
+
+# /prototype 的一次性原型页面：它们刻意不按生产代码标准写（无测试、极简错误处理），
+# 且评审完就整体挪去一次性分支。重排它们只会制造噪音 diff。
+**/prototype-*.html
