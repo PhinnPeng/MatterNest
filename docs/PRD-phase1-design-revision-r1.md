@@ -139,7 +139,7 @@ CREATE UNIQUE INDEX ux_rule_enabled_action
 
 ### 2.3 预置规则 seed（A1/A2/A4/A8 合并结果）
 
-8 条预置规则在**当前配置下均可同时启用**（动作唯一性按域判定，已复核）：
+9 条预置规则在**当前配置下均可同时启用**（动作唯一性按域判定，已复核；2026-10-10 IQ-16 由 8 增至 9，规则 9 与规则 4 不同域已复核）：
 
 | # | 规则名 | host_type | trigger_type | trigger_target | trigger_config | action | action_config | priority | 默认启用 | 唯一性域复核 |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -151,6 +151,7 @@ CREATE UNIQUE INDEX ux_rule_enabled_action
 | 6 | 节点截止提醒 | all | `node_before_end` | 节点表 | `{days:3}` | `notify` | `{receivers:["owner","follower"],template_code:"node_end"}` | 20 | 是 | 独立域；同上 |
 | 7 | 转案件后归档 | risk_matter | **`event_occurred`** | 宿主 | `{event:"risk_converted"}` | `archive` | `{}` | 10 | 是 | 触发类型不同 → 与规则 1 天然不同域 |
 | 8 | 新评论通知关注人 | all | **`event_occurred`** | 宿主 | `{event:"comment_added"}` | `notify` | `{receivers:["follower","creator"],template_code:"comment_new"}` | 20 | 是 | 与规则 7 同触发类型但 `event` 不同 → 不同域 |
+| 9 | 结案后材料不全提醒（IQ-16/G4 载体，2026-10-10 新增） | matter | `time_no_progress` | 宿主 | `{days:14,status_code:"closed"}` | `notify` | `{receivers:["owner"],template_code:"archive_incomplete",once_per_target:true,cooldown_days:14}` | 10 | 是 | 与规则 4 同触发类型但 `trigger_config` 含 `status_code` → 不同域，可同启用；仅案件（事项无材料完整要求）。连带：`time_no_progress` 参数 schema 扩一个**可选** `status_code` 字段（枚举表 §4.1 同步待后续票）。与规则 4 的关系：closed 案件 14 天先收"补材料"、30 天再收"无进展"——语义不同（归档驱动 vs 停滞驱动），接受双档 |
 
 > 规则 2/8 是 2026-09-26 裁定（P0-5）的结果：基线 9.1「任何更新自动通知关注人」这条承诺**缩为两类**——新评论与状态变更。节点/进展/费用/字段编辑一律不再向关注人推送，否则与 §7.2 的聚合去重初衷相背。`mention`（@提及）不经规则引擎，由评论服务直接发事件。
 > 规则 2/8 的 `receivers` 增加 `creator`（2026-10-10 裁定，IQ-13-V5）：创建者（上报人）的回音经通知中心送达；**不写 `user_watch`、不入关注列表**（关注保持主动语义）。规则 3/4 的 `host_type` 由 `all` 收窄为 `matter`（IQ-9/Q37）：事项无预设节点，且事项侧长期未更新不做自动提醒。
@@ -167,7 +168,7 @@ CREATE UNIQUE INDEX ux_rule_enabled_action
 
 | seed 类别 | 内容 |
 |---|---|
-| 通知模板 | `status_changed`、`case_archived`、`node_start`、`node_end`、`stale_30d`、`mention`、`comment_new`（7 条；「转案件归档」无独立模板，复用 `case_archived`。原 `case_closed` 已被 `status_changed` 取代——规则 2 现覆盖任意状态变更，结案文案由模板内"旧状态 → 新状态"分支渲染。表结构见 §7.2，文案定稿属 B5） |
+| 通知模板 | `status_changed`、`case_archived`、`node_start`、`node_end`、`stale_30d`、`mention`、`comment_new`、`archive_incomplete`（**8 条；文案定稿见 `docs/PRD-phase1-g-targets-b5-draft.md` 第二部分，IQ-16/B5 已批准**——原"文案定稿属 B5"关闭。「转案件归档」无独立模板，复用 `case_archived`。原 `case_closed` 已被 `status_changed` 取代——规则 2 现覆盖任意状态变更，结案文案由模板内"旧状态 → 新状态"分支渲染。表结构见 §7.2） |
 | 节点模板 | `matter_in_progress`（举证/开庭/判决）、`risk_matter_default`（受理/核查/反馈）——**一期不挂自动触发，仅作手动添加的可选类型池（IQ-5）**；原对应清单#3「事项默认 3 个」的预设口径已作废（见 §4） |
 | 状态配置 | 案件 4 + 事项 4，**同构**（转案件不再占状态位）；显示名按企业口径：两侧 `pending`＝已登记、事项 `closed`＝了结、案件 `closed`＝已结案（code 不变，见 §3.2，IQ-5/6），见 §3 |
 | 节点类型 | 立案/举证/开庭/判决/调解/核查/反馈，按 `host_type` 分列（后台统一页维护） |

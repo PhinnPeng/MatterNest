@@ -62,7 +62,7 @@
 | E26 | `attachment.category` | `evidence` `complaint` `judgment` `contract` `internal_doc` `other` | 否 | 证据/起诉状/判决书/合同/内部文书/其他。第一期不做配置表 |
 | E27 | 通用 `currency` | `CNY`（唯一值） | `CNY` | `char(3)`。列先留、值锁死，避免日后加币种时改 `numeric` 精度 |
 | E28 | `risk_matter.conversion_status` | `0` 未转案件 `1` 已转案件 | `0` | `smallint`，非枚举语义。修订稿 §3.4 |
-| E29 | `notification_event.event_type` | `status_changed` `node_due_start` `node_due_end` `stale_30d` `mention` `new_comment` `risk_converted` | — | 7 值。原 `expense_added` 已删（2026-09-26 裁定第一期不做费用通知）。修订稿 §7.2 |
+| E29 | `notification_event.event_type` | `status_changed` `node_due_start` `node_due_end` `stale_30d` `mention` `new_comment` `risk_converted` | — | 现 7 值（与代码/DB CHECK 一致）。**IQ-16 追加第 8 值 `archive_incomplete`（规则 9 用）——值名已定但未入本列值集合：迁移扩 CHECK + `notify.ts` 数组同步为前置，代码票落地后回填本行并同批转绿 `enum-check`**（文档先行不破 CI 的登记姿态，与 E16 值名待改同款）。原 `expense_added` 已删（2026-09-26 裁定第一期不做费用通知）。修订稿 §7.2 |
 | E30 | `notification_event.source_type` | `node_remind` `custom_reminder` `auto_rule` | — | 三条投递来源，去重与排障按它分流 |
 | E31 | `notification_delivery.status` | `pending` `sent` `failed` `void` | `pending` | **与 E23 不同**：投递层用 `void`（收件人不可见而静默丢弃，权限草案 §8），提醒任务层用 `cancelled`（用户主动撤销）。不要合并成一套 |
 | E32 | `event_outbox.event_type` | `risk_converted` `comment_added` | — | outbox 只承载"提交后派发"的领域事件，与 E33 同值域 |
@@ -100,7 +100,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 | action | `reason` | 备注 |
 |---|---|---|
 | `STATUS_CHANGED` | 偏离推荐路径时**必填** | 修订稿 §3.3 第 3 条 |
-| `ARCHIVED` | 必填 | 归档动作本身单记一条，便于回溯"谁在何时归的档" |
+| `ARCHIVED` | 必填 | 归档动作本身单记一条，便于回溯"谁在何时归的档"。**载荷扩展（IQ-16/F2-26）**：payload 增 `missing_at_archive[]`（归档时点三项校验的缺项清单：`judgment_doc`/`closing_date`/`pending_nodes` 子集；空数组=齐备）——G4 统计唯一数据源，随 `payload` jsonb 走，不加列不加动作 |
 | `UNARCHIVED` | 必填 | 需 `can_unarchive` |
 | `OWNER_CHANGED` | 选填 | 与 `*_staff.owner` 同事务 |
 | `CONVERTED_TO_CASE` | 选填 | 转案件确认，载荷含 `case_ids[]` |
@@ -152,6 +152,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 
 // time_no_progress —— 触发实体 = 宿主；比较基准见修订稿 §6.4 last_progress_at
 { "days": 30 }
+{ "days": 14, "status_code": "closed" }   // 规则 9 用（IQ-16）：status_code 可选，缺省=任意状态
 
 // node_before_start —— 触发实体 = 节点表
 { "days": 3 }
@@ -164,7 +165,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 { "event": "comment_added" }
 ```
 
-校验：未知键拒绝；`days` 为 `1..365` 整数；`status_code` 必须存在于当前启用配置且不被停用（修订稿 §2.2）；`event` 取值限 E33。
+校验：未知键拒绝；`days` 为 `1..365` 整数；`status_code` 必须存在于当前启用配置且不被停用（修订稿 §2.2）；`event` 取值限 E33。〔IQ-16：`time_no_progress` 的参数 schema 增**可选** `status_code`（规则 9 用），校验同上；`trigger_config` 归一化已含全部键，scope_key 天然区分 `{days:30}` 与 `{days:14,status_code:"closed"}` 两域，向量表无需扩容。〕
 
 ### 4.2 `extra_condition`（第一期能力边界）
 
@@ -193,7 +194,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 {}
 
 // notify
-{ "receivers": ["owner", "follower"],          // owner|co_owner|follower|custom
+{ "receivers": ["owner", "follower"],          // owner|co_owner|follower|creator|custom（creator=创建者，IQ-13-V5 起 notify 类规则可选用）
   "template_code": "status_changed",
   "custom_user_ids": [],                        // 仅 receivers 含 custom 时允许非空
   "once_per_target": false,
