@@ -123,7 +123,9 @@ export const riskMatter = pgTable(
     amount: numeric("amount", { precision: 18, scale: 2 }).notNull().default("0"),
     currency: varchar("currency", { length: 3 }).notNull().default("CNY"),
     ownerId: fk("owner_id")
-      .notNull()
+      // ⚠ **不做 notNull**：事项侧经办人可空（IQ-5）。空 = 未指派处理人，
+      // 由持 L1 数据范围的角色「变更处理人」接手；案件侧则必填（IQ-6）。
+      // 这条不对称是刻意的——「事项是台账，案件是战场」。
       .references(() => appUser.id, { onDelete: "restrict" }),
     /** 基线 1.1：发现日期用 `date` 而非 `timestamptz`（§12.2：日历日期跨时区会漂一天） */
     discoverDate: date("discover_date").notNull(),

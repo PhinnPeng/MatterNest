@@ -1,4 +1,4 @@
-import { and, asc, count as dcount, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, count as dcount, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
 import { SORTABLE_COLUMNS } from "@/shared/schema/list-query";
 import { getDb } from "../db/client";
@@ -10,10 +10,18 @@ import {
   matterProgress,
   riskMatter,
   riskMatterCase,
+  riskMatterNode,
   riskMatterParty,
   riskMatterStaff,
 } from "../db/schema";
-import { appUser, eventOutbox } from "../db/schema";
+import {
+  activityLog,
+  appUser,
+  comment,
+  eventOutbox,
+  nodeTypeConfig,
+  statusConfig,
+} from "../db/schema";
 import { party } from "../db/schema";
 import {
   insertNewParties,
@@ -22,6 +30,8 @@ import {
   type PartyLinkPlanRow,
 } from "./parties";
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
+import { ownsAttribution } from "../scope/guards";
+import { needsChangeReason } from "@/shared/schema/status-transition";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 import type { Actor } from "../auth/auth";
 import { nextCode } from "./numbering";
@@ -165,7 +175,7 @@ export async function createRiskMatter(
   const db = await getDb();
   const { code } = await nextCode("riskMatter");
   const id = BigInt(nextId());
-  const owner = BigInt(input.ownerId ?? actor.userId);
+  const owner = input.ownerId ? BigInt(input.ownerId) : null;
   // 在**进入事务前**取：事务内再向池子要一条连接去查配置，池子满时会互等成死锁
   const initial = await initialStatusCode("risk_matter");
   // ⚠ **事项侧不生成任何预设节点**（IQ-5：「事项是台账，案件是战场」）。
@@ -192,9 +202,17 @@ export async function createRiskMatter(
       createdBy: BigInt(actor.userId),
       updatedBy: BigInt(actor.userId),
     });
-    await tx
-      .insert(riskMatterStaff)
-      .values({ id: BigInt(nextId()), hostId: id, userId: owner, staffRole: "owner" });
+    // 经办人**可空**（IQ-5）：不填就落 NULL，表示"未指派处理人"，
+    // 由持 L1 的人「变更处理人」接手。原实现落 `actor.userId`，等于"谁登记谁是经办人"，
+    // 那让未指派状态永远不可达，而 GLOSSARY「变更处理人」条的定义正是**未指派**的事项。
+    if (owner !== null) {
+      await tx.insert(riskMatterStaff).values({
+        id: BigInt(nextId()),
+        hostId: id,
+        userId: owner,
+        staffRole: "owner",
+      });
+    }
     await linkRiskParties(tx, id, partyPlan.rows, BigInt(actor.userId));
     await logActivity(tx, actor, {
       riskMatterId: id,
@@ -655,4 +673,674 @@ export async function unconvertFromCase(
   });
 
   return { ok: true, caseId, remaining };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 事项详情成链（T1）
+ *
+ * 这一段之前**整段不存在**：事项侧只有列表与建档，而案件侧五条路径俱全。
+ * 地图把它记为「欠账，不是裁定」——所以才在这里补齐。
+ *
+ * 与案件侧的**刻意不对称**（IQ-5「事项是台账，案件是战场」，不是疏漏）：
+ *   · 无预设节点       —— 节点只能手动加，见 `addRiskNode`
+ *   · 节点只有时间点   —— 不支持时间段，建节点时按类型拒
+ *   · 经办人可空       —— 见 `updateRiskMatter` 对 ownerId 的处理
+ * 任何"顺手统一一下"的改动都是推翻已验收裁定。
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 事项详情（T1 的主读取）。
+ *
+ * 读者是详情页，所以一次把页面要的块都取齐：基本事实、节点、参与人、当事人、
+ * 处置记录、活动流、可用状态、已转案件反查。分多次请求会让页面逐块蹦出来。
+ *
+ * ⚠ `partyCount` 的教训（见 `listRiskMatters`）：`sql` 模板里的列会被渲染成**裸列名**，
+ * 所以这里一律用 drizzle 的 select/where 构造，不手写列引用。
+ */
+export async function getRiskMatter(actor: Actor, id: string) {
+  const db = await getDb();
+  const [row] = await db
+    .select({
+      id: riskMatter.id,
+      code: riskMatter.code,
+      name: riskMatter.name,
+      type: riskMatter.type,
+      level: riskMatter.level,
+      source: riskMatter.source,
+      description: riskMatter.description,
+      measure: riskMatter.measure,
+      amount: riskMatter.amount,
+      currency: riskMatter.currency,
+      status: riskMatter.status,
+      ownerId: riskMatter.ownerId,
+      discoverDate: riskMatter.discoverDate,
+      isArchived: riskMatter.isArchived,
+      archivedAt: riskMatter.archivedAt,
+      conversionStatus: riskMatter.conversionStatus,
+      convertedCaseCount: riskMatter.convertedCaseCount,
+      convertedAt: riskMatter.convertedAt,
+      createdAt: riskMatter.createdAt,
+      updatedAt: riskMatter.updatedAt,
+    })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(id))))
+    .limit(1);
+  // 不可见一律 404（元规则 3），不返 403 —— 403 会替调用方确认"这条存在"
+  if (!row) return null;
+
+  const [nodes, staff, parties, comments, activity, statuses, converted, ownerRow] =
+    await Promise.all([
+      db
+        .select({
+          id: riskMatterNode.id,
+          nodeTypeId: riskMatterNode.nodeTypeId,
+          name: riskMatterNode.name,
+          timeType: riskMatterNode.timeType,
+          startTime: riskMatterNode.startTime,
+          endTime: riskMatterNode.endTime,
+          isTimeConfirmed: riskMatterNode.isTimeConfirmed,
+          deadlineTime: riskMatterNode.deadlineTime,
+          status: riskMatterNode.status,
+          sourceKind: riskMatterNode.sourceKind,
+          sortOrder: riskMatterNode.sortOrder,
+          cancelReason: riskMatterNode.cancelReason,
+          completedAt: riskMatterNode.completedAt,
+        })
+        .from(riskMatterNode)
+        .where(and(eq(riskMatterNode.hostId, BigInt(id)), sql`NOT ${riskMatterNode.isDeleted}`))
+        .orderBy(asc(riskMatterNode.sortOrder), asc(riskMatterNode.id)),
+      db
+        .select({
+          id: riskMatterStaff.id,
+          userId: riskMatterStaff.userId,
+          staffRole: riskMatterStaff.staffRole,
+          name: appUser.displayName,
+        })
+        .from(riskMatterStaff)
+        .innerJoin(appUser, eq(appUser.id, riskMatterStaff.userId))
+        .where(eq(riskMatterStaff.hostId, BigInt(id))),
+      listRiskParties(actor, id),
+      // 处置记录：COMMENT_CREATED / COMMENT_UPDATED 之外的东西是状态与节点变更，
+      // 它们进活动流不进这里。评论按"最新在最上"给（IQ-17）。
+      db
+        .select({
+          id: comment.id,
+          body: comment.body,
+          parentId: comment.parentId,
+          isEdited: comment.isEdited,
+          authorId: comment.authorId,
+          authorName: appUser.displayName,
+          createdAt: comment.createdAt,
+          updatedAt: comment.updatedAt,
+        })
+        .from(comment)
+        .innerJoin(appUser, eq(appUser.id, comment.authorId))
+        .where(
+          and(
+            eq(comment.targetType, "risk_matter"),
+            eq(comment.targetId, BigInt(id)),
+            sql`NOT ${comment.isDeleted}`,
+          ),
+        )
+        .orderBy(desc(comment.createdAt)),
+      db
+        .select({
+          id: activityLog.id,
+          action: activityLog.action,
+          reason: activityLog.reason,
+          payload: activityLog.payload,
+          operatorId: activityLog.operatorId,
+          createdAt: activityLog.createdAt,
+        })
+        .from(activityLog)
+        .where(eq(activityLog.riskMatterId, BigInt(id)))
+        .orderBy(desc(activityLog.createdAt))
+        .limit(100),
+      // 状态配置按**宿主**取。事项与案件各有一套同名 code，混用会让流转判定指向另一端
+      db
+        .select({
+          code: statusConfig.code,
+          name: statusConfig.name,
+          semantics: statusConfig.semantics,
+          nextStatusCodes: statusConfig.nextStatusCodes,
+          sortOrder: statusConfig.sortOrder,
+        })
+        .from(statusConfig)
+        .where(eq(statusConfig.hostType, "risk_matter"))
+        .orderBy(asc(statusConfig.sortOrder)),
+      // 已转案件反查：详情页的「已转案件」列表靠它，不走事项列表
+      db
+        .select({
+          id: matter.id,
+          internalCode: matter.internalCode,
+          caseNo: matter.caseNo,
+          name: matter.name,
+          status: matter.status,
+          isArchived: matter.isArchived,
+        })
+        .from(riskMatterCase)
+        .innerJoin(matter, eq(matter.id, riskMatterCase.matterId))
+        .where(eq(riskMatterCase.riskMatterId, BigInt(id)))
+        .orderBy(asc(matter.id)),
+      // 经办人可能为空（IQ-5 事项侧可空），空值不查库——`eq` 不收 null
+      row.ownerId === null
+        ? Promise.resolve([] as { name: string }[])
+        : db
+            .select({ name: appUser.displayName })
+            .from(appUser)
+            .where(eq(appUser.id, row.ownerId))
+            .limit(1),
+    ]);
+
+  return {
+    ...row,
+    id: String(row.id),
+    ownerId: row.ownerId === null ? null : String(row.ownerId),
+    ownerName: ownerRow[0]?.name ?? null,
+    nodes: nodes.map((n) => ({ ...n, id: String(n.id), nodeTypeId: String(n.nodeTypeId) })),
+    staff: staff.map((s) => ({ ...s, id: String(s.id), userId: String(s.userId) })),
+    parties: parties ?? [],
+    comments: comments.map((c) => ({
+      ...c,
+      id: String(c.id),
+      parentId: c.parentId === null ? null : String(c.parentId),
+      authorId: String(c.authorId),
+    })),
+    activity: activity.map((a) => ({ ...a, id: String(a.id), operatorId: String(a.operatorId) })),
+    statuses,
+    convertedCases: converted.map((c) => ({ ...c, id: String(c.id) })),
+  };
+}
+
+/**
+ * 事项状态流转。
+ *
+ * 与案件侧 `changeStatus` 同构，但**取的是 `hostType='risk_matter'` 那套状态行**——
+ * 两套状态 code 同名，混用会让流转判定指向另一端，且不会报错。
+ *
+ * 置为归档语义的状态要同时翻 `is_archived`，否则列表的 partial index 与"终态不可逆"
+ * 判定都会指错地方。撤销归档另需 `can_unarchive`（路由层判，那里才拿得到特权）。
+ */
+export async function changeRiskStatus(
+  actor: Actor,
+  id: string,
+  to: string,
+  reason?: string | null,
+): Promise<
+  { ok: true } | { ok: false; why: "not_found" | "reason_required" | "unchanged" | "forbidden" }
+> {
+  const db = await getDb();
+  const [cur] = await db
+    .select({
+      status: riskMatter.status,
+      ownerId: riskMatter.ownerId,
+    })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(id))))
+    .limit(1);
+  if (!cur) return { ok: false, why: "not_found" };
+  // 归属是护栏（权限草案 §2.2）：改状态要经办人本人、L1 或 is_admin。
+  // 事项的经办人**可空**：无主事项谁都可以推它——否则它会永久卡在初始态无人能动。
+  if (cur.ownerId !== null && !ownsAttribution(actor, cur.ownerId))
+    return { ok: false, why: "forbidden" };
+  if (cur.status === to) return { ok: false, why: "unchanged" };
+
+  const rows = await db
+    .select({
+      code: statusConfig.code,
+      semantics: statusConfig.semantics,
+      nextStatusCodes: statusConfig.nextStatusCodes,
+    })
+    .from(statusConfig)
+    .where(
+      and(eq(statusConfig.hostType, "risk_matter"), inArray(statusConfig.code, [cur.status, to])),
+    );
+  const curRow = rows.find((r) => r.code === cur.status);
+  const target = rows.find((r) => r.code === to);
+  if (!target) return { ok: false, why: "not_found" };
+
+  if (
+    needsChangeReason({
+      from: cur.status,
+      fromNextCodes: curRow?.nextStatusCodes ?? [],
+      to,
+      toSemantics: target.semantics,
+    }) &&
+    !reason?.trim()
+  )
+    return { ok: false, why: "reason_required" };
+
+  const now = new Date().toISOString();
+  const archiving = target.semantics === "archived";
+  await db.transaction(async (tx) => {
+    await tx
+      .update(riskMatter)
+      .set({
+        status: to,
+        isArchived: archiving,
+        archivedAt: archiving ? now : null,
+        updatedBy: BigInt(actor.userId),
+        updatedAt: now,
+      })
+      .where(eq(riskMatter.id, BigInt(id)));
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(id),
+      targetType: "risk_matter",
+      targetId: BigInt(id),
+      action: archiving ? "ARCHIVED" : "STATUS_CHANGED",
+      reason: reason ?? null,
+      diffs: { status: { from: cur.status, to } },
+    });
+  });
+  return { ok: true };
+}
+
+/**
+ * 改事项主表字段（含**变更处理人**）。
+ *
+ * 「变更处理人」是一次**普通字段编辑**（GLOSSARY 明写）：不新增状态、不新造审计动作，
+ * 沿用 `OWNER_CHANGED`。所以它在这里和改标题/金额走同一条路径，没有专属入口。
+ *
+ * ⚠ 经办人可空是事项侧的刻意设计（IQ-5），所以 `ownerId: null` 是**合法输入**，
+ * 不是"没填"——它表示把事项退回未指派，让持 L1 的人去 `变更处理人`。
+ */
+export async function updateRiskMatter(
+  actor: Actor,
+  id: string,
+  patch: {
+    name?: string;
+    level?: string;
+    description?: string;
+    measure?: string | null;
+    amount?: string;
+    ownerId?: string | null;
+  },
+): Promise<{ ok: true } | { ok: false; why: "not_found" | "forbidden" | "empty" }> {
+  const db = await getDb();
+  const [cur] = await db
+    .select({
+      name: riskMatter.name,
+      level: riskMatter.level,
+      description: riskMatter.description,
+      measure: riskMatter.measure,
+      amount: riskMatter.amount,
+      ownerId: riskMatter.ownerId,
+      isArchived: riskMatter.isArchived,
+    })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(id))))
+    .limit(1);
+  if (!cur) return { ok: false, why: "not_found" };
+  // 归档是只读终态（§5.2）：要改先撤销归档，而撤销需要 can_unarchive
+  if (cur.isArchived) return { ok: false, why: "forbidden" };
+  const changingOwner = patch.ownerId !== undefined;
+  // 经办人**为空**时谁都能改（只要看得见）——这正是「变更处理人」存在的场景：
+  // 未指派的事项得有人能接手。空值走不到 ownsAttribution（它不收 null），所以先兜。
+  const ownerAllows = cur.ownerId === null || ownsAttribution(actor, cur.ownerId);
+  if (!ownerAllows) return { ok: false, why: "forbidden" };
+
+  const nextOwner = changingOwner
+    ? patch.ownerId === null
+      ? null
+      : BigInt(patch.ownerId!)
+    : cur.ownerId;
+
+  const diffs: Record<string, { from: unknown; to: unknown }> = {};
+  const set: Record<string, unknown> = {};
+  const consider = (key: "name" | "level" | "description" | "measure" | "amount") => {
+    const v = patch[key];
+    if (v === undefined) return;
+    if (v === cur[key]) return;
+    diffs[key] = { from: cur[key], to: v };
+    set[key] = v;
+  };
+  consider("name");
+  consider("level");
+  consider("description");
+  consider("measure");
+  consider("amount");
+  if (changingOwner && nextOwner !== cur.ownerId) {
+    diffs["ownerId"] = {
+      from: cur.ownerId === null ? null : String(cur.ownerId),
+      to: patch.ownerId ?? null,
+    };
+    set["ownerId"] = nextOwner;
+  }
+  // 什么都没变就别说"改成功了"——前端会据此弹一个空提示
+  if (Object.keys(set).length === 0) return { ok: false, why: "empty" };
+
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(riskMatter)
+      .set({ ...set, updatedBy: BigInt(actor.userId), updatedAt: now })
+      .where(eq(riskMatter.id, BigInt(id)));
+    // 变更处理人沿用 OWNER_CHANGED，**不新造动作**（GLOSSARY「变更处理人」条）
+    if (diffs["ownerId"]) {
+      await logActivity(tx, actor, {
+        riskMatterId: BigInt(id),
+        targetType: "risk_matter",
+        targetId: BigInt(id),
+        action: "OWNER_CHANGED",
+        diffs: { ownerId: diffs["ownerId"]! },
+      });
+      // 经办人换了，事项人员表要跟着换，否则列表按人员筛会漏
+      if (nextOwner !== null) {
+        const [existing] = await tx
+          .select({ id: riskMatterStaff.id })
+          .from(riskMatterStaff)
+          .where(
+            and(
+              eq(riskMatterStaff.hostId, BigInt(id)),
+              eq(riskMatterStaff.userId, nextOwner),
+              eq(riskMatterStaff.staffRole, "owner"),
+            ),
+          )
+          .limit(1);
+        if (!existing) {
+          await tx.insert(riskMatterStaff).values({
+            id: BigInt(nextId()),
+            hostId: BigInt(id),
+            userId: nextOwner,
+            staffRole: "owner",
+          });
+        }
+      }
+    }
+    if (Object.keys(diffs).some((k) => k !== "ownerId")) {
+      await logActivity(tx, actor, {
+        riskMatterId: BigInt(id),
+        targetType: "risk_matter",
+        targetId: BigInt(id),
+        action: "RISK_UPDATED",
+        diffs,
+      });
+    }
+  });
+  return { ok: true };
+}
+
+/** 发处置记录（评论）。事项核查走评论，不靠节点（IQ-5）。 */
+export async function addRiskComment(
+  actor: Actor,
+  riskId: string,
+  body: string,
+  parentId?: string | null,
+): Promise<{ id: string } | null> {
+  const db = await getDb();
+  const [visible] = await db
+    .select({ id: riskMatter.id })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
+    .limit(1);
+  if (!visible) return null;
+  const id = BigInt(nextId());
+  await db.transaction(async (tx) => {
+    await tx.insert(comment).values({
+      id,
+      targetType: "risk_matter",
+      targetId: BigInt(riskId),
+      body,
+      parentId: parentId ? BigInt(parentId) : null,
+      authorId: BigInt(actor.userId),
+      createdBy: BigInt(actor.userId),
+      updatedBy: BigInt(actor.userId),
+    });
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter",
+      targetId: BigInt(riskId),
+      action: "COMMENT_CREATED",
+    });
+  });
+  return { id: String(id) };
+}
+
+/**
+ * 编辑处置记录。只允许作者本人改（`authorId` 必须是自己）。
+ *
+ * 编辑后置 `is_edited`，前端显示「（已编辑）」标记，并写 `COMMENT_UPDATED` 审计。
+ * 允许"改了不留痕"会让处置记录失去作为证据的价值。
+ */
+export async function editRiskComment(
+  actor: Actor,
+  riskId: string,
+  commentId: string,
+  body: string,
+): Promise<{ ok: true } | { ok: false; why: "not_found" | "forbidden" }> {
+  const db = await getDb();
+  const [vis] = await db
+    .select({ id: riskMatter.id })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
+    .limit(1);
+  if (!vis) return { ok: false, why: "not_found" };
+  // 三条件一起命中：防串目标（同一 id 在别的事项下的评论）
+  const [row] = await db
+    .select({ id: comment.id, authorId: comment.authorId })
+    .from(comment)
+    .where(
+      and(
+        eq(comment.id, BigInt(commentId)),
+        eq(comment.targetType, "risk_matter"),
+        eq(comment.targetId, BigInt(riskId)),
+        sql`NOT ${comment.isDeleted}`,
+      ),
+    )
+    .limit(1);
+  if (!row) return { ok: false, why: "not_found" };
+  if (row.authorId !== BigInt(actor.userId)) return { ok: false, why: "forbidden" };
+
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(comment)
+      .set({ body, isEdited: true, updatedBy: BigInt(actor.userId), updatedAt: now })
+      .where(eq(comment.id, row.id));
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter",
+      targetId: BigInt(riskId),
+      action: "COMMENT_UPDATED",
+    });
+  });
+  return { ok: true };
+}
+
+/**
+ * 手动新增事项节点（IQ-5：事项侧**无预设节点**，只能手动加）。
+ *
+ * **只支持时间点**：节点类型配置里若 `time_type='range'`，这里直接拒。
+ * 不是"前端不给控件"就够了——服务层不拒的话，一个手写请求就能建出时间段节点，
+ * 而事项侧的提醒扫描与展示都按"只有时间点"写的。
+ */
+export async function addRiskNode(
+  actor: Actor,
+  riskId: string,
+  input: { nodeTypeId: string; name?: string; startTime?: string | null; remark?: string | null },
+): Promise<
+  { ok: true; id: string } | { ok: false; why: "not_found" | "forbidden" | "range_not_allowed" }
+> {
+  const db = await getDb();
+  const [vis] = await db
+    .select({ id: riskMatter.id, ownerId: riskMatter.ownerId, isArchived: riskMatter.isArchived })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
+    .limit(1);
+  if (!vis) return { ok: false, why: "not_found" };
+  if (vis.isArchived) return { ok: false, why: "forbidden" };
+  if (vis.ownerId !== null && !ownsAttribution(actor, vis.ownerId))
+    return { ok: false, why: "forbidden" };
+
+  // 节点类型必须属于**事项侧**：拿案件侧的 nodeTypeId 来建事项节点会让类型与宿主不符
+  const [type] = await db
+    .select({
+      id: nodeTypeConfig.id,
+      name: nodeTypeConfig.name,
+      timeType: nodeTypeConfig.timeType,
+      remindDays: nodeTypeConfig.defaultRemindDays,
+    })
+    .from(nodeTypeConfig)
+    .where(
+      and(
+        eq(nodeTypeConfig.id, BigInt(input.nodeTypeId)),
+        eq(nodeTypeConfig.hostType, "risk_matter"),
+      ),
+    )
+    .limit(1);
+  if (!type) return { ok: false, why: "not_found" };
+  if (type.timeType !== "point") return { ok: false, why: "range_not_allowed" };
+
+  const [last] = await db
+    .select({ max: sql<number | null>`max(${riskMatterNode.sortOrder})` })
+    .from(riskMatterNode)
+    .where(eq(riskMatterNode.hostId, BigInt(riskId)));
+  const id = BigInt(nextId());
+  await db.transaction(async (tx) => {
+    await tx.insert(riskMatterNode).values({
+      id,
+      hostId: BigInt(riskId),
+      nodeTypeId: type.id,
+      name: input.name?.trim() || type.name,
+      timeType: "point",
+      startTime: input.startTime ?? null,
+      // 时间点节点没有结束时间；`deadline_time` 是生成列，不用管
+      endTime: null,
+      isTimeConfirmed: Boolean(input.startTime),
+      status: "not_started",
+      // 手动新增 —— 与撤销转案件那条口径一致：系统生成才算 preset，这里是人的动作
+      sourceKind: "manual",
+      remindDays: type.remindDays,
+      sortOrder: Number(last?.max ?? -1) + 1,
+      remark: input.remark ?? null,
+      createdBy: BigInt(actor.userId),
+      updatedBy: BigInt(actor.userId),
+    });
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter",
+      targetId: BigInt(riskId),
+      action: "NODE_CREATED",
+      diffs: { node: { from: null, to: input.name?.trim() || type.name } },
+    });
+  });
+  return { ok: true, id: String(id) };
+}
+
+/**
+ * 事项节点的完成 / 取消 / 确认时间。
+ *
+ * 状态只有四值（E21），`pending` / `confirm_time` 是**命令**不是状态：
+ * 前者把 `is_time_confirmed` 落下去，后者抬上来，`status` 一列不动。
+ */
+export async function setRiskNodeStatus(
+  actor: Actor,
+  riskId: string,
+  nodeId: string,
+  status: string,
+  cancelReason?: string | null,
+): Promise<
+  { ok: true } | { ok: false; why: "not_found" | "forbidden" | "reason_required" | "unchanged" }
+> {
+  const db = await getDb();
+  const [node] = await db
+    .select({
+      id: riskMatterNode.id,
+      name: riskMatterNode.name,
+      status: riskMatterNode.status,
+      isTimeConfirmed: riskMatterNode.isTimeConfirmed,
+      isArchived: riskMatter.isArchived,
+      ownerId: riskMatter.ownerId,
+    })
+    .from(riskMatterNode)
+    .innerJoin(riskMatter, eq(riskMatter.id, riskMatterNode.hostId))
+    .where(
+      and(
+        // 两个 id 都要对得上：只按 nodeId 判会让 `/…/999/nodes/<真 id>` 也成功
+        eq(riskMatterNode.hostId, BigInt(riskId)),
+        eq(riskMatterNode.id, BigInt(nodeId)),
+        scopedWhere("risk_matter", actor),
+        sql`NOT ${riskMatterNode.isDeleted}`,
+      ),
+    )
+    .limit(1);
+  if (!node) return { ok: false, why: "not_found" };
+  if (node.isArchived) return { ok: false, why: "forbidden" };
+  if (node.ownerId !== null && !ownsAttribution(actor, node.ownerId))
+    return { ok: false, why: "forbidden" };
+
+  const isTimeCommand = status === "pending" || status === "confirm_time";
+  const toStatus = isTimeCommand ? node.status : status;
+  if (!isTimeCommand && toStatus === node.status) return { ok: false, why: "unchanged" };
+  if (status === "cancelled" && !cancelReason?.trim()) return { ok: false, why: "reason_required" };
+
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(riskMatterNode)
+      .set({
+        status: toStatus,
+        ...(isTimeCommand ? { isTimeConfirmed: status === "confirm_time" } : {}),
+        cancelReason: status === "cancelled" ? cancelReason : null,
+        completedAt: status === "completed" ? now : null,
+        completedBy: status === "completed" ? BigInt(actor.userId) : null,
+        updatedBy: BigInt(actor.userId),
+        updatedAt: now,
+      })
+      .where(eq(riskMatterNode.id, node.id));
+    // 取消必须带原因 —— 这是 `NODE_CANCELLED` 在枚举表 §3.2 里的必填口径
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter",
+      targetId: BigInt(riskId),
+      action:
+        status === "completed"
+          ? "NODE_COMPLETED"
+          : status === "cancelled"
+            ? "NODE_CANCELLED"
+            : "NODE_UPDATED",
+      reason: status === "cancelled" ? (cancelReason ?? null) : null,
+      diffs: { nodeStatus: { from: node.status, to: toStatus } },
+    });
+  });
+  return { ok: true };
+}
+
+/**
+ * 软删事项（F2-5）。**没有回收站界面**（T1 验收标准原文）——
+ * 库内可恢复、普通用户不可见已删行，恢复留给有特权的人。
+ */
+export async function deleteRiskMatter(
+  actor: Actor,
+  id: string,
+): Promise<{ ok: true } | { ok: false; why: "not_found" | "forbidden" }> {
+  const db = await getDb();
+  const [cur] = await db
+    .select({ ownerId: riskMatter.ownerId })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(id))))
+    .limit(1);
+  if (!cur) return { ok: false, why: "not_found" };
+  if (cur.ownerId !== null && !ownsAttribution(actor, cur.ownerId))
+    return { ok: false, why: "forbidden" };
+
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(riskMatter)
+      .set({
+        isDeleted: true,
+        deletedAt: now,
+        updatedBy: BigInt(actor.userId),
+        updatedAt: now,
+      })
+      .where(eq(riskMatter.id, BigInt(id)));
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(id),
+      targetType: "risk_matter",
+      targetId: BigInt(id),
+      action: "RISK_DELETED",
+    });
+  });
+  return { ok: true };
 }

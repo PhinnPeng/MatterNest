@@ -36,6 +36,13 @@
       "when": 1791792000000,
       "tag": "0004_risk_matter_no_preset_nodes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791878400000,
+      "tag": "0005_risk_matter_owner_nullable",
+      "breakpoints": true
     }
   ]
 }
