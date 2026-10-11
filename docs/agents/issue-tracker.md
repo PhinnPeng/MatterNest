@@ -1,69 +1,106 @@
 # Issue Tracker
 
-Work is tracked on two deliberately linked surfaces. Trellis owns the task
-record; Paca owns the board. Neither replaces the other.
+Two linked surfaces, one authoritative order. **Paca is the todo source of
+truth; Trellis is the record surface.** This order comes from
+`docs/implementation-plan-v1.md` §2 (跟踪归位, 2026-09-27) — the ruling is
+verbatim: *"待办一律登记在 Paca … markdown 里的编号不算登记"*. Any skill that
+creates work items must register on Paca first. A Trellis task directory alone
+is **not** a registered todo.
 
 | Concern | Surface |
 |---|---|
-| Task identity, PRD, design notes | Trellis `.trellis/tasks/<yyyy-mm>/<id>/` |
-| Lifecycle state (`planning` → `in_progress` → `completed`) | Trellis `task.json.status`, flipped by `task.py` |
-| Portfolio / sprint board, rollups, automation | Paca |
-| Triage labels | Paca (see `triage-labels.md`) |
+| Todo registration, board, claim, status, blocking edges | **Paca** (project `MatterNest`, prefix `MATT`) |
+| Task record: PRD, design notes, durable context | Trellis `.trellis/tasks/<yyyy-mm>/<id>/` |
+| Lifecycle mirror of the record | Trellis `task.json.status` via `task.py` |
+| Triage labels | Paca `tags` (see `triage-labels.md`) |
 
-## The link
+## Connection facts (verified 2026-10-10)
 
-Trellis id `demo-slice` ⇄ Paca task number. The Paca number is stored back into
-Trellis with:
+- **Paca MCP server `paca` is live** in this repo, registered as
+  `mcp-paca-matternest` in `~/.dsh/cordis.patch.yml` (DSH's real MCP source;
+  the old "Paca 不能走 MCP" note was about wrongly-pinned single-project
+  connectors, not about MatterNest). Fallback for scripting: `agent-work/paca.mjs`
+  / `paca-lib.mjs` (REST, key in project `.qoder/settings.json` — never print it).
+- Project id `8c42f9be-d3f6-4635-951d-0a2cf911a8f7`; 33 tasks, all type `Task`;
+  statuses: `Backlog` (default) / `Todo` / `In Progress` / `Done`.
+- Native relationships that exist and are usable:
+  - **parent/child**: `create_task` / `update_task` accept `parentTaskId`
+    (Task-under-Task works);
+  - **blocking**: task links with `linkType: "blocks"` (endpoint
+    `/tasks/{id}/links`);
+  - **labels**: the task `tags` string array.
+- `MATT-1`「一期落地地图：从可跑 Demo 到 M0–M7 收口」is the map card
+  (id `dd3fbb57-…`). The 8 milestone cards (MATT-2/7/9/12/18/22/26/29 = M0…M7)
+  **are physical children of it**. Caveat (verified 2026-10-10): the REST
+  `list tasks` response does **not** include `parentTaskId` — parent/child is
+  only visible via MCP `get_task` (its Subtasks section) or per-task fetch.
+  Never conclude "no children" from a REST list.
+
+## The link (Trellis ⇄ Paca)
+
+Trellis id `demo-slice` ⇄ Paca task number. Store the Paca number back into
+Trellis:
 
 ```
 python ./.trellis/scripts/task.py set-meta <dir> paca_task <number>
 ```
 
-and the Trellis id is embedded in the Paca task description as `trellis:demo-slice`.
-That pair is the join — there is no other linkage.
+and embed `trellis:<id>` in the Paca task description. That pair is the join.
 
 ## Creating a ticket
 
-**Trellis first.** Never hand-write task directories, and never create a
-`.scratch/` markdown tree — `.trellis/tasks/` already is that.
+1. **Register on Paca** (`mcp__paca__*` tools, or REST fallback):
+   `create_task` with title/description; set `parentTaskId` when it belongs to
+   a milestone or map card; apply triage tags at creation.
+2. **Then** create the Trellis record if the work needs durable notes/PRD:
+   `task.py create …`, `set-meta paca_task`. Do not hand-write task dirs.
+3. Report both identifiers (Paca `MATT-<n>` and Trellis dir).
 
-```
-python ./.trellis/scripts/task.py create "<title>" --description "<desc>" --priority P0|P1|P2|P3
-python ./.trellis/scripts/task.py add-subtask <parent-dir> <child-dir>
-python ./.trellis/scripts/task.py start <dir>          # → in_progress
-python ./.trellis/scripts/task.py archive <task-dir>   # → completed + move to archive/
-```
-
-Then mirror to Paca so the work reaches the board:
-
-1. `list_projects` → pick the project whose name matches MatterNest. Resolve by
-   name at runtime; do not hardcode a project id.
-2. `create_task` with the Trellis title/description and `trellis:<id>` embedded.
-3. `set-meta` the returned task number back into the Trellis task.
-
-Report both identifiers — the Trellis task dir and the Paca task number.
-
-## If the Paca MCP server is not connected
+## If Paca is unreachable
 
 Say so and stop. Do **not** create a local markdown issue file as a fallback,
-and do not invent a Paca id. The Trellis record is already durable and git
-tracked, so the mirror can happen later without loss. The `paca` skill states
-this same rule; this file agrees with it.
+and do not invent a Paca id. ("Unreachable" now means MCP **and** the
+`paca.mjs` REST path both fail — check REST before declaring it down.)
 
 ## Reading current state
 
 ```
-python ./.trellis/scripts/task.py list
-python ./.trellis/scripts/task.py list --status in_progress
-python ./.trellis/scripts/task.py list-archive [month]
+mcp__paca__list_tasks  (projectId resolved from project name MatterNest; do not hardcode at call sites outside this repo's scripts)
+python ./.trellis/scripts/task.py list [--status in_progress]
 ```
+
+## Wayfinding operations
+
+How `/wayfinder` maps onto this tracker (all verified against the live API):
+
+- **Map** = `MATT-1`, tagged `wayfinder:map` (add the tag to it when a map
+  effort starts; the card already exists — **reuse, never create a second map**).
+  The map body (Destination / Notes / Decisions so far / Not yet specified /
+  Out of scope) lives in MATT-1's `description`, updated via `update_task`.
+- **Ticket** = child issue: `create_task` with `parentTaskId = MATT-1's id`,
+  titled `W: <question>`, tagged `wayfinder:research` | `wayfinder:prototype`
+  | `wayfinder:grilling` | `wayfinder:task` (tags are the only labels Paca
+  has; no native label field).
+- **Claim** = `update_task assigneeId=<your project-member id>` (Member ID
+  from `list_project_members`, **not** the user id), **before any work**.
+- **Blocking** = native links: `create_task_link(taskId=<blocker>, targetTaskId=<blocked>, linkType="blocks")`.
+  The blocker is the source; read frontier via `list_task_links` per candidate.
+- **Frontier query** (no single endpoint): open children of MATT-1
+  (`list_tasks parentTaskId=…`) → drop any with an assignee → drop any whose
+  `blocks` links include an *open* blocker. What remains is takeable.
+- **Resolve** = post the answer as a task comment (`add_task_comment`), set
+  status `Done`, then append one line to MATT-1's Decisions-so-far.
+- One ticket per session (research tickets excepted), per the wayfinder skill.
 
 ## For `to-tickets`, `to-spec` and `triage`
 
 These skills assume one tracker that owns labels. In this repo:
 
-- create and break down through Trellis (`create`, `add-subtask`) — not as loose
-  markdown files
-- mirror to Paca for board visibility
-- treat the five triage labels as **Paca-side** vocabulary; see the caveat in
-  `triage-labels.md` before assuming a label is readable back from `task.json`
+- **Publish tickets directly to Paca** as children of the relevant milestone
+  card (or `MATT-1` for wayfinder tickets) — Paca-first, per the table above.
+  Blocking edges go in as native `blocks` links at creation time.
+- Triage state ("ready-for-agent" etc.) is the Paca-side **tag**; Trellis
+  `task.json` has **no label field** (verified), so never read triage back
+  from Trellis. See `triage-labels.md`'s vocabulary table.
+- Trellis `create`/`add-subtask` is for the *record* side only (PRD/notes
+  directories), not for the todo itself.

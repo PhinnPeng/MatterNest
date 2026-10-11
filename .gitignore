@@ -23,3 +23,5 @@ next-env.d.ts
 
 # 一次性 spike 与探针的落盘处，不入库
 agent-work/
+.mcp.json
+opencode.json

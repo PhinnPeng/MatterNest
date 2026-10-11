@@ -1,9 +1,10 @@
 # MatterNest 第一期设计交付物 — 枚举与结构登记表（B6）
 
-> 状态：**定稿 v2**（2026-09-26）。闭合 `PRD-phase1-design-revision-r1.md` §10 的 B6 项，并一并关掉 §11 遗留风险 1（`scope_key` 归一化）与 §6.3 各行的"枚举闭合"占位。
+> 状态：**v4（2026-10-10 意图对齐回写）**。闭合 `PRD-phase1-design-revision-r1.md` §10 的 B6 项，并一并关掉 §11 遗留风险 1（`scope_key` 归一化）与 §6.3 各行的"枚举闭合"占位。
 > 本文件是**取值权威源**。其余各份文档（修订稿 / 权限草案 / 转案件矩阵 / 基线 / master）中的枚举与本表冲突时，以本表为准并回改本表以外的文件。
 > **v2 变更**：补登 E29–E33（通知与 outbox 三个枚举此前只在修订稿散落，权威源反而缺记）；§3.2 补 `UNCONVERT`；E09 的默认值口径与修订稿 §3.1 统一；§4.2 白名单按宿主分列并回改了修订稿 §2.5。
 > **v3 变更**（同日）：认证双通道 + 待开通态裁定后补登 **E34–E37**（provider / auth_via / sync_status / activation_status），§3.3 补 `USER_ACTIVATED`，§5.1 新增 `auth.ts`。全表现共 37 行、34 项为真实取值登记。
+> **v4 变更**（2026-10-10，意图对齐回写 IQ-1…14 / master §7.4）：**只改取值与注记，表结构、字段矩阵、生成规则一字未动**——E13 删"非诉"、E06/E07/E12 钉企业当事方视角、E16 值名待改 `external_dispute`、E25 `email` 撤出一期、status_config 显示名（已登记/了结/已结案）、§3 追加 `PARTY_MERGED`/`BULK_IMPORT` 与 `SENSITIVE_FIELD_READ` 作废、§0 配置后台改"每类独立功能页"、`AL` 前缀注为一期不实现。作废值与作废行**保留原行并加标注**，不物理删除；代码 `src/shared/enums/` 同步在后。
 
 ---
 
@@ -13,12 +14,12 @@
 
 | 归类 | 清单 | 载体 |
 |---|---|---|
-| **配置驱动** | 状态、节点类型、费用项目、风险等级、标签 | 5 张配置表 + 后台单页 |
+| **配置驱动** | 状态、节点类型、费用项目、风险等级、标签 | 5 张配置表 + **每类独立功能页**（IQ-9 Q38 用户亲拍，2026-10-10 回写；原"后台单页/合并字典页"口径作废） |
 | **硬编码** | 本表其余全部 | 代码常量 + DB `CHECK` |
 
 > 本表新增若干枚举（风险类型、案件类型、审级、诉讼地位、证件类型…），PRD 原文把它们写成"配置读取"，但**不升格为配置表**，理由是：这些取值参与代码分支（转案件字段映射、审级推荐节点模板、案由展示），改一个值要跟着改逻辑；做成可配会制造"配置能选但代码不认"的错配。配置表数量封在 5 张，每加一张就多一套 CRUD + 权限 + 引用校验。
 >
-> **例外**：若后续出现"按所调整案由/风险类型"的真实诉求，走 §6 的升级路径，不改本表结构。
+> **例外**：若后续出现"按企业调整案由/风险类型"的真实诉求，走 §6 的升级路径，不改本表结构。
 
 **存储约定**：`varchar(32)` + `CHECK (col IN (...))`；**不使用 PG `enum` 类型**（加值需 `ALTER TYPE`，且在事务块/逻辑复制下受限）。取值一律 `snake_case` 英文，中文名只出现在前端字典。`CHECK` 与代码常量由同一份 seed 生成，避免双份漂移。
 
@@ -33,10 +34,10 @@
 | E03 | `target_type` | `matter` `risk_matter` `matter_node` `risk_matter_node` `matter_progress` `matter_expense` | — | 修订稿 §1.0.2。禁止缩写 `risk`；`case_study` 随模块移出 |
 | E04 | `*_staff.staff_role` | `owner` `co_owner` `follower` | — | 除 `owner` 外可多行 |
 | E05 | `user_watch.watch_type` | `follow` `favorite` | — | `follow` 由 staff 同步生成；`favorite` 仅本人 |
-| E06 | `*_party.party_role` | 见 E12 | — | 复用诉讼地位取值 |
-| E07 | `*_party.represented` | `true` `false` | — | 是否我方代理。**与 party_role 正交**：同一案件可有多个 `represented=true` 的当事人，角色各异（本诉原告 + 反诉被告） |
+| E06 | `*_party.party_role` | 见 E12 | — | 复用诉讼地位取值。**语义钉（IQ-7/Q24）：指「对方」在该案中的地位，相对我方（本企业）视角——本企业永不入 party 表，我方地位是案件单值 `litigation_role`（见 E12）** |
+| E07 | `*_party.represented` | `true` `false` | — | **❌ 软作废（IQ-15，2026-10-10）**：企业口径下我方永不入 party 表，"是否我方代理"语义消失（该判断的旧参照系是律所）。**列保留在库**（不作破坏性迁移，守"迁移唯一事实"），**DTO/服务层/前端不再读写，转案件预填规则同步删除**；历史行不回填。行与编号保留不物理删（`@deprecated`）。若将来确有"同阵营共同诉讼人"诉求，用 `party_role`（第三人/共同被告）表达，不复活本列 |
 | E08 | `status_config.host_type` | `matter` `risk_matter` | — | |
-| E09 | `status_config.semantics` | `open` `in_progress` `closed` `archived` `custom` | `custom`（**仅 DDL 兜底**） | 修订稿 §3.1。**新建状态只能选 `custom`**，四个内置语义由 seed 持有且不可授予。API 层该字段**保存时必填**，DB 默认值不构成"可以不给 semantics"——两处口径以此为准 |
+| E09 | `status_config.semantics` | `open` `in_progress` `closed` `archived` `custom` | `custom`（**仅 DDL 兜底**） | 修订稿 §3.1。**新建状态只能选 `custom`**，四个内置语义由 seed 持有且不可授予。API 层该字段**保存时必填**，DB 默认值不构成"可以不给 semantics"——两处口径以此为准。**显示名口径（IQ-5/6，2026-10-10 回写；`code` 与 semantics 全部不变，改的只是 `name` 列）**：`pending`→「已登记」（原"待受理"作废，去流程暗示，双宿主同）；事项 `closed`→「了结」，案件 `closed`→保留「已结案」（"结案"是诉讼词，事项侧不用）。seed 八行见修订稿 §3.2 |
 | E10 | `node_type_config.host_type` | `matter` `risk_matter` | — | 取代原 `applicable_type` 三值 |
 | E11 | `node_type_config.time_type` | `point` `range` | `point` | 时间点 / 时间段 |
 
@@ -44,11 +45,11 @@
 
 | # | 字段 | 取值 | 必填 | 说明 |
 |---|---|---|---|---|
-| E12 | `matter.litigation_role` / `*_party.party_role` | `plaintiff` `defendant` `third_party` `applicant` `respondent` `appellant` `appellee` `petitioner` `respondent_petition` `executant` `other` | 是 | 原告/被告/第三人/申请人/被申请人/上诉人/被上诉人/再审申请人/被申请人/被执行人/其他 |
-| E13 | `matter.case_type` | `civil_commercial` `criminal` `administrative` `non_litigation` | 是 | 民商事/刑事/行政/非诉 |
-| E14 | `matter.procedure` | `first_instance` `second_instance` `retrial_review` `retrial` `arbitration` `execution` `execution_objection` `bankruptcy` `other` | 是 | 取代原文"…等"的开放表述 |
+| E12 | `matter.litigation_role` / `*_party.party_role` | `plaintiff` `defendant` `third_party` `applicant` `respondent` `appellant` `appellee` `petitioner` `respondent_petition` `executant` `other` | 是 | 原告/被告/第三人/申请人/被申请人/上诉人/被上诉人/再审申请人/被申请人/被执行人/其他。**语义钉（IQ-6/Q24）：`matter.litigation_role` = 我方诉讼地位（原告/被告/第三人/申请人/被申请人），指本企业在该案中的角色，非"全案角色"；同一套取值复用给 E06 时含义是「对方在该案中的地位」** |
+| E13 | `matter.case_type` | `civil_commercial` `criminal` `administrative` `non_litigation` ❌（作废保留，禁止从 CHECK 删值，见 §5.3） | 是 | 民商事/刑事/行政/~~非诉~~。**IQ-6/Q25 裁定：案件 = 正式法律程序（诉讼/仲裁/执行），"非诉"不作案件分类——`non_litigation` 值作废，前端不再展示、后端拒绝新写入；非诉事务归风险事项（E15）。历史行仍要能反查中文名** |
+| E14 | `matter.procedure` | `first_instance` `second_instance` `retrial_review` `retrial` `arbitration` `execution` `execution_objection` `bankruptcy` `other` | 是 | 取代原文"…等"的开放表述。**注（IQ-6）：`arbitration`/`execution`（及 `execution_objection`）属正式法律程序，全部保留**——企业口径下仲裁与执行同样是案件，不因非法院诉讼而降格为风险事项 |
 | E15 | `risk_matter.type` | `contract` `labor_dispute` `ip` `corporate_governance` `debt` `compliance` `litigation_derived` `other` | 是 | 合同/劳动争议/知识产权/公司治理/债权债务/合规/诉讼衍生/其他 |
-| E16 | `risk_matter.source` | `business_report` `customer_complaint` `lawyer_letter` `internal_check` `other` | 否 | 业务报备/客户投诉/律师函/内部检查/其他 |
+| E16 | `risk_matter.source` ⚠ 值名待改（见说明） | `business_report` `customer_complaint` `lawyer_letter` `internal_check` `other` | 否 | 业务报备/客户投诉/律师函/内部检查/其他。**IQ-5 偏差5（律所残留词企业化）**：`customer_complaint` 的中文"客户投诉"是律所代理口径（企业当事方没有客户，见 GLOSSARY「对方当事人」_Avoid_），建议新值名 external_dispute（对外纠纷/投诉）替换它；"律师函"保留、语义标注为**收到对方当事人律师函**。**E16 值名变更待迁移确认，代码 `src/shared/enums/` 同步在后**（走 §5.3 废弃流程：常量保留标 `@deprecated`、禁止从 CHECK 删值、历史行仍可反查中文名） |
 | E17 | `party.type` | `natural_person` `legal_person` `unincorporated_org` | 是 | 决定 E18 与 `id_number` 的校验规则 |
 | E18 | `party.id_type` | `id_card` `unified_social_credit` `passport` `hk_mo_tw_permit` `military_id` `foreign_residence` `other` | 否 | `type=natural_person` 时期望 `id_card`/`passport`/…；法人时期望 `unified_social_credit` |
 | E19 | `matter_progress.progress_type` | `routine` `court_action` `counterparty` `client_feedback` `internal_decision` `material_filing` | 是 | 日常推进/法院动作/对方动作/客户反馈/内部决议/材料提交 |
@@ -57,7 +58,7 @@
 | E22 | `*_node.source_kind` | `manual` `preset` `rule` | `manual` | 对应修订稿 §4 的 P1/P2 两路径。原命名 `preset_p1`/`rule_p2` 简化为本值，路径由 `source_ref` 区分 |
 | E23 | `custom_reminder.status` | `pending` `sent` `cancelled` `failed` | `pending` | 取代原 `is_sent boolean`（无法承载 `repeat_type`） |
 | E24 | `custom_reminder.repeat_type` | `none` `daily` `weekly` `monthly` `yearly` | `none` | 有值时 `next_remind_time` 由发送成功后按此推进 |
-| E25 | `notify_channel` | `in_app` `email` | `in_app` | 第一期仅两个。企微/钉钉留 E25 扩展位，不进 CHECK |
+| E25 | `notify_channel` | `in_app` `email` | `in_app` | **一期仅 `in_app`**：`email` ❌ 撤出一期排期（IQ-8：绝不把 G3 押在无人查看的邮箱上）；云之家消息渠道待 MATT-34 接口摸底后进 E 表（调通则云之家进一期、`email` 永久归二期）。**调研结论出来前 `email` 不得接投递实现**，值域保留只为 CHECK 不返工。企微/钉钉留 E25 扩展位，不进 CHECK |
 | E26 | `attachment.category` | `evidence` `complaint` `judgment` `contract` `internal_doc` `other` | 否 | 证据/起诉状/判决书/合同/内部文书/其他。第一期不做配置表 |
 | E27 | 通用 `currency` | `CNY`（唯一值） | `CNY` | `char(3)`。列先留、值锁死，避免日后加币种时改 `numeric` 精度 |
 | E28 | `risk_matter.conversion_status` | `0` 未转案件 `1` 已转案件 | `0` | `smallint`，非枚举语义。修订稿 §3.4 |
@@ -68,7 +69,7 @@
 | E33 | `trigger_config.event`（`event_occurred` 用） | `risk_converted` `comment_added` | — | 第一期两个值；规则 7 / 规则 8 各引一个（修订稿 §2.3） |
 | E34 | `app_user_external_identity.provider` | `yunzhijia` | — | 第一期唯一外部身份源。云之家侧身份键是 `eid`/`openId`，存 `external_id`，**不进 `app_user`**（技术选型 §3.4） |
 | E35 | `auth_session.auth_via` | `local` `yunzhijia` | — | 只用于审计与差异化失效策略，**不参与权限判定** |
-| E36 | `app_user_external_identity.sync_status` | `active` `inactive` `unknown` | `unknown` | `inactive` = 云之家侧已不可见 → 触发 `is_enabled=false` + 吊销 session；同步失败保持 `unknown`，**不得当作 `inactive`**（否则一次网络抖动就把全所锁在门外） |
+| E36 | `app_user_external_identity.sync_status` | `active` `inactive` `unknown` | `unknown` | `inactive` = 云之家侧已不可见 → 触发 `is_enabled=false` + 吊销 session；同步失败保持 `unknown`，**不得当作 `inactive`**（否则一次网络抖动就把整个企业锁在门外） |
 | E37 | `app_user.activation_status` | `pending` `active` | `pending`（仅云之家首登自动建号路径） | 与 `is_enabled` 正交：`pending` = 已建号但管理员未批准（登录返回「等待开通」），`is_enabled=false` = 停用/离职。**两者都不参与数据范围判定**。技术选型 §7 假设 F 裁定 |
 
 > E29–E33 是 2026-09-26 补登：本表 §5.1 早已声明 `notify.ts` 要承载 `notification_event.event_type` 与 `source_type`，但取值一直只在修订稿 §7.2 的表里散落，权威源反而没记——这正是"单一事实源"最容易被绕过的形态。
@@ -114,7 +115,8 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 | `STAFF_CHANGED` | `{added:[],removed:[],role}` | 修订稿 §6 / 权限草案 §6 |
 | `ROLE_CHANGED` | `{role_id, old:{}, new:{}}` | **唯一允许记录范围类旧值的 action** |
 | `USER_ACTIVATED` | `{external_id, provider, role_ids:[]}` | 云之家首登自动建号后，管理员批准开通并当场指定角色（E37 `pending → active`）。与 `is_enabled` 变更同批进审计 |
-| `SENSITIVE_FIELD_READ` | `{target_type,target_id,fields:[]}` | **不含值**。权限草案 §7.3 |
+| `SENSITIVE_FIELD_READ` | `{target_type,target_id,fields:[]}` | **不含值**。权限草案 §7.3。**❌ 作废（IQ-12 / Q46′，2026-10-10）：展示层全明文，"显示明文"按钮与逐次读取审计一并取消——本动作一期不写入、前端不展示；行与编号保留不物理删（`@deprecated`，历史行仍需可反查）。明文「导出」改由 `can_read_plain` 把关（开关不删列、语义收窄为仅明文导出），留痕由下表 `EXPORT` 承接。** |
+| `EXPORT` | `{target_type,scope,rows,count,plain:boolean}` | **新增（2026-10-10，IQ-12 落实）**：列表/清单导出动作留痕；`plain=true` 仅 `can_read_plain` 可为（草案 §7.3 明文导出两档）。**不含行内容**，只记档位与行数。**迁移与 `audit.ts` 注册在后**（与 `PARTY_MERGED`/`BULK_IMPORT` 同一姿态：文档先行，代码同步属后续票）。曾为 §6.1 引用的空指针，本轮补行闭合。 |
 | `ACCESS_DENIED_WRITE` | `{target_type,attempted_action}` | 只记写操作拒绝；读拒绝不记（否则案号枚举探测会反向灌满日志表） |
 
 ### 3.4 自动化与提醒
@@ -128,6 +130,15 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 | `REMINDER_FAILED` | 同上 + `error` |
 
 > 基线原文 3.6（规则执行结果一节；基线副本无对应段落，见 `PRD-phase1-baseline-v0.md` §B）原把规则结果塞进 `field_diffs`，现改用 `payload jsonb` 列（见 §5.4），`field_diffs` 回归"字段差异"本义。
+
+### 3.5 意图对齐轮新增（2026-10-10，IQ-7 / IQ-11）
+
+| action | 载荷 | 说明 |
+|---|---|---|
+| `PARTY_MERGED` | `{surviving_party_id, merged_party_ids:[]}` | F3-9 合并重复对手方档案：载荷记**主记录 id 与被并方 id**（关联改挂主记录、被并方软删）。IQ-7/Q30，PRD 原无此动作 |
+| `BULK_IMPORT` | `{host_type, total_rows, imported_rows, error_rows, report_ref}` | F7-4 批量导入的**汇总**日志（一次导入一条，不逐行写审计）：行数与错误数进 `payload`。IQ-11/Q42，导入行本身各写一条 `*_CREATED` |
+
+> 原拟追加的 `MATTER_CLAIMED` 已随 IQ-13-V2 撤销——"变更处理人"沿用既有 `OWNER_CHANGED`，不新造动作。
 
 ---
 
@@ -312,7 +323,7 @@ ALTER TABLE activity_log ADD COLUMN payload jsonb;   -- §3 的结构化载荷
 | 需要按所定制风险类型 | E15 升格为 `risk_type_config`，配置表数量 5 → 6 |
 | 需要新增通知渠道 | E25 加值 + 一个投递适配器 |
 | 规则需要 `or`/聚合 | **不要扩 `extra_condition`**。届时区分"内置规则"与"用户可配规则"两张表，见修订稿 §2.5 |
-| 案例模块回归 | 回补 `case_study.status`(`draft`/`published`/`archived`) 与 `E03` 的 `case_study` 值 |
+| 案例模块回归 | 回补 `case_study.status`(`draft`/`published`/`archived`) 与 `E03` 的 `case_study` 值。**编号前缀注（2026-10-10，IQ-11）：`AL` 是案例库编号遗留——案例移出第一期后 `AL` 一期不实现，代码 `CODE_PREFIX` 实际只有 FX/AJ 两个值**（详见修订稿 §12.3 前缀语义注记）；若回归，届时再补 `AL` |
 
 ---
 
@@ -325,7 +336,7 @@ ALTER TABLE activity_log ADD COLUMN payload jsonb;   -- §3 的结构化载荷
 | 修订稿 §6.3 各"枚举闭合"行 | 取值统一以本表为准，修订稿保留语义说明 |
 | 修订稿 §2.5 引擎能力边界 | §4.2 具体化为 schema + 白名单 |
 | 原文 3.6 `field_diffs` 语义污染（基线副本无此节，指针已纠正） | §3.4 + §5.4 用 `payload` 分离 |
-| 权限草案 §7.3 明文读取 | E `SENSITIVE_FIELD_READ` |
+| 权限草案 §7.3 明文读取 | E `SENSITIVE_FIELD_READ`（❌ 2026-10-10 IQ-12 作废：展示层全明文，逐次读取审计取消；草案 §7.3 与 §2.1 的"查看半边"待同步回改，`can_read_plain` 只守明文导出） |
 | 映射矩阵 §5.1 `UNCONVERT` 用了未登记动作 | §3.2 补登，含 reason 必填与载荷口径 |
 | 修订稿 §6.1 `source_kind=preset_p1/rule_p2` | E22 为 `preset`/`rule`，修订稿已回改 |
 | 修订稿 §6.2 / §8.1 `matter_party.role` | E06 为 `party_role`，修订稿已回改（UK 并补 `represented` 说明） |
