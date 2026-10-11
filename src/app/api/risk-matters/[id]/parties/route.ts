@@ -1,0 +1,43 @@
+import { riskPartyAppendSchema } from "@/shared/schema/hosts";
+import { appendRiskParties, listRiskParties } from "@/app/lib/server/services/risks";
+import { body, json, notFound, pathId, withActor } from "@/app/lib/server/http";
+
+/**
+ * 事项的当事人区：读全部 + 追加若干（T10）。
+ *
+ * 这是转案件能走通的前提：`convertToCase` 的前置是"事项至少 1 个当事人"，
+ * 而在本入口之前 `riskMatterParty` 全仓只有读没有写——任何走 UI 建的事项
+ * 转案件都必然 422，而那条 422 叫用户「请先在事项上添加再转」，那个入口当时不存在。
+ *
+ * 追加而非"整体替换"：整体替换要求前端每次先拉全量再提交全量，
+ * 两人同时改会静默丢对方的改动。追加只提交增量，冲突面小得多。
+ *
+ * 摘除一条挂接在 `[linkId]/route.ts` 的 DELETE——按**关联行 id** 删而不是按当事人 id，
+ * 因为同一个当事人可以以不同诉讼地位被挂两次（共同被告）。
+ */
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const pid = pathId(id);
+  if (!pid.ok) return pid.res;
+  return withActor(async (actor) => {
+    const rows = await listRiskParties(actor, id);
+    // null = 这条事项你看不见或不存在 → 404，与元规则 3 一致
+    if (rows === null) return notFound();
+    return json(rows);
+  });
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const parsed = await body(req, riskPartyAppendSchema);
+  if (!parsed.ok) return parsed.res;
+  const { id } = await ctx.params;
+  const pid = pathId(id);
+  if (!pid.ok) return pid.res;
+
+  return withActor(async (actor) => {
+    const r = await appendRiskParties(actor, id, parsed.data.parties);
+    // 不可见 / 已归档一律 404。归档是终态（§5.2），对已归档事项改当事人同样不该放行。
+    if (!r.ok) return notFound();
+    return json({ added: r.added });
+  });
+}

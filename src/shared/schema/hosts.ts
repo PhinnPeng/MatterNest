@@ -24,6 +24,48 @@ import {
 /** 数据库 `bigint` 对外只有 string 一种形态；DDL 侧另有 CHECK 挡格式 */
 const idField = (label: string) => z.string().regex(/^\d+$/, `${label}必须是数字字符串`);
 
+/**
+ * 一行当事人挂接（F2-15「关联 + 快速新增」）。案件与事项**共用同一个定义**。
+ *
+ * 为什么抽出来而不是各写一份：两条宿主线的写入都走 `planPartyLinks`，
+ * 值域一旦漂移就会出现"案件侧能填某角色、事项侧填不了"的错位，
+ * 而这种错位在代码里长得一模一样，只有用户撞上才知道。
+ *
+ * 两种写法并存：
+ *   · 带 `partyId` —— 引用库里已登记的这一行，不新建；
+ *   · 不带 `partyId` —— 快速新增，此时名称与类型必填（由 `superRefine` 保证，
+ *     字段本身放宽成可选，是为了让"缺什么"报在**当事人那一行**上，而不是笼统一条 enum 失败）。
+ * 服务端还会在 `(type, id_number)` 精确命中时自动复用既有行，见 `services/parties.ts`。
+ */
+export const partyLinkSchema = z
+  .object({
+    partyId: idField("当事人").optional().or(z.literal("")),
+    name: z.string().trim().max(200).optional().or(z.literal("")),
+    type: z.enum(PARTY_TYPES).optional().or(z.literal("")),
+    /** E06 复用 E12 诉讼地位取值 —— 事项侧与案件侧同一套，不另立值域 */
+    partyRole: z.enum(LITIGATION_ROLES, { message: "请选择诉讼地位" }),
+    /** ⚠ E07 `represented` 已随 IQ-15 软作废，不再进入 DTO；我方立场看案件的 `litigation_role` */
+    idType: z.enum(ID_TYPES).optional().or(z.literal("")),
+    idNumber: z.string().trim().max(64).optional().or(z.literal("")),
+  })
+  .superRefine((p, ctx) => {
+    if (p.partyId) return;
+    if (!p.name || p.name.trim().length < 2)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["name"],
+        message: "新建当事人要填名称（至少 2 个字），或改成选择已登记的当事人",
+      });
+    if (!p.type)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["type"],
+        message: "请选择当事人类型（它决定证件号的校验规则）",
+      });
+  });
+
+export type PartyLinkInput = z.input<typeof partyLinkSchema>;
+
 export const matterCreateSchema = z.object({
   name: z.string().trim().min(2, "请输入案件名称").max(200),
   cause: z.string().trim().min(2, "请输入案由").max(200),
@@ -46,42 +88,8 @@ export const matterCreateSchema = z.object({
     .or(z.literal("")),
   description: z.string().trim().max(5000).optional().or(z.literal("")),
   ownerId: idField("负责人").optional(),
-  /**
-   * 当事人区：两种写法并存（F2-15「关联 + 快速新增」）。
-   *   · 带 `partyId` —— 引用库里已登记的这一行，不新建；
-   *   · 不带 `partyId` —— 快速新增，此时名称与类型是必填（由下面 `superRefine` 保证，
-   *     字段本身放宽成可选，是为了让"缺什么"报在**当事人那一行**上，而不是笼统一条 enum 失败）。
-   * 服务端还会在 `(type, id_number)` 精确命中时自动复用既有行，见 `services/parties.ts`。
-   */
-  parties: z
-    .array(
-      z
-        .object({
-          partyId: idField("当事人").optional().or(z.literal("")),
-          name: z.string().trim().max(200).optional().or(z.literal("")),
-          type: z.enum(PARTY_TYPES).optional().or(z.literal("")),
-          partyRole: z.enum(LITIGATION_ROLES, { message: "请选择诉讼地位" }),
-          /** ⚠ E07 `represented` 已随 IQ-15 软作废，不再进入 DTO；我方立场看案件的 `litigation_role` */
-          idType: z.enum(ID_TYPES).optional().or(z.literal("")),
-          idNumber: z.string().trim().max(64).optional().or(z.literal("")),
-        })
-        .superRefine((p, ctx) => {
-          if (p.partyId) return;
-          if (!p.name || p.name.trim().length < 2)
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ["name"],
-              message: "新建当事人要填名称（至少 2 个字），或改成选择已登记的当事人",
-            });
-          if (!p.type)
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ["type"],
-              message: "请选择当事人类型（它决定证件号的校验规则）",
-            });
-        }),
-    )
-    .default([]),
+  /** 当事人区。定义见 `partyLinkSchema` —— 案件与事项同源，两条线共用一套值域与校验 */
+  parties: z.array(partyLinkSchema).default([]),
 });
 export type MatterCreateInput = z.input<typeof matterCreateSchema>;
 
@@ -104,8 +112,33 @@ export const riskCreateSchema = z.object({
     .optional()
     .or(z.literal("")),
   ownerId: idField("负责人").optional(),
+  /**
+   * 当事人区。**这是转案件能走通的前提**——`convertToCase` 的前置是"事项至少 1 个当事人"，
+   * 而在本字段出现之前 `riskMatterParty` 全仓只有读没有写，所以任何走 UI 建的事项
+   * 必然当事人=0，转案件必然 422 `parties_required`，而那条 422 正在叫用户
+   * 「请先在事项上添加再转」——**那个入口当时不存在**。
+   *
+   * 与案件侧共用 `partyLinkSchema`：两条宿主线的值域、校验、快速新增与
+   * `(type, id_number)` 去重全部同一条代码路径。
+   */
+  parties: z.array(partyLinkSchema).default([]),
 });
 export type RiskCreateInput = z.input<typeof riskCreateSchema>;
+
+/**
+ * 建事项后**追加**当事人（`POST /api/risk-matters/[id]/parties`）。
+ *
+ * 与建事项那次走同一个 `partyLinkSchema`，所以"建的时候没填也能事后补"这件事
+ * 在校验口径上与"建的时候填"完全一致——不然会出现两条路径对同一份数据给出不同结论。
+ */
+export const riskPartyAppendSchema = z
+  .object({
+    parties: z
+      .array(partyLinkSchema)
+      .min(1, "至少添加一个当事人")
+      .max(20, "一次最多添加 20 个当事人"),
+  })
+  .strict();
 
 /** 转案件：**一次提交 N 张案件卡**（映射矩阵 §1 基数 1→N，N ≥ 1，可追加） */
 export const convertCardSchema = matterCreateSchema

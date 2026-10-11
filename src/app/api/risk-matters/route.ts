@@ -5,7 +5,7 @@ import {
   SORTABLE_COLUMNS,
   archivedOnlyField,
 } from "@/shared/schema/list-query";
-import { riskCreateSchema, pruneEmpty } from "@/shared/schema/hosts";
+import { riskCreateSchema, pruneEmpty, type PartyLinkInput } from "@/shared/schema/hosts";
 import { createRiskMatter, listRiskMatters } from "@/app/lib/server/services/risks";
 import { body, json, query, withActor } from "@/app/lib/server/http";
 
@@ -35,7 +35,16 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const parsed = await body(req, riskCreateSchema);
   if (!parsed.ok) return parsed.res;
-  return withActor(async (actor) =>
-    json(await createRiskMatter(actor, pruneEmpty(parsed.data)), 201),
-  );
+  return withActor(async (actor) => {
+    // parties **不**走 pruneEmpty：它的成员字段（partyId/type）允许空串占位，
+    // pruneEmpty 会把整条数组结构擦成 Record，类型就没了。逐条清洗即可。
+    const { parties, ...rest } = parsed.data;
+    const r = await createRiskMatter(actor, {
+      // 从服务签名反推参数类型，别手写一份再和实现漂移
+      ...(pruneEmpty(rest) as Omit<Parameters<typeof createRiskMatter>[1], "parties">),
+      parties: (parties ?? []).map((p) => pruneEmpty(p) as PartyLinkInput),
+    });
+    // 与案件侧同口径：返回 nameConflicts 供前端提示"同名不同证件号已另建一行"
+    return json(r, 201);
+  });
 }

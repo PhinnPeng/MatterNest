@@ -13,7 +13,14 @@ import {
   riskMatterParty,
   riskMatterStaff,
 } from "../db/schema";
-import { eventOutbox } from "../db/schema";
+import { appUser, eventOutbox } from "../db/schema";
+import { party } from "../db/schema";
+import {
+  insertNewParties,
+  planPartyLinks,
+  type PartyLinkInput,
+  type PartyLinkPlanRow,
+} from "./parties";
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 import type { Actor } from "../auth/auth";
@@ -89,10 +96,31 @@ export async function listRiskMatters(
       archivedAt: riskMatter.archivedAt,
       discoverDate: riskMatter.discoverDate,
       updatedAt: riskMatter.updatedAt,
-      ownerName: sql<string>`(select u.display_name from mn_app_user u where u.id = ${riskMatter.ownerId})`,
+      ownerName: appUser.displayName,
+      /**
+       * 已挂当事人条数。列表页每行都拿它判「能不能转案件」：0 个当事人时
+       * 转案件必被 422 `parties_required` 挡下 —— 与其让用户点一次吃一次闭门羹，
+       * 不如在列表上就看出来。
+       */
+      partyCount: dcount(riskMatterParty.id),
     })
     .from(riskMatter)
+    .leftJoin(appUser, eq(appUser.id, riskMatter.ownerId))
+    /**
+     * 当事人条数用 LEFT JOIN + 聚合，**不用相关子查询**。
+     *
+     * 踩过的坑：drizzle 的 `sql` 模板会把 `${riskMatter.id}` 渲染成**裸列名** `"id"`，
+     * 子查询里的 `"id"` 于是解析到内层表 `mn_risk_matter_party.id`，
+     * 条件变成 `rp.risk_matter_id = rp.id`，恒假 —— 结果恒为 0，且**不报错**。
+     *
+     * 同一个坑 `ownerName` 一直躲着没炸：它渲染成 `"owner_id"`，
+     * 而内层表 `mn_app_user` 恰好没有同名列，PG 才向上解析到外层。
+     * 那是**侥幸**不是正确 —— 日后谁给 `mn_app_user` 加一列 `owner_id`，
+     * 负责人名就会静默变空。两个一起改成 join，一劳永逸。
+     */
+    .leftJoin(riskMatterParty, eq(riskMatterParty.hostId, riskMatter.id))
     .where(where)
+    .groupBy(riskMatter.id, appUser.displayName)
     .orderBy(q.sortDir === "asc" ? asc(sortCol) : desc(sortCol), desc(riskMatter.id))
     .limit(q.pageSize)
     .offset((q.page - 1) * q.pageSize);
@@ -104,6 +132,10 @@ export async function listRiskMatters(
     total: Number(total?.n ?? 0),
   };
 }
+
+type Db = Awaited<ReturnType<typeof getDb>>;
+/** 事务句柄：与 `services/nodes.ts`、`services/parties.ts` 同一取法（从回调参数上取，别自己拼泛型） */
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /** 建事项：编号 `FX-`，`discover_date` 是日历 `date`（§12.2） */
 export async function createRiskMatter(
@@ -118,6 +150,16 @@ export async function createRiskMatter(
     amount?: string;
     discoverDate?: string | null;
     ownerId?: string;
+    /**
+     * 当事人。**这一栏之前根本不存在**——`riskMatterParty` 全仓只有读没有写，
+     * 于是走 UI 建的事项必然当事人=0，转案件必然 422 `parties_required`，
+     * 而那条 422 正在叫用户「请先在事项上添加再转」，可那个入口并不存在。
+     *
+     * 与案件侧共用 `planPartyLinks` / `insertNewParties`：同一套值域、同一套校验、
+     * 同一个 `(type, id_number)` 去重。两条宿主线在这里必须同源，否则会出现
+     * "案件侧能建的事项当事人、事项侧建不出来"的错位。
+     */
+    parties?: readonly PartyLinkInput[];
   },
 ) {
   const db = await getDb();
@@ -128,6 +170,8 @@ export async function createRiskMatter(
   const initial = await initialStatusCode("risk_matter");
   /** 清单#3「事项默认 3 个节点」由 seed 的 3 行 `preset_on_create` 承载（修订稿 §4 P1） */
   const presetNodes = await planPresetNodesFor("risk_matter");
+  // 同样是事务前算好——它要连库查当事人，既不能在事务里做，也要在事务外拿到冲突清单
+  const partyPlan = await planPartyLinks(input.parties ?? []);
   await db.transaction(async (tx) => {
     await tx.insert(riskMatter).values({
       id,
@@ -148,6 +192,7 @@ export async function createRiskMatter(
     await tx
       .insert(riskMatterStaff)
       .values({ id: BigInt(nextId()), hostId: id, userId: owner, staffRole: "owner" });
+    await linkRiskParties(tx, id, partyPlan.rows, BigInt(actor.userId));
     await insertPlannedNodes(tx, "risk_matter", id, presetNodes, BigInt(actor.userId));
     await logActivity(tx, actor, {
       riskMatterId: id,
@@ -156,7 +201,138 @@ export async function createRiskMatter(
       action: "RISK_CREATED",
     });
   });
-  return { id: String(id), code };
+  // 与案件侧同口径：同名不同证件号照建，但把冲突清单带回给前端提示，不静默吞掉
+  return { id: String(id), code, nameConflicts: partyPlan.nameConflicts };
+}
+
+/**
+ * 把 `planPartyLinks` 的结果写进 `mn_risk_matter_party`。
+ *
+ * ⚠ **不写 `represented`**：该列已随 IQ-15 软作废（企业口径下我方永不入 party 表）。
+ * 列保留在库，但这是它第一次有机会被写入——在这里补一个默认值，就等于把刚摘除的
+ * 语义又悄悄写回去。所以**不提供**该参数的默认值，让"忘了写"变成编译期错误。
+ */
+async function linkRiskParties(
+  tx: Tx,
+  riskMatterId: bigint,
+  rows: readonly PartyLinkPlanRow[],
+  actorUserId: bigint,
+): Promise<void> {
+  if (rows.length === 0) return;
+  await insertNewParties(tx, rows, actorUserId);
+  await tx.insert(riskMatterParty).values(
+    rows.map((r) => ({
+      id: BigInt(nextId()),
+      hostId: riskMatterId,
+      partyId: r.partyId,
+      partyRole: r.partyRole,
+      sortOrder: r.sortOrder,
+    })),
+  );
+}
+
+/** 建事项后追加当事人。与建事项那次走同一套校验与去重。 */
+export async function appendRiskParties(
+  actor: Actor,
+  riskId: string,
+  links: readonly PartyLinkInput[],
+): Promise<{ ok: true; added: number } | { ok: false; why: "not_found" }> {
+  const db = await getDb();
+  const [src] = await db
+    .select({ id: riskMatter.id, isArchived: riskMatter.isArchived })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
+    .limit(1);
+  if (!src) return { ok: false, why: "not_found" };
+  if (src.isArchived) return { ok: false, why: "not_found" };
+
+  const plan = await planPartyLinks(links);
+  // 追加要从**现有最大 sort_order 之后**接着排，否则新行会插到已有行中间，
+  // 当事人区在页面上的顺序会随每次追加而变。
+  const [last] = await db
+    .select({ max: sql<number | null>`max(${riskMatterParty.sortOrder})` })
+    .from(riskMatterParty)
+    .where(eq(riskMatterParty.hostId, BigInt(riskId)));
+  const base = Number(last?.max ?? -1);
+
+  await db.transaction(async (tx) => {
+    await linkRiskParties(
+      tx,
+      BigInt(riskId),
+      plan.rows.map((r, i) => ({ ...r, sortOrder: base + 1 + i })),
+      BigInt(actor.userId),
+    );
+    await tx
+      .update(riskMatter)
+      .set({ updatedBy: BigInt(actor.userId), updatedAt: new Date().toISOString() })
+      .where(eq(riskMatter.id, BigInt(riskId)));
+  });
+  return { ok: true, added: plan.rows.length };
+}
+
+/** 摘除一条当事人挂接。删的是**关联行**，不是当事人本体——后者归 T3 管的档案。 */
+export async function removeRiskParty(
+  actor: Actor,
+  riskId: string,
+  linkId: string,
+): Promise<{ ok: true } | { ok: false; why: "not_found" }> {
+  const db = await getDb();
+  const [src] = await db
+    .select({ id: riskMatter.id })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
+    .limit(1);
+  if (!src) return { ok: false, why: "not_found" };
+
+  // 删之前先按**事项 + 关联行**两道条件命中，避免误删到别的事项上去
+  const [link] = await db
+    .select({ id: riskMatterParty.id })
+    .from(riskMatterParty)
+    .where(and(eq(riskMatterParty.hostId, BigInt(riskId)), eq(riskMatterParty.id, BigInt(linkId))))
+    .limit(1);
+  if (!link) return { ok: false, why: "not_found" };
+
+  await db.transaction(async (tx) => {
+    await tx.delete(riskMatterParty).where(eq(riskMatterParty.id, link.id));
+    await tx
+      .update(riskMatter)
+      .set({ updatedBy: BigInt(actor.userId), updatedAt: new Date().toISOString() })
+      .where(eq(riskMatter.id, BigInt(riskId)));
+  });
+  return { ok: true };
+}
+
+/** 事项已挂的当事人（联表取本体，供展示与转案件校验共用一份口径） */
+export async function listRiskParties(actor: Actor, riskId: string) {
+  const db = await getDb();
+  const [src] = await db
+    .select({ id: riskMatter.id })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
+    .limit(1);
+  if (!src) return null;
+  const rows = await db
+    .select({
+      id: riskMatterParty.id,
+      partyId: riskMatterParty.partyId,
+      partyRole: riskMatterParty.partyRole,
+      sortOrder: riskMatterParty.sortOrder,
+      name: party.name,
+      type: party.type,
+      idNumber: party.idNumber,
+    })
+    .from(riskMatterParty)
+    .innerJoin(party, eq(party.id, riskMatterParty.partyId))
+    .where(eq(riskMatterParty.hostId, BigInt(riskId)))
+    .orderBy(asc(riskMatterParty.sortOrder));
+  return rows.map((r) => ({
+    id: String(r.id),
+    partyId: String(r.partyId),
+    partyRole: r.partyRole,
+    name: r.name,
+    type: r.type,
+    idNumber: r.idNumber,
+  }));
 }
 
 /**

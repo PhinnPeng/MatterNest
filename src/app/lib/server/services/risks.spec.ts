@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { MAX_CASES_PER_CONVERT } from "./risks";
-import { convertSchema, unconvertSchema } from "@/shared/schema/hosts";
+import {
+  convertSchema,
+  riskCreateSchema,
+  riskPartyAppendSchema,
+  unconvertSchema,
+} from "@/shared/schema/hosts";
 
 /**
  * 转案件的请求边界（T2）。
@@ -85,6 +90,97 @@ describe("案号与金额：不再被整体 omit", () => {
     // 而映射矩阵 §2.5 要的是案件侧保留来源引用、不留会各自漂移的副本。
     const r = convertSchema.safeParse({ cases: [card({ description: "随手写段描述" })] });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("riskCreateSchema.parties：事项侧当事人区", () => {
+  const base = {
+    name: "恒基建设施工合同纠纷",
+    type: "contract",
+    level: "high",
+    description: "冒烟用事项",
+  };
+
+  it("可留空 —— 建事项不该被当事人绑住", () => {
+    // 事项是台账，先登记风险、当事人还没摸清是常态。
+    // 但**转案件**要至少 1 个（§6.2），那是另一个时机的校验，两处不能混。
+    const r = riskCreateSchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.parties).toEqual([]);
+  });
+
+  it("接受快速新增的当事人（只给名称+类型+角色）", () => {
+    const r = riskCreateSchema.safeParse({
+      ...base,
+      parties: [{ name: "恒基建设", type: "legal_person", partyRole: "defendant" }],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("接受引用已登记当事人（给 partyId 即可）", () => {
+    const r = riskCreateSchema.safeParse({
+      ...base,
+      parties: [{ partyId: "1800000000000000001", partyRole: "plaintiff" }],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("**拒绝**只有 partyId 与角色之外的空壳行（既没 id 也没名称）", () => {
+    // 这一条是"新增当事人要填名称"校验存在的理由。
+    // 少了它，用户留一个空行就会建出一条无名当事人。
+    const r = riskCreateSchema.safeParse({
+      ...base,
+      parties: [{ partyRole: "defendant" }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("缺类型时拒绝新建当事人，并点名缺什么", () => {
+    const r = riskCreateSchema.safeParse({
+      ...base,
+      parties: [{ name: "恒基建设", partyRole: "defendant" }],
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.message).join(" ")).toContain("请选择当事人类型");
+    }
+  });
+
+  it("与案件侧共用值域：非法角色两边都不接受", () => {
+    // 值域同源的收益就在这一条。若哪天有人给事项侧单开一套，这里会红。
+    const bad = {
+      ...base,
+      parties: [{ name: "恒基建设", type: "legal_person", partyRole: "法官" }],
+    };
+    expect(riskCreateSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe("riskPartyAppendSchema：建后追加当事人", () => {
+  it("拒绝空数组 —— 「追加 0 个」是空操作，不该发请求", () => {
+    const r = riskPartyAppendSchema.safeParse({ parties: [] });
+    expect(r.success).toBe(false);
+  });
+
+  it("strict：拒绝夹带别的字段", () => {
+    const r = riskPartyAppendSchema.safeParse({
+      parties: [{ name: "恒基建设", type: "legal_person", partyRole: "defendant" }],
+      code: "FX-2026-001",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("与建事项那次用同一个 partyLinkSchema —— 同一条数据两种结论是最难查的一类错", () => {
+    const row = { name: "恒基建设", type: "legal_person", partyRole: "defendant" };
+    const onCreate = riskCreateSchema.safeParse({
+      name: "事项",
+      type: "contract",
+      level: "high",
+      description: "描述",
+      parties: [row],
+    });
+    const onAppend = riskPartyAppendSchema.safeParse({ parties: [row] });
+    expect(onCreate.success).toBe(onAppend.success);
   });
 });
 
