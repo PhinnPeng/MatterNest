@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · P6 转案件（已采纳）</title>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  PROTOTYPE — 一次性代码，不进主干。回答的问题是：「转案件表单该长什么样？」
+
+  【已采纳的设计】（用户在 2026-10-11 评审中逐条确认）
+    1. 顶部结果条：本次会生成几个案件，每个案件自己的内部编号。
+    2. 案件切换条：N 个案件都看得见（编号/名称/必填完成度），
+       但**一次只编辑一张**——铺开 N 份必填表单必然分心，只显示一张又看不出数量，
+       切换条同时解掉这两头。
+    3. 案号（case_no）与内部编号是两套：案号默认取内部编号、可改、非唯一、
+       重复只提示不阻止（修订稿 §6.3）。
+    4. 表单布局走现代表单习惯：标签在控件**上方**、必填星号前置、分区分组、
+       只读继承事实**不占表单行**、提交动作常驻底部。
+
+  【这一版解决的老问题】
+    映射矩阵有 19 个字段，但真正需要人动手的只有 8 个，其余是"继承 / 留空 / 不带"。
+    旧版把 19 个全渲染成表单行，等于把只读事实摆成可编辑控件——既噪音大，
+    又让人误以为都能改。现在分成四块：必填输入 / 继承只读 / 可留空 / 故意不带。
+
+  【故意不带的五条规则】必须让用户看懂，否则他会以为"系统漏带了"而手抄一遍——
+  而手抄正是这个功能要消灭的动作。收进默认折叠的说明块里。
+
+  数据为内存假数据（真实库不可达，127.0.0.1:30432 ECONNREFUSED）。
+  色板抄自 src/app/theme/brand.ts，外壳照抄 AppShell。
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --brand:#2f5fe0; --brand-hover:#4473f0;
+    --success:#1a9c6b; --overdue:#c2363b; --soon:#9a5a00;
+    --sider-bg:#1d2433; --sider-item:#c3ccdd;
+    --paper:#f7f8fa;
+    --ink:#1d2433; --ink-2:#4f5a6f; --ink-3:#616a79; --ink-4:#a4abb8;
+    --line:#eceef3; --line-2:#dfe3ec; --rail:#c8ccd4;
+    --r:8px; --shadow:0 1px 2px rgba(29,36,51,.06),0 1px 3px rgba(29,36,51,.04);
+    --field-bg:#fff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer}
+  input,select{font:inherit;color:var(--ink)}
+
+  /* ── 外壳（照抄 AppShell）── */
+  .shell{display:flex;min-height:100vh}
+  .sider{width:212px;flex:none;background:var(--sider-bg);color:var(--sider-item);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .sider-brand{padding:16px 20px 14px}
+  .sider-brand b{display:block;color:#fff;font-size:15px}
+  .sider-brand span{display:block;font-size:11px;color:#8d97ab;margin-top:3px}
+  .nav{padding:6px 10px;flex:1;overflow:auto}
+  .nav-group{font-size:11px;color:#6f7a90;padding:12px 10px 5px;letter-spacing:.5px}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+    color:var(--sider-item);font-size:13.5px;margin:1px 0}
+  .nav-item.on{background:var(--brand);color:#fff;font-weight:500}
+  .sider-foot{padding:12px 14px;border-top:1px solid rgba(255,255,255,.08)}
+  .who-in-sider{display:flex;align-items:center;gap:9px}
+  .who-in-sider b{display:block;color:#fff;font-size:13px}
+  .who-in-sider span{display:block;font-size:11px;color:#8d97ab;margin-top:1px}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:20}
+  .topbar h1{font-size:16px;margin:0;font-weight:600}
+  .topbar .crumb{font-size:12px;color:var(--ink-3);margin-left:10px;font-weight:400}
+  .content{padding:20px 24px 88px;flex:1}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .pad{padding:16px 20px}
+  .row{display:flex;gap:10px;align-items:center}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .lbl{font-size:12px;color:var(--ink-3)}
+  .muted{color:var(--ink-3)}
+  .faint{color:var(--ink-4)}
+  .tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 9px;border-radius:20px;
+    background:#eef1f6;color:var(--ink-2);white-space:nowrap}
+  .tag.brand{background:#eaf0fd;color:var(--brand)}
+  .tag.warn{background:#fff4e6;color:var(--soon)}
+  .tag.ok{background:#e9f7f1;color:var(--success)}
+
+  .btn{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:6px 14px;color:var(--ink-2);font-size:13px}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+  .btn.p:hover{background:var(--brand-hover)}
+  .btn.sm{padding:3px 10px;font-size:12px}
+  .btn.danger{color:var(--overdue)}
+
+  /* ── 转换结果条 ── */
+  .conv-banner{display:flex;align-items:center;gap:18px;padding:14px 20px;margin-bottom:16px;
+    background:linear-gradient(0deg,#eef3fe,#f8faff);border:1px solid #cfdcfb;border-radius:var(--r)}
+  .conv-n{display:flex;align-items:baseline;gap:6px;flex:none}
+  .conv-n b{font-size:34px;line-height:1;color:var(--brand);font-weight:700}
+  .conv-n span{font-size:12.5px;color:var(--ink-2)}
+  .conv-from{font-size:12.5px;color:var(--ink-2);flex:none}
+  .conv-from b{display:block;font-size:14px;color:var(--ink)}
+  .conv-codes{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:6px}
+  .codechip{font-size:11.5px;padding:3px 9px;border-radius:5px;background:#fff;
+    border:1px solid #cfdcfb;color:var(--ink-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  /* ── 案件切换条 ── */
+  .switcher{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:10px;margin-bottom:16px}
+  .sw-item{text-align:left;background:#fff;border:1px solid var(--line);border-radius:var(--r);
+    padding:11px 13px;box-shadow:var(--shadow);min-width:0}
+  .sw-item:hover{border-color:var(--brand)}
+  .sw-item.on{border-color:var(--brand);box-shadow:0 0 0 2px rgba(47,95,224,.14);background:#fbfcff}
+  .sw-item.warn{border-color:#f0d9ae;background:#fffdf8}
+  .sw-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .sw-i{width:20px;height:20px;border-radius:50%;background:var(--rail);color:#fff;
+    display:grid;place-items:center;font-size:11px;font-weight:600;flex:none}
+  .sw-item.on .sw-i{background:var(--brand)}
+  .sw-n{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:5px}
+  .sw-b{font-size:11.5px;color:var(--ink-3)}
+  .sw-item.on .sw-b{color:var(--brand);font-weight:600}
+
+  /* ── 现代表单：标签在上 ── */
+  .fgroup{padding:18px 20px;border-bottom:1px solid var(--line)}
+  .fgroup:last-child{border-bottom:0}
+  .fgroup-t{font-size:13px;font-weight:600;margin:0 0 2px;display:flex;align-items:center;gap:8px}
+  .fgroup-s{font-size:12px;color:var(--ink-3);margin:0 0 14px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
+  .form-grid .full{grid-column:1 / -1}
+  .fi{min-width:0}
+  .fi-l{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:6px;font-weight:500}
+  .fi-l .req{color:var(--overdue);margin-right:3px;font-weight:700}
+  .fi-l .opt{color:var(--ink-4);font-weight:400;margin-left:5px}
+  .fi input,.fi select{width:100%;border:1px solid var(--rail);border-radius:6px;
+    padding:7px 11px;font-size:13.5px;background:var(--field-bg);height:36px}
+  .fi input:hover,.fi select:hover{border-color:var(--brand)}
+  .fi input:focus,.fi select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(47,95,224,.12)}
+  .fi input.pending{border-color:var(--soon);background:#fffdf7}
+  .fi input[readonly]{background:#f6f7f9;color:var(--ink-2);cursor:default}
+  .fi-h{font-size:11.5px;color:var(--ink-3);margin-top:6px;line-height:1.6}
+  .fi-h b{color:var(--ink-2);font-weight:600}
+
+  /* 只读继承事实：紧凑 chip 行，不占表单控件 */
+  .fact{display:flex;flex-wrap:wrap;gap:8px 26px}
+  .fact-i{min-width:0}
+  .fact-k{font-size:11.5px;color:var(--ink-3);display:block;margin-bottom:3px}
+  .fact-v{font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+  .note{border-radius:8px;padding:10px 13px;font-size:12.5px;line-height:1.7}
+  .note.i{background:#eaf0fd;color:#20408f;border:1px solid #d3e0fb}
+  .note.w{background:#fff8ec;color:#7a4a00;border:1px solid #f6e2c0}
+  details.exp{border:1px solid var(--line);border-radius:8px;background:#fbfcfe}
+  details.exp summary{cursor:pointer;font-size:12.5px;color:var(--brand);padding:9px 13px;list-style:none;user-select:none}
+  details.exp summary::before{content:"▸ ";display:inline-block;transition:transform .15s}
+  details.exp[open] summary::before{content:"▾ "}
+  details.exp .body{padding:2px 13px 12px;font-size:12.5px;color:var(--ink-2);line-height:1.8}
+  details.exp .body b{color:var(--ink)}
+
+  /* ── 提交动作常驻底部 ── */
+  /* 用固定定位 + 底部留白，而不是 sticky + 大负边距：
+     sticky 压在一屏放不下的长表单上会遮住最后一块内容（实测截图确认过）。 */
+  .actions{position:fixed;left:212px;right:0;bottom:0;padding:12px 24px;
+    background:rgba(255,255,255,.94);backdrop-filter:blur(8px);
+    border-top:1px solid var(--line);display:flex;align-items:center;gap:12px;z-index:30}
+  .actions .spacer{flex:1}
+  .actions .sum{font-size:12.5px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sider">
+    <div class="sider-brand"><b>MatterNest</b><span>风险事项 · 转案件</span></div>
+    <nav class="nav">
+      <div class="nav-group">今日</div>
+      <div class="nav-item"><span>◷</span>工作台</div>
+      <div class="nav-group">业务</div>
+      <div class="nav-item"><span>▤</span>案件</div>
+      <div class="nav-item on"><span>◇</span>风险事项</div>
+      <div class="nav-item"><span>▣</span>已归档</div>
+      <div class="nav-group">系统</div>
+      <div class="nav-item"><span>⚙</span>配置字典</div>
+    </nav>
+    <div class="sider-foot">
+      <div class="who-in-sider"><div class="avatar">王</div>
+        <div><b>王凯锋</b><span>全局管理 · 数据范围 全部记录</span></div></div>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <h1>转案件<span class="crumb">/ 风险事项 / FX-20260928-014</span></h1>
+      <button class="btn">取消</button>
+    </header>
+    <div class="content" id="root"></div>
+  </div>
+</div>
+
+<script>
+/* ═══════════ 源事项（假数据） ═══════════ */
+const RM = {
+  code:'FX-20260928-014',
+  name:'恒基建设承建厂房 · 供应商延迟交付与现场停工',
+  type:'合同违约', level:'高', discover:'2026-09-28',
+  owner:null, followers:['赵凌','李晨'],
+  party:{name:'恒基建设集团有限公司',role:'原告'},
+  tags:['供应商','工期风险'],
+};
+
+/* 五条"故意不带"的规则——收进默认折叠块，但必须找得到 */
+const SKIP_RULES = [
+  ['标的金额不继承','一个风险衍生多起诉讼时涉案金额通常按案分摊，逐案填才准。系统只在合计与事项敞口明显不符时提示，<b>不阻断提交</b>。'],
+  ['案由不自动映射','事项类型到案由没有可靠对照表（一个「合同违约」能落到几十个案由）。宁可让你填，也不给一个你不会怀疑的错默认值。'],
+  ['发现日期不映射为立案日期','两者含义不同，误填会污染后续所有期限计算。'],
+  ['描述与处置措施不复制','案件详情页保留来源风险卡片并可跳转，所以只建引用，不留会各自漂移的副本。'],
+  ['节点与附件不复制','转入案件后节点由案件侧按模板生成；附件只引用同一份证据，不产生第二个副本。'],
+];
+
+let CASES = 2, ACTIVE = 0;
+const MAX_CASES = 20;              // convert-form schema 的 cases.max(20)
+const AJ = i => `AJ-20261101-${String(i+1).padStart(3,'0')}`;
+const derivedName = i => RM.name + (CASES>1 ? ` -${i+1}` : '');
+const missingCause = i => i===1 && CASES>1;      // 演示：第 2 张缺案由
+
+function bump(d){
+  CASES = Math.max(1, Math.min(MAX_CASES, CASES + d));
+  if (ACTIVE >= CASES) ACTIVE = CASES - 1;
+  render();
+}
+function focusCase(i){ ACTIVE = i; render(); }
+
+/* ═══════════ 片段 ═══════════ */
+function convBanner(){
+  return `<div class="conv-banner">
+    <div class="conv-n"><b>${CASES}</b><span>个案件</span></div>
+    <div class="conv-from">本次由<b>${RM.code}</b> 一次生成</div>
+    <div class="conv-codes">
+      ${Array.from({length:CASES},(_,i)=>`<span class="codechip">案件 ${i+1} · ${AJ(i)}</span>`).join('')}
+    </div>
+    <button class="btn" onclick="bump(1)">+ 加一个案件</button>
+  </div>`;
+}
+
+function caseSwitcher(){
+  return `<div class="switcher">
+    ${Array.from({length:CASES},(_,i)=>{
+      const cls = i===ACTIVE ? 'on' : (missingCause(i) ? 'warn' : '');
+      const badge = i===ACTIVE ? '正在编辑'
+        : missingCause(i) ? '⚠ 缺案由'
+        : '✓ 必填已齐';
+      return `<button class="sw-item ${cls}" onclick="focusCase(${i})">
+        <div class="sw-top"><span class="sw-i">${i+1}</span><span class="codechip">${AJ(i)}</span></div>
+        <div class="sw-n">${derivedName(i)}</div>
+        <div class="sw-b">${badge}</div>
+      </button>`;
+    }).join('')}
+  </div>`;
+}
+
+/** 表单项：标签在上、控件在下、说明再下 */
+function fi({label,req,full,control,help}){
+  return `<div class="fi ${full?'full':''}">
+    <label class="fi-l">${req?'<span class="req">*</span>':''}${label}${req?'':'<span class="opt">选填</span>'}</label>
+    ${control}
+    ${help?`<div class="fi-h">${help}</div>`:''}
+  </div>`;
+}
+const inp = (v,cls='',ph='') => `<input type="text" value="${v}" class="${cls}" placeholder="${ph}">`;
+const sel = v => `<select><option>${v}</option><option>—</option></select>`;
+
+function formBody(i){
+  const missing = missingCause(i);
+  return `
+  <!-- ① 必填 -->
+  <div class="fgroup">
+    <h3 class="fgroup-t">必须由你判断的字段</h3>
+    <p class="fgroup-s">这几项系统不替你决定——每一张案件卡各填一次。</p>
+    <div class="form-grid">
+      ${fi({label:'案件名称',req:true,full:true,
+        control:inp(derivedName(i),'pending'),
+        help:CASES>1 ? `按「事项名 -${i+1}」派生（矩阵 §2.1），<b>高亮待你确认</b>；不改也能提交。` : '取自事项名称，可改。'})}
+      ${fi({label:'案由',req:true,
+        control: missing ? `<input type="text" class="err" placeholder="必填 · 不自动映射">` : inp('建设工程施工合同纠纷'),
+        help:'不自动映射（理由见下方折叠块）。'})}
+      ${fi({label:'我方诉讼地位',req:true,
+        control:sel('被告'),
+        help:'本企业在这起案子里的地位，逐案必填。'})}
+      ${fi({label:'案件类型',req:true,control:sel('民商事')})}
+      ${fi({label:'程序',req:true,control:sel('一审')})}
+    </div>
+  </div>
+
+  <!-- ② 案号 -->
+  <div class="fgroup">
+    <h3 class="fgroup-t">案号</h3>
+    <p class="fgroup-s">法院给的号，与系统内部编号是两套东西。</p>
+    <div class="form-grid">
+      ${fi({full:true,label:'案号',control:inp(AJ(i)),
+        help:'默认取本案的内部编号，拿到法院正式案号后改这里。<b>非唯一</b>——不同法院案号体系会重号，'
+           +'重复时<b>只提示不阻止</b>（修订稿 §6.3）。真正的唯一锚点始终是内部编号。'})}
+    </div>
+  </div>
+
+  <!-- ③ 继承只读 -->
+  <div class="fgroup">
+    <h3 class="fgroup-t">已从事项带入</h3>
+    <p class="fgroup-s">这些是只读事实，需要改请到事项或在本页下方的「可留空」区处理。</p>
+    <div class="fact">
+      <div class="fact-i"><span class="fact-k">风险等级</span><span class="fact-v">${RM.level}</span></div>
+      <div class="fact-i"><span class="fact-k">经办人</span><span class="fact-v">
+        ${RM.owner ? RM.owner : '<span class="tag warn">（空）</span>'} <a href="#" style="color:var(--brand);font-size:12px">指派给我</a></span></div>
+      <div class="fact-i"><span class="fact-k">关注人</span><span class="fact-v">${RM.followers.join('、')}</span></div>
+      <div class="fact-i"><span class="fact-k">标签</span><span class="fact-v">${RM.tags.map(t=>`<span class="tag">${t}</span>`).join(' ')}</span></div>
+      <div class="fact-i"><span class="fact-k">对方当事人</span><span class="fact-v">${RM.party.name}
+        <span class="tag brand">${RM.party.role}</span><span class="tag">引用同一档案，不新建</span></span></div>
+    </div>
+  </div>
+
+  <!-- ④ 可留空 -->
+  <div class="fgroup">
+    <h3 class="fgroup-t">可以先留空的字段</h3>
+    <p class="fgroup-s">留空不阻断提交，后续随时补。</p>
+    <div class="form-grid">
+      ${fi({label:'标的金额',control:inp('',' ','留空 · 逐案自填'),
+        help:'一个风险衍生多起诉讼时金额按案分摊，所以<b>不继承</b>。合计与事项敞口明显不符时提示但不拦。'})}
+      ${fi({label:'受理机关',control:inp('',' ','留空')})}
+      ${fi({label:'立案日期',control:inp('',' ','留空 · 不取发现日期'),
+        help:`事项的发现日期（${RM.discover}）<b>不映射</b>为立案日期，误填会污染期限计算。`})}
+      ${fi({label:'结案日期',control:inp('',' ','留空')})}
+    </div>
+  </div>
+
+  <!-- ⑤ 为什么有字段是空的 -->
+  <div class="fgroup">
+    <details class="exp">
+      <summary>为什么有些字段是空的？（5 条映射规则）</summary>
+      <div class="body">
+        ${SKIP_RULES.map(r=>`<div><b>· ${r[0]}</b>　${r[1]}</div>`).join('')}
+      </div>
+    </details>
+  </div>`;
+}
+
+function render(){
+  const i = ACTIVE;
+  const done = CASES - (missingCause(0)||missingCause(1)?1:0);
+  document.getElementById('root').innerHTML = `
+    ${convBanner()}
+    ${caseSwitcher()}
+    <div class="card">
+      <div class="pad between" style="border-bottom:1px solid var(--line)">
+        <div class="row">
+          <span style="width:22px;height:22px;border-radius:50%;background:var(--brand);color:#fff;
+            display:grid;place-items:center;font-size:12px;font-weight:600">${i+1}</span>
+          <b style="font-size:14px">案件 ${i+1} / ${CASES}</b>
+          <span class="codechip">${AJ(i)}</span>
+          ${CASES>1?'<span class="lbl">其余案件在切换条里，点一下切过去</span>':''}
+        </div>
+        <button class="btn sm danger">删除这张</button>
+      </div>
+      ${formBody(i)}
+    </div>
+
+    <div class="actions">
+      <span class="sum">${CASES>1?`${CASES} 个案件将写入同一个事务，全部成功或全部回滚 · `:''}已填 ${done}/${CASES} 张</span>
+      <div class="spacer"></div>
+      <button class="btn">保存草稿</button>
+      ${CASES>1?'<button class="btn">上一张</button><button class="btn">下一张</button>':''}
+      <button class="btn p">提交：生成 ${CASES} 个案件</button>
+    </div>`;
+}
+render();
+</script>
+</body>
+</html>

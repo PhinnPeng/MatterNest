@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · P5 事项详情（三变体）</title>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  PROTOTYPE — 一次性代码，不进主干。回答的问题是：「事项详情页该长什么样？」
+
+  · 三个变体在同一条路由上，用 ?variant=A|B|C 切换（可分享、刷新稳定）。
+  · 色值全部取自 src/app/theme/brand.ts（BRAND / PAPER / INK），
+    左栏与密度照抄 AppShell —— 目的是「贴着真实应用看」，不是凭空画。
+  · 数据是内存里的假数据：真实库当前不可达（127.0.0.1:30432 ECONNREFUSED），
+    挂不上真路由，所以走「双击即开」的单文件形态。见 SKILL「No persistence」。
+  · 变体之间**刻意不复用布局**：只有色板与字体是共用的。共用布局等于没做原型。
+
+  为什么必须先定形态：案件详情是「节点中心」（5 Tab + 预设节点 + 时间轴），
+  事项详情按 IQ-5 必须是「评论中心」（无预设节点、节点可空、评论是主交互面）。
+  两者形态相反。若不先定，施工票会现场做一个缩小版案件详情，
+  也就顺手抹平了「事项是台账、案件是战场」这条刻意的非对称。
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  /* ── 色板：与 brand.ts 逐字对应（改这里不会影响真应用，这里只是抄了一份）── */
+  :root{
+    --brand:#2f5fe0; --brand-hover:#4473f0; --brand-active:#234ac2;
+    --success:#1a9c6b; --overdue:#c2363b; --soon:#9a5a00;
+    --sider-bg:#1d2433; --sider-grad:#22304a; --sider-item:#c3ccdd; --sider-accent:#2f5fe0;
+    --paper:#f7f8fa;
+    --ink:#1d2433; --ink-2:#4f5a6f; --ink-3:#616a79; --ink-4:#a4abb8;
+    --line:#eceef3; --rail:#c8ccd4;
+    --r:8px; --shadow:0 1px 2px rgba(29,36,51,.06),0 1px 3px rgba(29,36,51,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink); background:var(--paper); -webkit-font-smoothing:antialiased;
+  }
+  button{font:inherit;cursor:pointer}
+
+  /* ── AppShell：照抄真实外壳（深色左栏 + 顶栏）── */
+  .shell{display:flex;min-height:100vh}
+  .sider{
+    width:212px;flex:none;background:var(--sider-bg);color:var(--sider-item);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  }
+  .sider-brand{padding:16px 20px 14px}
+  .sider-brand b{display:block;color:#fff;font-size:15px;letter-spacing:.2px}
+  .sider-brand span{display:block;font-size:11px;color:#8d97ab;margin-top:3px}
+  .nav{padding:6px 10px;flex:1;overflow:auto}
+  .nav-group{font-size:11px;color:#6f7a90;padding:12px 10px 5px;letter-spacing:.5px}
+  .nav-item{
+    display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+    color:var(--sider-item);font-size:13.5px;margin:1px 0;
+  }
+  .nav-item.on{background:var(--brand);color:#fff;font-weight:500}
+  .nav-item .ic{width:16px;text-align:center;opacity:.9}
+  .sider-foot{padding:12px 14px;border-top:1px solid rgba(255,255,255,.08)}
+  .who-in-sider{display:flex;align-items:center;gap:9px}
+  .who-in-sider b{display:block;color:#fff;font-size:13px;font-weight:600}
+  .who-in-sider span{display:block;font-size:11px;color:#8d97ab;margin-top:1px}
+  .sider-logout{
+    width:100%;margin-top:10px;background:none;border:1px solid rgba(255,255,255,.16);
+    color:#c3ccdd;border-radius:6px;padding:5px;font-size:12px;
+  }
+  .sider-logout:hover{background:rgba(255,255,255,.08);color:#fff}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{
+    height:60px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:20;
+  }
+  .topbar h1{font-size:16px;margin:0;font-weight:600}
+  .who{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-3)}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600}
+
+  .content{padding:20px 24px 96px;flex:1}
+
+  /* ── 通用件 ── */
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .pad{padding:16px 18px}
+  .row{display:flex;gap:10px;align-items:center}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px;border-radius:20px;
+    background:#eef1f6;color:var(--ink-2);white-space:nowrap}
+  .tag.hi{background:#fdeeee;color:var(--overdue)}
+  .tag.mid{background:#fff4e6;color:var(--soon)}
+  .tag.ok{background:#e9f7f1;color:var(--success)}
+  .tag.on{background:var(--brand);color:#fff}
+  .btn{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:6px 13px;color:var(--ink-2);font-size:13px}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.p:hover{background:var(--brand-hover)}
+  .btn.sm{padding:3px 9px;font-size:12px}
+  .muted{color:var(--ink-3)}
+  .faint{color:var(--ink-4)}
+  .lbl{font-size:12px;color:var(--ink-3)}
+  /* 下拉菜单（标题栏「更多」） */
+  .more-wrap{position:relative}
+  .more-menu{
+    position:absolute;right:0;top:calc(100% + 6px);min-width:172px;background:#fff;
+    border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 26px rgba(29,36,51,.16);
+    padding:5px;display:none;z-index:60;
+  }
+  .more-menu.on{display:block}
+  .mi{display:block;width:100%;text-align:left;background:none;border:0;padding:7px 10px;
+    border-radius:6px;font-size:13px;color:var(--ink)}
+  .mi:hover{background:#f2f5fa}
+  .mi.pri{color:var(--brand);font-weight:500}
+  .mi.danger{color:var(--overdue)}
+  .mi-sep{height:1px;background:var(--line);margin:5px 2px}
+  .kv{display:grid;grid-template-columns:76px 1fr;gap:8px 10px;font-size:13px}
+  .kv dt{color:var(--ink-3)}
+  .kv dd{margin:0;color:var(--ink)}
+  /* 左栏节点与右栏「基本事实」块等高；处置记录移到右栏基本事实之下 */
+  .split{display:grid;grid-template-columns:330px 1fr;gap:16px;align-items:stretch}
+  .node-card{display:flex;flex-direction:column}
+  .node-empty{flex:1;display:flex;flex-direction:column;justify-content:center}
+  .cmt-scroll{max-height:560px;overflow:auto;min-height:0}
+  .sec-t{font-size:13px;font-weight:600;color:var(--ink);margin:0 0 10px;display:flex;align-items:center;gap:7px}
+  .sec-t::before{content:"";width:3px;height:13px;background:var(--brand);border-radius:2px}
+  .hr{height:1px;background:var(--line);margin:14px 0}
+
+  /* 状态胶囊 */
+  .st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+  .st::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--rail)}
+  .st.open::before{background:var(--rail)}
+  .st.prog::before{background:var(--brand)}
+  .st.ok::before{background:var(--success)}
+
+  /* 评论条目 */
+  .cmt{display:flex;gap:10px;padding:12px 0;border-bottom:1px dashed var(--line)}
+  .cmt:last-child{border-bottom:0}
+  .ava{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;
+    font-size:12px;font-weight:600;color:#fff}
+  .cmt-b{flex:1;min-width:0}
+  .cmt-h{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
+  .cmt-h b{font-size:13px}
+  .cmt-h .t{font-size:11.5px;color:var(--ink-4)}
+  .cmt-t{font-size:13.5px;color:var(--ink);white-space:pre-wrap}
+  .cmt-a{margin-top:6px;display:flex;gap:12px;font-size:12px;color:var(--ink-3)}
+
+  /* Tab */
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);padding:0 18px}
+  .tab{padding:10px 14px;font-size:13.5px;color:var(--ink-2);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:600}
+  .tab .n{font-size:11px;color:var(--ink-4);margin-left:4px}
+  .tab.on .n{color:var(--brand)}
+
+  /* 节点 */
+  .node{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .node:last-child{border-bottom:0}
+  .node-dot{width:8px;height:8px;border-radius:50%;background:var(--rail);margin-top:6px;flex:none}
+  .node-dot.soon{background:var(--soon)}
+  .node-dot.late{background:var(--overdue)}
+
+  /* 空态 */
+  .empty{padding:22px 12px;text-align:center;color:var(--ink-3)}
+  .empty .ic{font-size:22px;opacity:.35}
+  .empty p{margin:6px 0 10px;font-size:13px}
+
+  /* 变体切换条 */
+  .sw{
+    position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;
+    display:flex;align-items:center;gap:4px;background:var(--ink);color:#fff;
+    border-radius:22px;padding:5px 8px;box-shadow:0 6px 22px rgba(29,36,51,.28);
+  }
+  .sw button{background:none;border:0;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;line-height:1}
+  .sw button:hover{background:rgba(255,255,255,.16)}
+  .sw .lb{font-size:12.5px;padding:0 10px;white-space:nowrap}
+  .sw .lb b{font-weight:600}
+  .sw .lb i{font-style:normal;color:#aeb6c6;margin-left:6px}
+  .sw .warn{font-size:11px;color:#ffb4b4;padding:0 8px;border-left:1px solid rgba(255,255,255,.2);margin-left:4px}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- 真实外壳（照抄 AppShell） -->
+  <aside class="sider">
+    <div class="sider-brand"><b>MatterNest</b><span>风险事项 · 事项详情</span></div>
+    <nav class="nav">
+      <div class="nav-group">今日</div>
+      <div class="nav-item"><span class="ic">◷</span>工作台</div>
+      <div class="nav-group">业务</div>
+      <div class="nav-item"><span class="ic">▤</span>案件</div>
+      <div class="nav-item on"><span class="ic">◇</span>风险事项</div>
+      <div class="nav-item"><span class="ic">▣</span>已归档</div>
+      <div class="nav-group">系统</div>
+      <div class="nav-item"><span class="ic">⚙</span>配置字典</div>
+    </nav>
+    <div class="sider-foot">
+      <div class="who-in-sider">
+        <div class="avatar">王</div>
+        <div>
+          <b>王凯锋</b>
+          <span>全局管理 · 数据范围 全部记录</span>
+        </div>
+      </div>
+      <button class="sider-logout">退出登录</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>事项详情</h1>
+    </header>
+    <div class="content" id="root"></div>
+  </div>
+</div>
+
+<div class="sw">
+  <button id="prev" title="上一个（←）">‹</button>
+  <div class="lb" id="lb"></div>
+  <button id="next" title="下一个（→）">›</button>
+  <span class="warn">原型</span>
+</div>
+
+<script>
+/* ══════════════ 假数据（内存，刷新即丢） ══════════════ */
+const M = {
+  code:'FX-20260928-014',
+  name:'恒基建设承建厂房 · 供应商延迟交付与现场停工',
+  type:'合同违约', level:'高', found:'2026-09-28',
+  owner:null,                      // ← 关键：未指派
+  followers:['赵凌','李晨'],
+  createdBy:'孙敏（业务）', createdAt:'2026-09-28 14:22',
+  amount:8420000,                  // 涉案/敞口金额
+  desc:'承建厂房主体已封顶，但屋面防水供应商连续两次延迟交付，现场停工待料已 11 天。施工方发来催告函，要求我方 9 日内答复并承担窝工损失。',
+  measure:'已要求供应商项目负责人书面说明；同步请工程部核减工期索赔口径。',
+  converted:[],
+  attachments:[
+    {n:'供应商催告函.pdf',k:'函件',s:'412 KB'},
+    {n:'现场停工照片-0918.zip',k:'证据',s:'8.1 MB'},
+  ],
+  comments:[
+    {a:'孙敏',c:'#4f8ef7',role:'上报人',t:'2026-09-28 14:22',
+     x:'施工方今天又来了第三次，说再不答复就报监理。照片我先传上来了。',meta:'来自上报'},
+    {a:'王凯锋',c:'#2f5fe0',role:'全局管理',t:'2026-09-28 16:05',
+     x:'这条我来跟。先把催告函的答复期限挂上，再约施工方碰一次。',meta:'指派给自己',act:'owner'},
+    {a:'赵凌',c:'#1a9c6b',role:'法务负责人',t:'2026-09-29 09:41',
+     x:'@王凯锋 催告函里写的是「9 日内答复」，这个期限要挂上，别靠记忆。',meta:'@提及',act:'mention'},
+    {a:'孙敏',c:'#4f8ef7',role:'上报人',t:'2026-09-30 11:20',
+     x:'补充：工程部说窝工损失大概 60 万，具体金额还在核。',meta:''},
+    {a:'王凯锋',c:'#2f5fe0',role:'全局管理',t:'2026-10-02 17:02',
+     x:'先按「合同违约 · 高」挂着，不急着转案件——对方还没正式立案。等真立案那天再转。',meta:''},
+  ],
+  nodes:[],   // ← 关键：事项无预设节点，默认就是空的
+};
+
+const esc = s => String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const levelTag = l => l==='高' ? '<span class="tag hi">高</span>' : l==='中' ? '<span class="tag mid">中</span>' : '<span class="tag">低</span>';
+
+/* ══════════════ 复用的「小件」（不是布局——布局各变体独立） ══════════════ */
+function shellHead(extra){
+  return `
+  <div class="card pad" style="margin-bottom:16px">
+    <div class="between" style="align-items:flex-start">
+      <div style="min-width:0">
+        <div class="row" style="margin-bottom:6px">
+          <span class="lbl">${M.code}</span>
+          <span class="st ok">已登记</span>
+          ${M.owner?'':'<span class="tag hi">未指派</span>'}
+          ${levelTag(M.level)}
+        </div>
+        <h2 style="margin:0 0 8px;font-size:19px;line-height:1.4;font-weight:600">${esc(M.name)}</h2>
+        <div class="row muted" style="gap:16px;font-size:12.5px">
+          <span>${M.type}</span>
+          <span>发现于 ${M.found}</span>
+          <span>敞口 ${M.amount.toLocaleString()}</span>
+          <span>经办 ${M.owner?'<b>'+M.owner+'</b>':'<b style="color:var(--overdue)">（空）</b>'}</span>
+        </div>
+      </div>
+      <div class="row" style="flex:none">
+        <button class="btn">编辑</button>
+        <button class="btn">变更处理人</button>
+        <div class="more-wrap">
+          <button class="btn" id="moreBtn">更多 ▾</button>
+          <div class="more-menu" id="moreMenu">
+            <button class="mi pri">↗ 转案件</button>
+            <button class="mi">⧉ 复制事项</button>
+            <button class="mi">＋ 加关注人</button>
+            <div class="mi-sep"></div>
+            <button class="mi">▣ 归档</button>
+            <button class="mi danger">🗑 删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function commentsBlock(){
+  return M.comments.map(c=>`
+    <div class="cmt">
+      <div class="ava" style="background:${c.c}">${c.a[0]}</div>
+      <div class="cmt-b">
+        <div class="cmt-h">
+          <b>${c.a}</b><span class="t">${c.role}</span><span class="t">${c.t}</span>
+          ${c.meta?`<span class="tag sm" style="font-size:11px">${c.meta}</span>`:''}
+        </div>
+        <div class="cmt-t">${c.x}</div>
+        <div class="cmt-a"><span>回复</span><span>@ 提及</span><span>编辑</span></div>
+      </div>
+    </div>`).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   变体 A（**已采纳并深化**）—— 「左栏工作面 + 右栏档案」
+   主张：事项页有两类完全不同的内容，不该挤在一处——
+     · 左栏 = **现在正在发生什么**：事项节点（硬期限）+ 处置记录（评论沟通）。
+       处置记录在底部并撑满剩余高度，因为它是事项的主交互面。
+     · 右栏 = **这件事是什么**：基本事实 / 活动日志 两个 Tab，纯档案查阅。
+   标题栏动作收敛成「编辑 / 变更处理人 / 更多」，把低频动作（转案件、删除、
+   复制）收进「更多」，避免主按钮位被占满。
+   ══════════════════════════════════════════════════════════════════ */
+function VariantA(){
+  return `
+  ${shellHead()}
+  <div class="split">
+    <div class="card pad node-card">
+      <div class="between" style="margin-bottom:8px">
+        <h3 class="sec-t" style="margin:0">事项节点</h3>
+        <span class="lbl">${M.nodes.length} 个</span>
+      </div>
+      <div class="node-empty">
+        <div class="empty" style="padding:16px 8px">
+          <div class="ic">◷</div>
+          <p class="muted">事项不预设流程节点。<br>确有时限（如答复期）时手动加一个。</p>
+          <button class="btn sm">+ 手动加节点</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tabs">
+        <div class="tab on">基本事实</div>
+        <div class="tab">活动日志<span class="n">7</span></div>
+      </div>
+      <div class="pad">
+        <h3 class="sec-t">标识与归属</h3>
+        <dl class="kv">
+          <dt>内部编号</dt><dd>${M.code}</dd>
+          <dt>状态</dt><dd><span class="st ok">已登记</span></dd>
+          <dt>经办人</dt><dd>${M.owner?'<b>'+M.owner+'</b>':'<b style="color:var(--overdue)">（空）</b> <a style="color:var(--brand);font-size:12px">指派给我</a>'}</dd>
+          <dt>关注人</dt><dd>${M.followers.join('、')}</dd>
+          <dt>上报人</dt><dd>${M.createdBy}</dd>
+          <dt>已转案件</dt><dd>0 个 <span class="faint">（尚未转案件）</span></dd>
+        </dl>
+
+        <div class="hr"></div>
+        <h3 class="sec-t">风险属性</h3>
+        <dl class="kv">
+          <dt>类型</dt><dd>${M.type}</dd>
+          <dt>风险等级</dt><dd>${levelTag(M.level)}</dd>
+          <dt>敞口金额</dt><dd>${M.amount.toLocaleString()} 元</dd>
+          <dt>发现日期</dt><dd>${M.found}</dd>
+          <dt>来源</dt><dd>业务报备</dd>
+          <dt>标签</dt><dd><span class="tag">供应商</span> <span class="tag">工期风险</span></dd>
+        </dl>
+
+        <div class="hr"></div>
+        <h3 class="sec-t">风险描述</h3>
+        <p style="margin:0 0 12px;font-size:13.5px;color:var(--ink-2)">${M.desc}</p>
+        <h3 class="sec-t">处置措施</h3>
+        <p style="margin:0;font-size:13.5px;color:var(--ink-2)">${M.measure}</p>
+
+        <div class="hr"></div>
+        <div class="between" style="margin-bottom:8px">
+          <h3 class="sec-t" style="margin:0">附件</h3>
+          <button class="btn sm">+ 上传</button>
+        </div>
+        ${M.attachments.map(a=>`
+          <div class="between" style="padding:7px 0;border-bottom:1px dashed var(--line)">
+            <div style="font-size:13px">${a.n}</div>
+            <div class="lbl">${a.k} · ${a.s}</div>
+          </div>`).join('')}
+
+        <div class="hr"></div>
+        <div class="lbl">登记于 ${M.createdAt}</div>
+      </div>
+    </div>
+
+    <div class="card" style="grid-column:2">
+      <div class="pad" style="border-bottom:1px solid var(--line);padding-bottom:12px">
+        <div class="between" style="margin-bottom:8px">
+          <h3 class="sec-t" style="margin:0">处置记录</h3>
+          <span class="lbl">${M.comments.length} 条 · 评论沟通</span>
+        </div>
+        <div style="background:#fbfcfe;border:1px solid var(--line);border-radius:8px;padding:8px 10px">
+          <div style="font-size:13px;color:var(--ink-4)">写一条…&nbsp;&nbsp;<span class="faint">@ 提及 · 可编辑</span></div>
+        </div>
+      </div>
+      <div class="pad cmt-scroll">${commentsBlock()}</div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   变体 B —— 「对照式：左=事实卡，右=对话流」+ 顶部全景条
+   主张：企业风险事项是**被观察**的，不是被推进的。所以首屏不放
+        「下一节点/剩余天数」这类推进式仪表（那是案件页的东西），
+        改放一条静态全景：这条事现在到哪一步了。
+        处置区占比最大，永远在首屏可见。
+   ══════════════════════════════════════════════════════════════════ */
+function VariantB(){
+  const steps=[['已登记','2026-09-28',true],['处置中','2026-09-28',true],['已立案 / 被诉','—',false],['已转案件','—',false],['已归档','—',false]];
+  return `
+  ${shellHead()}
+  <div class="card pad" style="margin-bottom:16px">
+    <div class="between" style="align-items:flex-start">
+      <div>
+        <h3 class="sec-t">这件事到哪一步了</h3>
+        <div class="row" style="gap:0;margin-top:4px">
+          ${steps.map((s,i)=>`
+            <div style="flex:1;text-align:center;position:relative">
+              <div style="width:11px;height:11px;border-radius:50%;margin:0 auto 7px;
+                background:${s[2]?'var(--brand)':'#fff'};
+                border:2px solid ${s[2]?'var(--brand)':'var(--rail)'}"></div>
+              <div style="font-size:12.5px;font-weight:${s[2]?600:400};color:${s[2]?'var(--ink)':'var(--ink-4)'}">${s[0]}</div>
+              <div style="font-size:11px;color:var(--ink-4);margin-top:2px">${s[1]}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div style="text-align:right;flex:none">
+        <div class="lbl">停留</div>
+        <div style="font-size:22px;font-weight:600;color:var(--soon)">13 天</div>
+        <div class="lbl">上次人工更新 10-02</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:330px 1fr;gap:16px;align-items:start">
+    <div class="card pad">
+      <h3 class="sec-t">事实卡</h3>
+      <dl class="kv">
+        <dt>经办人</dt><dd>${M.owner?'<b>'+M.owner+'</b>':'<b style="color:var(--overdue)">（空）</b> <a style="color:var(--brand);font-size:12px">指派给我</a>'}</dd>
+        <dt>关注人</dt><dd>${M.followers.join('、')}</dd>
+        <dt>敞口</dt><dd>${M.amount.toLocaleString()} 元</dd>
+        <dt>发现</dt><dd>${M.found}</dd>
+      </dl>
+      <div class="hr"></div>
+      <div class="lbl" style="margin-bottom:4px">风险描述</div>
+      <p style="margin:0 0 10px;font-size:13px;color:var(--ink-2)">${M.desc}</p>
+      <div class="lbl" style="margin-bottom:4px">处置措施</div>
+      <p style="margin:0;font-size:13px;color:var(--ink-2)">${M.measure}</p>
+      <div class="hr"></div>
+      <div class="between" style="margin-bottom:6px">
+        <b style="font-size:13px">节点</b><span class="lbl">0 个</span>
+      </div>
+      <button class="btn sm" style="width:100%">+ 手动加节点（仅有硬期限时）</button>
+    </div>
+
+    <div class="card">
+      <div class="pad" style="border-bottom:1px solid var(--line);background:#fbfcfe">
+        <div style="font-size:13.5px;color:var(--ink-4)">处置记录…&nbsp;&nbsp;&nbsp;<span class="faint">@ 提及 · 可编辑</span></div>
+      </div>
+      <div class="pad">${commentsBlock()}</div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   变体 C（深化版）—— 「单栏流式 + 等高节点栏」
+   承接 C 的主张：不给事项套「详情页」的固定字段组合，内容按流式往下铺，
+   最新在最上。深化三处：
+     · 左侧加一等高「事项节点」栏——流式单栏的代价是左右失衡；节点固定在
+       左侧后，无论右侧流多长，节点与「+手动加节点」始终在视线内。
+     · 附件与登记信息收进「展开风险…」折叠区，不进主视觉——事项首屏只该
+       有一件事在发生，附件是查阅物，不是当前动作。
+     · 标题栏动作与 A 方案一致：编辑 / 变更处理人 / 更多。
+   ══════════════════════════════════════════════════════════════════ */
+function VariantC(){
+  return `
+  <div class="split">
+    <div class="card pad node-card">
+      <div class="between" style="margin-bottom:8px">
+        <h3 class="sec-t" style="margin:0">事项节点</h3>
+        <span class="lbl">${M.nodes.length} 个</span>
+      </div>
+      <div class="node-empty">
+        <div class="empty" style="padding:16px 8px">
+          <div class="ic">◷</div>
+          <p class="muted">事项不预设流程节点。<br>确有时限（如答复期）时再手动加一个。</p>
+          <button class="btn sm">+ 手动加节点</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="min-width:0">
+      <div class="card pad" style="margin-bottom:14px">
+        <div class="between" style="align-items:flex-start">
+          <div style="min-width:0">
+            <div class="row" style="margin-bottom:6px">
+              <span class="lbl">${M.code}</span>
+              <span class="st ok">已登记</span>
+              ${M.owner?'':'<span class="tag hi">未指派</span>'}
+              ${levelTag(M.level)}
+            </div>
+            <h2 style="margin:0 0 6px;font-size:18px;line-height:1.4;font-weight:600">${esc(M.name)}</h2>
+            <div class="lbl">${M.type} · 发现于 ${M.found} · 敞口 ${M.amount.toLocaleString()} · 经办 <b style="color:${M.owner?'var(--ink)':'var(--overdue)'}">${M.owner||'（空）'}</b> · 关注 ${M.followers.join('、')}</div>
+          </div>
+          <div class="row" style="flex:none">
+            <button class="btn">编辑</button>
+            <button class="btn">变更处理人</button>
+            <div class="more-wrap">
+              <button class="btn" id="moreBtn">更多 ▾</button>
+              <div class="more-menu" id="moreMenu">
+                <button class="mi pri">↗ 转案件</button>
+                <button class="mi">⧉ 复制事项</button>
+                <button class="mi">＋ 加关注人</button>
+                <div class="mi-sep"></div>
+                <button class="mi">▣ 归档</button>
+                <button class="mi danger">🗑 删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card pad" style="margin-bottom:14px">
+        <details>
+          <summary style="cursor:pointer;font-size:13px;color:var(--brand);list-style:none">
+            ▸ 展开风险描述、处置措施、附件与登记信息
+          </summary>
+          <div style="padding-top:12px;max-width:880px">
+            <div class="lbl" style="margin-bottom:4px">风险描述</div>
+            <p style="margin:0 0 12px;font-size:13.5px">${M.desc}</p>
+            <div class="lbl" style="margin-bottom:4px">处置措施</div>
+            <p style="margin:0 0 12px;font-size:13.5px">${M.measure}</p>
+            <div class="hr"></div>
+            <div class="between" style="margin-bottom:6px">
+              <div class="lbl">附件</div>
+              <button class="btn sm">+ 上传</button>
+            </div>
+            ${M.attachments.map(a=>`
+              <div class="between" style="padding:6px 0;border-bottom:1px dashed var(--line)">
+                <div style="font-size:13px">${a.n}</div>
+                <div class="lbl">${a.k} · ${a.s}</div>
+              </div>`).join('')}
+            <div class="hr"></div>
+            <div class="lbl">上报 ${M.createdBy} · ${M.createdAt} · 来源 业务报备 · 标签
+              <span class="tag">供应商</span> <span class="tag">工期风险</span></div>
+          </div>
+        </details>
+      </div>
+
+      <div class="card">
+        <div class="pad" style="border-bottom:1px solid var(--line);background:#fbfcfe">
+          <div class="between" style="margin-bottom:8px">
+            <h3 class="sec-t" style="margin:0">处置记录</h3>
+            <span class="lbl">${M.comments.length} 条 · 评论沟通</span>
+          </div>
+          <div style="font-size:13.5px;color:var(--ink-4)">写一条…&nbsp;&nbsp;<span class="faint">@ 提及 · 可编辑</span></div>
+        </div>
+        <div class="pad cmt-scroll">
+          ${[...M.comments].reverse().map(c=>`
+          <div class="cmt">
+            <div class="ava" style="background:${c.c}">${c.a[0]}</div>
+            <div class="cmt-b">
+              <div class="cmt-h"><b>${c.a}</b><span class="t">${c.role}</span><span class="t">${c.t}</span></div>
+              <div class="cmt-t">${c.x}</div>
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+/* ══════════════ 变体切换 ══════════════ */
+const V = {
+  A:{n:'左栏工作面 + 右栏档案（备选）',f:VariantA},
+  B:{n:'对照式 · 全景条 + 对话流（备选）',f:VariantB},
+  C:{n:'单栏流式 + 等高节点栏（已采纳·深化版）',f:VariantC},
+};
+const keys = Object.keys(V);
+let cur = new URLSearchParams(location.search).get('variant')?.toUpperCase();
+if (!V[cur]) cur = 'A';
+
+function render(){
+  document.getElementById('root').innerHTML = V[cur].f();
+  document.getElementById('lb').innerHTML =
+    `<b>${cur}</b> <i>${V[cur].n}</i>`;
+  const u = new URL(location.href); u.searchParams.set('variant', cur);
+  history.replaceState(null,'',u);
+}
+
+/* 「更多」下拉：原型只做开关，不接任何真实动作（read-only 是刻意的） */
+document.addEventListener('click', e => {
+  const btn = e.target.closest('#moreBtn');
+  const menu = document.getElementById('moreMenu');
+  if (!menu) return;
+  if (btn) { menu.classList.toggle('on'); return; }
+  if (!e.target.closest('.more-wrap')) menu.classList.remove('on');
+});
+function go(d){
+  const i = keys.indexOf(cur);
+  cur = keys[(i + d + keys.length) % keys.length];
+  render();
+}
+document.getElementById('prev').onclick = () => go(-1);
+document.getElementById('next').onclick = () => go(1);
+addEventListener('keydown', e => {
+  // 输入态不劫持方向键
+  const t = e.target, tag = t.tagName;
+  if (tag==='INPUT'||tag==='TEXTAREA'||t.isContentEditable) return;
+  if (e.key==='ArrowLeft')  { e.preventDefault(); go(-1); }
+  if (e.key==='ArrowRight') { e.preventDefault(); go(1); }
+});
+render();
+</script>
+</body>
+</html>
