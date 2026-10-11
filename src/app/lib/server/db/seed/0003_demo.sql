@@ -146,14 +146,25 @@ VALUES
   (8405, 8304, 103, 'owner')
 ON CONFLICT ("risk_matter_id", "user_id", "staff_role") DO NOTHING;
 
+-- ⚠ 事项节点：**全部 `source_kind='manual'` 且 `time_type='point'`**（IQ-5）。
+-- 原值是 `'preset'` × 4 且带 `'range'`，那正是裁定排除的形态：事项侧无预设节点、
+-- 节点只支持时间点。改标成 manual 是**如实反映产品现在的行为**——
+-- 这些节点代表"经办人手动加的"，而手动加正是事项侧唯一的加节点方式。
+-- 保留这四行是为了 demo 仍有节点可看；真建事项时不再自动生成任何节点。
+-- 先删掉旧 seed 留下的事项 preset 节点（`ON CONFLICT DO NOTHING` 对它们不生效，
+-- 而下面那四行 id 是固定的，删了才能按新口径重插）。迁移 `0004` 已经删过一次，
+-- 但 seed 在迁移**之后**跑，会把它们再插回来——所以收敛点必须放在 seed 里。
+DELETE FROM "mn_risk_matter_node"
+WHERE "risk_matter_id" IN (8301, 8302, 8303, 8304) AND "source_kind" = 'preset';
+
 INSERT INTO "mn_risk_matter_node"
   ("id", "risk_matter_id", "node_type_id", "name", "time_type", "start_time", "end_time", "is_time_confirmed",
    "status", "source_kind", "sort_order", "owner_id", "created_by", "updated_by")
 VALUES
-  (8501, 8301, 4101, '风险评估', 'point', now() - interval '5 days', NULL, true, 'completed', 'preset', 1, 102, 102, 102),
-  (8502, 8301, 4102, '处置执行', 'range', now(), now() + interval '5 days', true, 'in_progress', 'preset', 2, 102, 102, 102),
-  (8503, 8302, 4101, '风险评估', 'point', now() + interval '2 days', NULL, true, 'not_started', 'preset', 1, 103, 103, 103),
-  (8504, 8303, 4102, '处置执行', 'range', now() + interval '1 day', now() + interval '8 days', true, 'not_started', 'preset', 1, 102, 102, 102)
+  (8501, 8301, 4101, '风险评估', 'point', now() - interval '5 days', NULL, true, 'completed', 'manual', 1, 102, 102, 102),
+  (8502, 8301, 4102, '处置执行', 'point', now(), NULL, true, 'in_progress', 'manual', 2, 102, 102, 102),
+  (8503, 8302, 4101, '风险评估', 'point', now() + interval '2 days', NULL, true, 'not_started', 'manual', 1, 103, 103, 103),
+  (8504, 8303, 4102, '处置执行', 'point', now() + interval '1 day', NULL, true, 'not_started', 'manual', 1, 102, 102, 102)
 ON CONFLICT ("id") DO NOTHING;
 
 -- 转案件关联：事项的"来源"靠这张表反查，宿主表上没有 source_risk_id（修订稿 §6.3）

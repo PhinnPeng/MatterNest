@@ -168,8 +168,11 @@ export async function createRiskMatter(
   const owner = BigInt(input.ownerId ?? actor.userId);
   // 在**进入事务前**取：事务内再向池子要一条连接去查配置，池子满时会互等成死锁
   const initial = await initialStatusCode("risk_matter");
-  /** 清单#3「事项默认 3 个节点」由 seed 的 3 行 `preset_on_create` 承载（修订稿 §4 P1） */
-  const presetNodes = await planPresetNodesFor("risk_matter");
+  // ⚠ **事项侧不生成任何预设节点**（IQ-5：「事项是台账，案件是战场」）。
+  // 这里曾调 `planPresetNodesFor("risk_matter")`，而节点类型配置里 3 行 risk_matter
+  // 的 `preset_on_create` 当时还是 true，于是每建一条事项就被塞 3 个系统节点。
+  // 节点改为**经办人手动添加**；节点类型行保留（可手动选），只是不再自动实例化——
+  // 裁定否掉的是「塞几个」，不是「可以选什么」。
   // 同样是事务前算好——它要连库查当事人，既不能在事务里做，也要在事务外拿到冲突清单
   const partyPlan = await planPartyLinks(input.parties ?? []);
   await db.transaction(async (tx) => {
@@ -193,7 +196,6 @@ export async function createRiskMatter(
       .insert(riskMatterStaff)
       .values({ id: BigInt(nextId()), hostId: id, userId: owner, staffRole: "owner" });
     await linkRiskParties(tx, id, partyPlan.rows, BigInt(actor.userId));
-    await insertPlannedNodes(tx, "risk_matter", id, presetNodes, BigInt(actor.userId));
     await logActivity(tx, actor, {
       riskMatterId: id,
       targetType: "risk_matter",

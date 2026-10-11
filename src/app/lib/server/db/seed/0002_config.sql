@@ -14,6 +14,14 @@ VALUES
 ON CONFLICT ("code") DO NOTHING;
 
 -- 案件节点：立案(点) → 举证(段) → 开庭(点) → 判决(点)；举证是时间段，故 time_type=range
+--
+-- ⚠ **事项侧三行的 `preset_on_create` 全是 false，`handle` 的 `time_type` 是 point。**
+-- 这是 IQ-5 的直接落点，不是笔误：「事项是台账，案件是战场」——事项侧**无预设节点**，
+-- 节点由经办人手动加，且**只支持时间点**（T1 验收标准原文：「不预设任何节点」「不出现时间段控件」）。
+-- 改动前的值是 `true` × 3 + `handle='range'`，那正是裁定要排除的形态。
+--
+-- 为什么**保留这 3 个类型行**而不是删掉：类型是「可以选什么」，preset 是「建号时塞几个」。
+-- 裁定否掉的是后者。保留类型，事项侧才仍有可手动添加的节点种类。
 INSERT INTO "mn_node_type_config"
   ("id", "code", "name", "host_type", "time_type", "offset_days", "preset_on_create", "default_remind_days", "sort_order", "is_system")
 VALUES
@@ -21,10 +29,24 @@ VALUES
   (4002, 'evidence', '举证', 'matter', 'range', 7, true, '{7,3,1}', 2, true),
   (4003, 'hearing', '开庭', 'matter', 'point', 21, true, '{7,3,1}', 3, true),
   (4004, 'judgment', '判决', 'matter', 'point', 30, false, '{3,1}', 4, true),
-  (4101, 'assess', '风险评估', 'risk_matter', 'point', 0, true, '{3,1}', 1, true),
-  (4102, 'handle', '处置执行', 'risk_matter', 'range', 3, true, '{7,3,1}', 2, true),
-  (4103, 'confirm', '化解确认', 'risk_matter', 'point', 14, true, '{3,1}', 3, true)
+  (4101, 'assess', '风险评估', 'risk_matter', 'point', 0, false, '{3,1}', 1, true),
+  (4102, 'handle', '处置执行', 'risk_matter', 'point', 3, false, '{7,3,1}', 2, true),
+  (4103, 'confirm', '化解确认', 'risk_matter', 'point', 14, false, '{3,1}', 3, true)
 ON CONFLICT ("host_type", "code") DO NOTHING;
+
+-- 上面 INSERT 带 `ON CONFLICT DO NOTHING`，对老库的既有行**不生效**——所以要 UPDATE 重放，
+-- 与 `0000_mn_status_config.sql` 改名那段同一种做法。
+--
+-- WHERE 带**旧值**守卫，不是无条件覆写：将来配置页允许管理员改这些列之后，
+-- 这条语句不该把人家的定制冲回默认（与那边只补空值同一种克制）。
+UPDATE "mn_node_type_config"
+SET
+  "preset_on_create" = false,
+  "time_type" = CASE WHEN "code" = 'handle' THEN 'point' ELSE "time_type" END
+WHERE "host_type" = 'risk_matter' AND "is_system" AND (
+  ("preset_on_create" = true)
+  OR ("code" = 'handle' AND "time_type" = 'range')
+);
 
 -- 标签：演示用的四类，供列表页筛选与统计卡分组
 INSERT INTO "mn_tag" ("id", "name", "host_type", "color", "sort_order")
