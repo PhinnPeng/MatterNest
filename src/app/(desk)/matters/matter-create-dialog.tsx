@@ -7,7 +7,6 @@ import {
   Alert,
   AutoComplete,
   Button,
-  Checkbox,
   Col,
   DatePicker,
   Form,
@@ -91,8 +90,9 @@ function PartyNameInput({
  * 日期故意不挂 rules：`DatePicker` 给的是 dayjs 对象，必须先 `toValues()` 转成
  * `YYYY-MM-DD` 才是 schema 认识的字符串。转换只写在这一处。
  *
- * 「是否我方代理」与「诉讼地位」是**正交**两列（枚举表 E06/E07：同一案件可有多个
- * represented=true 而角色各异），所以是独立 checkbox，不并成一个取值。
+ * 曾经的「是否我方代理」复选框已随 IQ-15 移除：企业口径下我方永不入当事人表，
+ * 那个布尔（E07 `represented`）的参照系是律所代理关系。我方提诉还是应诉由本表单上
+ * 那个**必填**的 `litigation_role`（我方诉讼地位）表达，语义没有丢。
  */
 type FormValues = Omit<MatterCreateInput, "filingDate" | "parties"> & {
   filingDate?: Dayjs | null;
@@ -369,15 +369,6 @@ export function MatterCreateDialog({
                         />
                       </Form.Item>
                     </Col>
-                    <Col span={3}>
-                      <Form.Item
-                        name={[f.name, "represented"]}
-                        valuePropName="checked"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <Checkbox>我方代理</Checkbox>
-                      </Form.Item>
-                    </Col>
                     <Col span={2}>
                       <Button size="small" onClick={() => remove(f.name)}>
                         删
@@ -393,7 +384,6 @@ export function MatterCreateDialog({
                         name: "",
                         type: "legal_person",
                         partyRole: "plaintiff",
-                        represented: true,
                       })
                     }
                   >

@@ -48,7 +48,7 @@ export const DEFAULT_NOTIFY_CHANNEL: NotifyChannel = "in_app";
 /** 明确"知道有、但不做"的那两个，防止有人以为漏写了 */
 export const RESERVED_NOTIFY_CHANNELS = ["wecom", "dingtalk"] as const;
 
-/** E29 `notification_event.event_type`（7 值；`expense_added` 已于 2026-09-26 裁定删除） */
+/** E29 `notification_event.event_type`（8 值；`expense_added` 已于 2026-09-26 裁定删除） */
 export const NOTIFICATION_EVENT_TYPES = [
   "status_changed",
   "node_due_start",
@@ -57,6 +57,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   "mention",
   "new_comment",
   "risk_converted",
+  "archive_incomplete",
 ] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
 export const NOTIFICATION_EVENT_TYPE_LABELS: Record<NotificationEventType, string> = {
@@ -67,6 +68,7 @@ export const NOTIFICATION_EVENT_TYPE_LABELS: Record<NotificationEventType, strin
   mention: "被 @提及",
   new_comment: "新评论",
   risk_converted: "事项转案件",
+  archive_incomplete: "结案材料不全",
 };
 /** 已作废值登记：历史数据与旧文档里仍会出现，禁止再当新事件写入 */
 export const RETIRED_NOTIFICATION_EVENT_TYPES = ["expense_added"] as const;

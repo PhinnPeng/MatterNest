@@ -46,12 +46,28 @@ export function parseEnumChecks(sql: string): ParsedCheck[] {
   return out;
 }
 
-const migrationFiles = readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql"));
+/**
+ * 迁移文件必须按文件名排：PG 里后一条 DDL 覆盖前一条，文件顺序就是实际生效顺序。
+ * `readdirSync` 的返回顺序未定义，直接 join 等于赌文件系统心情——0002 改名扩 CHECK 之后，
+ * 赌输了就会拿 0000 的旧值集去比对，失败信息还指向一个"没改过"的约束名，极难自查。
+ */
+const migrationFiles = readdirSync(MIGRATIONS)
+  .filter((f) => f.endsWith(".sql"))
+  .sort();
 const migrationSql = migrationFiles
   .map((f) => readFileSync(`${MIGRATIONS}/${f}`, "utf8"))
   .join("\n");
-const checks = parseEnumChecks(migrationSql);
-/** 已进库的值域：落点由注册表的 `checks`（源自 IN_DB_CHECKS 映射）给出 */
+
+/**
+ * 同名 CHECK 出现多次时**取最后一次**（= PG 的实际生效结果）。
+ *
+ * 扩值域的正规姿势是新增一条迁移 `DROP CONSTRAINT` + `ADD CONSTRAINT`（禁改历史迁移，
+ * 已跑过的库才追得上）。于是同一个约束名会在多个文件里各留一份字面量，而
+ * `checks.find(name)` 取到的是**最早**那份——恰好是已作废的旧值集。
+ * 不去重的话反向检查还会把后来那条报成"没人认领的第二事实源"，逼人往注册表里塞重复条目。
+ */
+const parsedChecks = parseEnumChecks(migrationSql);
+const checks = [...new Map(parsedChecks.map((c) => [c.name, c])).values()];
 const landed = ENUM_REGISTRY.filter((e) => e.landing === "in-db");
 const claims = claimedChecks();
 
@@ -130,6 +146,26 @@ describe("注册表 ↔ 迁移里的 CHECK", () => {
     expect(migrationFiles.length, "迁移目录为空？").toBeGreaterThan(0);
   });
 
+  it("同名 CHECK 取最后一次（扩值域迁移不能被旧值集盖住）", () => {
+    const twice = parseEnumChecks(
+      `ALTER TABLE t ADD CONSTRAINT "ck_a" CHECK (s IN ('old'));
+       ALTER TABLE t DROP CONSTRAINT "ck_a";
+       ALTER TABLE t ADD CONSTRAINT "ck_a" CHECK (s IN ('old','new'));`,
+    );
+    // 两条 ADD CONSTRAINT 都会被认出；中间的 DROP 不产生 IN 型约束，解析器本就看不见它
+    expect(twice.length).toBe(2);
+    // 去重发生在调用方，这里断言的是"最后一次生效"这个语义本身
+    const effective = [...new Map(twice.map((c) => [c.name, c])).values()];
+    expect(effective).toEqual([{ name: "ck_a", column: "s", values: ["old", "new"] }]);
+  });
+
+  it("迁移文件按文件名排序读入（0002 必须排在 0000 之后）", () => {
+    // 不排序的话，readdir 返回顺序由文件系统决定，上面那条去重就会随机取到旧值集。
+    // 这条断言是给"忘了 .sort()"留的哨兵。
+    const sorted = [...migrationFiles].sort();
+    expect(migrationFiles).toEqual(sorted);
+  });
+
   it("注册表说已进库的约束，迁移里必须存在且值集合逐字相等", () => {
     for (const e of landed) {
       for (const [table, column, name] of e.checks) {
@@ -194,7 +230,19 @@ describe("注册表 ↔ 枚举表原文", () => {
   it("文档表格里确实解析出 37 行取值（解析器没空转）", () => {
     expect(docRows.size).toBe(37);
     expect(docRows.get("E12")).toContain("respondent_petition");
-    expect(docRows.get("E29")?.length).toBe(7);
+    // E29 现 8 值（IQ-16 追加 archive_incomplete）。这是"解析器真读到了行内容"的探针值：
+    // 只断言行数的话，某一行的值整列丢失也可能照样绿。
+    expect(docRows.get("E29")?.length).toBe(8);
+    expect(docRows.get("E29")).toContain("archive_incomplete");
+  });
+
+  it("作废值按 §5.3 保留在取值列里（E13 非诉 / E16 客户投诉）", () => {
+    // 这两条最容易在"改名"时被顺手从文档里删干净——而删了就与 CHECK 不一致，
+    // 历史行也就没了中文名可反查。断言写死，别让下一个人重蹈。
+    expect(docRows.get("E13")).toContain("non_litigation");
+    expect(docRows.get("E16")).toContain("customer_complaint");
+    // 新值必须真的进了文档，否则"代码加了值、文档没记"会静默通过
+    expect(docRows.get("E16")).toContain("external_dispute");
   });
 
   it("除三行明确例外，注册表值集合与文档逐字相等", () => {

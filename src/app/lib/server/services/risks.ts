@@ -199,7 +199,6 @@ export async function convertToCase(
     .select({
       partyId: riskMatterParty.partyId,
       partyRole: riskMatterParty.partyRole,
-      represented: riskMatterParty.represented,
       sortOrder: riskMatterParty.sortOrder,
     })
     .from(riskMatterParty)
@@ -252,7 +251,6 @@ export async function convertToCase(
         hostId: caseId,
         partyId: p.partyId,
         partyRole: p.partyRole,
-        represented: p.represented,
         sortOrder: p.sortOrder,
       });
     }

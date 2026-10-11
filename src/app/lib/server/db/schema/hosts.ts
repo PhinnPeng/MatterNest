@@ -211,7 +211,14 @@ function partyLinkTable(host: HostKind) {
         .references(() => party.id, { onDelete: "restrict" }),
       /** E06 复用 E12 诉讼地位取值 */
       partyRole: varchar("party_role", { length: 28 }).notNull(),
-      /** E07：是否我方代理，与角色**正交**（同一案件可有多个 represented=true，角色各异） */
+      /**
+       * E07：是否我方代理，与角色正交。
+       *
+       * ⚠ **软作废（IQ-15）**：企业口径下我方永不入 party 表，"是否我方代理"的参照系
+       * （律所代理关系）随之消失。**列保留在库**——删列是破坏性迁移，与"迁移唯一事实"
+       * 相悖；但 DTO / 服务层 / 前端**不再读写**，历史行不回填。
+       * "我方提诉还是应诉"改由逐案必填的 `litigation_role`（我方诉讼地位）表达。
+       */
       represented: boolean("represented").notNull().default(false),
       sortOrder: integer("sort_order").notNull().default(0),
       ...createdOnlyColumns,

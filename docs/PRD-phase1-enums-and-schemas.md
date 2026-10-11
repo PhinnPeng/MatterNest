@@ -1,6 +1,6 @@
 # MatterNest 第一期设计交付物 — 枚举与结构登记表（B6）
 
-> 状态：**v4（2026-10-10 意图对齐回写）**。闭合 `PRD-phase1-design-revision-r1.md` §10 的 B6 项，并一并关掉 §11 遗留风险 1（`scope_key` 归一化）与 §6.3 各行的"枚举闭合"占位。
+> 状态：**v5（T0 裁定对齐底座，2026-10-11）**。闭合 `PRD-phase1-design-revision-r1.md` §10 的 B6 项，并一并关掉 §11 遗留风险 1（`scope_key` 归一化）与 §6.3 各行的"枚举闭合"占位。
 > 本文件是**取值权威源**。其余各份文档（修订稿 / 权限草案 / 转案件矩阵 / 基线 / master）中的枚举与本表冲突时，以本表为准并回改本表以外的文件。
 > **v2 变更**：补登 E29–E33（通知与 outbox 三个枚举此前只在修订稿散落，权威源反而缺记）；§3.2 补 `UNCONVERT`；E09 的默认值口径与修订稿 §3.1 统一；§4.2 白名单按宿主分列并回改了修订稿 §2.5。
 > **v3 变更**（同日）：认证双通道 + 待开通态裁定后补登 **E34–E37**（provider / auth_via / sync_status / activation_status），§3.3 补 `USER_ACTIVATED`，§5.1 新增 `auth.ts`。全表现共 37 行、34 项为真实取值登记。
@@ -49,7 +49,7 @@
 | E13 | `matter.case_type` | `civil_commercial` `criminal` `administrative` `non_litigation` ❌（作废保留，禁止从 CHECK 删值，见 §5.3） | 是 | 民商事/刑事/行政/~~非诉~~。**IQ-6/Q25 裁定：案件 = 正式法律程序（诉讼/仲裁/执行），"非诉"不作案件分类——`non_litigation` 值作废，前端不再展示、后端拒绝新写入；非诉事务归风险事项（E15）。历史行仍要能反查中文名** |
 | E14 | `matter.procedure` | `first_instance` `second_instance` `retrial_review` `retrial` `arbitration` `execution` `execution_objection` `bankruptcy` `other` | 是 | 取代原文"…等"的开放表述。**注（IQ-6）：`arbitration`/`execution`（及 `execution_objection`）属正式法律程序，全部保留**——企业口径下仲裁与执行同样是案件，不因非法院诉讼而降格为风险事项 |
 | E15 | `risk_matter.type` | `contract` `labor_dispute` `ip` `corporate_governance` `debt` `compliance` `litigation_derived` `other` | 是 | 合同/劳动争议/知识产权/公司治理/债权债务/合规/诉讼衍生/其他 |
-| E16 | `risk_matter.source` ⚠ 值名待改（见说明） | `business_report` `customer_complaint` `lawyer_letter` `internal_check` `other` | 否 | 业务报备/客户投诉/律师函/内部检查/其他。**IQ-5 偏差5（律所残留词企业化）**：`customer_complaint` 的中文"客户投诉"是律所代理口径（企业当事方没有客户，见 GLOSSARY「对方当事人」_Avoid_），建议新值名 external_dispute（对外纠纷/投诉）替换它；"律师函"保留、语义标注为**收到对方当事人律师函**。**E16 值名变更待迁移确认，代码 `src/shared/enums/` 同步在后**（走 §5.3 废弃流程：常量保留标 `@deprecated`、禁止从 CHECK 删值、历史行仍可反查中文名） |
+| E16 | `risk_matter.source` | `business_report` `external_dispute` `customer_complaint` ❌（作废保留，禁止从 CHECK 删值，见 §5.3） `lawyer_letter` `internal_check` `other` | 否 | 业务报备/对外纠纷/投诉/~~客户投诉~~/收到对方当事人律师函/内部检查/其他。**IQ-5 偏差5（律所残留词企业化，T0 已落）**：原 `customer_complaint`（中文"客户投诉"）是律所代理口径——企业当事方没有客户（见 GLOSSARY「对方当事人」_Avoid_），新写入改用 `external_dispute`（对外纠纷/投诉）；"律师函"保留、语义标注为**收到对方当事人律师函**。**走 §5.3 废弃流程（与 E13 同款）**：CHECK 与代码常量**同时保留** `customer_complaint` 标 `@deprecated`、禁止新写入与前端展示，历史行仍可反查中文名；写路径与下拉用 `RISK_MATTER_SOURCES_WRITABLE` |
 | E17 | `party.type` | `natural_person` `legal_person` `unincorporated_org` | 是 | 决定 E18 与 `id_number` 的校验规则 |
 | E18 | `party.id_type` | `id_card` `unified_social_credit` `passport` `hk_mo_tw_permit` `military_id` `foreign_residence` `other` | 否 | `type=natural_person` 时期望 `id_card`/`passport`/…；法人时期望 `unified_social_credit` |
 | E19 | `matter_progress.progress_type` | `routine` `court_action` `counterparty` `client_feedback` `internal_decision` `material_filing` | 是 | 日常推进/法院动作/对方动作/客户反馈/内部决议/材料提交 |
@@ -62,7 +62,7 @@
 | E26 | `attachment.category` | `evidence` `complaint` `judgment` `contract` `internal_doc` `other` | 否 | 证据/起诉状/判决书/合同/内部文书/其他。第一期不做配置表 |
 | E27 | 通用 `currency` | `CNY`（唯一值） | `CNY` | `char(3)`。列先留、值锁死，避免日后加币种时改 `numeric` 精度 |
 | E28 | `risk_matter.conversion_status` | `0` 未转案件 `1` 已转案件 | `0` | `smallint`，非枚举语义。修订稿 §3.4 |
-| E29 | `notification_event.event_type` | `status_changed` `node_due_start` `node_due_end` `stale_30d` `mention` `new_comment` `risk_converted` | — | 现 7 值（与代码/DB CHECK 一致）。**IQ-16 追加第 8 值 `archive_incomplete`（规则 9 用）——值名已定但未入本列值集合：迁移扩 CHECK + `notify.ts` 数组同步为前置，代码票落地后回填本行并同批转绿 `enum-check`**（文档先行不破 CI 的登记姿态，与 E16 值名待改同款）。原 `expense_added` 已删（2026-09-26 裁定第一期不做费用通知）。修订稿 §7.2 |
+| E29 | `notification_event.event_type` | `status_changed` `node_due_start` `node_due_end` `stale_30d` `mention` `new_comment` `risk_converted` `archive_incomplete` | — | 现 8 值（与代码/DB CHECK 一致）。**IQ-16 追加第 8 值 `archive_incomplete`（预置规则 9「结案后材料不全提醒」用，T0 已落）**：迁移扩 CHECK + `notify.ts` 数组同批完成，`enum-check` 三向转绿。原 `expense_added` 已删（2026-09-26 裁定第一期不做费用通知）。修订稿 §7.2 |
 | E30 | `notification_event.source_type` | `node_remind` `custom_reminder` `auto_rule` | — | 三条投递来源，去重与排障按它分流 |
 | E31 | `notification_delivery.status` | `pending` `sent` `failed` `void` | `pending` | **与 E23 不同**：投递层用 `void`（收件人不可见而静默丢弃，权限草案 §8），提醒任务层用 `cancelled`（用户主动撤销）。不要合并成一套 |
 | E32 | `event_outbox.event_type` | `risk_converted` `comment_added` | — | outbox 只承载"提交后派发"的领域事件，与 E33 同值域 |

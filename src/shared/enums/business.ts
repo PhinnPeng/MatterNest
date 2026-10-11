@@ -51,14 +51,23 @@ export const LITIGATION_ROLE_LABELS: Record<LitigationRole, string> = {
 /**
  * E07 `*_party.represented` 是布尔，**不是枚举**（枚举表写明"与 party_role 正交"）。
  * 登记在此只为让覆盖性测试承认这一行已被处理，防止有人把它做成 `role+represented` 的合并枚举。
+ *
+ * ⚠ **软作废（IQ-15）**：列留库不删，但 DTO / 服务层 / 前端不再读写。
  */
 export const REPRESENTED_IS_BOOLEAN = {
   id: "E07",
   field: "*_party.represented",
-  note: "布尔，与 party_role 正交：同一案件可有多个 represented=true 的当事人，角色各异",
+  note: "布尔，❌ 已随 IQ-15 软作废（企业口径下我方永不入 party 表，代理参照系消失）：列留库不删，DTO/服务层/前端不再读写；我方立场改由案件 litigation_role 表达",
 } as const;
 
-/** E13 `matter.case_type` */
+/**
+ * E13 `matter.case_type`
+ *
+ * `non_litigation` 是**作废值**：案件 = 正式法律程序（诉讼/仲裁/执行），
+ * "非诉"不作案件分类，非诉事务归风险事项（E15，IQ-6/Q25）。
+ * 按枚举表 §5.3 废弃流程——常量与 CHECK 都保留（历史行仍需反查中文名），
+ * 但**禁止新写入、前端不展示**。新写入请用 `CASE_TYPES_WRITABLE`。
+ */
 export const CASE_TYPES = [
   "civil_commercial",
   "criminal",
@@ -72,6 +81,9 @@ export const CASE_TYPE_LABELS: Record<CaseType, string> = {
   administrative: "行政",
   non_litigation: "非诉",
 };
+
+/** 可写入 / 可展示的案件类型 = 全集去掉作废值。写路径与下拉一律用它，不要用 `CASE_TYPES` */
+export const CASE_TYPES_WRITABLE = CASE_TYPES.filter((v) => v !== "non_litigation");
 
 /** E14 `matter.procedure`（修订稿 §6.3：把原文"…等"的开放表述换成闭集白名单） */
 export const PROCEDURES = [
@@ -121,9 +133,17 @@ export const RISK_MATTER_TYPE_LABELS: Record<RiskMatterType, string> = {
   other: "其他",
 };
 
-/** E16 `risk_matter.source`（选填） */
+/**
+ * E16 `risk_matter.source`（选填）
+ *
+ * IQ-5 偏差5：`customer_complaint`（"客户投诉"）是律所代理口径——企业当事方
+ * 没有客户，新值名为 `external_dispute`（对外纠纷/投诉）。按枚举表 §5.3 废弃流程，
+ * 旧值保留在数组与 CHECK 里（历史行仍需反查中文名）但**禁止新写入、前端不展示**；
+ * 新写入与下拉一律用 `RISK_MATTER_SOURCES_WRITABLE`。
+ */
 export const RISK_MATTER_SOURCES = [
   "business_report",
+  "external_dispute",
   "customer_complaint",
   "lawyer_letter",
   "internal_check",
@@ -132,11 +152,18 @@ export const RISK_MATTER_SOURCES = [
 export type RiskMatterSource = (typeof RISK_MATTER_SOURCES)[number];
 export const RISK_MATTER_SOURCE_LABELS: Record<RiskMatterSource, string> = {
   business_report: "业务报备",
+  external_dispute: "对外纠纷/投诉",
+  /** @deprecated 律所残留值，见上。历史行反查用，勿用于新写入 */
   customer_complaint: "客户投诉",
-  lawyer_letter: "律师函",
+  lawyer_letter: "收到对方当事人律师函",
   internal_check: "内部检查",
   other: "其他",
 };
+
+/** 可写入 / 可展示的来源 = 全集去掉作废值。写路径与下拉一律用它，不要用 `RISK_MATTER_SOURCES` */
+export const RISK_MATTER_SOURCES_WRITABLE = RISK_MATTER_SOURCES.filter(
+  (v) => v !== "customer_complaint",
+);
 
 /** E17 `party.type`：决定 E18 与 `id_number` 的校验规则 */
 export const PARTY_TYPES = ["natural_person", "legal_person", "unincorporated_org"] as const;

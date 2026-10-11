@@ -28,7 +28,6 @@ export type PartyLinkInput = {
   idType?: string | null;
   idNumber?: string | null;
   partyRole: string;
-  represented: boolean;
 };
 
 /** 三样探测的查询结果，全部可缺省（缺 = 没命中） */
@@ -102,7 +101,6 @@ export type PartyLinkPlanRow = {
   /** 写进 `*_party.party_id` 的值：引用既有与本轮新建都已经有 id 了 */
   partyId: bigint;
   partyRole: string;
-  represented: boolean;
   sortOrder: number;
   /** 需要在事务里往 `mn_party` 补一行的那几条 */
   isNew: boolean;
@@ -126,7 +124,7 @@ export async function planPartyLinks(links: readonly PartyLinkInput[]): Promise<
   const createdInBatch = new Map<string, bigint>();
 
   for (const [i, l] of links.entries()) {
-    const base = { partyRole: l.partyRole, represented: l.represented, sortOrder: i + 1 };
+    const base = { partyRole: l.partyRole, sortOrder: i + 1 };
     const type = (l.type ?? "").trim();
     const idNumber = l.idNumber?.trim() || null;
     const name = (l.name ?? "").trim();
@@ -268,8 +266,8 @@ export async function searchVisibleParties(actor: Actor, keyword: string) {
       name: r.name,
       type: r.type,
       /**
-       * 证件号在这里只当**消歧用的尾串**，不是明文字段：明文查看走 §7.3
-       * （要 `can_read_plain` 且记 `SENSITIVE_FIELD_READ`）。一个搜索下拉不构成那次查看。
+       * 证件号在这里只当**消歧用的尾串**，不是导出用的明文字段：导出走两档
+       * （要 `can_read_plain` 且整卷记 `EXPORT`，IQ-12）。一个搜索下拉不构成导出。
        */
       idNumberTail: (r.idNumber ?? "").slice(-4),
     })),

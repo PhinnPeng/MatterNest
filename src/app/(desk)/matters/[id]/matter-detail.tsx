@@ -327,7 +327,6 @@ export function MatterDetail({ id }: { id: string }) {
                               <span style={{ fontSize: 12, color: INK.muted }}>
                                 {meta?.enums.litigationRoles[p.partyRole] ?? p.partyRole}
                               </span>
-                              {p.represented ? <FlagMark tone="info">我方代理</FlagMark> : null}
                             </Space>,
                           ]}
                         >

@@ -3,7 +3,6 @@ import { UnknownPartyError, batchKeyOf, pickPartyLink, type PartyLinkInput } fro
 
 const base: PartyLinkInput = {
   partyRole: "plaintiff",
-  represented: true,
   name: "江苏恒基建设集团有限公司",
   type: "legal_person",
   idNumber: "91320100MA1X00001A",

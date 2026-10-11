@@ -15,6 +15,13 @@
       "when": 1790994523580,
       "tag": "0001_mn_is_admin_and_next_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791600000000,
+      "tag": "0002_t0_enum_alignment",
+      "breakpoints": true
     }
   ]
 }

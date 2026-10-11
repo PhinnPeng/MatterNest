@@ -61,7 +61,7 @@ export const matterCreateSchema = z.object({
           name: z.string().trim().max(200).optional().or(z.literal("")),
           type: z.enum(PARTY_TYPES).optional().or(z.literal("")),
           partyRole: z.enum(LITIGATION_ROLES, { message: "请选择诉讼地位" }),
-          represented: z.boolean(),
+          /** ⚠ E07 `represented` 已随 IQ-15 软作废，不再进入 DTO；我方立场看案件的 `litigation_role` */
           idType: z.enum(ID_TYPES).optional().or(z.literal("")),
           idNumber: z.string().trim().max(64).optional().or(z.literal("")),
         })

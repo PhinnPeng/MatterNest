@@ -178,7 +178,6 @@ export type MatterDetail = {
   parties: {
     id: string;
     partyRole: string;
-    represented: boolean;
     name: string;
     type: string;
     idNumber: string | null;
@@ -224,8 +223,8 @@ export function toOptions(labels: Record<string, string>) {
 }
 
 /**
- * 当事人检索的一行。只回**证件号尾四位**用于消歧 —— 明文查看是另一条链路
- * （§7.3：要 `can_read_plain` 且记 `SENSITIVE_FIELD_READ`），一个搜索下拉不构成那次查看。
+ * 当事人检索的一行。只回**证件号尾四位**用于消歧 —— 明文展示是另一条链路
+ * （IQ-12 后展示层全明文，逐次审计已作废；留痕的是**导出**两档：走 `can_read_plain` + `EXPORT` 审计）。
  */
 export type PartyHit = { id: string; name: string; type: string; idNumberTail: string };
 export type PartySearchResult = { items: PartyHit[]; truncated: boolean };

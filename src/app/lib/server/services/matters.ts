@@ -182,7 +182,6 @@ export async function getMatter(actor: Actor, id: string) {
          */
         partyId: matterParty.partyId,
         partyRole: matterParty.partyRole,
-        represented: matterParty.represented,
         name: party.name,
         type: party.type,
         idNumber: party.idNumber,
@@ -322,7 +321,6 @@ export async function createMatter(
         hostId: id,
         partyId: r.partyId,
         partyRole: r.partyRole,
-        represented: r.represented,
         sortOrder: r.sortOrder,
       });
     }

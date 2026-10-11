@@ -9,6 +9,11 @@
  *
  * 两条禁令级口径：**读拒绝不记日志**（否则案号枚举探测会反向灌满日志表），
  * 且 `SENSITIVE_FIELD_READ` 的载荷**不含字段值**（权限草案 §7.3）。
+ *
+ * ⚠ `SENSITIVE_FIELD_READ` 已于 IQ-12 / Q46′（2026-10-10）**作废**：展示层全明文，
+ * "显示明文"按钮与逐次读取审计一并取消。按 §5.3 废弃流程，它**留在本清单与 DB CHECK 里**
+ * （历史行仍需可反查），但**一期不写入、前端不展示**。明文与脱敏两档导出改由
+ * `EXPORT` 统一留痕（payload 记 `plain` 布尔与行数，不含内容）。别在别处再写它。
  */
 
 /** §3.1 实体 CRUD：载荷 `field_diffs` */
@@ -57,6 +62,7 @@ export const SECURITY_ACTIONS = [
   "USER_ACTIVATED",
   "SENSITIVE_FIELD_READ",
   "ACCESS_DENIED_WRITE",
+  "EXPORT",
 ] as const;
 
 /** §3.4 自动化与提醒：载荷 `payload` */
@@ -68,11 +74,18 @@ export const AUTOMATION_ACTIONS = [
   "REMINDER_FAILED",
 ] as const;
 
+/**
+ * §3.5 意图对齐轮新增（IQ-7 / IQ-11）：两者都是**汇总**动作而非逐行 CRUD，
+ * 载荷走 `payload`——合并记"谁活下来、谁被并走"，导入记"多少行进了、多少行没进"。
+ */
+export const ALIGNMENT_ACTIONS = ["PARTY_MERGED", "BULK_IMPORT"] as const;
+
 export const AUDIT_ACTIONS = [
   ...CRUD_ACTIONS,
   ...STATE_ACTIONS,
   ...SECURITY_ACTIONS,
   ...AUTOMATION_ACTIONS,
+  ...ALIGNMENT_ACTIONS,
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -112,13 +125,17 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   STAFF_CHANGED: "参与人变更",
   ROLE_CHANGED: "角色变更",
   USER_ACTIVATED: "账号开通",
+  /** @deprecated IQ-12 已作废：展示层全明文，不再逐次审计。留在这里只为反查历史行 */
   SENSITIVE_FIELD_READ: "明文查看敏感字段",
   ACCESS_DENIED_WRITE: "写操作被拒",
+  EXPORT: "导出",
   AUTO_RULE_EXECUTED: "规则执行",
   AUTO_RULE_SKIPPED: "规则跳过",
   AUTO_RULE_FAILED: "规则失败",
   REMINDER_SENT: "提醒发送",
   REMINDER_FAILED: "提醒发送失败",
+  PARTY_MERGED: "当事人合并",
+  BULK_IMPORT: "批量导入",
 };
 
 /** §3.2：`reason` 恒必填的四条 */
@@ -138,7 +155,11 @@ export const REASON_OPTIONAL_ACTIONS: readonly AuditAction[] = [
 ];
 
 /** 载荷走 `payload jsonb` 而非 `field_diffs` 的两组（§5.4） */
-export const PAYLOAD_ACTIONS: readonly AuditAction[] = [...SECURITY_ACTIONS, ...AUTOMATION_ACTIONS];
+export const PAYLOAD_ACTIONS: readonly AuditAction[] = [
+  ...SECURITY_ACTIONS,
+  ...AUTOMATION_ACTIONS,
+  ...ALIGNMENT_ACTIONS,
+];
 /** 载荷走 `field_diffs` 的一组（§3.1） */
 export const FIELD_DIFF_ACTIONS: readonly AuditAction[] = CRUD_ACTIONS;
 /** `action` 列宽（修订稿 §8.1：`varchar(40)`）；长度断言用它 */

@@ -77,13 +77,20 @@ export const ACTION_CONFIG_KEYS: Record<ActionType, readonly string[]> = {
   assign_staff: ["staff_role", "user_ids", "mode"],
   update_field: ["field", "value"],
 };
-/** §4.3 notify 的收件人类型（E04 的三个 staff_role + custom） */
-export const NOTIFY_RECEIVERS = ["owner", "co_owner", "follower", "custom"] as const;
+/**
+ * §4.3 notify 的收件人类型（E04 的三个 staff_role + custom）。
+ *
+ * `creator` 是 IQ-13-V5 的修正落点：**上报人回音不入关注列表**，
+ * 而是把预置规则 2/8 的收件人从 `follower` 扩到 `creator`——回音落通知中心，
+ * 关注保持"主动 star 才算"的语义。零新模型：receivers 本就被参数化。
+ */
+export const NOTIFY_RECEIVERS = ["owner", "co_owner", "follower", "creator", "custom"] as const;
 export type NotifyReceiver = (typeof NOTIFY_RECEIVERS)[number];
 export const NOTIFY_RECEIVER_LABELS: Record<NotifyReceiver, string> = {
   owner: "负责人",
   co_owner: "协办人",
   follower: "关注人",
+  creator: "创建人",
   custom: "指定人员",
 };
 /** §4.3：`custom_user_ids` 仅当 `receivers` 含 `custom` 时才允许非空 */
