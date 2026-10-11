@@ -107,14 +107,36 @@ export const riskCreateSchema = z.object({
 });
 export type RiskCreateInput = z.input<typeof riskCreateSchema>;
 
-/** 转案件：只填案件侧必填项，金额**不继承**（master P0-1 以映射矩阵为准） */
-export const convertSchema = matterCreateSchema.omit({
-  parties: true,
-  caseNo: true,
-  amount: true,
-  description: true,
-  ownerId: true,
-});
+/** 转案件：**一次提交 N 张案件卡**（映射矩阵 §1 基数 1→N，N ≥ 1，可追加） */
+export const convertCardSchema = matterCreateSchema
+  .omit({
+    parties: true, // 当事人从事项侧**引用**同一批 party 行，不随卡传（映射矩阵 §2.6）
+    description: true, // 描述不复制，改引用来源（§2.5）
+    ownerId: true, // 经办人从事项 owner 继承默认值，可逐案改（§2.2）
+  })
+  // 内层也要 strict：`.omit()` 出来的是普通对象 schema，zod 默认静默剥离未知键。
+  // 不加的话 `description` 会被无声丢掉——正是「描述不复制」要防的"以为带过去了"。
+  .strict();
+
+/**
+ * 转案件请求：`cases` 是数组。
+ *
+ * 两处口径与旧版不同，都是规格要求的：
+ *  · `amount` **不再 omit**——映射矩阵 §2.4 说"留空逐案填"，是**允许填**而不是禁止填。
+ *    之前整列 omit 掉，等于把"金额不继承"错做成"金额不能填"。
+ *  · `caseNo` **不再 omit**——§6.3 说案号默认取内部编号、**可改**、非唯一。
+ *
+ * 上限 20 与 `MAX_CASES_PER_CONVERT` 同源，两处都改。
+ */
+export const convertSchema = z
+  .object({
+    cases: z.array(convertCardSchema).min(1, "至少建一个案件").max(20, "一次最多转 20 个案件"),
+  })
+  // `.strict()` 不是洁癖：zod 默认**静默剥离**未声明字段。若转案件请求里带了
+  // `description`（或任何被 omit 的列），默认形态会把它悄悄丢掉——用户以为填了、
+  // 实际没进库，而「描述不继承」要防的恰恰是这种"以为带过去了"。
+  // 显式拒才能让它在联调时就红。
+  .strict();
 
 export const statusChangeSchema = z.object({
   to: z.string().trim().min(1, "请选择目标状态").max(32),

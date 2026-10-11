@@ -11,12 +11,14 @@ import {
   riskMatterParty,
   riskMatterStaff,
 } from "../db/schema";
+import { eventOutbox } from "../db/schema";
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 import type { Actor } from "../auth/auth";
 import { nextCode } from "./numbering";
 import { initialStatusCode } from "./statuses";
 import { logActivity } from "./activity";
+import { randomUUID } from "node:crypto";
 
 /**
  * 风险事项读写 + **转案件**（W4 的旗舰动作，修订稿 §3.4 / 映射矩阵 §2）。
@@ -161,11 +163,41 @@ export async function createRiskMatter(
  * 而不是回一句"操作失败"。
  */
 export type ConvertResult =
-  { ok: true; id: string; internalCode: string } | { ok: false; why: "not_found" | "no_parties" };
+  | { ok: true; cases: { id: string; internalCode: string }[] }
+  | { ok: false; why: "not_found" | "no_parties" | "archived" | "too_many_cases" };
+
+/** 一次转案件提交的**单张**案件卡（映射矩阵 §3.1 的逐案校验在调用它之前已完成） */
+export type ConvertCaseInput = {
+  name: string;
+  cause: string;
+  caseType: string;
+  procedure: string;
+  litigationRole: string;
+  court?: string | null;
+  level: string;
+  filingDate?: string | null;
+  /** 标的金额。映射矩阵 §2.4：**不继承**事项金额，逐案自填；留空即 null */
+  amount?: string | null;
+  /** 案号。§6.3：**非唯一**，重复只提示不阻止；留空则回退为内部编号 */
+  caseNo?: string | null;
+};
+
+/** 一次提交最多几个案件 —— 与 `convertFormSchema` 的 `cases.max(20)` 同源，两边都改 */
+export const MAX_CASES_PER_CONVERT = 20;
 
 /**
- * 转案件（映射矩阵 §2）。返回新案件的内部编号，前端据此跳详情。
- * 幂等性：同一事项可多次转（`converted_case_count` 递增），因为"已转案件"是与结案正交的第二事实（§3.4）。
+ * 转案件（映射矩阵 §1/§2）。**一次提交 N 个案件**（N ≥ 1）。
+ *
+ * 基线 1:N 且**可追加**——一个风险衍生出多起诉讼常跨月发生；禁止追加会把用户
+ * 逼回"新建案件"，从而丢掉关联，那才是真损失（§1「是否可追加」）。
+ *
+ * 三条实现口径，都不是风格：
+ *  1. **N 个案件 + 关联回写 + 事项状态变更 = 单事务**。分批提交会留下"转了一半"的
+ *     事项，而 `conversion_status` 只有 0/1 两值，**无法表达半态**（§1「原子性」）。
+ *  2. `converted_case_count` 用 **COUNT(*) 重算**而非累加。累加在撤销之后会永久偏移，
+ *     而计数是"已转案件"徽标的唯一数据源。
+ *  3. `converted_at` / `converted_by` **仅首次写**。它记的是"什么时候第一次转的"，
+ *     每次追加都刷新等于把首次时间冲掉（§4 事务第 4 步："converted_at/by 仅首次写"）。
  *
  * 当事人是**引用同一批 `mn_party` 行**、不是克隆（§2.6）：这就是为什么这里复制
  * `risk_matter_party` 的 `party_id` 而不是新建当事人。复制 `party_role` 作为默认值，
@@ -174,16 +206,7 @@ export type ConvertResult =
 export async function convertToCase(
   actor: Actor,
   riskId: string,
-  input: {
-    name: string;
-    cause: string;
-    caseType: string;
-    procedure: string;
-    litigationRole: string;
-    court?: string | null;
-    level: string;
-    filingDate?: string | null;
-  },
+  inputs: ConvertCaseInput[],
 ): Promise<ConvertResult> {
   const db = await getDb();
   const [src] = await db
@@ -192,6 +215,11 @@ export async function convertToCase(
     .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
     .limit(1);
   if (!src) return { ok: false, why: "not_found" };
+  // 归档是终态：需先 `can_unarchive` 撤销归档（§5.2 转换语义表最后一行）
+  if (src.isArchived) return { ok: false, why: "archived" };
+  if (inputs.length < 1 || inputs.length > MAX_CASES_PER_CONVERT) {
+    return { ok: false, why: "too_many_cases" };
+  }
 
   // 引用事项已关联的当事人。一条都没有就直接拒：修订稿 §6.2 把"每案 ≥1 当事人"定在
   // **转案件确认**这个校验时机上，放过就会建出一件没有对手方也没有委托方的案卷。
@@ -206,77 +234,119 @@ export async function convertToCase(
     .orderBy(asc(riskMatterParty.sortOrder));
   if (srcParties.length === 0) return { ok: false, why: "no_parties" };
 
-  const { code } = await nextCode("matter");
-  const caseId = BigInt(nextId());
-  // 同 createRiskMatter：取初始态与预设节点都要在进事务之前，别在事务里向池子再要一条连接
+  // 取号与取配置都在**进事务之前**做完：事务里再向池子要连接，池子满时会互等成死锁。
+  // 取号是 N 次——每张卡各拿一个号，且天然不重号（编号生成器是单语句原子取号）。
+  const codes = await Promise.all(inputs.map(() => nextCode("matter")));
+  const caseIds = inputs.map(() => BigInt(nextId()));
   const initial = await initialStatusCode("matter");
   const presetNodes = await planPresetNodesFor("matter");
+  // batch_id 兼任通知聚合键（权限草案 §7.1）：一次转换发出的通知聚合成一条，
+  // 否则用户会收到 N 条同源通知，然后开始屏蔽通知（G3 反例）。
+  const batchId = randomUUID();
+
   await db.transaction(async (tx) => {
-    await tx.insert(matter).values({
-      id: caseId,
-      internalCode: code,
-      caseNo: code,
-      // 描述**不继承**（P0-1）：只带事项名称作为初始案由说明，正文留空由负责人逐案填
-      name: input.name,
-      cause: input.cause,
-      caseType: input.caseType,
-      procedure: input.procedure,
-      litigationRole: input.litigationRole,
-      court: input.court ?? null,
-      amount: "0",
-      level: input.level,
-      status: initial,
-      filingDate: input.filingDate ?? null,
-      ownerId: BigInt(actor.userId),
-      createdBy: BigInt(actor.userId),
-      updatedBy: BigInt(actor.userId),
-      lastProgressAt: new Date().toISOString(),
-    });
-    await tx.insert(matterStaff).values([
-      { id: BigInt(nextId()), hostId: caseId, userId: BigInt(actor.userId), staffRole: "owner" },
-      ...(src.ownerId === BigInt(actor.userId)
-        ? []
-        : [
-            {
-              id: BigInt(nextId()),
-              hostId: caseId,
-              userId: src.ownerId ?? BigInt(actor.userId),
-              staffRole: "co_owner" as const,
-            },
-          ]),
-    ]);
-    for (const p of srcParties) {
-      await tx.insert(matterParty).values({
-        id: BigInt(nextId()),
-        hostId: caseId,
-        partyId: p.partyId,
-        partyRole: p.partyRole,
-        sortOrder: p.sortOrder,
+    // 逐案写入。同一批内的 N 张卡共享同一批号、同一批当事人引用与同一批预设节点。
+    for (const [i, input] of inputs.entries()) {
+      const code = codes[i]!.code;
+      const caseId = caseIds[i]!;
+      await tx.insert(matter).values({
+        id: caseId,
+        internalCode: code,
+        // 案号默认取内部编号，可改；**非唯一**，重复只提示不阻止（§6.3）
+        caseNo: input.caseNo?.trim() || code,
+        // 描述**不继承**（P0-1）：只带事项名称作为初始案由说明，正文留空由负责人逐案填
+        name: input.name,
+        cause: input.cause,
+        caseType: input.caseType,
+        procedure: input.procedure,
+        litigationRole: input.litigationRole,
+        court: input.court ?? null,
+        // 金额**不继承**事项敞口（映射矩阵 §2.4）：多起诉讼通常按案分摊，逐案自填。
+        // 列是 `notNull`（把"可空"改掉是破坏性迁移，另票），所以未填落 "0"；
+        // "0 元标的"与"未填"两种业务事实的区分留给导出/报表层，本轮不引入。
+        amount: input.amount?.trim() || "0",
+        level: input.level,
+        status: initial,
+        filingDate: input.filingDate ?? null,
+        ownerId: BigInt(actor.userId),
+        createdBy: BigInt(actor.userId),
+        updatedBy: BigInt(actor.userId),
+        lastProgressAt: new Date().toISOString(),
       });
+      await tx.insert(matterStaff).values([
+        { id: BigInt(nextId()), hostId: caseId, userId: BigInt(actor.userId), staffRole: "owner" },
+        ...(src.ownerId === BigInt(actor.userId)
+          ? []
+          : [
+              {
+                id: BigInt(nextId()),
+                hostId: caseId,
+                userId: src.ownerId ?? BigInt(actor.userId),
+                staffRole: "co_owner" as const,
+              },
+            ]),
+      ]);
+      for (const p of srcParties) {
+        await tx.insert(matterParty).values({
+          id: BigInt(nextId()),
+          hostId: caseId,
+          partyId: p.partyId,
+          partyRole: p.partyRole,
+          sortOrder: p.sortOrder,
+        });
+      }
+      await insertPlannedNodes(tx, "matter", caseId, presetNodes, BigInt(actor.userId));
     }
-    await insertPlannedNodes(tx, "matter", caseId, presetNodes, BigInt(actor.userId));
-    await tx
-      .insert(riskMatterCase)
-      .values({ id: BigInt(nextId()), riskMatterId: BigInt(riskId), matterId: caseId });
+    await tx.insert(riskMatterCase).values(
+      caseIds.map((cid) => ({
+        id: BigInt(nextId()),
+        riskMatterId: BigInt(riskId),
+        matterId: cid,
+      })),
+    );
+
+    // 计数用 COUNT(*) **重算**而非累加：撤销会让累加永久偏移，而它是徽标的唯一数据源。
+    // converted_at/by **仅首次写**——它记的是"第一次转的时间"，追加转换不刷新。
     await tx
       .update(riskMatter)
       .set({
         conversionStatus: 1,
-        convertedAt: new Date().toISOString(),
-        convertedBy: BigInt(actor.userId),
-        convertedCaseCount: sql`${riskMatter.convertedCaseCount} + 1`,
+        convertedAt: src.convertedAt ?? new Date().toISOString(),
+        convertedBy: src.convertedBy ?? BigInt(actor.userId),
+        convertedCaseCount: sql`(select count(*) from ${riskMatterCase} where ${riskMatterCase.riskMatterId} = ${BigInt(riskId)})`,
         updatedBy: BigInt(actor.userId),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(riskMatter.id, BigInt(riskId)));
+
+    // 事件**在同事务里**写 outbox（映射矩阵 §4.1）。事后再补会丢；而在事务内同步执行
+    // 规则 7 则会读到未提交行、或自身失败把整次转换一起回滚。
+    await tx.insert(eventOutbox).values({
+      id: BigInt(nextId()),
+      eventType: "risk_converted",
+      batchId,
+      payload: {
+        risk_matter_id: riskId,
+        case_ids: caseIds.map((c) => String(c)),
+        from: src.code,
+      },
+    });
+
     await logActivity(tx, actor, {
-      matterId: caseId,
+      matterId: caseIds[0]!,
       riskMatterId: BigInt(riskId),
       targetType: "risk_matter",
       targetId: BigInt(riskId),
       action: "CONVERTED_TO_CASE",
-      payload: { case_ids: [String(caseId)], from: src.code },
+      payload: {
+        case_ids: caseIds.map((c) => String(c)),
+        from: src.code,
+        batch_id: batchId,
+      },
     });
   });
-  return { ok: true, id: String(caseId), internalCode: code };
+  return {
+    ok: true,
+    cases: caseIds.map((cid, i) => ({ id: String(cid), internalCode: codes[i]!.code })),
+  };
 }

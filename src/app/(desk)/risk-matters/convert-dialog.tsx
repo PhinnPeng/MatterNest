@@ -20,6 +20,10 @@ import type { Dayjs } from "dayjs";
 
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
 import { convertSchema, pruneEmpty, type MatterCreateInput } from "@/shared/schema/hosts";
+import type { z } from "zod";
+
+/** 一次转案件提交的形状：从 schema 反推，避免手写一份再漂移 */
+type ConvertRequest = z.infer<typeof convertSchema>;
 import { rulesFor, setFieldErrors } from "@/app/components/form/zod-rules";
 
 type RiskRow = { id: string; code: string; name: string; level: string } | null;
@@ -52,8 +56,9 @@ export function ConvertDialog({
   const open = source !== null;
 
   const mut = useMutation({
-    mutationFn: (values: MatterCreateInput) =>
-      api.post<{ id: string; internalCode: string }>(
+    // 一次提交 N 张卡；响应返回全部新建案件（不再只有一个 id）。
+    mutationFn: (values: ConvertRequest) =>
+      api.post<{ cases: { id: string; internalCode: string }[] }>(
         `/api/risk-matters/${source?.id}/convert`,
         values,
       ),
@@ -79,9 +84,14 @@ export function ConvertDialog({
     const values = await form.validateFields().catch(() => null);
     if (!values) return;
     const { filingDate, ...rest } = values;
-    const parsed = convertSchema.safeParse(
-      pruneEmpty({ ...rest, filingDate: filingDate ? filingDate.format("YYYY-MM-DD") : undefined }),
-    );
+    const parsed = convertSchema.safeParse({
+      cases: [
+        pruneEmpty({
+          ...rest,
+          filingDate: filingDate ? filingDate.format("YYYY-MM-DD") : undefined,
+        }) as Record<string, unknown>,
+      ],
+    });
     if (!parsed.success) {
       setFieldErrors(form, parsed.error.issues);
       return;
@@ -90,15 +100,17 @@ export function ConvertDialog({
   }
 
   if (created) {
+    // 一次可能建出 N 个案件，逐个列出编号，"打开"跳第一张（其余从事项的「已转案件」进）
+    const first = created.cases[0];
     return (
       <Modal
         open={open}
         onCancel={onClose}
-        title="案件已建"
+        title={created.cases.length > 1 ? `已建 ${created.cases.length} 个案件` : "案件已建"}
         footer={
           <Space>
             <Button onClick={onClose}>留在事项列表</Button>
-            <Button type="primary" onClick={() => onOpenCase(created.id)}>
+            <Button type="primary" onClick={() => onOpenCase(first?.id ?? "")}>
               打开案件
             </Button>
           </Space>
@@ -106,7 +118,11 @@ export function ConvertDialog({
       >
         <Result
           status="success"
-          title={<span className="num">{created.internalCode}</span>}
+          title={
+            <span className="num" style={{ fontSize: 13, lineHeight: 1.9 }}>
+              {created.cases.map((c) => c.internalCode).join("　·　")}
+            </span>
+          }
           subTitle={`来源事项 ${source?.code} 已标为「已转」，两本台账靠外键连着。金额与描述按规格不继承，进案件里补。`}
         />
       </Modal>

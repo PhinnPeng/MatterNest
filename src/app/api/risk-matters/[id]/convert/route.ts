@@ -13,9 +13,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const pid = pathId(id);
   if (!pid.ok) return pid.res;
   return withActor(async (actor) => {
-    const r = await convertToCase(actor, id, pruneEmpty(parsed.data));
-    if (r.ok) return json({ id: r.id, internalCode: r.internalCode }, 201);
+    // 逐张卡清洗空串（表单里清空的输入会落成 ""，而服务层要的是 undefined）。
+    // 不用整体 pruneEmpty：它把数组结构擦成 Record<string, unknown>，类型就没了。
+    const cases = parsed.data.cases.map((c) => pruneEmpty(c) as typeof c);
+    const r = await convertToCase(actor, id, cases);
+    if (r.ok) return json({ cases: r.cases }, 201);
     if (r.why === "not_found") return notFound();
+    if (r.why === "archived") {
+      // 归档是终态（映射矩阵 §5.2）：要转得先撤归档，而撤销要 can_unarchive 特权
+      return fail(422, "archived", "这条风险事项已归档。归档是终态，请先撤销归档再转案件。");
+    }
+    if (r.why === "too_many_cases") {
+      return fail(422, "too_many_cases", "一次最多转 20 个案件，请分批提交。");
+    }
     // 给 422 + 下一步动作，不给 400：这不是"请求写错了"，是"前置数据还没齐"
     return fail(
       422,
