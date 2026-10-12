@@ -42,13 +42,6 @@ export function Workbench() {
   const { data: meta } = useMeta("matter");
   const qc = useQueryClient();
 
-  const day = new Date().toLocaleDateString("zh-CN", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    weekday: "long",
-  });
-
   if (isError) {
     return (
       <StateBlock
@@ -79,12 +72,9 @@ export function Workbench() {
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+      {/* 原先标题上方还有一行日期 + 星期（2026-10-12 撤）：标题「今天该动手的」里的
+          "今天"就是那个日期，同屏复述一遍不增加任何判断。 */}
       <PageHeader
-        eyebrow={
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {day}
-          </Typography.Text>
-        }
         title="今天该动手的"
         actions={
           <Button

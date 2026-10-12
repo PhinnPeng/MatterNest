@@ -109,9 +109,9 @@ export const DEADLINE_TONE = {
   later: { color: INK.secondary },
 } as const;
 
-/** 数据范围三档的一句话说明（左侧菜单底部用） */
-export const SCOPE_HINT: Record<string, string> = {
-  all: "全公司：每一案件/事项",
-  participating: "我参与：承办 ∪ 协办 ∪ 关注 ∪ 创建",
-  owned: "我承办：承办 ∪ 创建（不含他人加给我的协办/关注）",
-};
+/**
+ * 原先这里还有 `SCOPE_HINT`（数据范围三档的一句话说明）。2026-10-12 随侧栏底部那块
+ * 范围说明一起撤掉了——范围已经在 Header 标签上说过一遍，而那行散文把范围谓词
+ * 复述成了第二份说法。范围的三档定义仍以 `shared/enums/targets.ts` 的
+ * `DATA_SCOPE_LABELS` 为准，不需要第二处文案。
+ */

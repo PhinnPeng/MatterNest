@@ -45,6 +45,26 @@ async function get(path, cookie) {
   return { status: res.status, text, json };
 }
 
+/** 建夹具要用：POST 一个 JSON body，返回体形状与 get 一样 */
+async function post(path, cookie, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(cookie ? { cookie } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* HTML */
+  }
+  return { status: res.status, text, json };
+}
+
 /* ── 1. 未登录：页面壳可渲染，业务 API 一律 401 ───────────────── */
 const anonPages = ["/login", "/", "/matters", "/risk-matters", "/config"];
 for (const p of anonPages) {
@@ -113,6 +133,54 @@ const l2Scope = await scopeOf(l2.cookie);
 const hezpScope = await scopeOf(hezp.cookie);
 ok("suny 的会话范围是 participating(L2)", l2Scope === "participating", String(l2Scope));
 ok("hezp 的会话范围是 owned(L3)", hezpScope === "owned", String(hezpScope));
+
+/* ── 2.5 自建跨档夹具：靠它才能证明「L2 能看见而 L3 看不见」 ──────────
+ *
+ * 为什么必须自建（2026-10-12）：这条断言原本靠 seed 里那五个演示账号分别拥有不同案件。
+ * 账号收敛为单个 admin 之后，演示数据全归一个人，于是**没有可对比的对象**，
+ * 断言会以 `L2-only=0` 红掉——而那不是权限坏了，是夹具没了。
+ *
+ * 造法（L1 全公司 / L2 我参与 / L3 仅自己相关）：
+ *   · M_A 由 L3 建 → L3 看得见（owner）；再把 L2 加为协办 → L2 也看得见
+ *   · M_B 由 L1 建 → 只有 L1 看得见；再把 L2 加为协办 → L2 看得见、L3 看不见
+ * 于是 L2 ⊇ L3 且 L2 严格多一行，正好证明 `EXISTS (… *_staff)` 真的放行了协办。
+ *
+ * ⚠ 参与人**只能直连 SQL 建**：`/api/matters` 下只有详情/评论/节点/状态，
+ *   没有任何加参与人的入口。所以这一段不是"图省事"，是没有第二条路。
+ *   这也意味着**"加协办"这个动作在界面上还不存在**——另一张票的事。
+ */
+// 仅自己相关那档的会话沿用旧变量名 `hezp`（原脚本里它代表 L3 账号）
+// 用本地戳而不是后面才声明的 `stamp`——这段插在它之前
+const fxStamp = String(Date.now()).slice(-9);
+const fxA = await post("/api/matters", hezp.cookie, {
+  name: `冒烟档位夹具A ${fxStamp}`,
+  cause: "夹具",
+  caseType: "civil_commercial",
+  procedure: "first_instance",
+  litigationRole: "plaintiff",
+  level: "mid",
+});
+const fxB = await post("/api/matters", l1.cookie, {
+  name: `冒烟档位夹具B ${fxStamp}`,
+  cause: "夹具",
+  caseType: "civil_commercial",
+  procedure: "first_instance",
+  litigationRole: "plaintiff",
+  level: "mid",
+});
+const fxAId = fxA.json?.data?.id ?? fxA.json?.id;
+const fxBId = fxB.json?.data?.id ?? fxB.json?.id;
+if (fxAId && fxBId) {
+  // 两人都是协办 ⇒ L2 通过 `EXISTS (… *_staff)` 同时看见 A 与 B
+  await sql`insert into mn_matter_staff (id, matter_id, user_id, staff_role)
+            values (${BigInt(fxStamp) * 1000n + 1n}, ${fxAId}::bigint, ${acctL2.id}::bigint, 'co_owner'),
+                   (${BigInt(fxStamp) * 1000n + 2n}, ${fxBId}::bigint, ${acctL2.id}::bigint, 'co_owner')
+            on conflict do nothing`;
+  ok("跨档夹具已建（A 由 L3 建、B 由 L1 建，L2 在两案上都是协办）", true,
+     `A=${fxAId} B=${fxBId}`);
+} else {
+  ok("跨档夹具已建", false, `A=${fxAId ?? "?"} B=${fxBId ?? "?"}`);
+}
 
 /* ── 3. 三档范围给出不同条数（这是这套权限模型唯一"看得见"的证明）── */
 const l1List = await get("/api/matters?page=1&pageSize=20", l1.cookie);

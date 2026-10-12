@@ -20,7 +20,7 @@
 | Guide | Description | 主要来源 |
 |-------|-------------|--------|
 | [Directory Structure](./directory-structure.md) | App Router 布局、14 个页面路由、命名 | 技术选型 §5、master ② |
-| [Component Guidelines](./component-guidelines.md) | 唯一组件体系（antd 6）、DataTable/FileUpload、样式三条与密度契约 | 技术选型 **§13.6**、§13.5 禁令①⑤⑥⑧ |
+| [Component Guidelines](./component-guidelines.md) | 唯一组件体系（antd 6）、DataTable/FileUpload、样式三条、密度契约、**副标题纪律** | 技术选型 **§13.6**、§13.5 禁令①⑤⑥⑧、`docs/research-subtitle-discipline.md` |
 | [Hook Guidelines](./hook-guidelines.md) | react-query 取数、mutation 失效、自定义 hook | 技术选型 §2、§13.6 |
 | [State Management](./state-management.md) | 服务端态/客户端态分界、禁跨用户缓存 | 技术选型 §12.5、§13.3-3 |
 | [Type Safety](./type-safety.md) | DTO/枚举/校验同源，Zod 单源规则 → antd rules | 枚举表 §5.1、禁令⑧ |
@@ -40,7 +40,7 @@
 
 ## Quality Check（收工前逐条过）
 
-- [ ] `pnpm verify` 绿（format:check / eslint / typecheck / vitest / **lint-guard 四个 scope**）。
+- [ ] `pnpm verify` 绿（format:check / eslint / typecheck / vitest / **lint-guard 四个 scope +「页头无第二行插槽」源码断言**）。
 - [ ] `pnpm build` 绿；无 `any` 逃避、无 `!important`、无绕过 token 的行内 style（两类例外见 component-guidelines）。
 - [ ] 只 import 顶层 `"antd"` 与 `@ant-design/icons`；`git grep -n "antd/es\|radix\|lucide\|date-fns\|react-hook-form\|pro-components" src` 应为空。
 - [ ] 所有列表走 `DataTable`，参数受控（`page/pageSize/sortBy/sortDir/filters`），列宽与 `ellipsis` 都给齐。

@@ -25,7 +25,7 @@ import type { TableColumnsType } from "antd";
 
 import { api, ApiFailure, useMeta, type MatterDetail as Matter } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
-import { PageHeader, MetaItem } from "@/app/components/page-header";
+import { PageHeader } from "@/app/components/page-header";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
@@ -175,31 +175,12 @@ export function MatterDetail({ id }: { id: string }) {
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
       <PageHeader
-        eyebrow={
+        title={m.name}
+        status={<StatusMark host="matter" code={m.status} />}
+        flags={
           <>
-            <Link href="/matters" style={{ fontSize: 12 }}>
-              <ArrowLeftOutlined /> 案件
-            </Link>
-            <Typography.Text className="num">{m.internalCode}</Typography.Text>
-            <StatusMark host="matter" code={m.status} />
             {m.isArchived ? <FlagMark>已归档</FlagMark> : null}
             {m.closingDate ? <FlagMark tone="info">已结案</FlagMark> : null}
-          </>
-        }
-        title={m.name}
-        meta={
-          <>
-            <MetaItem label="案号">
-              <span className="num">{m.caseNo}</span>
-            </MetaItem>
-            <MetaItem label="案由">{m.cause}</MetaItem>
-            <MetaItem label="程序">{meta?.enums.procedures[m.procedure] ?? m.procedure}</MetaItem>
-            <MetaItem label="等级">{level}</MetaItem>
-            <MetaItem label="标的额">
-              <span className="num">{money(m.amount)}</span> 元
-            </MetaItem>
-            <MetaItem label="立案">{calDate(m.filingDate)}</MetaItem>
-            <MetaItem label="更新">{fromNow(m.updatedAt)}</MetaItem>
           </>
         }
         actions={<Button onClick={() => setStatusOpen(true)}>变更状态</Button>}
@@ -243,6 +224,31 @@ export function MatterDetail({ id }: { id: string }) {
                       { key: "closing", label: "结案日期", children: calDate(m.closingDate) },
                       { key: "archived", label: "归档时间", children: dateTime(m.archivedAt) },
                       { key: "progress", label: "最近进展", children: dateTime(m.lastProgressAt) },
+                      // 2026-10-12 从页头 `meta` 搬来：页头不再有第二行说明的位置。
+                      // 这几项同屏已各有来源（内部编号/正式案号见上），再在页头写一遍就是
+                      // 两处同一个值，将来必然不同步。搬进来后 15 项，lg 下 5 行。
+                      { key: "cause", label: "案由", children: m.cause },
+                      {
+                        key: "procedure",
+                        label: "程序",
+                        children: meta?.enums.procedures[m.procedure] ?? m.procedure,
+                      },
+                      { key: "level", label: "等级", children: level },
+                      {
+                        key: "amount",
+                        label: "标的额",
+                        children: (
+                          <>
+                            <span className="num">{money(m.amount)}</span> 元
+                          </>
+                        ),
+                      },
+                      { key: "filing", label: "立案", children: calDate(m.filingDate) },
+                      {
+                        key: "updatedAt",
+                        label: "更新",
+                        children: dateTime(m.updatedAt),
+                      },
                     ]}
                   />
                   <Typography.Paragraph

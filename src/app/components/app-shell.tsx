@@ -1,6 +1,6 @@
 "use client";
 
-import { alpha, BRAND, INK } from "@/app/theme/brand";
+import { BRAND, INK } from "@/app/theme/brand";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo } from "react";
@@ -18,7 +18,6 @@ import {
 
 import { api, useActor } from "@/app/lib/client/api";
 import { DATA_SCOPE_LABELS, type DataScope } from "@/shared/enums/targets";
-import { SCOPE_HINT } from "@/app/theme/antd";
 
 /**
  * 应用外壳（antd `Layout` + 深色 `Menu`）。
@@ -29,42 +28,44 @@ import { SCOPE_HINT } from "@/app/theme/antd";
  *   · 菜单项写死在代码里不从配置表读：一期只有 4 个入口，读配置会变成
  *     "配置没配 → 菜单空白"这种查不出来的故障；
  *   · 退出走 POST，不用 GET——GET 会被预取和爬虫触发。
+ *
+ * 2026-10-12：菜单**只有名字，没有副标题**。原先每个入口都带一条 `hint` 副标题
+ * （"临期与在办总览"/"立案到结案全生命周期"/…），而渲染时它们被 `items` 映射直接丢掉——
+ * 也就是说屏幕上看不见、类型上却要求、review 时还要读一遍。既然没人看，就不是文案。
  */
 const { Header, Sider, Content } = Layout;
 
-type Item = { key: string; label: string; icon: React.ReactNode; hint: string };
+type Item = { key: string; label: string; icon: React.ReactNode };
 
 const NAV: { type: "group"; label: string; children: Item[] }[] = [
   {
     type: "group",
-    label: "今日",
-    children: [{ key: "/", label: "工作台", icon: <DashboardOutlined />, hint: "临期与在办总览" }],
+    // 组名从"今日"改成"概要"（2026-10-12）：这一组只有一个入口，而"今日"说的是时间
+    // （今天/临期），与组里"工作台"的实际职责对不上——菜单按职责分组，不按时间分组。
+    label: "概要",
+    children: [{ key: "/", label: "工作台", icon: <DashboardOutlined /> }],
   },
   {
     type: "group",
     label: "业务",
     children: [
-      { key: "/matters", label: "案件", icon: <FileTextOutlined />, hint: "立案到结案全生命周期" },
+      { key: "/matters", label: "案件", icon: <FileTextOutlined /> },
       {
         key: "/risk-matters",
         label: "风险事项",
         icon: <SafetyCertificateOutlined />,
-        hint: "报备、跟踪、转案件",
       },
       {
         key: "/archive",
         label: "已归档",
         icon: <InboxOutlined />,
-        hint: "终态记录：撤销归档需专门权限",
       },
     ],
   },
   {
     type: "group",
     label: "系统",
-    children: [
-      { key: "/config", label: "配置字典", icon: <SettingOutlined />, hint: "状态与等级（只读）" },
-    ],
+    children: [{ key: "/config", label: "配置字典", icon: <SettingOutlined /> }],
   },
 ];
 
@@ -105,11 +106,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Sider width={216} theme="dark" breakpoint="lg" collapsedWidth={0}>
+        {/* 字标下面那行"风险事项 · 案件"已撤（2026-10-12）：它是菜单名本身的复述，
+            而菜单就在正下方——同一屏里把「案件/风险事项」说两遍，第二遍不增加任何判断。 */}
         <div style={{ padding: "14px 16px 10px", lineHeight: 1.35 }}>
           <Typography.Text strong style={{ color: "#fff", fontSize: 15, letterSpacing: 0.2 }}>
             MatterNest
           </Typography.Text>
-          <div style={{ color: alpha(BRAND.sider.item, 0.82), fontSize: 11 }}>风险事项 · 案件</div>
         </div>
         <Menu
           theme="dark"
@@ -125,21 +127,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onClick={({ key }) => router.push(key)}
           style={{ borderInlineEnd: "none", paddingBottom: 8 }}
         />
-        {actor ? (
-          <div
-            style={{
-              padding: "10px 16px",
-              borderTop: `1px solid ${alpha(BRAND.sider.active, 0.07)}`,
-            }}
-          >
-            <div style={{ color: alpha(BRAND.sider.item, 0.9), fontSize: 12 }}>
-              数据范围 · {DATA_SCOPE_LABELS[actor.dataScope as DataScope]?.zh ?? actor.dataScope}
-            </div>
-            <div style={{ color: alpha(BRAND.sider.item, 0.72), fontSize: 11, marginTop: 2 }}>
-              {SCOPE_HINT[actor.dataScope] ?? "—"}
-            </div>
-          </div>
-        ) : null}
+        {/* 侧栏底部那块"数据范围 · 全公司 / 全公司：每一案件/事项"已撤（2026-10-12）：
+            它是当前身份**已经被 Header 右侧标签说过一遍**的内容，而且那块里的第二行
+            （SCOPE_HINT）把范围谓词写成了散文——同一屏出现两处范围说明，
+            用户要做的判断反而被稀释。范围仍然可见：Header 的标签 + 未授权时的 404 文案。 */}
       </Sider>
 
       <Layout>

@@ -25,12 +25,12 @@ import {
   Timeline,
   Typography,
 } from "antd";
-import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
 import type { Dayjs } from "dayjs";
 
 import { api, ApiFailure, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
-import { PageHeader, MetaItem, SectionTitle } from "@/app/components/page-header";
+import { PageHeader, SectionTitle } from "@/app/components/page-header";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
@@ -125,37 +125,10 @@ export function RiskDetail({ id }: { id: string }) {
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
       <PageHeader
-        eyebrow={
-          <Link href="/risk-matters">
-            <ArrowLeftOutlined /> 返回事项列表
-          </Link>
-        }
         title={risk.name}
-        meta={
-          <>
-            <MetaItem label="编号">
-              <span className="num">{risk.code}</span>
-            </MetaItem>
-            <MetaItem label="状态">
-              <StatusMark host="risk_matter" code={risk.status} />
-            </MetaItem>
-            <MetaItem label="风险类型">
-              <FlagMark>{meta?.enums.riskTypes[risk.type] ?? risk.type}</FlagMark>
-            </MetaItem>
-            <MetaItem label="等级">
-              <FlagMark tone={risk.level === "high" ? "danger" : "neutral"}>
-                {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
-              </FlagMark>
-            </MetaItem>
-            {/* 「已转案件」是与结案正交的**第二个事实**，所以是徽标而不是第五个状态 */}
-            {risk.conversionStatus === 1 && (
-              <MetaItem label="已转案件">
-                <Tag color="blue">已转 {risk.convertedCaseCount} 个案件</Tag>
-              </MetaItem>
-            )}
-            <MetaItem label="更新">{fromNow(risk.updatedAt)}</MetaItem>
-          </>
-        }
+        // 编号不是副标题：它和名称是同一个名词的两个面，所以与标题同行（`code`）
+        code={risk.code}
+        status={<StatusMark host="risk_matter" code={risk.status} />}
       />
 
       {/* IQ-17：左栏一等高；右栏单栏流式，无 Tab */}
@@ -232,6 +205,16 @@ export function RiskDetail({ id }: { id: string }) {
                 </MetaLine>
                 <MetaLine label="发现日期">{calDate(risk.discoverDate)}</MetaLine>
                 <MetaLine label="敞口金额">{money(risk.amount)}</MetaLine>
+                {/* 2026-10-12 从页头 `meta` 搬来：页头不再有第二行说明的位置。
+                    这两项是这条事项的分类，不是对标题的解释。 */}
+                <MetaLine label="风险类型">
+                  <FlagMark>{meta?.enums.riskTypes[risk.type] ?? risk.type}</FlagMark>
+                </MetaLine>
+                <MetaLine label="等级">
+                  <FlagMark tone={risk.level === "high" ? "danger" : "neutral"}>
+                    {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
+                  </FlagMark>
+                </MetaLine>
               </Space>
             </Card>
 

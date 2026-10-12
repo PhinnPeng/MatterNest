@@ -33,6 +33,8 @@ const acctL1 = await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], is
 const acctL2 = await createSmokeAccount(sql, { roles: [ROLE_CODES.joined] });
 /** 本轮造的案件 id；清场要先删它，否则账号删不掉（owner_id 是 NOT NULL） */
 let createdMatterId = null;
+/** 本轮给 7001 加的协办行 id；清场要先删它 */
+let staffFxId = `${Date.now()}999`;
 const dropAccts = async () => {
   const step = async (label, fn) => {
     try { await fn(); } catch (e) { console.log(`  · 清场「${label}」未完成：${String(e.message).split("\n")[0]}`); }
@@ -56,6 +58,27 @@ const dropAccts = async () => {
       await sql`delete from mn_matter where id = ${createdMatterId}`;
     });
   }
+  // S7 转出来的案件：它同时被两条链指着——`mn_risk_matter_case.risk_matter_id`
+  // （转案件关联）与 `mn_activity_log.risk_matter_id`。少删前者就会撞 FK。
+  await step("删本轮转出的案件", async () => {
+    const rows = await sql`
+      select m.id from mn_matter m
+      join mn_risk_matter_case c on c.matter_id = m.id
+      where c.risk_matter_id = ${BigInt(DEMO.riskWithParties)}
+        and m.name like '冒烟转案件%'`;
+    for (const r of rows) {
+      await sql`delete from mn_matter_party where matter_id = ${r.id}`;
+      await sql`delete from mn_matter_staff where matter_id = ${r.id}`;
+      await sql`delete from mn_matter_node where matter_id = ${r.id}`;
+      await sql`delete from mn_activity_log where matter_id = ${r.id} or risk_matter_id = ${r.id}`;
+      await sql`delete from mn_risk_matter_case where matter_id = ${r.id}`;
+      await sql`delete from mn_matter where id = ${r.id}`;
+    }
+  });
+  // 7001 是 seed 数据本身，**只删本脚本给它加的那一行协办**，别把 seed 的参与人一起删了
+  await step("删本脚本加的协办行", () =>
+    sql`delete from mn_matter_staff where id = ${staffFxId}`,
+  );
 
   await step("删 L1 临时账号", () => dropSmokeAccount(sql, acctL1.id));
   await step("删 L2 临时账号", () => dropSmokeAccount(sql, acctL2.id));
@@ -107,7 +130,23 @@ function makeClient(acct) {
 const DEMO = { matterOwnedByOther: "7001", archivedNotVisible: "7006", riskWithParties: "8302" };
 
 async function main() {
-  // S1 助理 104（纯 L2，7001 的协办）能登录
+  /**
+   * S2 要先造一个「L2 是协办、但不是负责人」的靶子。
+   *
+   * 原来靠 seed 的 7001（负责人 103、协办 104）。账号收敛为单个 admin 之后，
+   * 7001 的负责人行与协办行**都指向 admin**，于是临时 L2 根本不是它的协办：
+   * 看不见 → 404，而不是预期的 403 `attribution_required`。
+   *
+   * 403 与 404 的区别正是这条断言的价值：**403 等于确认"这条路你知道但走不了"**，
+   * 404 才是"对你来说它不存在"。两者混用会把权限模型的存在性泄出去。
+   *
+   * 参与人只能直连 SQL 加——`/api/matters` 下没有任何加参与人的入口。
+   */
+  await sql`insert into mn_matter_staff (id, matter_id, user_id, staff_role)
+            values (${BigInt(staffFxId)}, ${BigInt(DEMO.matterOwnedByOther)}, ${acctL2.id}, 'co_owner')
+            on conflict do nothing`;
+
+  // S1 助理（纯 L2，7001 的协办）能登录
   const assistant = makeClient(acctL2);
   record(await assistant.login(), "S1", "suny（L2 协办）登录成功 ⇒ is_admin 列未破坏 readActor");
 
@@ -189,14 +228,24 @@ async function main() {
 
   // S7 转案件引用事项当事人（不克隆），并对无当事人的事项拒转
   const conv = await admin.post(`/api/risk-matters/${DEMO.riskWithParties}/convert`, {
-    name: "冒烟转案件 · 当事人引用",
-    cause: "合同纠纷",
-    caseType: "civil_commercial",
-    procedure: "first_instance",
-    litigationRole: "defendant",
-    level: "mid",
+    // ⚠ `cases` 是数组：T2 把转案件改成一次可转 1→N，这个脚本原先打的是单案表单
+    // （name/cause/… 若干平级字段），被 Zod 判 400 validation_failed —— 断言过时，不是缺陷。
+    cases: [
+      {
+        name: "冒烟转案件 · 当事人引用",
+        cause: "合同纠纷",
+        caseType: "civil_commercial",
+        procedure: "first_instance",
+        litigationRole: "defendant",
+        level: "mid",
+      },
+    ],
   });
-  const convDetail = conv.status === 201 ? await admin.get(`/api/matters/${conv.data.id}`) : null;
+  // ⚠ 形状是 `{cases:[{id, internalCode}]}`（T2 改 1→N 之后的结果），**不是** `{id}`。
+  // 原先写成 `conv.data.id`，取出来是 undefined → 详情取不到 → 当事人 0 条，
+  // 断言红在"转案件没带出当事人"，而真实原因只是读错了返回字段。
+  const convCaseId = conv.status === 201 ? conv.data?.cases?.[0]?.id : null;
+  const convDetail = convCaseId ? await admin.get(`/api/matters/${convCaseId}`) : null;
   const parties = convDetail?.data?.parties ?? [];
   record(
     parties.length >= 1 && parties.every((p) => /^60\d\d$/.test(String(p.partyId))),

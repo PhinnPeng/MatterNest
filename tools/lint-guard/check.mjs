@@ -149,6 +149,58 @@ for (const scope of SCOPES) {
   }
 }
 
+/**
+ * 副标题纪律（2026-10-12 起）：`PageHeader` 不再提供"什么都能塞"的第二行说明插槽。
+ * 对应 `docs/research-subtitle-discipline.md` §B.3 的组件收口。
+ *
+ * **它不能进 `SCOPES`**：上面六道断言里有四道（A/B/C/D、D2、E）的前提是
+ * "存在一条 eslint 规则"，要靠 `lintText` 与 `calculateConfigForFile` 去查配置。
+ * 这条是**源码断言**，没有规则可挂载，硬塞进 `SCOPES` 会得到一个永远为假的 D。
+ *
+ * 为什么只匹配 JSX 属性形态（`名=`）而不是词本身：组件自己的注释里会**写**这两个词
+ * （"为什么没有第二行插槽"），词级匹配会把说明文字自己拦下来。属性形态才是"有人
+ * 真的把它当 prop 用回来了"。
+ *
+ * 推导依据（收口前后各跑一次 `git grep`，数字是数出来的，不是估的）：
+ *   · `eyebrow=` 收口前 5 处里占 3：matter-detail:178 / risk-detail:128 / workbench:83
+ *   · `meta=` 2 处：matter-detail:190 / risk-detail:134
+ *   · 收口后 0 处（`git grep -cE '\b(eyebrow|meta)\s*=' -- src` 无输出）
+ * 误伤面：将来有人把局部变量命名成 `eyebrow` / `meta` 并赋值，会误报一次 —— 这是
+ * **说清楚代价后接受的误报**，比让插槽悄悄回来便宜。
+ */
+const SUBTITLE_SLOTS = [
+  { name: "eyebrow", re: /\beyebrow\s*=/g },
+  { name: "meta", re: /\bmeta\s*=/g },
+];
+
+async function assertNoSubtitleSlots() {
+  const { readdir, readFile } = await import("node:fs/promises");
+  // 递归必须 `Promise.all` 摊开：`flatMap` 里直接返回子目录的 Promise，会把 Promise 本身
+  // 当成文件路路径丢给 `readFile`（实测报 ERR_INVALID_ARG_TYPE）
+  const walk = async (dir) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    const sub = await Promise.all(
+      entries.filter((e) => e.isDirectory()).map((e) => walk(`${dir}/${e.name}`)),
+    );
+    const files = entries.filter((e) => !e.isDirectory() && /\.tsx?$/.test(e.name));
+    return [...sub.flat(), ...files.map((e) => `${dir}/${e.name}`)];
+  };
+  for (const file of await walk("src")) {
+    const code = await readFile(file, "utf8");
+    for (const { name, re } of SUBTITLE_SLOTS) {
+      const hits = code.match(re)?.length ?? 0;
+      if (hits > 0)
+        failures.push(
+          `${file} 有 ${hits} 处 \`${name}=\` —— 页面头不再有第二行说明的位置。` +
+            `状态用 status、主键用 code，字段回页面里已有的 Descriptions / MetaLine；` +
+            `依据 .trellis/spec/frontend/component-guidelines.md「副标题纪律」`,
+        );
+    }
+  }
+}
+
+await assertNoSubtitleSlots();
+
 if (loaded === 0) failures.push("A 一个 fixture 都没读到，整套断言都是假通过");
 
 if (failures.length > 0) {
@@ -158,5 +210,6 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `lint-guard 通过：${SCOPES.length} 条禁令 × (违规按数被拦 / 合法不误伤 / 挂载点正确 / 覆盖不被顶掉 / 不溢出)，共 ${loaded} 个 fixture`,
+  `lint-guard 通过：${SCOPES.length} 条禁令 × (违规按数被拦 / 合法不误伤 / 挂载点正确 / 覆盖不被顶掉 / 不溢出)，共 ${loaded} 个 fixture；` +
+    `另：源码断言「页头无第二行插槽」0 处`,
 );
