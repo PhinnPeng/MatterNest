@@ -36,5 +36,6 @@ agent-work/*
 !agent-work/revred-*.mjs
 !agent-work/cleanup-*.mjs
 !agent-work/probe-*.mjs
+!agent-work/verify-*.mjs
 .mcp.json
 opencode.json
