@@ -255,6 +255,14 @@ try {
   ok("归档态没有评论输入框", !D.m.hasCommentInput);
   ok("归档态没有「手动添加节点」", !D.m.addNodeInPanel && !at.includes("手动添加节点"));
   ok("归档态没有「变更经办人」按钮", !at.includes("变更经办人"));
+  // MATT-54 交叉验收：归档态无关注**菜单**（眼睛与下拉都撤），但「n 人关注」这条读事实留着。
+  // 判据：含"人关注"的**按钮**数 = 0（非归档态是 1，右段就是按钮），同时纯文本里还有这个词。
+  const followButtons = await D.page.locator("button:has-text('人关注')").count();
+  ok(
+    "归档态关注组退化为只读文本（按钮 0 个、计数仍在）",
+    followButtons === 0 && at.includes("人关注"),
+    `按钮=${followButtons} 含文本=${at.includes("人关注")}`,
+  );
   ok("归档态页签仍两枚", D.m.tabs.length === 2, D.m.tabs.join(" | "));
   ok("归档态横向溢出 0", D.m.overflow <= 0, `溢出=${D.m.overflow}`);
   await D.ctx.close();

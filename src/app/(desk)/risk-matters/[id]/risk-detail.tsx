@@ -1,7 +1,7 @@
 "use client";
 
 import { INK } from "@/app/theme/brand";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -43,6 +43,7 @@ import { SectionTitle } from "@/app/components/page-header";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
+import { RichTextView, RichTextEditorLazy } from "@/app/components/ui/rich-text";
 import { NODE_STATUS_LABELS, LITIGATION_ROLE_LABELS } from "@/shared/enums/business";
 
 /**
@@ -66,6 +67,7 @@ export function RiskDetail({ id }: { id: string }) {
   const [statusOpen, setStatusOpen] = useState(false);
   const [nodeOpen, setNodeOpen] = useState(false);
   const [ownerOpen, setOwnerOpen] = useState(false);
+  const [descOpen, setDescOpen] = useState(false);
 
   const { data, isPending, isError, error } = useQuery({
     queryKey: ["risk", id],
@@ -100,6 +102,24 @@ export function RiskDetail({ id }: { id: string }) {
       invalidate();
     },
     onError: (e) => message.error(e instanceof ApiFailure ? e.message : "删除失败"),
+  });
+
+  // 描述编辑权：镜像服务层 `updateRiskMatter` 的归属判定（owner / L1 / 未指派可接手），
+  // 归档态除外。不镜像就会给一个点了必 403 的按钮（护栏 2 的"关注只读"落到界面上）。
+  const { data: actor } = useActor();
+  const canEditBody =
+    !!actor &&
+    !data?.isArchived &&
+    (actor.dataScope === "all" || !data?.ownerId || data.ownerId === actor.userId);
+  const saveDesc = useMutation({
+    mutationFn: (markdown: string) =>
+      api.patch(`/api/risk-matters/${id}`, { description: markdown }),
+    onSuccess: () => {
+      setDescOpen(false);
+      message.success("已更新描述");
+      invalidate();
+    },
+    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "保存失败"),
   });
 
   if (isPending) {
@@ -200,23 +220,22 @@ export function RiskDetail({ id }: { id: string }) {
             </Flex>
 
             {/* 描述与处置措施：主表业务字段，**整幅**——挤进动作按钮那一栏会被压到 ~300px 宽、白白多出两行。
-                截断用 antd 自带的 ellipsis（它内部做"是否真被裁"的判定）；
-                原型 HTML 里那套"摘掉 -webkit-line-clamp 再量"是没组件可用时的替代品，别搬过来。 */}
+                描述是富文本（markdown 存储，ADR-0002）：只读走 RichTextView（react-markdown，
+                SSR 可渲染），编辑走懒加载的 BlockNote 弹层。
+                处置措施仍是纯文本（票面只改描述；measure 不动）。 */}
             <div style={{ marginTop: 13 }}>
-              <div style={{ fontSize: 12, color: INK.muted, marginBottom: 5 }}>描述</div>
+              <Flex align="center" justify="space-between" style={{ marginBottom: 5 }}>
+                <span style={{ fontSize: 12, color: INK.muted }}>描述</span>
+                {canEditBody && (
+                  <Button size="small" type="link" onClick={() => setDescOpen(true)}>
+                    编辑
+                  </Button>
+                )}
+              </Flex>
               {risk.description ? (
-                <Typography.Paragraph
-                  style={{
-                    margin: 0,
-                    fontSize: 13.5,
-                    lineHeight: 1.72,
-                    color: INK.secondary,
-                    maxWidth: "74ch",
-                  }}
-                  ellipsis={{ rows: 3, expandable: "collapsible", symbol: "展开全文" }}
-                >
-                  {risk.description}
-                </Typography.Paragraph>
+                <div style={{ maxWidth: "74ch" }}>
+                  <RichTextView markdown={risk.description} />
+                </div>
               ) : (
                 <Dash />
               )}
@@ -494,7 +513,67 @@ export function RiskDetail({ id }: { id: string }) {
         onDone={invalidate}
         riskId={risk.id}
       />
+      <DescriptionDialog
+        open={descOpen}
+        initial={risk.description}
+        saving={saveDesc.isPending}
+        onClose={() => setDescOpen(false)}
+        onSave={(md) => saveDesc.mutate(md)}
+      />
     </div>
+  );
+}
+
+/**
+ * 描述编辑弹层（MATT-57）。
+ *
+ * 草稿态归这里：编辑器的内容只在打开时以 `initial` 挂载一次（`{open && ...}` 让关闭即卸载，
+ * 重开自然重挂到现值；`useEffect` 再把 draft 状态同步回来——两处都要，
+ * 编辑器不重挂而 draft 重置的话，看到的和存的就是两份东西）。
+ * 保存才 PATCH——编辑器每次 onChange 都回流给 Form 的话，光标会跳。
+ * 校验沿用 PATCH 的口径（min 2 / max 5000）：markdown 的空白骨架（`### ` 之类）
+ * 过不了 trim+min2，拒掉比存进去再渲染成一坨诚实。
+ */
+function DescriptionDialog({
+  open,
+  initial,
+  saving,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  initial: string;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (markdown: string) => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  // 每次打开都以现值重置草稿：上次"编辑后取消"不该把脏草稿留到下次（重开=重看现值）
+  useEffect(() => {
+    if (open) setDraft(initial);
+  }, [open, initial]);
+  return (
+    <Modal
+      open={open}
+      title="编辑描述"
+      width={720}
+      onCancel={onClose}
+      okText="保存"
+      okButtonProps={{
+        loading: saving,
+        disabled: draft.trim().length < 2,
+      }}
+      onOk={() => onSave(draft)}
+      // 弹层里再嵌编辑器（BlockNote 的 `/` 菜单要算位置），关闭后焦点别抢回触发按钮。
+      // antd 6：顶层 focusTriggerAfterClose 已弃用，挪进 focusable（本仓文档要求听弃用通知）
+      focusable={{ focusTriggerAfterClose: false }}
+    >
+      {open && (
+        <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+          <RichTextEditorLazy initialMarkdown={initial} onChange={setDraft} />
+        </div>
+      )}
+    </Modal>
   );
 }
 

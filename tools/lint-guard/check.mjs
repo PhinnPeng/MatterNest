@@ -201,6 +201,49 @@ async function assertNoSubtitleSlots() {
 
 await assertNoSubtitleSlots();
 
+/**
+ * 禁令⑦ 富文本白名单（2026-10-12，MATT-57 / ADR-0002）。
+ *
+ * ADR 明写「门禁在这一条上是瞎的：`tools/lint-guard` 与收工清单的名字表里没有
+ * `mantine`/`blocknote`，照抄进去照样绿」。这条源码断言就是来补这个洞的——
+ * 把"靠 review 守"变成"靠脚本守"。
+ *
+ * 规则：`@blocknote/*` 与 `@mantine/*` 只允许出现在 `src/app/components/ui/rich-text/` 内。
+ * 只匹配 **import 说明符形态**（引号里的 `@blocknote/…` / `@mantine/…`），不匹配裸词——
+ * 与副标题断言同一哲学：注释里会**写**这些词解释白名单，词级匹配会把说明文字自己拦下来；
+ * 引号形态才是"真的有人把它 import 进来了"。
+ *
+ * 代价：`@mantine/*` 除富文本外一律禁（ADR 的硬边界）；将来若白名单要扩，
+ * 必须同时改这条、§13.6.2 那行、与 ADR——三处一起改是本仓"文档先行不破值列"的同批纪律。
+ */
+const RICH_TEXT_DIR = "src/app/components/ui/rich-text/";
+const RICH_TEXT_IMPORT = /["']@(?:blocknote|mantine)\/[^"']*["']/g;
+
+async function assertRichTextWhitelist() {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const walk = async (dir) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    const sub = await Promise.all(
+      entries.filter((e) => e.isDirectory()).map((e) => walk(`${dir}/${e.name}`)),
+    );
+    const files = entries.filter((e) => !e.isDirectory() && /\.tsx?$/.test(e.name));
+    return [...sub.flat(), ...files.map((e) => `${dir}/${e.name}`)];
+  };
+  for (const file of await walk("src")) {
+    if (file.startsWith(RICH_TEXT_DIR)) continue; // 白名单目录内合法
+    const code = await readFile(file, "utf8");
+    const hits = code.match(RICH_TEXT_IMPORT) ?? [];
+    if (hits.length > 0)
+      failures.push(
+        `${file} 引了 ${hits.length} 处 \`@blocknote/*\` 或 \`@mantine/*\`（${hits.join(", ")}）—— ` +
+          `禁令⑦ 白名单只允许它们出现在 ${RICH_TEXT_DIR} 内；` +
+          `依据 docs/adr/0002-rich-text-blocknote.md 与 docs/tech-stack-decision.md §13.6.2`,
+      );
+  }
+}
+
+await assertRichTextWhitelist();
+
 if (loaded === 0) failures.push("A 一个 fixture 都没读到，整套断言都是假通过");
 
 if (failures.length > 0) {
@@ -211,5 +254,5 @@ if (failures.length > 0) {
 
 console.log(
   `lint-guard 通过：${SCOPES.length} 条禁令 × (违规按数被拦 / 合法不误伤 / 挂载点正确 / 覆盖不被顶掉 / 不溢出)，共 ${loaded} 个 fixture；` +
-    `另：源码断言「页头无第二行插槽」0 处`,
+    `另：源码断言「页头无第二行插槽」0 处 · 「富文本白名单」0 处越界`,
 );

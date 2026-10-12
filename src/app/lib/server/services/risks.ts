@@ -1038,12 +1038,17 @@ export async function updateRiskMatter(
 
   const diffs: Record<string, { from: unknown; to: unknown }> = {};
   const set: Record<string, unknown> = {};
+  // 正文类字段（描述 / 处置措施）：改动要落库、要触发 RISK_UPDATED，但**审计不落正文**
+  // （ADR-0002 + logging-guidelines 既有禁令）。所以这些字段只记「改过」，不记 from/to 的值。
+  const BODY_FIELDS = new Set(["description", "measure"]);
+  const bodyChanged: string[] = [];
   const consider = (key: "name" | "level" | "description" | "measure" | "amount") => {
     const v = patch[key];
     if (v === undefined) return;
     if (v === cur[key]) return;
-    diffs[key] = { from: cur[key], to: v };
     set[key] = v;
+    if (BODY_FIELDS.has(key)) bodyChanged.push(key);
+    else diffs[key] = { from: cur[key], to: v };
   };
   consider("name");
   consider("level");
@@ -1098,13 +1103,17 @@ export async function updateRiskMatter(
         }
       }
     }
-    if (Object.keys(diffs).some((k) => k !== "ownerId")) {
+    const nonOwnerFields = Object.keys(diffs).filter((k) => k !== "ownerId");
+    if (nonOwnerFields.length > 0 || bodyChanged.length > 0) {
+      // 正文类字段只进 `bodyFields`（改了哪些），值一律不落审计表——
+      // 审计表不能变成明文书的存放处（logging-guidelines §SENSITIVE 同一条理由）。
       await logActivity(tx, actor, {
         riskMatterId: BigInt(id),
         targetType: "risk_matter",
         targetId: BigInt(id),
         action: "RISK_UPDATED",
-        diffs,
+        diffs: Object.fromEntries(nonOwnerFields.map((k) => [k, diffs[k]!])),
+        payload: bodyChanged.length ? { bodyFields: bodyChanged } : undefined,
       });
     }
   });

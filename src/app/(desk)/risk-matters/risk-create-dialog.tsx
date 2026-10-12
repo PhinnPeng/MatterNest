@@ -20,6 +20,7 @@ import type { Dayjs } from "dayjs";
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
 import { pruneEmpty, riskCreateSchema, type RiskCreateInput } from "@/shared/schema/hosts";
 import { rulesFor, setFieldErrors } from "@/app/components/form/zod-rules";
+import { RichTextFormField } from "@/app/components/ui/rich-text";
 
 /**
  * 新建风险事项（报备）。编号 `FX-YYYYMMDD-XXX` 同样由数据库单语句取号。
@@ -110,9 +111,11 @@ export function RiskCreateDialog({
       open={open}
       onCancel={() => onOpenChange(false)}
       title="新建事项"
-      width={640}
+      width={680}
       okText="报备"
       confirmLoading={mut.isPending}
+      // 富文本编辑器只在挂载时读一次初值；关闭即销毁，重开才拿到干净的空白草稿
+      destroyOnHidden
       onOk={submit}
     >
       {mut.error ? (
@@ -178,17 +181,18 @@ export function RiskCreateDialog({
             </Form.Item>
           </Col>
           <Col span={24}>
+            {/* 描述是富文本（MATT-57 / ADR-0002）：markdown 存储，BlockNote 编辑。
+                仍是 `Form.Item name + rules` —— 校验单一来源不破（Zod 经 zod-rules 推导）。
+                antd 会把 `value`/`onChange` 注进直接子节点；编辑器挂载后忽略 `value`
+                （只认 initialMarkdown），所以每次 onChange 回流不会重解析、光标不跳；
+                onChange(string) 正好是 Form 要的取值形状。重开靠 Modal 的 destroyOnHidden
+                整棵子树重挂，草稿态自然清零。 */}
             <Form.Item
               label="描述"
               name="description"
               rules={rulesFor(riskCreateSchema, ["description"])}
             >
-              <Input.TextArea
-                rows={3}
-                maxLength={5000}
-                showCount
-                placeholder="这件事为什么会变成诉讼或损失"
-              />
+              <RichTextFormField />
             </Form.Item>
           </Col>
           <Col span={24}>
