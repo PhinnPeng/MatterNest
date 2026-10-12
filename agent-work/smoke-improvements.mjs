@@ -1,3 +1,4 @@
+import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
 /**
  * 真实冒烟（一期改进批次，2026-10-03）。跑在**已启动的 dev server + 已迁移已 seed 的库**上：
  *
@@ -18,6 +19,49 @@
  */
 const BASE = process.env.BASE ?? "http://127.0.0.1:3000";
 
+// 自建临时账号（账号收敛为单个 admin 之后，不再依赖 seed 里的演示账号）。
+// admin 不参与本脚本：它是 is_admin=true，会短路范围谓词，拿它当 L1 测不出差异。
+const { default: postgres } = await import("postgres");
+const sql = postgres({
+  host: process.env.PGHOST,
+  port: Number(process.env.PGPORT),
+  user: process.env.PGUSER,
+  database: process.env.PGDATABASE,
+  password: process.env.PGPASSWORD,
+});
+const acctL1 = await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], isAdmin: true });
+const acctL2 = await createSmokeAccount(sql, { roles: [ROLE_CODES.joined] });
+/** 本轮造的案件 id；清场要先删它，否则账号删不掉（owner_id 是 NOT NULL） */
+let createdMatterId = null;
+const dropAccts = async () => {
+  const step = async (label, fn) => {
+    try { await fn(); } catch (e) { console.log(`  · 清场「${label}」未完成：${String(e.message).split("\n")[0]}`); }
+  };
+
+  /**
+   * ⚠ 必须先删本脚本造的案件，**再**删账号（2026-10-12 修）。
+   *
+   * 原来只删账号，于是 `mn_matter.owner_id` 是 NOT NULL 且指向那个临时账号 ⇒
+   * 账号删不掉，`dropSmokeAccount` 按设计**拒绝删业务行**并报出阻塞者（这个行为是对的）。
+   * 结果每次跑都往库里留两个孤儿账号，其中两个还是 `is_admin=true`。
+   *
+   * 删除顺序按 FK RESTRICT：当事人关联与节点先走，案件最后。
+   */
+  if (createdMatterId) {
+    await step("删本轮造的案件", async () => {
+      await sql`delete from mn_matter_party where matter_id = ${createdMatterId}`;
+      await sql`delete from mn_matter_staff where matter_id = ${createdMatterId}`;
+      await sql`delete from mn_matter_node where matter_id = ${createdMatterId}`;
+      await sql`delete from mn_activity_log where matter_id = ${createdMatterId}`;
+      await sql`delete from mn_matter where id = ${createdMatterId}`;
+    });
+  }
+
+  await step("删 L1 临时账号", () => dropSmokeAccount(sql, acctL1.id));
+  await step("删 L2 临时账号", () => dropSmokeAccount(sql, acctL2.id));
+  await step("断开数据库", () => sql.end());
+};
+
 const results = [];
 function record(ok, id, msg) {
   results.push({ ok, id });
@@ -25,7 +69,10 @@ function record(ok, id, msg) {
 }
 
 /** 每个账号一个 fetch：cookie 手工带，Next 的 session 是 httpOnly，拿不到就得自己存 */
-function makeClient(username) {
+function makeClient(acct) {
+  // acct 是 _testacct 自建的临时账号；口令是当场随机的，**不等于**账号名
+  const username = acct.username;
+  const password = acct.password;
   let cookie = "";
   async function call(method, path, body) {
     const res = await fetch(`${BASE}${path}`, {
@@ -48,7 +95,7 @@ function makeClient(username) {
   }
   return {
     async login() {
-      const r = await call("POST", "/api/auth/login", { username, password: username });
+      const r = await call("POST", "/api/auth/login", { username, password });
       return r.status === 200;
     },
     get: (p) => call("GET", p),
@@ -61,7 +108,7 @@ const DEMO = { matterOwnedByOther: "7001", archivedNotVisible: "7006", riskWithP
 
 async function main() {
   // S1 助理 104（纯 L2，7001 的协办）能登录
-  const assistant = makeClient("suny");
+  const assistant = makeClient(acctL2);
   record(await assistant.login(), "S1", "suny（L2 协办）登录成功 ⇒ is_admin 列未破坏 readActor");
 
   // S2 协办改别人的案子状态
@@ -83,7 +130,7 @@ async function main() {
   record(s3.status === 404, "S3", `不可见归档案件 → ${s3.status}（要求 404，不是 403）`);
 
   // S4 主任 101（L1，可改任何一条）走一次偏离
-  const admin = makeClient("wangkf");
+  const admin = makeClient(acctL1);
   await admin.login();
   const s4a = await admin.post(`/api/matters/${DEMO.matterOwnedByOther}/status`, { to: "pending" });
   const s4b = await admin.post(`/api/matters/${DEMO.matterOwnedByOther}/status`, {
@@ -124,6 +171,8 @@ async function main() {
     ],
   });
   const detail = created.status === 201 ? await admin.get(`/api/matters/${created.data.id}`) : null;
+  // 记下 id：清场要先删这条案件，否则临时账号删不掉（owner_id NOT NULL 指向它）
+  if (created.status === 201 && created.data?.id) createdMatterId = BigInt(created.data.id);
   const nodes = detail?.data?.nodes ?? [];
   record(
     nodes.length === 3 &&
@@ -186,7 +235,8 @@ async function main() {
     `\n冒烟：${results.length - failed.length}/${results.length} 通过` +
       (failed.length ? `，失败 ${failed.map((f) => f.id).join(" ")}` : ""),
   );
-  process.exit(failed.length ? 1 : 0);
+  await dropAccts();
+process.exit(failed.length ? 1 : 0);
 }
 
 main().catch((e) => {

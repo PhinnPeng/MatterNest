@@ -57,18 +57,48 @@ for (const p of ["/api/matters", "/api/overview", "/api/meta", "/api/risk-matter
 }
 
 /* ── 2. 登录 ──────────────────────────────────────────────────── */
-const bad = await login("wangkf", "wrong");
+// 自建临时账号（账号收敛为单个 admin 之后，不再依赖 seed 里的演示账号）。
+// 四档：全公司 / 我参与 / 仅自己相关 / 待开通。后三档是范围谓词的分支——
+// 历史上只有 seed 里存在对应的纯档账号时才被执行过，别把「我参与」那档省掉。
+const { default: postgres } = await import("postgres");
+const sql = postgres({
+  host: process.env.PGHOST,
+  port: Number(process.env.PGPORT),
+  user: process.env.PGUSER,
+  database: process.env.PGDATABASE,
+  password: process.env.PGPASSWORD,
+});
+const acctL1 = await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], isAdmin: true });
+const acctL2 = await createSmokeAccount(sql, { roles: [ROLE_CODES.joined] });
+const acctL3 = await createSmokeAccount(sql, { roles: [ROLE_CODES.self] });
+// 待开通：有口令但未批准，用于验「未开通与口令错误给同一句」
+const acctPending = await (async () => {
+  const a = await createSmokeAccount(sql, { roles: [ROLE_CODES.self] });
+  await sql`update mn_app_user set activation_status = 'pending' where id = ${a.id}`;
+  return a;
+})();
+const dropAccts = async () => {
+  const step = async (label, fn) => {
+    try { await fn(); } catch (e) { console.log(`  · 清场「${label}」未完成：${String(e.message).split("\n")[0]}`); }
+  };
+  for (const a of [acctL1, acctL2, acctL3, acctPending]) {
+    await step(`删临时账号 ${a.username}`, () => dropSmokeAccount(sql, a.id));
+  }
+  await step("断开数据库", () => sql.end());
+};
+
+const bad = await login(acctL1.username, "wrong");
 ok("口令错 → 401", bad.status === 401, `status=${bad.status}`);
-const pending = await login("qiangl");
+const pending = await login(acctPending.username, acctPending.password);
 ok(
   "未开通账号与口令错同码同文案",
   pending.status === 401 && pending.body?.message === bad.body?.message,
   `${pending.status} · ${pending.body?.message}`,
 );
 
-const l1 = await login("wangkf"); // 全局管理 L1
-const l2 = await login("suny"); //  助理 = 参与经办 L2（seed 里唯一的纯 L2，专给 EXISTS 那条分支用）
-const hezp = await login("hezp"); // 系统管理，范围是 L3
+const l1 = await login(acctL1.username, acctL1.password); // 全公司
+const l2 = await login(acctL2.username, acctL2.password); // 我参与：专给 EXISTS 那条分支用
+const hezp = await login(acctL3.username, acctL3.password); // 仅自己相关
 ok("wangkf 登录成功", l1.status === 200 && Boolean(l1.cookie), l1.body?.displayName ?? "");
 ok("suny 登录成功", l2.status === 200);
 ok("hezp 登录成功", hezp.status === 200);
@@ -416,5 +446,11 @@ if (process.env.SMOKE_KEEP !== "1") {
   );
   ok("清场后不留残余活动记录", rest[0].n === 0, `n=${rest[0].n}`);
 }
+
+// ⚠ 临时账号的清场必须在**宿主清场之后、进程退出之前**。
+// 上面那段清场自己建了 `sql` 客户端并已 `end()`，所以这里用 `dropAccts` 里那条连接。
+// 少了这一步就每次往库里留四个孤儿账号（两个还是 is_admin=true）——
+// 本轮实测：定义了 dropAccts 却忘了调用，跑一轮就漏四个。
+if (process.env.SMOKE_KEEP !== "1") await dropAccts();
 
 process.exit(fail ? 1 : 0);
