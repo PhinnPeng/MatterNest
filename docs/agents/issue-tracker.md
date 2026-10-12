@@ -16,11 +16,19 @@ is **not** a registered todo.
 
 ## Connection facts (verified 2026-10-10)
 
-- **Paca MCP server `paca` is live** in this repo, registered as
-  `mcp-paca-matternest` in `~/.dsh/cordis.patch.yml` (DSH's real MCP source;
-  the old "Paca 不能走 MCP" note was about wrongly-pinned single-project
-  connectors, not about MatterNest). Fallback for scripting: `agent-work/paca.mjs`
-  / `paca-lib.mjs` (REST, key in project `.qoder/settings.json` — never print it).
+- **Paca MCP server `paca-matternest` is live** in this repo，配置在**项目** `.qoder/settings.json`
+  （不是全局那份——全局只有 agileidentity / uniondesk / youmeng 三个 single-project 连接器）。
+  旧的「Paca 不能走 MCP」说法来自**那两个错钉的 single-project 连接器**，与 MatterNest 无关。
+
+  **2026-10-12：所有 REST 协助脚本已删除**（`agent-work/paca*.mjs` 共 16 个）。一律走 MCP。
+  删它们的直接原因是一次事故：`paca.mjs` 按标题幂等 upsert，**跑一次就覆盖了 32 张卡的描述**
+  （含本图正文），而它存在的前提（MCP 不可用）早已不成立。**REST 兜底路径不再存在，
+  也不应重建**——踩着它的每一步都可能静默改写板上内容。
+
+  ⚠ 配置指向的是 **npx 缓存路径**（`_npx/<hash>/node_modules/@paca-ai/paca-mcp/...`），
+  版本为 `0.14.0-rc.1`（npm 最新 `0.19.0`）。缓存清理或哈希变化会让它失效，且没有版本锚定。
+  修法是把依赖**落到 `devDependencies`**（`@paca-ai/paca-mcp@<pin>`），配置指向
+  `node_modules/.bin/paca`。此事已登记，见 MATT-58。
 - Project id `8c42f9be-d3f6-4635-951d-0a2cf911a8f7`; 33 tasks, all type `Task`;
   statuses: `Backlog` (default) / `Todo` / `In Progress` / `Done`.
 - Native relationships that exist and are usable:
@@ -49,7 +57,7 @@ and embed `trellis:<id>` in the Paca task description. That pair is the join.
 
 ## Creating a ticket
 
-1. **Register on Paca** (`mcp__paca__*` tools, or REST fallback):
+1. **Register on Paca**（`paca-matternest` 的 MCP 工具）：
    `create_task` with title/description; set `parentTaskId` when it belongs to
    a milestone or map card; apply triage tags at creation.
 2. **Then** create the Trellis record if the work needs durable notes/PRD:
@@ -59,15 +67,27 @@ and embed `trellis:<id>` in the Paca task description. That pair is the join.
 ## If Paca is unreachable
 
 Say so and stop. Do **not** create a local markdown issue file as a fallback,
-and do not invent a Paca id. ("Unreachable" now means MCP **and** the
-`paca.mjs` REST path both fail — check REST before declaring it down.)
+and do not invent a Paca id.
+
+**"Unreachable" 现在的含义只有一种：MCP 工具取不到。** 自 2026-10-12 起没有 REST 兜底路径
+（协助脚本已全删，理由见上）。**也不要为了"先恢复通路"重新拼一个** —— 这正是上一次
+事故的来源：一个按标题 upsert 的脚本静默覆盖了 32 张卡的描述。
 
 ## Reading current state
 
 ```
-mcp__paca__list_tasks  (projectId resolved from project name MatterNest; do not hardcode at call sites outside this repo's scripts)
+list_tasks  (projectId 8c42f9be-d3f6-4635-951d-0a2cf911a8f7)
 python ./.trellis/scripts/task.py list [--status in_progress]
 ```
+
+**分页是实测过的坑（2026-10-12）**：`list_tasks` 一页只回 20 条，而 `offset` 参数
+**被服务端忽略**（传了也返回同一批）。所以「翻页」拿不到全量，**不能据此断言某张票不存在**
+（本会话就因此误判过 MATT-38/39 不存在，实际它们在）。
+
+缺的取法有两条，都验证过：
+
+- 按 `statusId` 过滤，把目标区间捞进第一页（找 #5x 时用的就是这条）；
+- 已知 uuid 时直接 `get_task`（**不接受** `MATT-55` / `55` 这类编号，只吃 uuid）。
 
 ## Wayfinding operations
 
