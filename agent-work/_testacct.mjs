@@ -52,9 +52,62 @@ export async function createSmokeAccount(sql, { roles, isAdmin = false, suffix =
   return { id: user.id, username, password };
 }
 
-/** 删掉临时账号及其会话、角色映射。清场用。 */
+/**
+ * 删掉临时账号。清场用。
+ *
+ * ## 为什么要分三类处置
+ *
+ * `mn_app_user` 被 11 条外键引用，其中只有 2 条是 CASCADE（`mn_app_user_role.user_id`、
+ * `mn_auth_session.user_id`，会自己跟着删），**其余 9 条全是 RESTRICT**——不先处理就报
+ * `violates foreign key constraint`。这不是假设：做视觉验收时留的那个 standby 账号写了
+ * 7 条活动日志，就直接卡住了。而冒烟脚本一直没暴露，只因为它们没触发被审计的动作，
+ * **没暴露不等于不存在**。
+ *
+ * 三类，分别对应三种后果：
+ *
+ * 1. **自己的审计痕迹**（`mn_activity_log`）→ 直接删。删的是这个账号自己写的行。
+ * 2. **可空的归属列**（`mn_matter_node.owner_id`、`mn_risk_matter.owner_id`、
+ *    `mn_risk_matter_node.owner_id`）→ 置 NULL。业务行留着，只解除引用。
+ * 3. **NOT NULL 的归属列**（`mn_matter.owner_id`、`mn_matter_progress.author_id`、
+ *    `mn_matter_staff.user_id`、`mn_risk_matter_staff.user_id`、`mn_comment.author_id`）
+ *    → **不删**。删业务行不是这个函数的职责：跑到这里还有 NOT NULL 的行指着这个账号，
+ *    说明**冒烟脚本自己的清场漏了夹具**，那是脚本的 bug。该报出来，不该替它擦掉。
+ *    悄悄删掉生产形状的业务行，比留着残留危险得多。
+ */
 export async function dropSmokeAccount(sql, userId) {
   if (userId === undefined || userId === null) return;
+
+  // 1) 自己的审计痕迹
+  await sql`delete from mn_activity_log where operator_id = ${userId}`;
+
+  // 2) 可空的归属列：只解除引用，不动业务行
+  await sql`update mn_matter_node set owner_id = null where owner_id = ${userId}`;
+  await sql`update mn_risk_matter set owner_id = null where owner_id = ${userId}`;
+  await sql`update mn_risk_matter_node set owner_id = null where owner_id = ${userId}`;
+
+  // 3) NOT NULL 的归属列：先查，报出是谁在指，而不是删掉它
+  const blockers = [];
+  const check = async (table, column) => {
+    const rows = await sql.unsafe(
+      `select count(*)::int as c from ${table} where ${column} = $1`,
+      [userId],
+    );
+    if (rows[0].c > 0) blockers.push(`${table}.${column}（${rows[0].c} 行）`);
+  };
+  await check("mn_matter", "owner_id");
+  await check("mn_matter_progress", "author_id");
+  await check("mn_matter_staff", "user_id");
+  await check("mn_risk_matter_staff", "user_id");
+  await check("mn_comment", "author_id");
+  if (blockers.length) {
+    throw new Error(
+      `临时账号 ${userId} 删不掉：还有 NOT NULL 的业务行指着它 —— ${blockers.join("、")}。\n` +
+        `这些是冒烟脚本漏清的夹具，应该由脚本自己删（或把 owner 改成另一个账号再删），\n` +
+        `不该由 dropSmokeAccount 代删业务行。`,
+    );
+  }
+
+  // 4) 会话与角色是 CASCADE，显式删只为不依赖外键动作
   await sql`delete from mn_auth_session where user_id = ${userId}`;
   await sql`delete from mn_app_user_role where user_id = ${userId}`;
   await sql`delete from mn_app_user where id = ${userId}`;

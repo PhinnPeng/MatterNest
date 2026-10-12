@@ -1,6 +1,6 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
+import { INK, PAPER } from "@/app/theme/brand";
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ import {
   Empty,
   Form,
   Input,
+  List,
   Modal,
   Popconfirm,
   Row,
@@ -27,7 +28,7 @@ import {
 import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
 import type { Dayjs } from "dayjs";
 
-import { api, ApiFailure, type RiskDetail as Risk } from "@/app/lib/client/api";
+import { api, ApiFailure, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
 import { PageHeader, MetaItem, SectionTitle } from "@/app/components/page-header";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
@@ -61,14 +62,21 @@ export function RiskDetail({ id }: { id: string }) {
     queryKey: ["risk", id],
     queryFn: () => api.get<Risk>(`/api/risk-matters/${id}`),
   });
-  // 节点类型是配置驱动，从 meta 读；事项侧**只取 time_type='point'** 那些
-  const { data: meta } = useQuery({
-    queryKey: ["node-types", "risk_matter"],
-    queryFn: () =>
-      api.get<{ nodeTypes: { id: string; code: string; name: string }[] }>(
-        "/api/meta?host=risk_matter",
-      ),
-  });
+  // 中文名走共享 hook：类型/等级/活动动作的中文都来自 `/api/meta`，与列表页同源。
+  //
+  // ⚠ 必须挂在下面那两个 early return **之前**：hook 一旦挂在条件返回之后就违反
+  // Rules of Hooks——首屏 `isPending` 走了 A 分支、meta 回来后走 B 分支，hook 数量变了，
+  // React 直接抛 "change in the order of Hooks"。这个错 tsc 不报、API 冒烟也不报，
+  // 只有页面真跑起来才炸（浏览器 dev overlay 当场抓到了）。
+  const { data: meta } = useMeta("risk_matter");
+  // 节点类型是**例外**：它随详情一起返回（`risks.ts` 已按 IQ-5 过滤掉 time_type='range'），
+  // 所以下面直接取 `risk.nodeTypes`。
+  //
+  // 这里原来另发一次 `/api/meta?host=risk_matter`，但那个接口**不返回 nodeTypes**
+  // （`host` 只决定状态/等级/标签三样）。于是 `pointTypes` 恒为 `[]`，"加节点"弹窗
+  // 没有可选类型 ⇒ **界面上加不了节点**，而 tsc 与服务层冒烟都发现不了：
+  // 前者不校验运行时响应形状，后者是直接 POST `/nodes` 绕过界面的。
+  // 一次多余的网络往返，换来一个看不见的功能缺失——删掉。
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["risk", id] });
@@ -112,7 +120,7 @@ export function RiskDetail({ id }: { id: string }) {
     name: risk.name,
     status: risk.status,
   };
-  const pointTypes = meta?.nodeTypes ?? [];
+  const pointTypes = risk.nodeTypes;
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
@@ -132,10 +140,12 @@ export function RiskDetail({ id }: { id: string }) {
               <StatusMark host="risk_matter" code={risk.status} />
             </MetaItem>
             <MetaItem label="风险类型">
-              <FlagMark>{risk.type}</FlagMark>
+              <FlagMark>{meta?.enums.riskTypes[risk.type] ?? risk.type}</FlagMark>
             </MetaItem>
             <MetaItem label="等级">
-              <FlagMark tone={risk.level === "high" ? "danger" : "neutral"}>{risk.level}</FlagMark>
+              <FlagMark tone={risk.level === "high" ? "danger" : "neutral"}>
+                {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
+              </FlagMark>
             </MetaItem>
             {/* 「已转案件」是与结案正交的**第二个事实**，所以是徽标而不是第五个状态 */}
             {risk.conversionStatus === 1 && (
@@ -177,11 +187,15 @@ export function RiskDetail({ id }: { id: string }) {
                 }
               />
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {risk.nodes.map((n) => (
-                  <NodeRow key={n.id} node={n} readOnly={risk.isArchived} onDone={invalidate} />
-                ))}
-              </div>
+              <List
+                size="small"
+                itemLayout="vertical"
+                rowKey={(n: Risk["nodes"][number]) => String(n.id)}
+                dataSource={risk.nodes}
+                renderItem={(n: Risk["nodes"][number]) => (
+                  <NodeRow node={n} readOnly={risk.isArchived} onDone={invalidate} />
+                )}
+              />
             )}
           </Card>
         </Col>
@@ -190,7 +204,7 @@ export function RiskDetail({ id }: { id: string }) {
           <Space direction="vertical" size={12} style={{ width: "100%" }}>
             {/* 归档是只读终态：整页只保留一个"看"，不给任何写入口 */}
             {risk.isArchived && (
-              <Card size="small" style={{ background: INK.line }}>
+              <Card size="small" style={{ background: PAPER }}>
                 <Typography.Text type="secondary">
                   这条事项已归档（{calDate(risk.archivedAt)}
                   ），是只读终态。要改内容需先由持「撤销归档」权限的人撤销归档。
@@ -319,8 +333,8 @@ export function RiskDetail({ id }: { id: string }) {
                   items={risk.activity.slice(0, 20).map((a) => ({
                     children: (
                       <Space direction="vertical" size={0}>
-                        <span>{a.action}</span>
-                        <span style={{ color: INK.faint, fontSize: 12 }}>
+                        <span>{meta?.enums.auditActions[a.action] ?? a.action}</span>
+                        <span style={{ color: INK.muted, fontSize: 12 }}>
                           {dateTime(a.createdAt)}
                         </span>
                       </Space>
@@ -396,7 +410,7 @@ function NodeRow({
   });
   const label = NODE_STATUS_LABELS[node.status as keyof typeof NODE_STATUS_LABELS] ?? node.status;
   return (
-    <Card size="small" styles={{ body: { padding: 10 } }}>
+    <div>
       <Space direction="vertical" size={4} style={{ width: "100%" }}>
         <Space size={8} align="baseline">
           <Typography.Text strong>{node.name}</Typography.Text>
@@ -418,7 +432,7 @@ function NodeRow({
           {!node.isTimeConfirmed && node.startTime && " · 未确认"}
         </span>
         {node.cancelReason && (
-          <span style={{ color: INK.faint, fontSize: 12 }}>取消原因：{node.cancelReason}</span>
+          <span style={{ color: INK.secondary, fontSize: 12 }}>取消原因：{node.cancelReason}</span>
         )}
         {!readOnly && (
           <Space size={4} wrap>
@@ -445,7 +459,7 @@ function NodeRow({
           </Space>
         )}
       </Space>
-    </Card>
+    </div>
   );
 }
 
@@ -506,14 +520,18 @@ function CommentList({
       {risk.comments.length === 0 ? (
         <Dash hint="事项的核查走处置记录，不靠进展——所以这里可能是空的。" />
       ) : (
-        <Space direction="vertical" size={10} style={{ width: "100%" }}>
-          {risk.comments.map((c) => (
-            <Card key={c.id} size="small" styles={{ body: { padding: 10 } }}>
+        <List
+          size="small"
+          itemLayout="vertical"
+          rowKey={(c: Risk["comments"][number]) => String(c.id)}
+          dataSource={risk.comments}
+          renderItem={(c: Risk["comments"][number]) => (
+            <List.Item>
               <Space direction="vertical" size={4} style={{ width: "100%" }}>
                 <Space size={8} align="baseline">
                   <Typography.Text strong>{c.authorName}</Typography.Text>
-                  <span style={{ color: INK.faint, fontSize: 12 }}>{fromNow(c.createdAt)}</span>
-                  {c.isEdited && <span style={{ color: INK.faint, fontSize: 12 }}>（已编辑）</span>}
+                  <span style={{ color: INK.muted, fontSize: 12 }}>{fromNow(c.createdAt)}</span>
+                  {c.isEdited && <span style={{ color: INK.muted, fontSize: 12 }}>（已编辑）</span>}
                 </Space>
                 {editing === c.id ? (
                   <Space direction="vertical" size={6} style={{ width: "100%" }}>
@@ -557,9 +575,9 @@ function CommentList({
                   </>
                 )}
               </Space>
-            </Card>
-          ))}
-        </Space>
+            </List.Item>
+          )}
+        />
       )}
     </Space>
   );

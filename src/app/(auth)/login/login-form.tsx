@@ -4,7 +4,7 @@ import { INK } from "@/app/theme/brand";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Form, Input, Space, Tag, Typography } from "antd";
+import { Alert, Button, Form, Input, Typography } from "antd";
 
 import { api, ApiFailure } from "@/app/lib/client/api";
 import { loginSchema } from "@/shared/schema/hosts";
@@ -18,16 +18,11 @@ import { rulesFor } from "@/app/components/form/zod-rules";
  *
  * 服务端对"账号不存在 / 口令错 / 未开通"给同一个 401 文案（防枚举），
  * 所以这里也只显示那一句，不改写成"口令不正确"——客户端文案不能把服务端的防泄露口径打回原形。
- * 演示账号提示块只在非生产渲染：这套 seed 的口令等于用户名，生产绝不能带这段文案。
+ * 曾有一块"演示账号（口令 = 账号，点一下填入）"的提示，只在非生产渲染。
+ * 它依赖「seed 的口令 = 用户名」这个前提；F1 把口令摘要从 seed 与库里都清掉之后，
+ * 该前提不成立，那块就变成了一个必然 401 的控件（页面上却写着"点一下填入"），
+ * 已整块撤除。冒烟改走运行时自建的一次性账号，不依赖仓库里的任何凭据。
  */
-const DEMO = [
-  { username: "wangkf", who: "总经理", scope: "全公司 L1" },
-  { username: "lichen", who: "风控总监", scope: "全公司 L1" },
-  { username: "zhaolj", who: "项目负责人（兼两角色）", scope: "L1 + 撤归档" },
-  { username: "suny", who: "专员", scope: "我参与 L2" },
-  { username: "hezp", who: "IT", scope: "我承办 L3 + 管配置" },
-];
-
 type FormValues = { username: string; password: string };
 
 export function LoginForm() {
@@ -95,46 +90,6 @@ export function LoginForm() {
           登录
         </Button>
       </Form>
-
-      {process.env.NODE_ENV !== "production" ? (
-        <div style={{ marginTop: 26, borderTop: `1px solid ${INK.line}`, paddingTop: 12 }}>
-          <Typography.Paragraph style={{ fontSize: 11, color: INK.secondary, marginBottom: 6 }}>
-            演示账号（口令 = 账号，点一下填入）。换一个账号登就能看到同一张表行数不同——
-            那是服务端范围谓词在起作用，不是前端筛的。
-          </Typography.Paragraph>
-          {/* 用 text Button 而不是带 onClick 的 div：这块要能用键盘走到（Tab + Enter） */}
-          <Space orientation="vertical" size={2} style={{ width: "100%" }}>
-            {DEMO.map((d) => (
-              <Button
-                key={d.username}
-                type="text"
-                size="small"
-                block
-                style={{ textAlign: "left", paddingInline: 6 }}
-                onClick={() => {
-                  form.setFieldsValue({ username: d.username, password: d.username });
-                }}
-              >
-                <Space size={6}>
-                  <span className="num" style={{ fontSize: 12 }}>
-                    {d.username}
-                  </span>
-                  <span style={{ fontSize: 11, color: INK.secondary }}>{d.who}</span>
-                  <Tag
-                    variant="filled"
-                    style={{ fontSize: 11, lineHeight: "16px", marginInlineEnd: 0 }}
-                  >
-                    {d.scope}
-                  </Tag>
-                </Space>
-              </Button>
-            ))}
-          </Space>
-          <Typography.Text style={{ fontSize: 11, color: INK.secondary }}>
-            另有 qiangl（未开通）：登录应与口令错误给同一句提示。
-          </Typography.Text>
-        </div>
-      ) : null}
     </div>
   );
 }
