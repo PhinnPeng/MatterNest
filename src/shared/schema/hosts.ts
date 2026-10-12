@@ -111,7 +111,13 @@ export const riskCreateSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "发现日期格式为 YYYY-MM-DD")
     .optional()
     .or(z.literal("")),
-  ownerId: idField("负责人").optional(),
+  /**
+   * 负责人。**可为 null**：事项侧"未指派处理人"是一等状态（IQ-5），
+   * 新建时允许先不指派、改派时也允许退回未指派。
+   * `.optional()`（可省略）与 `.nullable()`（可为 null）是两件事，
+   * 少了后者，提交 `ownerId: null` 会被判 422。
+   */
+  ownerId: idField("负责人").nullable().optional(),
   /**
    * 当事人区。**这是转案件能走通的前提**——`convertToCase` 的前置是"事项至少 1 个当事人"，
    * 而在本字段出现之前 `riskMatterParty` 全仓只有读没有写，所以任何走 UI 建的事项

@@ -673,10 +673,17 @@ function OwnerDialog({
   riskId: string;
 }) {
   const { message } = AntdApp.useApp();
-  const { data: meta } = useQuery({
-    queryKey: ["users"],
+  // 可选处理人走 §4.1 的 `selectable-users`（**必须带事项 id**），不去问 `/api/meta`。
+  // 原来这里问 `/api/meta?host=matter` 要 `users`，而那个接口的返回键只有
+  // `actor / statuses / levels / tags / enums` ⇒ 恒为 undefined ⇒ 下拉永远是空的，
+  // **界面上换不了处理人**。而"谁能被派活"是收窄后的核心约束（L2/L3 只能派给共现过的同事），
+  // 所以这条数据源不能图省事从字典接口里凑。
+  const { data: selectable, isPending: loadingUsers } = useQuery({
+    queryKey: ["selectable-users", "risk_matter", riskId],
     queryFn: () =>
-      api.get<{ users: { id: string; displayName: string }[] }>("/api/meta?host=matter"),
+      api.get<{ users: { id: string; displayName: string; username: string }[] }>(
+        `/api/risk-matters/${riskId}/selectable-users`,
+      ),
   });
   const [value, setValue] = useState<string | null>(null);
   const mut = useMutation({
@@ -705,11 +712,20 @@ function OwnerDialog({
         <Select
           style={{ width: "100%" }}
           allowClear
-          placeholder="选择经办人"
+          loading={loadingUsers}
+          placeholder="选择处理人"
           value={value === undefined ? current : value}
           onChange={(v) => setValue(v ?? null)}
-          options={(meta?.users ?? []).map((u) => ({ value: u.id, label: u.displayName }))}
+          options={(selectable?.users ?? []).map((u) => ({ value: u.id, label: u.displayName }))}
+          notFoundContent={
+            loadingUsers ? undefined : "没有可指派的同事：你只能派给与自己共现过的人（§4.1）"
+          }
         />
+        {selectable && selectable.users.length === 0 && (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            这条事项上目前没有可指派的其他同事。
+          </Typography.Text>
+        )}
       </Space>
     </Modal>
   );

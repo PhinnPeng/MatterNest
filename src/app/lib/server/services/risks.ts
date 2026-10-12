@@ -1,6 +1,7 @@
 import { and, asc, count as dcount, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
 import { SORTABLE_COLUMNS } from "@/shared/schema/list-query";
+import { listSelectableUsers } from "./selectable-users";
 import { getDb } from "../db/client";
 import {
   matter,
@@ -978,7 +979,9 @@ export async function updateRiskMatter(
     amount?: string;
     ownerId?: string | null;
   },
-): Promise<{ ok: true } | { ok: false; why: "not_found" | "forbidden" | "empty" }> {
+): Promise<
+  { ok: true } | { ok: false; why: "not_found" | "forbidden" | "empty" | "owner_not_selectable" }
+> {
   const db = await getDb();
   const [cur] = await db
     .select({
@@ -1007,6 +1010,27 @@ export async function updateRiskMatter(
       ? null
       : BigInt(patch.ownerId!)
     : cur.ownerId;
+
+  /**
+   * 变更处理人时，被指派的人**必须落在我的可见用户集内**（权限草案 §6 被加者条件第三条）。
+   *
+   * 这条校验在**写路径**上，不在界面上：只把下拉收窄是装饰——任何一个看得见这条事项的
+   * 登录用户，直接 PATCH 一个任意 `ownerId` 就能绕过，那等于 Q1 收窄根本没生效。
+   *
+   * IQ-14 的创建期例外（放开到全体 active 用户）**不适用在这里**：那是登记表单的规则，
+   * 「创建之后」的变更严格走 §4.1。
+   *
+   * 置空（退回未指派）不走这条：空值不构成"把人加进案卷"，且这条路径本就是
+   * `ownerAllows` 放开的场景——未指派的事项得有人能接手。
+   */
+  if (changingOwner && nextOwner !== null) {
+    const selectable = await listSelectableUsers(actor, "risk_matter", id);
+    // selectable 为 null 表示这条事项你看不见 → 上面 scopedWhere 已拦过，这里是兜底
+    if (selectable === null) return { ok: false, why: "not_found" };
+    if (!selectable.some((u) => u.id === nextOwner.toString())) {
+      return { ok: false, why: "owner_not_selectable" };
+    }
+  }
 
   const diffs: Record<string, { from: unknown; to: unknown }> = {};
   const set: Record<string, unknown> = {};
