@@ -550,6 +550,8 @@ Pro 那三件便利（查询区、工具栏、表单化弹窗）本来就是薄�
 
 7. **前端只允许一套组件体系：Ant Design 6 + Tailwind v4（Tailwind 只管容器布局）。** 三个可机器化的子条款：
    - **不得引入第二套体系或第二家叶子库**：`radix-ui`/`class-variance-authority`（上一套的残余，依赖已删）、`@ant-design/pro-components`、`lucide-react`（图标只有 `@ant-design/icons`）、`react-hook-form`+`@hookform/resolvers`（表单只有 antd Form）、`date-fns`/`moment`（日期只有 `dayjs`，antd 的 DatePicker 认它）；
+     - **唯一具名白名单（2026-10-12，IQ-19 / ADR-0002）：富文本编辑器**。`@blocknote/{core,react,mantine}` + peer `@mantine/{core,hooks,utils}` + `react-markdown`/`remark-breaks` 允许引入，**且只允许出现在富文本编辑器内部**（`components/ui/rich-text/`）——`@mantine/*` 不得用于任何其他控件，编辑器之外一律仍是 antd。代价与理由见 `docs/adr/0002-rich-text-blocknote.md`（跨项目一致优先于视觉纯一）。
+     - ⚠ **门禁在这一条上是瞎的**：`tools/lint-guard` 与收工清单的 `git grep` 名字表里**没有 `mantine`/`blocknote`**，照抄进去照样绿。所以白名单的边界靠这条文字与 review 守，不靠脚本；改白名单必须同时改本行与 ADR。
    - **不得走 antd 深路径**：一律顶层 `"antd"`，类型也在 index 上（`TableColumnsType`、`FormRule`），`antd/es/*` 会绕过 `@ant-design/nextjs-registry` 的样式抽取；
    - **一个色只定义一次**：色值唯一源是 `src/app/theme/brand.ts`（`BRAND`/`INK`/`PAPER`/`alpha()`），`theme/antd.ts` 只做 token 映射，业务侧写 `BRAND.primary` 而不是 `#2f5fe0`；半透明用 `alpha(色, 透明度)`，不许手写第二份 `rgba()`。白 `#fff` 是唯一放过字面量的颜色。
 8. **表格一律经 `components/ui/data-table/DataTable.tsx`**：受控 `page/pageSize/sortBy/sortDir`、`pageSize > 100` **直接抛**、列上只给 `sorter: true`（**绝不再给第二个参数**，历史上给过 `position` 那个非法 key 且被静默忽略）、**禁止客户端全量排序**（客户端全量筛 = 绕过 `scopedWhere`，理由不是性能而是权限）。表单校验仍然单一来源——`shared/schema` 的 Zod，经 `components/form/zod-rules.ts` 推导成 antd `rules`（见 §13.6.3）。

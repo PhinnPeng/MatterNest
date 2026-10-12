@@ -41,8 +41,9 @@
 ## Quality Check（收工前逐条过）
 
 - [ ] `pnpm verify` 绿（format:check / eslint / typecheck / vitest / **lint-guard 四个 scope +「页头无第二行插槽」源码断言**）。
+- [ ] 界面文案逐句过**「旁白」**判据：复述紧邻已写着的东西、或把规则/排序/权限讲成散文 → 删，或落进四类落点（空态、控件说明、tooltip、字段表）；规则类的话搬到动作发生处。原型的 HTML 也要过这一遍——`lint-guard` 扫不到它。
 - [ ] `pnpm build` 绿；无 `any` 逃避、无 `!important`、无绕过 token 的行内 style（两类例外见 component-guidelines）。
-- [ ] 只 import 顶层 `"antd"` 与 `@ant-design/icons`；`git grep -n "antd/es\|radix\|lucide\|date-fns\|react-hook-form\|pro-components" src` 应为空。
+- [ ] 只 import 顶层 `"antd"` 与 `@ant-design/icons`；`git grep -n "antd/es\|radix\|lucide\|date-fns\|react-hook-form\|pro-components" src` 应为空。**唯一例外**：富文本编辑器可用 `@blocknote/*` + `@mantine/*`（`docs/adr/0002-rich-text-blocknote.md`），但只许出现在 `components/ui/rich-text/` 之下——这条名字表扫不到它们，靠 review 守。
 - [ ] 所有列表走 `DataTable`，参数受控（`page/pageSize/sortBy/sortDir/filters`），列宽与 `ellipsis` 都给齐。
 - [ ] 详情/下载类入口不可见时表现为 **404**，没有"这条存在但你无权"的提示；但**关注/通知 feed 是规格件明定的例外**：保留占位行、标题写「无权查看的记录」、摘要字段（状态变化/评论摘录/金额）一律不发、未读按可见行计（权限草案 §7.1）。不要把占位行删掉或整行隐藏。
 - [ ] 敏感字段展示走后端脱敏 DTO，前端不做"点一下显示明文"的遮罩逻辑（明文查看要落 `SENSITIVE_FIELD_READ`）。

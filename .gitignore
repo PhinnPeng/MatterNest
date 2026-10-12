@@ -2,6 +2,10 @@
 .qoder/
 .zcode/
 
+# dsh-mcp-manager 的项目级 MCP 配置：里面是**真实 API key**（技术选型 §6 任何密钥不入库）。
+# `.dsh/` 其余内容（DSH.md、skills）是入库的，所以只忽略这一个落点。
+.dsh/@wingsky-1/
+
 # 编辑器 / 系统噪声
 .DS_Store
 Thumbs.db
@@ -40,3 +44,4 @@ agent-work/*
 !agent-work/_testacct.mjs
 .mcp.json
 opencode.json
+.opencode/

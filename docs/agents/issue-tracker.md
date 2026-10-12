@@ -14,11 +14,30 @@ is **not** a registered todo.
 | Lifecycle mirror of the record | Trellis `task.json.status` via `task.py` |
 | Triage labels | Paca `tags` (see `triage-labels.md`) |
 
-## Connection facts (verified 2026-10-10)
+## Connection facts (verified 2026-10-12)
 
-- **Paca MCP server `paca-matternest` is live** in this repo，配置在**项目** `.qoder/settings.json`
-  （不是全局那份——全局只有 agileidentity / uniondesk / youmeng 三个 single-project 连接器）。
-  旧的「Paca 不能走 MCP」说法来自**那两个错钉的 single-project 连接器**，与 MatterNest 无关。
+- **Paca MCP server `paca-matternest` is live**, but注意**同一个服务器有三份互不相通的配置面**，
+  各自喂不同的工具，别再混为一谈（这是本节 2026-10-10 版写错的地方）：
+
+  | 配置落点 | 谁读它 | 状态 |
+  |---|---|---|
+  | `.dsh/@wingsky-1/dsh-mcp-manager/mcp.json` | **DSH**（本 harness 的 `ws_mcp_*`） | ✅ 2026-10-12 新建并实测连通 |
+  | 项目 `.qoder/settings.json` | Qoder IDE | 存在，DSH 不读 |
+  | 根 `.mcp.json` / 项目 `opencode.json` | 其它 harness（Claude 系 / opencode CLI） | 存在，DSH 不读服务器定义 |
+
+  DSH 的 `dsh-mcp-manager` 只吃**它自己**的项目级落点 `<root>/.dsh/@wingsky-1/dsh-mcp-manager/mcp.json`
+  （全局那份在 `~/.dsh/@wingsky-1/…`）；根 `.mcp.json` 在它代码里**只当项目根探测标记**，
+  服务器条目一律不从那里加载。实测反证：`.qoder/settings.json` 与 `.mcp.json` 都在的时候
+  `ws_mcp_list` 报 0 servers，补上 `.dsh/@wingsky-1/…/mcp.json` 才被发现并连上。
+
+  调用形如 `ws_mcp_call(server="@F:\WorkSpace\MatterNest/paca-matternest", tool="list_tasks",
+  arguments={projectId: "8c42f9be-…"})` —— **`projectId` 必须显式传**，env 里那个只配置服务器进程；
+  参数面以 `ws_mcp_detail` 为准。名字约束 `^[A-Za-z0-9_-]{1,32}$`，transport 只认 `stdio` / `streamable-http`。
+
+  ⚠ **这个新落点含真实 API key，已用 `.gitignore` 的 `.dsh/@wingsky-1/` 挡掉**（`.dsh/` 其余内容
+  如 `DSH.md`、`skills/` 是入库的，所以只忽略这一层）。改动本目录前先看这条。
+- 旧的「Paca 不能走 MCP」说法来自**三个错钉的 single-project 连接器**（全局那份的
+  agileidentity / uniondesk / youmeng），与 MatterNest 无关。
 
   **2026-10-12：所有 REST 协助脚本已删除**（`agent-work/paca*.mjs` 共 16 个）。一律走 MCP。
   删它们的直接原因是一次事故：`paca.mjs` 按标题幂等 upsert，**跑一次就覆盖了 32 张卡的描述**
