@@ -1,3 +1,4 @@
+import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
 /**
  * Demo 冒烟：SSR 壳 + 真实 HTTP 读链路 + 三档范围对比。
  *

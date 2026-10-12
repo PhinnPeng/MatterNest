@@ -1,3 +1,4 @@
+import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
 /**
  * 转案件 + 撤销关联 的真 HTTP 冒烟（切片一 T2）。
  *
@@ -71,9 +72,12 @@ const sql = postgres({
   password: process.env.PGPASSWORD,
 });
 
-const l1 = await login("wangkf");
-ok("L1 登录", l1.status === 200, `status=${l1.status}`);
+const smoke = await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], isAdmin: true });
+const l1 = await login(smoke.username, smoke.password);
+ok("L1 登录（临时账号）", l1.status === 200, `status=${l1.status}`);
 const cookie = l1.cookie;
+
+// （旧的演示账号登录块已移除，改用上面的临时账号）
 
 // 中途断言失败时也要清场，否则半截数据会留在库里被下一轮当成真实数据。
 // 用 try/finally 而不是只在末尾清：前两轮就是在中途抛异常，留下了一地残留。
@@ -326,6 +330,7 @@ ok("重复撤销 → 404（幂等，不是 500）", again.status === 404, `statu
   } catch (e) {
     console.log(`[clean] 清场失败（需手工查）—— ${e?.message ?? e}`);
   }
+  await dropSmokeAccount(sql, smoke.id);
   await sql.end();
 }
 

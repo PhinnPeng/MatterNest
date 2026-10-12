@@ -1,3 +1,4 @@
+import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
 /**
  * 事项侧成链的真 HTTP 冒烟（T1）：详情 · 状态 · 处置记录 · 手动节点 · 归档 · 软删。
  *
@@ -45,9 +46,6 @@ async function call(method, path, cookie, payload) {
 }
 
 const stamp = Date.now();
-const l1 = await login("wangkf"); // 全局管理 L1（持 can_unarchive）
-ok("L1 登录", l1.status === 200, `status=${l1.status}`);
-const cookie = l1.cookie;
 
 const createdRiskIds = new Set();
 const createdMatterIds = new Set();
@@ -59,6 +57,14 @@ const sql = postgres({
   database: process.env.PGDATABASE,
   password: process.env.PGPASSWORD,
 });
+
+// 自建临时账号（F1 之后 seed 不再下发任何口令，冒烟不能靠仓库里的凭据）
+const smoke = await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], isAdmin: true });
+const smoke2 = await createSmokeAccount(sql, { roles: [ROLE_CODES.joined] });
+
+const l1 = await login(smoke.username, smoke.password); // 全局管理 L1（持 can_unarchive）
+ok("L1 登录（临时账号）", l1.status === 200, `status=${l1.status}`);
+const cookie = l1.cookie;
 
 async function cleanup() {
   const rids = [...createdRiskIds].map(BigInt);
@@ -122,7 +128,7 @@ try {
   ok("写了 COMMENT_UPDATED 审计", updAudit.n === 1, `n=${updAudit.n}`);
 
   // 编辑别人的 → 403（用 L2 账号试）
-  const l2 = await login("suny");
+  const l2 = await login(smoke2.username, smoke2.password);
   const cOther = await call("PATCH", `/api/risk-matters/${riskId}/comments?commentId=${commentId}`, l2.cookie, { body: "别人来改" });
   ok("编辑别人的处置记录 → 403（不可见则 404）", cOther.status === 403 || cOther.status === 404, `status=${cOther.status}`, );
 
@@ -175,12 +181,10 @@ try {
   ok("父资源 id 对不上 → 404（不是 200）", crossNode.status === 404, `status=${crossNode.status}`);
 
   // ---- 7. 变更处理人：普通字段编辑 + OWNER_CHANGED ----
-  // 取一个**与创建人不同**的用户：若取到创建人自己，这次编辑就是空操作（422 empty），
-  // 断言会以"看不出问题"的方式通过——已经踩过一次。
-  const [creator] = await sql`select id::text as id from mn_app_user where username='wangkf'`;
-  const [u] = await sql`select id::text as id, display_name from mn_app_user
-    where is_enabled and not is_deleted and id::text <> ${creator.id} order by id limit 1`;
-  ok("拿到一个与创建人不同的用户作为新经办人", u?.id && u.id !== creator.id, `creator=${creator.id} 新=${u?.id}`);
+  // 取一个**与创建人不同**的用户作为新经办人：直接用第二个临时账号的 id，
+  // 不按演示用户名去库里捞——那条路径依赖 seed 的演示账号，F1 之后已经不该存在。
+  const u = { id: String(smoke2.id) };
+  ok("拿到一个与创建人不同的用户作为新经办人", u.id !== String(smoke.id), `创建人=${smoke.id} 新=${u.id}`);
   const setOwner = await call("PATCH", `/api/risk-matters/${riskId}`, cookie, { ownerId: u.id });
   ok("变更处理人 → 200", setOwner.status === 200, `status=${setOwner.status}`);
   const [ownerAudit] = await sql`select count(*)::int as n from mn_activity_log where action='OWNER_CHANGED' and risk_matter_id = ${riskId}`;
@@ -271,6 +275,8 @@ try {
   } catch (e) {
     console.log(`[clean] 清场失败（需手工查）—— ${e?.message ?? e}`);
   }
+  await dropSmokeAccount(sql, smoke.id);
+  await dropSmokeAccount(sql, smoke2.id);
   await sql.end();
 }
 

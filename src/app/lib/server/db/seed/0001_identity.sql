@@ -4,8 +4,11 @@
 --   1. 角色与用户是**多对多**（`mn_app_user_role`）。§2 明写"既要管系统又要能撤销归档的人，
 --      给他 sys_admin + full_admin 两个角色，靠取最宽并集生效" ⇒ 用户表上没有 role_id 列。
 --   2. id 用预留低号段（10–14 / 101–106），不用雪花值：seed 要跨环境逐字重放。
---   3. `password_hash` 是 scrypt(salt=用户名相关串)，**仅 dev 演示**，口令等于用户名。
---      生产环境这些行必须被部署脚本覆盖，且明文口令绝不进任何文件。
+--   3. **`password_hash` 刻意不下发**（审计 F1，2026-10-12）。原来这里是"口令等于用户名"的
+--      演示摘要，明文写在 git 跟踪的 SQL 里——拿到仓库就等于拿到全部口令，而 `wangkf`
+--      是 `is_admin=true`、直接短路范围谓词。现在账号建成即"没有可用口令"（该列可空，
+--      `verifyPassword` 对 null 返回 false），**任何人都无法用仓库里的信息登入**。
+--      口令由部署时另行设置，不属于 seed 的职责。
 --
 -- `sys_admin` 的数据范围刻意是 owned(L3) 而不是 all(L1)：在"可见即可操作"下范围就是读权限，
 -- 这样"能管系统但看不到别人案卷"才成立（§2 注）。
@@ -23,14 +26,14 @@ ON CONFLICT ("code") DO NOTHING;
 -- `is_admin` 只给总经理一个人（权限草案 §3：独立于角色的最后开关，仅 1–2 人）。
 -- 它**只**绕过数据范围，不给任何特权；写 seed 而不是留人手工 UPDATE，是为了让
 -- "重放一次 seed 就有可用逃生口"成立——真出事时手上要有能跑的东西。
-INSERT INTO "mn_app_user" ("id", "username", "display_name", "password_hash", "is_enabled", "is_admin", "activation_status")
+INSERT INTO "mn_app_user" ("id", "username", "display_name", "is_enabled", "is_admin", "activation_status")
 VALUES
-  (101, 'wangkf', '王凯锋', '68f21edfbd96a6bd89c63473e649092706fc1a9aede5ded2df2b214fe93f0f99803ff22b61d47fc9bd367111999e62d57b4984ba4c6a6072327e3b9c7d9811d6', true, true, 'active'),
-  (102, 'lichen', '李晨', '1a8e9b6eec303940927392f63f058668b30912d58a30e848c5e88c5a51f4538a57f03a3d1b4d0e82a4440eed5b46ae42e962ca01e6824dcf8412019660257a16', true, false, 'active'),
-  (103, 'zhaolj', '赵凌', '6cefdcd9b0df94d00096481db197afff8f6867ba03650757daff36a0062be9616657b20bbd254fd61eb23f7f8356e30e7443f5d1173c00b938636bc246143cc1', true, false, 'active'),
-  (104, 'suny', '孙奕', '93050968b2e618cf7150ec92018041347dbc45ded606a7fa1a30a45d16ac48223ad96115d0d68b12d170291f89ceb3b874027711d199e67a7600cc0bd773484c', true, false, 'active'),
-  (105, 'hezp', '何哲培', 'e58a2f396ad8d851441d7f38c91dad50850bfdbf0413de35af418e7ef2cac7918ba195457d33f4bd82d8e7f0cdd3d232d6aa3465ee60ed09bca185074d3d8dab', true, false, 'active'),
-  (106, 'qiangl', '强玲', 'e5da5e73d25ec9ceeee11d98c12ddc73c0405ffd3230c9173cf537170a6134bd42b2246cd47480e7a9525eb7bec30bd6e00c380647c2ead4f56dca1e49ec81c7', true, false, 'pending')
+  (101, 'wangkf', '王凯锋', true, true, 'active'),
+  (102, 'lichen', '李晨', true, false, 'active'),
+  (103, 'zhaolj', '赵凌', true, false, 'active'),
+  (104, 'suny', '孙奕', true, false, 'active'),
+  (105, 'hezp', '何哲培', true, false, 'active'),
+  (106, 'qiangl', '强玲', true, false, 'pending')
 -- ⚠ **`password_hash` 刻意不在 DO UPDATE 的赋值列表里**（审计 F2，2026-10-12）。
 --
 -- 原来是 `DO UPDATE SET "password_hash" = excluded."password_hash", ...`，后果是：
