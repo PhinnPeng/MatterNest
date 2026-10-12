@@ -68,6 +68,19 @@ export const appUser = pgTable(
      * 且只给 1–2 个账号（seed 里是总经理）。判定见 `scope/visibility.ts` 的第一行短路。
      */
     isAdmin: boolean("is_admin").notNull().default(false),
+    /**
+     * 系统所有者：**凭据生命线的持有者**，语义是"谁能启动恢复"（MATT-53，迁移 0007）。
+     *
+     * 刻意与 `is_admin` 分成两列，不是冗余：
+     * `is_admin` 是权限模型的**逃生口**（只短路范围、不给特权，是谓词的一个输入）；
+     * 本列是**身份本身**。绑成一列的后果是改"谁有逃生口"就得同步改"谁能恢复系统"，
+     * 两件事的变更频率与审批级别都不同。
+     *
+     * 全局唯一由 `uk_mn_app_user_owner` 这个 **partial unique index** 兜底，
+     * 不靠应用层：CHECK 只能断言"这一行合法"，表达不了"全表只有一行合法"。
+     * 交接（移交）因此必须"先撤旧持有者再授新持有者"，撞索引是预期行为。
+     */
+    isSystemOwner: boolean("is_system_owner").notNull().default(false),
     activationStatus: varchar("activation_status", { length: 16 }).notNull().default("active"),
     /** 吊销全部会话用（离职回收链路，权限草案 §5） */
     tokenVersion: fk("token_version")
@@ -79,6 +92,20 @@ export const appUser = pgTable(
   (t) => [
     uniqueIndex("uk_mn_app_user_username").on(t.username),
     check("ck_mn_app_user_activation", sqlInList("activation_status", ACTIVATION_STATUSES)),
+    /**
+     * 全局至多一位系统所有者。
+     *
+     * **必须与迁移 0007 逐字对应**：drizzle 的 `index().on().where()` 产出
+     * `create unique index ... where is_system_owner`，与手写迁移同形。
+     * 少了这一行，下一次 `db:generate` 会把库里的索引判成 drift——
+     * 于是"库里有一个 schema 不知道的约束"，这正是本仓最怕的第三事实源。
+     *
+     * 用 `sql\`true\`` 而不是 `.where(eq(t.isSystemOwner, true))`：
+     * 两者语义相同，但前者与手写迁移逐字一致，diff 才比得出来。
+     */
+    uniqueIndex("uk_mn_app_user_owner")
+      .on(t.isSystemOwner)
+      .where(sql`${t.isSystemOwner}`),
   ],
 );
 

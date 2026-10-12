@@ -29,7 +29,11 @@ const sql = postgres({
   database: process.env.PGDATABASE,
   password: process.env.PGPASSWORD,
 });
-const acctL1 = await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], isAdmin: true });
+// 范围最广的**普通角色**，不是逃生口。
+// `isAdmin: true` 会让探针账号拿到 §3 的最后开关，于是它成了第二个"逃生口持有人"，
+// 每次跑都在把"is_admin 到底有几个人"这个数往错的方向推。本脚本要验的是
+// 三档数据范围，全公司那一档由 `full_admin`（scope=all）就给得起，不需要逃生口。
+const acctL1 = await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], isAdmin: false });
 const acctL2 = await createSmokeAccount(sql, { roles: [ROLE_CODES.joined] });
 /** 本轮造的案件 id；清场要先删它，否则账号删不掉（owner_id 是 NOT NULL） */
 let createdMatterId = null;

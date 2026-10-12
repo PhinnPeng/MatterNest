@@ -49,6 +49,20 @@ VALUES
 -- 口令是**不属于 seed 的东西**：seed 负责演示配置，不负责身份凭据。
 -- 生产改过口令之后再重放 seed，库里现值必须原样保留。
 ON CONFLICT ("username") DO UPDATE SET "is_admin" = excluded."is_admin", "display_name" = excluded."display_name";
+
+-- 系统所有者：admin 就是凭据生命线的那一位（MATT-53 / 迁移 0007）。
+--
+-- 与 `is_admin` 分成两件事：逃生口只说"绕过数据范围"且不给特权；
+-- 系统所有者是"谁能启动恢复"的身份本身。两列都只给同一个人，但语义不同、不能合并。
+--
+-- 全局唯一由 `uk_mn_app_user_owner`（partial unique index）兜底，**不由这里保**。
+-- 所以这一行写成"确保 admin 是、其他人不是"，而不是无条件 ON CONFLICT 增量：
+-- 若库里已经有人被授过标记，先清干净再授，否则撞唯一索引。
+UPDATE "mn_app_user" SET "is_system_owner" = false
+ WHERE "is_system_owner" AND "username" <> 'admin';
+--> statement-breakpoint
+UPDATE "mn_app_user" SET "is_system_owner" = true
+ WHERE "username" = 'admin' AND NOT "is_system_owner";
 -- 上面这行是 DO UPDATE 而不是 DO NOTHING：口令摘要与显示名都属于"可重放的演示配置"，
 -- 首轮 seed 我算错过一次摘要（把用户名拼成 `用户名@MatterNest-demo` 去哈希，
 -- 而校验函数哈希的是口令本身），DO NOTHING 会让错值永远留在库里、登录恒定 401。
