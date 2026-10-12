@@ -31,7 +31,15 @@ VALUES
   (104, 'suny', '孙奕', '93050968b2e618cf7150ec92018041347dbc45ded606a7fa1a30a45d16ac48223ad96115d0d68b12d170291f89ceb3b874027711d199e67a7600cc0bd773484c', true, false, 'active'),
   (105, 'hezp', '何哲培', 'e58a2f396ad8d851441d7f38c91dad50850bfdbf0413de35af418e7ef2cac7918ba195457d33f4bd82d8e7f0cdd3d232d6aa3465ee60ed09bca185074d3d8dab', true, false, 'active'),
   (106, 'qiangl', '强玲', 'e5da5e73d25ec9ceeee11d98c12ddc73c0405ffd3230c9173cf537170a6134bd42b2246cd47480e7a9525eb7bec30bd6e00c380647c2ead4f56dca1e49ec81c7', true, false, 'pending')
-ON CONFLICT ("username") DO UPDATE SET "password_hash" = excluded."password_hash", "is_admin" = excluded."is_admin", "display_name" = excluded."display_name";
+-- ⚠ **`password_hash` 刻意不在 DO UPDATE 的赋值列表里**（审计 F2，2026-10-12）。
+--
+-- 原来是 `DO UPDATE SET "password_hash" = excluded."password_hash", ...`，后果是：
+-- **谁在生产重放一次 seed，所有改过的口令全部打回「用户名=用户名」**，
+-- 而 `wangkf` 是 `is_admin=true`，直接短路范围谓词。一次 `pnpm db:seed` 就全线失守。
+--
+-- 口令是**不属于 seed 的东西**：seed 负责演示配置，不负责身份凭据。
+-- 生产改过口令之后再重放 seed，库里现值必须原样保留。
+ON CONFLICT ("username") DO UPDATE SET "is_admin" = excluded."is_admin", "display_name" = excluded."display_name";
 -- 上面这行是 DO UPDATE 而不是 DO NOTHING：口令摘要与显示名都属于"可重放的演示配置"，
 -- 首轮 seed 我算错过一次摘要（把用户名拼成 `用户名@MatterNest-demo` 去哈希，
 -- 而校验函数哈希的是口令本身），DO NOTHING 会让错值永远留在库里、登录恒定 401。
