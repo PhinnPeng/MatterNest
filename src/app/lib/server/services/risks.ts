@@ -722,6 +722,9 @@ export async function getRiskMatter(actor: Actor, id: string) {
       currency: riskMatter.currency,
       status: riskMatter.status,
       ownerId: riskMatter.ownerId,
+      // 创建人进 DTO：关注名单的管理权（§6 经办人/L1/创建人）要在界面上判
+      // "右段菜单里给不给『添加关注人』"，只给布尔位会把规则抄第二份到前端
+      creatorId: riskMatter.createdBy,
       discoverDate: riskMatter.discoverDate,
       isArchived: riskMatter.isArchived,
       archivedAt: riskMatter.archivedAt,
@@ -859,6 +862,7 @@ export async function getRiskMatter(actor: Actor, id: string) {
     ...row,
     id: String(row.id),
     ownerId: row.ownerId === null ? null : String(row.ownerId),
+    creatorId: row.creatorId === null ? null : String(row.creatorId),
     ownerName: ownerRow[0]?.name ?? null,
     nodeTypes: nodeTypes.map((t) => ({ id: String(t.id), code: t.code, name: t.name })),
     nodes: nodes.map((n) => ({ ...n, id: String(n.id), nodeTypeId: String(n.nodeTypeId) })),
@@ -1387,6 +1391,204 @@ export async function deleteRiskMatter(
       targetType: "risk_matter",
       targetId: BigInt(id),
       action: "RISK_DELETED",
+    });
+  });
+  return { ok: true };
+}
+
+/* ─────────────────────────── 关注组（MATT-56 / IQ-19 批注④ / ADR-0003） ─────────────────────────── */
+
+/**
+ * 关注人（`*_staff.staff_role='follower'`）的读写。
+ *
+ * ## 两道门，不是一道（ADR-0003 的原文结构）
+ *
+ * · **自我关注**（把**自己**加/摘出名单）：唯一的门是「操作者现在就能看见这条记录」。
+ *   这道校验就是 `scopedWhere` 本身——看不见 → 查不到行 → 404。
+ *   去掉它，拿到/枚举到事项 id 就能自取读写（follower 进 L2 可见性、可写节点与评论），
+ *   等于放开权限草案 §6 的整节风控。**这道门槛不许拆。**
+ * · **给别人加/摘**：门是 §6 的名单管理权——经办人 / L1（含 is_admin）/ **创建人**。
+ *   协办与关注没有这条权利（他们看得见，但管不了名单）。
+ *   且每个被加者还要过 §4.1 的可见用户集（复用 `listSelectableUsers`，与写处理人同一条路）。
+ *
+ * ## 归档态
+ *
+ * 归档是只读终态（§5.2）：名单**仍可读**（原型批注：只读不等于看不见谁在关注），
+ * 但写一律拒——与评论、节点、字段编辑同一口径。
+ *
+ * ## `user_watch(follow)` 的连带删除（票面第 ⑥ 条）
+ *
+ * `mn_user_watch` 表**还不存在**（属 M5/M6，见 `collab.ts` 头注）。按本仓纪律
+ * （审计 F4 的 `revoked_at`、MATT-53 的停用守卫都是这条），给不存在的表写删除代码
+ * 就是死代码——所以这里不写，等 T4/M5 建表时在同批接上。摘 `follower` 行本身是真的。
+ */
+
+/** 取事项 + 判可见性；null = 看不见或不存在（→ 404） */
+async function loadRiskForStaff(db: Awaited<ReturnType<typeof getDb>>, actor: Actor, id: string) {
+  const [row] = await db
+    .select({
+      id: riskMatter.id,
+      ownerId: riskMatter.ownerId,
+      creatorId: riskMatter.createdBy,
+      isArchived: riskMatter.isArchived,
+    })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(id))))
+    .limit(1);
+  return row ?? null;
+}
+
+/** §6 名单管理权：经办人 / L1 / is_admin / 创建人 */
+function canManageStaffList(
+  actor: Actor,
+  host: { ownerId: bigint | null; creatorId: bigint | null },
+): boolean {
+  if (actor.isAdmin || actor.dataScope === "all") return true;
+  const uid = BigInt(actor.userId);
+  if (host.ownerId !== null && host.ownerId === uid) return true;
+  return host.creatorId !== null && host.creatorId === uid;
+}
+
+/** 当前关注名单（详情页右段「n 人关注」与菜单的唯一数据源） */
+export async function listRiskFollowers(actor: Actor, riskId: string) {
+  const db = await getDb();
+  const src = await loadRiskForStaff(db, actor, riskId);
+  if (!src) return null;
+  const rows = await db
+    .select({
+      id: riskMatterStaff.id,
+      userId: riskMatterStaff.userId,
+      name: appUser.displayName,
+    })
+    .from(riskMatterStaff)
+    .innerJoin(appUser, eq(appUser.id, riskMatterStaff.userId))
+    .where(
+      and(eq(riskMatterStaff.hostId, BigInt(riskId)), eq(riskMatterStaff.staffRole, "follower")),
+    )
+    .orderBy(asc(appUser.displayName));
+  return rows.map((r) => ({ id: String(r.id), userId: String(r.userId), name: r.name }));
+}
+
+export type AddFollowersResult =
+  | { ok: true; added: number; skipped: string[] }
+  | { ok: false; why: "not_found" | "archived" | "forbidden" };
+
+/**
+ * 加关注人。`userIds` 里**自己**与**他人**分开走两道门（见文件头注）：
+ * 自己只看可见性；他人要名单管理权 + 可见用户集。
+ * 一批里混着两种身份时按最严的来：没有管理权的人提交别人的 id ⇒ 整请求 403
+ * （部分成功会让"我加了三个同事只有一个进去了"变成看不见的洞）。
+ */
+export async function addRiskFollowers(
+  actor: Actor,
+  riskId: string,
+  userIds: readonly string[],
+): Promise<AddFollowersResult> {
+  const db = await getDb();
+  const src = await loadRiskForStaff(db, actor, riskId);
+  if (!src) return { ok: false, why: "not_found" };
+  if (src.isArchived) return { ok: false, why: "archived" };
+
+  const me = BigInt(actor.userId);
+  const targets = userIds.map(BigInt);
+  const hasOthers = targets.some((t) => t !== me);
+  if (hasOthers && !canManageStaffList(actor, src)) return { ok: false, why: "forbidden" };
+
+  // 被加者条件（§6 第三条）：只对"他人"查；自己永远在自己可见（能走到这里就说明看得见宿主）
+  if (hasOthers) {
+    const selectable = await listSelectableUsers(actor, "risk_matter", riskId);
+    if (selectable === null) return { ok: false, why: "not_found" };
+    const allowed = new Set(selectable.map((u) => u.id));
+    const rejected = targets.filter((t) => t !== me && !allowed.has(String(t)));
+    if (rejected.length > 0) return { ok: false, why: "forbidden" };
+  }
+
+  // 已在名单里的跳过而不是报错——眼睛连点两下、菜单里重复勾选都不该变成一次失败
+  const existing = await db
+    .select({ userId: riskMatterStaff.userId })
+    .from(riskMatterStaff)
+    .where(
+      and(
+        eq(riskMatterStaff.hostId, BigInt(riskId)),
+        eq(riskMatterStaff.staffRole, "follower"),
+        inArray(riskMatterStaff.userId, targets),
+      ),
+    );
+  const have = new Set(existing.map((e) => String(e.userId)));
+  const fresh = [...new Set(targets)].filter((t) => !have.has(String(t)));
+  if (fresh.length === 0) return { ok: true, added: 0, skipped: targets.map(String) };
+
+  const skipped = targets.filter((t) => have.has(t.toString())).map(String);
+  await db.transaction(async (tx) => {
+    await tx.insert(riskMatterStaff).values(
+      fresh.map((userId) => ({
+        id: BigInt(nextId()),
+        hostId: BigInt(riskId),
+        userId,
+        staffRole: "follower",
+      })),
+    );
+    await tx
+      .update(riskMatter)
+      .set({ updatedBy: BigInt(actor.userId), updatedAt: new Date().toISOString() })
+      .where(eq(riskMatter.id, BigInt(riskId)));
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter",
+      targetId: BigInt(riskId),
+      action: "STAFF_CHANGED",
+      payload: { add: "follower", userIds: fresh.map(String) },
+    });
+  });
+  return { ok: true, added: fresh.length, skipped };
+}
+
+export type RemoveFollowerResult =
+  { ok: true } | { ok: false; why: "not_found" | "archived" | "forbidden" };
+
+/**
+ * 摘一个关注人。**摘自己**永远允许（取消关注 = 眼睛的右半程，不受名单管理权约束，
+ * ADR-0003 明写）；摘**别人**要管理权。
+ */
+export async function removeRiskFollower(
+  actor: Actor,
+  riskId: string,
+  userId: string,
+): Promise<RemoveFollowerResult> {
+  const db = await getDb();
+  const src = await loadRiskForStaff(db, actor, riskId);
+  if (!src) return { ok: false, why: "not_found" };
+  if (src.isArchived) return { ok: false, why: "archived" };
+
+  const isSelf = BigInt(userId) === BigInt(actor.userId);
+  if (!isSelf && !canManageStaffList(actor, src)) return { ok: false, why: "forbidden" };
+
+  const [link] = await db
+    .select({ id: riskMatterStaff.id })
+    .from(riskMatterStaff)
+    .where(
+      and(
+        eq(riskMatterStaff.hostId, BigInt(riskId)),
+        eq(riskMatterStaff.userId, BigInt(userId)),
+        eq(riskMatterStaff.staffRole, "follower"),
+      ),
+    )
+    .limit(1);
+  // 不在名单里 = 已经是目标态。给 404 会误导（事项明明在），幂等成功更诚实。
+  if (!link) return { ok: true };
+
+  await db.transaction(async (tx) => {
+    await tx.delete(riskMatterStaff).where(eq(riskMatterStaff.id, link.id));
+    await tx
+      .update(riskMatter)
+      .set({ updatedBy: BigInt(actor.userId), updatedAt: new Date().toISOString() })
+      .where(eq(riskMatter.id, BigInt(riskId)));
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter",
+      targetId: BigInt(riskId),
+      action: "STAFF_CHANGED",
+      payload: { remove: "follower", userIds: [userId] },
     });
   });
   return { ok: true };

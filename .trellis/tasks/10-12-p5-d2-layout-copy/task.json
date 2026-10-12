@@ -3,7 +3,7 @@
   "name": "p5-d2-layout-copy",
   "title": "P5-D2 一：布局改判 + 文案改名（界面层）",
   "description": "把 IQ-19 的 D2 形态落到事项详情页：页头并入左列、右栏只剩评论（输入框钉底、栏底在折线以上 20px）、页签减到两枚（事项节点/活动日志）、详细信息回送到描述下方（字段行 + 已转案件 hover + 收起区）、加节点按钮移进节点面板、左列与右栏等高；同批 13 处「风险事项」→「事项」及变更处理人/活动流/风险描述/软删四项改名。布局以分支 prototype/p5-p6-2026-10-11 的变体 D2（提交 5513abc）为准。Paca: MATT-55。",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,

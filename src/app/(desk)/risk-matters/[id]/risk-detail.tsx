@@ -11,6 +11,7 @@ import {
   Collapse,
   Col,
   DatePicker,
+  Dropdown,
   Empty,
   Flex,
   Form,
@@ -25,12 +26,18 @@ import {
   Tabs,
   Tag,
   Timeline,
+  Tooltip,
   Typography,
 } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import {
+  EyeInvisibleOutlined,
+  EyeOutlined,
+  PlusOutlined,
+  UserDeleteOutlined,
+} from "@ant-design/icons";
 import type { Dayjs } from "dayjs";
 
-import { api, ApiFailure, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
+import { api, ApiFailure, useActor, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
 import { SectionTitle } from "@/app/components/page-header";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
@@ -175,6 +182,7 @@ export function RiskDetail({ id }: { id: string }) {
                   变更状态
                 </Button>
                 {!risk.isArchived && <Button onClick={() => setOwnerOpen(true)}>变更经办人</Button>}
+                <FollowGroup risk={risk} onDone={invalidate} />
                 {!risk.isArchived && (
                   <Popconfirm
                     title="删除这条事项？"
@@ -831,6 +839,229 @@ function OwnerDialog({
           notFoundContent={loadingUsers ? undefined : "没有可指派的同事"}
         />
       </Space>
+    </Modal>
+  );
+}
+
+/**
+ * 关注组（IQ-19 批注④ / ADR-0003）：**两个按钮合成一组**。
+ *
+ * · 左段眼睛 = 它自己就是按钮，切换「我关注」（填充=已关注）。自我关注只受
+ *   「现在就能看见这条记录」那道门约束（ADR-0003）——所以界面上它对任何可见者都在。
+ * · 右段「n 人关注 ▾」= 开菜单：添加关注人 + 名单（行内 hover 出 X 取消）。
+ *   菜单里**不放**「取消关注」——那是左段的职责，一个动作只留一个入口。
+ * · 我那一行计入 n，并在名单里带「我」标记；X 掉自己那行 = 取消关注（眼睛同步转灰）。
+ *
+ * 归档态：眼睛与菜单都撤，但「n 人关注」这条**读事实**留着（只读终态 ≠ 看不见谁在关注）。
+ *
+ * 数据不另发请求：关注名单就在 `risk.staff` 里（`staffRole==='follower'`），
+ * 写成功靠 invalidate `["risk", id]` 回流，避免两处状态各说各话。
+ */
+function FollowGroup({ risk, onDone }: { risk: Risk; onDone: () => void }) {
+  const { message } = AntdApp.useApp();
+  const { data: actor } = useActor();
+  const [addOpen, setAddOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+
+  const followers = risk.staff.filter((s) => s.staffRole === "follower");
+  const meId = actor?.userId;
+  const iFollow = followers.some((f) => f.userId === meId);
+  // 名单管理权（§6）：经办人 / L1 / 创建人。协办与关注没有——他们能看名单、能加自己。
+  const canManage =
+    !!actor &&
+    (actor.dataScope === "all" || risk.ownerId === actor.userId || risk.creatorId === actor.userId);
+
+  const invalidate = () => {
+    onDone();
+    setPicked([]);
+  };
+  const onErr = (e: unknown) => message.error(e instanceof ApiFailure ? e.message : "关注操作失败");
+
+  const toggleSelf = useMutation({
+    mutationFn: () =>
+      iFollow
+        ? api.del(`/api/risk-matters/${risk.id}/staff/followers/${meId}`)
+        : api.post(`/api/risk-matters/${risk.id}/staff/followers`, { userIds: [meId!] }),
+    onSuccess: invalidate,
+    onError: onErr,
+  });
+  const addOthers = useMutation({
+    mutationFn: () =>
+      api.post<{ added: number; skipped: string[] }>(
+        `/api/risk-matters/${risk.id}/staff/followers`,
+        { userIds: picked },
+      ),
+    onSuccess: (r) => {
+      setAddOpen(false);
+      if (r.added > 0) message.success(`已添加 ${r.added} 位关注人`);
+      else message.info("这些人已经在名单里了");
+      invalidate();
+    },
+    onError: onErr,
+  });
+  const removeOne = useMutation({
+    mutationFn: (userId: string) =>
+      api.del(`/api/risk-matters/${risk.id}/staff/followers/${userId}`),
+    onSuccess: invalidate,
+    onError: onErr,
+  });
+
+  const roster = (
+    <div style={{ minWidth: 200 }}>
+      {followers.length === 0 ? (
+        <div style={{ padding: "2px 10px 8px", fontSize: 12, color: INK.muted }}>
+          还没有关注人。
+        </div>
+      ) : (
+        followers.map((f) => (
+          <Flex key={f.id} align="center" gap={8} style={{ padding: "5px 10px", borderRadius: 6 }}>
+            <span style={{ flex: 1, minWidth: 0 }}>{f.name}</span>
+            {f.userId === meId && <Tag color="blue">我</Tag>}
+            {(canManage || f.userId === meId) && !risk.isArchived && (
+              <Tooltip title={f.userId === meId ? "取消关注" : `移除 ${f.name}`}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<UserDeleteOutlined />}
+                  loading={removeOne.isPending}
+                  onClick={() => removeOne.mutate(f.userId)}
+                />
+              </Tooltip>
+            )}
+          </Flex>
+        ))
+      )}
+    </div>
+  );
+
+  // 菜单内容：添加关注人（有管理权才出现）+ 名单。
+  // 「取消关注」不在这里——那是左段眼睛的职责，一个动作只留一个入口（原型批注）。
+  const menuBody = (
+    <div>
+      {canManage && (
+        <>
+          <Button
+            type="text"
+            block
+            icon={<PlusOutlined />}
+            style={{ justifyContent: "flex-start" }}
+            onClick={() => {
+              setMenuOpen(false);
+              setAddOpen(true);
+            }}
+          >
+            添加关注人
+          </Button>
+          <div style={{ borderTop: `1px solid ${INK.line}`, margin: "4px 0" }} />
+        </>
+      )}
+      {roster}
+    </div>
+  );
+
+  if (risk.isArchived) {
+    return (
+      <span style={{ fontSize: 12.5, color: INK.muted }}>
+        <EyeOutlined style={{ marginRight: 4 }} />
+        {followers.length} 人关注
+      </span>
+    );
+  }
+
+  return (
+    <>
+      {/* 两段合成一组（共用一条边框）：antd 6 没有 Button.Group，Space.Compact 是它的替代。
+          左段眼睛自己就是按钮；右段开菜单。 */}
+      <Space.Compact>
+        <Tooltip title={iFollow ? "取消关注" : "关注"}>
+          <Button
+            type={iFollow ? "primary" : "default"}
+            icon={iFollow ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+            loading={toggleSelf.isPending}
+            onClick={() => toggleSelf.mutate()}
+          />
+        </Tooltip>
+        <Dropdown
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          trigger={["click"]}
+          popupRender={() => (
+            <Card size="small" style={{ padding: 4 }}>
+              {menuBody}
+            </Card>
+          )}
+        >
+          <Button>{followers.length} 人关注</Button>
+        </Dropdown>
+      </Space.Compact>
+      <AddFollowersDialog
+        risk={risk}
+        open={addOpen}
+        picked={picked}
+        onPicked={setPicked}
+        loading={addOthers.isPending}
+        onClose={() => {
+          setAddOpen(false);
+          setPicked([]);
+        }}
+        onOk={() => addOthers.mutate()}
+      />
+    </>
+  );
+}
+
+/** 添加关注人的选择面：数据源与「变更经办人」同一条（§4.1 收窄后的可选用户查询） */
+function AddFollowersDialog({
+  risk,
+  open,
+  picked,
+  onPicked,
+  loading,
+  onClose,
+  onOk,
+}: {
+  risk: Risk;
+  open: boolean;
+  picked: string[];
+  onPicked: (v: string[]) => void;
+  loading: boolean;
+  onClose: () => void;
+  onOk: () => void;
+}) {
+  const { data: selectable, isPending } = useQuery({
+    queryKey: ["selectable-users", "risk_matter", risk.id],
+    queryFn: () =>
+      api.get<{ users: { id: string; displayName: string; username: string }[] }>(
+        `/api/risk-matters/${risk.id}/selectable-users`,
+      ),
+    enabled: open,
+  });
+  const followerIds = new Set(
+    risk.staff.filter((s) => s.staffRole === "follower").map((s) => s.userId),
+  );
+  const options = (selectable?.users ?? [])
+    .filter((u) => !followerIds.has(u.id))
+    .map((u) => ({ value: u.id, label: u.displayName }));
+  return (
+    <Modal
+      open={open}
+      title="添加关注人"
+      onCancel={onClose}
+      okText="添加"
+      okButtonProps={{ disabled: picked.length === 0, loading }}
+      onOk={onOk}
+    >
+      <Select
+        mode="multiple"
+        style={{ width: "100%", marginTop: 12 }}
+        placeholder="选择同事"
+        loading={isPending}
+        value={picked}
+        onChange={onPicked}
+        options={options}
+        notFoundContent={isPending ? undefined : "没有可添加的同事"}
+      />
     </Modal>
   );
 }

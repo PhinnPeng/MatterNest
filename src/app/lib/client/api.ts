@@ -248,6 +248,8 @@ export type RiskDetail = {
   /** 可空：事项侧经办人可空（IQ-5） */
   ownerId: string | null;
   ownerName: string | null;
+  /** 关注名单管理权判定的第三档（§6：经办人 / L1 / 创建人） */
+  creatorId: string | null;
   discoverDate: string;
   isArchived: boolean;
   archivedAt: string | null;
