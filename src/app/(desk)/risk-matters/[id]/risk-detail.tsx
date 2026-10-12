@@ -46,7 +46,7 @@ import { NODE_STATUS_LABELS, LITIGATION_ROLE_LABELS } from "@/shared/enums/busin
  * 三条与案件侧**刻意不同**的地方（IQ-5「事项是台账，案件是战场」），不是抄漏：
  *   · 节点栏允许为空，并给一个「手动加节点」的入口 —— 事项侧无预设节点
  *   · 节点只有时间点，**不出现时间段控件**；未确认时间用"待定"而不是留空
- *   · 经办人可空，空时显示「未指派处理人」并给「变更处理人」按钮
+ *   · 经办人可空，空时显示「未指派」并给「变更经办人」按钮
  *
  * 写成功一律失效 `["risk", id]` / `["risk-matters"]` / `["overview"]`：
  * 详情页要立刻看到，回列表与工作台也要看见。
@@ -87,7 +87,7 @@ export function RiskDetail({ id }: { id: string }) {
   const softDelete = useMutation({
     mutationFn: () => api.del(`/api/risk-matters/${id}`),
     onSuccess: () => {
-      message.success("已软删。库里仍可恢复，但界面上没有回收站。");
+      message.success("已删除。库里仍保留，但界面上没有回收站。");
       invalidate();
     },
     onError: (e) => message.error(e instanceof ApiFailure ? e.message : "删除失败"),
@@ -178,9 +178,13 @@ export function RiskDetail({ id }: { id: string }) {
             {/* 归档是只读终态：整页只保留一个"看"，不给任何写入口 */}
             {risk.isArchived && (
               <Card size="small" style={{ background: PAPER }}>
+                {/* 只留**事实**：已归档 + 日期。
+                    原来后面还跟着「是只读终态 / 要改内容需先撤销归档」那半句——按前端规范
+                    （副标题纪律 · 旁白，2026-10-12）属**讲规则**，且不落四类落点之一：
+                    页面已经没有写入口这件事一眼可见，撤销归档是权限路径不是本页事实。
+                    规则搬到动作发生处，不在这里复述。 */}
                 <Typography.Text type="secondary">
-                  这条事项已归档（{calDate(risk.archivedAt)}
-                  ），是只读终态。要改内容需先由持「撤销归档」权限的人撤销归档。
+                  这条事项已归档（{calDate(risk.archivedAt)}）。
                 </Typography.Text>
               </Card>
             )}
@@ -194,9 +198,9 @@ export function RiskDetail({ id }: { id: string }) {
                       <span>{risk.ownerName}</span>
                     </Space>
                   ) : (
-                    <FlagMark tone="warn">未指派处理人</FlagMark>
+                    <FlagMark tone="warn">未指派</FlagMark>
                   )}
-                  {/* 变更处理人是普通字段编辑，不进独立流程（GLOSSARY） */}
+                  {/* 变更经办人是普通字段编辑，不进独立流程（GLOSSARY） */}
                   {!risk.isArchived && (
                     <Button size="small" type="link" onClick={() => setOwnerOpen(true)}>
                       变更处理人
@@ -224,10 +228,10 @@ export function RiskDetail({ id }: { id: string }) {
               items={[
                 {
                   key: "detail",
-                  label: <SectionTitle>展开风险描述、处置措施、当事人与登记信息</SectionTitle>,
+                  label: <SectionTitle>展开描述、处置措施、当事人与登记信息</SectionTitle>,
                   children: (
                     <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                      <DetailBlock title="风险描述">{risk.description || <Dash />}</DetailBlock>
+                      <DetailBlock title="描述">{risk.description || <Dash />}</DetailBlock>
                       <DetailBlock title="处置措施">{risk.measure || <Dash />}</DetailBlock>
                       <DetailBlock title="当事人">
                         {risk.parties.length === 0 ? (
@@ -307,7 +311,7 @@ export function RiskDetail({ id }: { id: string }) {
 
             <Card
               size="small"
-              title={<SectionTitle count={risk.activity.length}>活动流</SectionTitle>}
+              title={<SectionTitle count={risk.activity.length}>活动日志</SectionTitle>}
             >
               {risk.activity.length === 0 ? (
                 <Dash />
@@ -333,14 +337,14 @@ export function RiskDetail({ id }: { id: string }) {
                   变更状态
                 </Button>
                 <Popconfirm
-                  title="软删这条事项？"
-                  description="库内仍可恢复，但界面上没有回收站。普通用户看不到已删行。"
-                  okText="软删"
+                  title="删除这条事项？"
+                  description="删除后不再出现在列表里；库里仍保留，但没有回收站。"
+                  okText="删除"
                   cancelText="取消"
                   onConfirm={() => softDelete.mutate()}
                 >
                   <Button danger loading={softDelete.isPending}>
-                    软删
+                    删除
                   </Button>
                 </Popconfirm>
               </Space>
@@ -673,7 +677,7 @@ function OwnerDialog({
     mutationFn: (v: string | null) => api.patch(`/api/risk-matters/${riskId}`, { ownerId: v }),
     onSuccess: (_d, v) => {
       onClose();
-      message.success(v === null ? "已退回未指派处理人" : "已变更处理人");
+      message.success(v === null ? "已退回未指派" : "已变更经办人");
       onDone();
     },
     onError: (e) => message.error(e instanceof ApiFailure ? e.message : "变更失败"),
@@ -682,33 +686,30 @@ function OwnerDialog({
   return (
     <Modal
       open={open}
-      title="变更处理人"
+      title="变更经办人"
       onCancel={onClose}
       okText="保存"
       confirmLoading={mut.isPending}
       onOk={() => mut.mutate(value === undefined ? current : value)}
     >
       <Space direction="vertical" size={10} style={{ width: "100%", marginTop: 12 }}>
-        <Typography.Text type="secondary">
-          这是一次普通字段编辑：不新增状态、不进独立流程。选「退回未指派」会把这条事项放回待处理池。
-        </Typography.Text>
+        {/* 这里原来有一段弹窗顶部说明，讲「这是普通字段编辑 / 退回未指派会怎样」——
+            按前端规范（副标题纪律 · 旁白，2026-10-12）属**讲规则**，不落四类落点之一，整段删除。
+            「退回未指派」的后果改用 Select 的 title 承载（悬停才出，不占常驻版面）。
+
+            空态文案也一并收窄：原文把服务端的收窄规则讲成了散文。
+            空态只说**为什么为空**，那条约束不是给这个位置的提示。 */}
         <Select
           style={{ width: "100%" }}
           allowClear
           loading={loadingUsers}
           placeholder="选择处理人"
+          title="清空即退回未指派，这条事项回到待处理池"
           value={value === undefined ? current : value}
           onChange={(v) => setValue(v ?? null)}
           options={(selectable?.users ?? []).map((u) => ({ value: u.id, label: u.displayName }))}
-          notFoundContent={
-            loadingUsers ? undefined : "没有可指派的同事：你只能派给与自己共现过的人（§4.1）"
-          }
+          notFoundContent={loadingUsers ? undefined : "没有可指派的同事"}
         />
-        {selectable && selectable.users.length === 0 && (
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            这条事项上目前没有可指派的其他同事。
-          </Typography.Text>
-        )}
       </Space>
     </Modal>
   );
