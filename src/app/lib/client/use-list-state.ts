@@ -27,6 +27,14 @@ export type ListState = {
   status: string;
   /** 归档视图（二态）：false=在办列表，true=归档视图。取代旧的"混入"开关。 */
   archivedOnly: boolean;
+  /**
+   * 只看**未指派处理人**的事项（T1）。
+   *
+   * 放在共享的 `ListState` 里而不是事项视图的局部 state：筛选条件必须能进 URL，
+   * 否则"把这条筛选发给同事"就做不到，而那是筛选器最基本的一条。
+   * `undefined` = 不限（后端 `ownerEmptyField` 的第三态）。
+   */
+  ownerEmpty?: string;
 };
 
 export function useListState(defaults?: Partial<ListState>) {

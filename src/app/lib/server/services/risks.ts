@@ -728,7 +728,7 @@ export async function getRiskMatter(actor: Actor, id: string) {
   // 不可见一律 404（元规则 3），不返 403 —— 403 会替调用方确认"这条存在"
   if (!row) return null;
 
-  const [nodes, staff, parties, comments, activity, statuses, converted, ownerRow] =
+  const [nodes, staff, parties, comments, activity, statuses, converted, ownerRow, nodeTypes] =
     await Promise.all([
       db
         .select({
@@ -830,6 +830,20 @@ export async function getRiskMatter(actor: Actor, id: string) {
             .from(appUser)
             .where(eq(appUser.id, row.ownerId))
             .limit(1),
+      // 可选节点类型：**只有 time_type='point' 的**（IQ-5 事项节点只支持时间点）。
+      // 过滤放服务端而不是让前端记一条"这个别显示"——那条规则迟早会漏。
+      // addRiskNode 还会再拒一次：不给选项不等于拦得住手写请求。
+      db
+        .select({
+          id: nodeTypeConfig.id,
+          code: nodeTypeConfig.code,
+          name: nodeTypeConfig.name,
+        })
+        .from(nodeTypeConfig)
+        .where(
+          and(eq(nodeTypeConfig.hostType, "risk_matter"), eq(nodeTypeConfig.timeType, "point")),
+        )
+        .orderBy(asc(nodeTypeConfig.sortOrder)),
     ]);
 
   return {
@@ -837,6 +851,7 @@ export async function getRiskMatter(actor: Actor, id: string) {
     id: String(row.id),
     ownerId: row.ownerId === null ? null : String(row.ownerId),
     ownerName: ownerRow[0]?.name ?? null,
+    nodeTypes: nodeTypes.map((t) => ({ id: String(t.id), code: t.code, name: t.name })),
     nodes: nodes.map((n) => ({ ...n, id: String(n.id), nodeTypeId: String(n.nodeTypeId) })),
     staff: staff.map((s) => ({ ...s, id: String(s.id), userId: String(s.userId) })),
     parties: parties ?? [],

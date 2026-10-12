@@ -57,6 +57,21 @@ export const archivedOnlyField = z
   .optional()
   .transform((v) => v === "1" || v === "true");
 
+/**
+ * 「只看**未指派处理人**的事项」（T1）。
+ *
+ * 用 `optional()` + `undefined` 而不是 `false`：三态（不限 / 只看空 / 只看有）
+ * 挤进一个布尔会丢掉中间态——"有经办人的"本就是默认，不需要单独一档。
+ *
+ * ⚠ 只有**持 L1 数据范围**的角色用得上。参与经办以下看不到未指派的事项
+ * （它不在"我经办 ∪ 我协办 ∪ 我被关注 ∪ 我创建的"里），那个筛选对他们恒为空——
+ * 这是权限的正常结果，不是筛选出错。**只暴露这个参数，不为它改可见性。**
+ */
+export const ownerEmptyField = z
+  .enum(["1", "true"])
+  .optional()
+  .transform((v) => v === "1" || v === "true");
+
 export const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),

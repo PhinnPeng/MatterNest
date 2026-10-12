@@ -3,6 +3,7 @@
 import { INK } from "@/app/theme/brand";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Input, Select, Space, Typography } from "antd";
 import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
@@ -58,6 +59,8 @@ export function RisksView() {
 
   const [kw, setKw] = useState(state.keyword);
   const [st, setSt] = useState(state.status);
+  // 未指派筛选。undefined = 不限（后端 list-query.ts 的 ownerEmptyField 有注释）
+  const [ownerEmpty, setOwnerEmpty] = useState(Boolean(state.ownerEmpty));
   useEffect(() => {
     setKw(state.keyword);
     setSt(state.status);
@@ -78,13 +81,20 @@ export function RisksView() {
   );
 
   function submit() {
-    push({ keyword: kw.trim(), status: st });
+    push({ keyword: kw.trim(), status: st, ownerEmpty: ownerEmpty ? "1" : undefined });
+  }
+
+  /** 未指派筛选是即时生效的：它就是一个开关，不需要再点一次"查询" */
+  function applyOwnerEmpty(v: boolean) {
+    setOwnerEmpty(v);
+    push(v ? { ownerEmpty: "1" } : { ownerEmpty: undefined });
   }
 
   function reset() {
     setKw("");
     setSt("");
-    push({ keyword: "", status: "" });
+    setOwnerEmpty(false);
+    push({ keyword: "", status: "", ownerEmpty: undefined });
   }
 
   const columns = useMemo<TableColumnsType<RiskRow>>(
@@ -110,7 +120,8 @@ export function RisksView() {
         sorter: true,
         sortOrder: sortOrderOf("name", state.sortBy, state.sortDir),
         render: (_, r) => (
-          <span
+          <Link
+            href={`/risk-matters/${r.id}`}
             title={r.name}
             style={{
               display: "block",
@@ -121,7 +132,7 @@ export function RisksView() {
             }}
           >
             {r.name}
-          </span>
+          </Link>
         ),
       },
       {
@@ -193,7 +204,14 @@ export function RisksView() {
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("owner_name", state.sortBy, state.sortDir),
-        render: (_, r) => r.ownerName,
+        // 空值必须**说出来**：事项侧经办人可空（IQ-5），留白会被读成"数据缺失"，
+        // 而它是一个有业务含义的状态——待人接手。
+        render: (_, r) =>
+          r.ownerName ? (
+            r.ownerName
+          ) : (
+            <span style={{ color: INK.faint, fontSize: 12 }}>未指派</span>
+          ),
       },
       {
         key: "updated_at",
@@ -262,6 +280,15 @@ export function RisksView() {
             value={st || undefined}
             options={statusOptions}
             onChange={(v) => setSt(v ?? "")}
+          />
+        </FilterField>
+        <FilterField label="经办人" width={150}>
+          <Select
+            allowClear
+            placeholder="全部"
+            value={ownerEmpty ? "1" : undefined}
+            options={[{ value: "1", label: "未指派处理人" }]}
+            onChange={(v) => applyOwnerEmpty(Boolean(v))}
           />
         </FilterField>
       </QueryFilter>

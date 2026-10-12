@@ -61,6 +61,20 @@ export const api = {
       body: body === undefined ? undefined : JSON.stringify(body),
       ...init,
     }),
+  /**
+   * `patch` / `del` 单独补上，而不是在 `post` 里塞第二个参数。
+   *
+   * 之前 `api` 只有 get/post，于是 PATCH/DELETE 只能碰 `request` 那层私有实现，
+   * 页面要么绕开（拿 POST 去调改语义的端点）要么各自 fetch 一遍——
+   * 后者会让 401 跳转、错误文案这些横切行为各写一遍。禁令⑧：同一处出，校验与错误处理单源。
+   */
+  patch: <T>(path: string, body?: unknown, init?: Options) =>
+    request<T>(path, {
+      method: "PATCH",
+      body: body === undefined ? undefined : JSON.stringify(body),
+      ...init,
+    }),
+  del: <T>(path: string, init?: Options) => request<T>(path, { method: "DELETE", ...init }),
 };
 
 /**
@@ -206,6 +220,88 @@ export type MatterDetail = {
     operator: string;
   }[];
   statuses: StatusRow[];
+};
+
+/**
+ * 事项详情（T1）。
+ *
+ * 与 `MatterDetail` **刻意不对称**（IQ-5「事项是台账，案件是战场」），不是抄漏了：
+ *   · `ownerId` 可为 null —— 事项的经办人可空，空 = 未指派处理人
+ *   · `nodes` 可能是空数组 —— 事项侧无预设节点，节点只能手动加
+ *   · 节点只有时间点 —— `timeType` 收窄成字面量 `"point"`、`endTime` 收窄成 `null`，
+ *     让「给事项节点加时间段」在**类型层**就写不出来
+ *   · 没有 `progress` / `expense` / `attachments` —— 事项核查走**处置记录**
+ * `convertedCases` 是事项**独有**的块：事项是转案件的上游，详情页要能反查回去。
+ */
+export type RiskDetail = {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  level: string;
+  source: string | null;
+  description: string;
+  measure: string | null;
+  amount: string;
+  currency: string;
+  status: string;
+  /** 可空：事项侧经办人可空（IQ-5） */
+  ownerId: string | null;
+  ownerName: string | null;
+  discoverDate: string;
+  isArchived: boolean;
+  archivedAt: string | null;
+  conversionStatus: number;
+  convertedCaseCount: number;
+  convertedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  nodes: {
+    id: string;
+    nodeTypeId: string;
+    name: string;
+    timeType: "point";
+    startTime: string | null;
+    endTime: null;
+    isTimeConfirmed: boolean;
+    deadlineTime: string | null;
+    status: string;
+    sourceKind: "manual" | "preset" | "rule";
+    sortOrder: number;
+    cancelReason: string | null;
+    completedAt: string | null;
+  }[];
+  staff: { id: string; userId: string; staffRole: string; name: string }[];
+  parties: { id: string; partyId: string; partyRole: string; name: string; type: string }[];
+  comments: {
+    id: string;
+    body: string;
+    parentId: string | null;
+    isEdited: boolean;
+    authorId: string;
+    authorName: string;
+    createdAt: string;
+    updatedAt: string;
+  }[];
+  activity: {
+    id: string;
+    action: string;
+    reason: string | null;
+    operatorId: string;
+    createdAt: string;
+  }[];
+  statuses: StatusRow[];
+  /** 可选节点类型，**服务端已过滤掉 range**（事项节点只支持时间点） */
+  nodeTypes: { id: string; code: string; name: string }[];
+  /** 已转案件反查（T1 详情页的独有块） */
+  convertedCases: {
+    id: string;
+    internalCode: string;
+    caseNo: string;
+    name: string;
+    status: string;
+    isArchived: boolean;
+  }[];
 };
 
 /** 下拉字典（状态与等级是配置表驱动，必须从服务端读，见 `/api/meta`） */

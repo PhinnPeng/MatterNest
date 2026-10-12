@@ -4,6 +4,7 @@ import {
   MAX_PAGE_SIZE,
   SORTABLE_COLUMNS,
   archivedOnlyField,
+  ownerEmptyField,
 } from "@/shared/schema/list-query";
 import { riskCreateSchema, pruneEmpty, type PartyLinkInput } from "@/shared/schema/hosts";
 import { createRiskMatter, listRiskMatters } from "@/app/lib/server/services/risks";
@@ -24,6 +25,8 @@ const listSchema = z.object({
   sortDir: z.enum(["asc", "desc"]).default("desc"),
   // 同一个字段定义从 shared 引，不在这里重写一遍（禁令⑧：校验规则单源）
   archivedOnly: archivedOnlyField,
+  // 只看未指派处理人的事项（T1）。语义与可见性无关，见 list-query.ts 里的注释。
+  ownerEmpty: ownerEmptyField,
 });
 
 export async function GET(req: Request) {
