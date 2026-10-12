@@ -227,7 +227,7 @@ export function Workbench() {
                   <Statistic
                     title={
                       <Link href="/risk-matters" style={{ color: "inherit" }}>
-                        风险事项
+                        事项
                       </Link>
                     }
                     value={data?.risks.total ?? 0}

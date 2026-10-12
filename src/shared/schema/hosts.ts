@@ -98,7 +98,7 @@ export const riskCreateSchema = z.object({
   type: z.enum(RISK_MATTER_TYPES, { message: "请选择风险类型" }),
   level: z.string().trim().min(1, "请选择风险等级").max(32),
   source: z.enum(RISK_MATTER_SOURCES).optional().or(z.literal("")),
-  description: z.string().trim().min(2, "请填写风险描述").max(5000),
+  description: z.string().trim().min(2, "请填写描述").max(5000),
   measure: z.string().trim().max(5000).optional().or(z.literal("")),
   amount: z
     .string()

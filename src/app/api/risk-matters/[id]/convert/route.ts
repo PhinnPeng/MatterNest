@@ -21,7 +21,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (r.why === "not_found") return notFound();
     if (r.why === "archived") {
       // 归档是终态（映射矩阵 §5.2）：要转得先撤归档，而撤销要 can_unarchive 特权
-      return fail(422, "archived", "这条风险事项已归档。归档是终态，请先撤销归档再转案件。");
+      return fail(422, "archived", "这条事项已归档。归档是终态，请先撤销归档再转案件。");
     }
     if (r.why === "too_many_cases") {
       return fail(422, "too_many_cases", "一次最多转 20 个案件，请分批提交。");
@@ -30,7 +30,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return fail(
       422,
       "parties_required",
-      "这条风险事项还没有关联当事人。转案件要求每案至少 1 个当事人，请先在事项上添加再转。",
+      "这条事项还没有关联当事人。转案件要求每案至少 1 个当事人，请先在事项上添加再转。",
     );
   });
 }

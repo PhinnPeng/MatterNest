@@ -52,7 +52,7 @@ const NAV: { type: "group"; label: string; children: Item[] }[] = [
       { key: "/matters", label: "案件", icon: <FileTextOutlined /> },
       {
         key: "/risk-matters",
-        label: "风险事项",
+        label: "事项",
         icon: <SafetyCertificateOutlined />,
       },
       {

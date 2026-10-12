@@ -287,14 +287,14 @@ export function RisksView() {
             allowClear
             placeholder="全部"
             value={ownerEmpty ? "1" : undefined}
-            options={[{ value: "1", label: "未指派处理人" }]}
+            options={[{ value: "1", label: "未指派" }]}
             onChange={(v) => applyOwnerEmpty(Boolean(v))}
           />
         </FilterField>
       </QueryFilter>
 
       <DataTable<RiskRow>
-        title="风险事项列表"
+        title="事项列表"
         tools={
           <Space size={8}>
             <Button icon={<ReloadOutlined />} onClick={() => void refetch()} />
@@ -320,7 +320,7 @@ export function RisksView() {
           <Typography.Text style={{ fontSize: 12 }}>
             {state.keyword || state.status
               ? "当前筛选下没有可见事项。清掉条件再看一次；范围不同看到的条数就不同。"
-              : "还没有在办风险事项。点右上「新建事项」报备一条。"}
+              : "还没有在办事项。点右上「新建事项」报备一条。"}
           </Typography.Text>
         }
       />

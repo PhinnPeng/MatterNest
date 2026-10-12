@@ -364,7 +364,7 @@ export function MatterDetail({ id }: { id: string }) {
             },
             {
               key: "activity",
-              label: `活动 (${m.activity.length})`,
+              label: `活动日志 (${m.activity.length})`,
               children: (
                 <List
                   size="small"

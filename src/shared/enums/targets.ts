@@ -47,7 +47,7 @@ export const TARGET_TYPES = [
 export type TargetType = (typeof TARGET_TYPES)[number];
 export const TARGET_TYPE_LABELS: Record<TargetType, string> = {
   matter: "案件",
-  risk_matter: "风险事项",
+  risk_matter: "事项",
   matter_node: "案件节点",
   risk_matter_node: "事项节点",
   matter_progress: "案件进展",
@@ -85,7 +85,7 @@ export const HOST_TYPES = ["matter", "risk_matter"] as const;
 export type HostType = (typeof HOST_TYPES)[number];
 export const HOST_TYPE_LABELS: Record<HostType, string> = {
   matter: "案件",
-  risk_matter: "风险事项",
+  risk_matter: "事项",
 };
 
 /** E01 `app_user.status` —— **不存在此列**，用 `is_enabled boolean`。登记是为了防止有人又造一个状态列。 */

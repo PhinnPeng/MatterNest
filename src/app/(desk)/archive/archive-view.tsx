@@ -207,7 +207,7 @@ export function ArchiveView() {
           onChange={(v) => setHost(v as Host)}
           options={[
             { label: "案件", value: "matter" },
-            { label: "风险事项", value: "risk_matter" },
+            { label: "事项", value: "risk_matter" },
           ]}
         />
         <Typography.Text style={{ fontSize: 12, color: INK.muted }}>
@@ -236,7 +236,7 @@ export function ArchiveView() {
       </QueryFilter>
 
       <DataTable<ArchiveRow>
-        title={isMatter ? "已归档案件" : "已归档风险事项"}
+        title={isMatter ? "已归档案件" : "已归档事项"}
         tools={<Button icon={<ReloadOutlined />} onClick={() => void refetch()} />}
         columns={columns}
         rows={data?.items ?? []}
@@ -256,7 +256,7 @@ export function ArchiveView() {
               ? "当前关键词下没有已归档记录。换个词或清掉关键词再看一次。"
               : isMatter
                 ? "还没有已归档案件。在办案件走完流程、置为归档后才会出现在这里。"
-                : "还没有已归档风险事项。"}
+                : "还没有已归档事项。"}
           </Typography.Text>
         }
       />

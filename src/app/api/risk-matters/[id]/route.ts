@@ -37,7 +37,7 @@ const patchSchema = z
   .object({
     name: z.string().trim().min(2, "请输入事项名称").max(200).optional(),
     level: z.string().trim().min(1).max(32).optional(),
-    description: z.string().trim().min(2, "请填写风险描述").max(5000).optional(),
+    description: z.string().trim().min(2, "请填写描述").max(5000).optional(),
     measure: z.string().trim().max(5000).nullable().optional(),
     amount: z
       .string()

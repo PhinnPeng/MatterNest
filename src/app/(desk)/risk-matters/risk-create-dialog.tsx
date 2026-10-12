@@ -109,7 +109,7 @@ export function RiskCreateDialog({
     <Modal
       open={open}
       onCancel={() => onOpenChange(false)}
-      title="新建风险事项"
+      title="新建事项"
       width={640}
       okText="报备"
       confirmLoading={mut.isPending}
@@ -179,7 +179,7 @@ export function RiskCreateDialog({
           </Col>
           <Col span={24}>
             <Form.Item
-              label="风险描述"
+              label="描述"
               name="description"
               rules={rulesFor(riskCreateSchema, ["description"])}
             >
