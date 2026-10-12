@@ -1,4 +1,4 @@
-import { and, asc, count as dcount, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, count as dcount, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
 import { SORTABLE_COLUMNS } from "@/shared/schema/list-query";
 import { getDb } from "../db/client";
@@ -78,6 +78,8 @@ export async function listRiskMatters(
     status?: string;
     sortBy?: (typeof SORTABLE_COLUMNS)[number];
     archivedOnly?: boolean;
+    /** 只看未指派处理人的事项（T1）。`owner_id IS NULL`，不是 `= ''` */
+    ownerEmpty?: boolean;
     sortDir?: "asc" | "desc";
   },
 ) {
@@ -87,6 +89,9 @@ export async function listRiskMatters(
     archivedFilter("risk_matter", Boolean(q.archivedOnly)),
     q.status ? eq(riskMatter.status, q.status) : undefined,
     keywordFilter("risk_matter", q.keyword),
+    // 未指派 = `owner_id IS NULL`。事项侧经办人可空（IQ-5），所以判空值；
+    // `= ''` 与 `NOT EXISTS` 是另外两种"空"，别混。
+    q.ownerEmpty ? isNull(riskMatter.ownerId) : undefined,
   );
   const sortCol = SORTABLE[q.sortBy ?? "updated_at"];
   const [total] = await db.select({ n: dcount() }).from(riskMatter).where(where);
@@ -106,6 +111,9 @@ export async function listRiskMatters(
       archivedAt: riskMatter.archivedAt,
       discoverDate: riskMatter.discoverDate,
       updatedAt: riskMatter.updatedAt,
+      // ownerId 与 ownerName **成对**返回：筛选用的是 owner_id，
+      // 而行里只有 ownerName 的话，"被筛掉了哪些"就说不清了，前端也判不了未指派。
+      ownerId: riskMatter.ownerId,
       ownerName: appUser.displayName,
       /**
        * 已挂当事人条数。列表页每行都拿它判「能不能转案件」：0 个当事人时
