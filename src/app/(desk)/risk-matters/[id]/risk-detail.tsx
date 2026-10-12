@@ -1,26 +1,28 @@
 "use client";
 
-import { INK, PAPER } from "@/app/theme/brand";
+import { INK } from "@/app/theme/brand";
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   App as AntdApp,
-  Avatar,
   Button,
   Card,
   Collapse,
   Col,
   DatePicker,
   Empty,
+  Flex,
   Form,
   Input,
   List,
   Modal,
   Popconfirm,
+  Popover,
   Row,
   Select,
   Space,
+  Tabs,
   Tag,
   Timeline,
   Typography,
@@ -30,7 +32,7 @@ import type { Dayjs } from "dayjs";
 
 import { api, ApiFailure, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
-import { PageHeader, SectionTitle } from "@/app/components/page-header";
+import { SectionTitle } from "@/app/components/page-header";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
@@ -124,115 +126,183 @@ export function RiskDetail({ id }: { id: string }) {
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
-      <PageHeader
-        title={risk.name}
-        // 编号不是副标题：它和名称是同一个名词的两个面，所以与标题同行（`code`）
-        code={risk.code}
-        status={<StatusMark host="risk_matter" code={risk.status} />}
-      />
-
-      {/* IQ-17：左栏一等高；右栏单栏流式，无 Tab */}
+      {/* D2（IQ-19）：左内容 + 右评论栏。两列**同顶边** ⇒ 右栏高度可以直接用 CSS 表达；
+          原型里那套 JS 量 `--rail-h` 是为"整幅页头把评论栏推下去"那个偏移准备的，D2 没有那个偏移。
+          76 = 顶栏 60 + 内容区上内边距 16；-92 再留 16 的底边距。 */}
       <Row gutter={16} align="stretch">
-        <Col xs={24} lg={9} style={{ display: "flex" }}>
-          <Card
-            size="small"
-            title={<SectionTitle count={risk.nodes.length}>事项节点</SectionTitle>}
-            extra={
-              risk.isArchived ? null : (
-                <Button size="small" icon={<PlusOutlined />} onClick={() => setNodeOpen(true)}>
-                  手动添加
-                </Button>
-              )
-            }
-            style={{ width: "100%", display: "flex", flexDirection: "column" }}
-          >
-            {risk.nodes.length === 0 ? (
-              <StateBlock
-                title="还没有节点"
-                // 说清为什么是空的：事项侧不预设节点（IQ-5），节点只在确有时限时手动加
-                hint="事项不预置节点。只有确有时限时才手动加一个时间点。"
-                action={
-                  risk.isArchived ? undefined : (
-                    <Button size="small" onClick={() => setNodeOpen(true)}>
-                      加第一个节点
-                    </Button>
-                  )
-                }
-              />
-            ) : (
-              <List
-                size="small"
-                itemLayout="vertical"
-                rowKey={(n: Risk["nodes"][number]) => String(n.id)}
-                dataSource={risk.nodes}
-                renderItem={(n: Risk["nodes"][number]) => (
-                  <NodeRow node={n} readOnly={risk.isArchived} onDone={invalidate} />
-                )}
-              />
-            )}
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={15}>
-          <Space direction="vertical" size={12} style={{ width: "100%" }}>
-            {/* 归档是只读终态：整页只保留一个"看"，不给任何写入口 */}
-            {risk.isArchived && (
-              <Card size="small" style={{ background: PAPER }}>
-                {/* 只留**事实**：已归档 + 日期。
-                    原来后面还跟着「是只读终态 / 要改内容需先撤销归档」那半句——按前端规范
-                    （副标题纪律 · 旁白，2026-10-12）属**讲规则**，且不落四类落点之一：
-                    页面已经没有写入口这件事一眼可见，撤销归档是权限路径不是本页事实。
-                    规则搬到动作发生处，不在这里复述。 */}
-                <Typography.Text type="secondary">
-                  这条事项已归档（{calDate(risk.archivedAt)}）。
-                </Typography.Text>
-              </Card>
-            )}
-
-            <Card size="small" title="标题与归属">
-              <Space direction="vertical" size={10} style={{ width: "100%" }}>
-                <MetaLine label="经办人">
-                  {risk.ownerId ? (
-                    <Space size={6}>
-                      <Avatar size="small">{risk.ownerName?.[0] ?? "?"}</Avatar>
-                      <span>{risk.ownerName}</span>
-                    </Space>
-                  ) : (
+        {/* ── 左列：页头 + 内容页签 ── */}
+        <Col
+          flex="auto"
+          style={{
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+            // 与右栏同基准（MATT-55：左列 min-height = 右栏高），两列顶边同 y ⇒ 底边同高
+            minHeight: "calc(100vh - 84px)",
+          }}
+        >
+          {/* 页头：整卡落在左列内 —— 编号与标题同行、动作在内容区最右 */}
+          <Card size="small">
+            <Flex justify="space-between" align="flex-start" gap={20} wrap>
+              <div style={{ minWidth: 0 }}>
+                <Space size={8} wrap style={{ marginBottom: 6 }}>
+                  <Typography.Text className="num" style={{ fontSize: 12, color: INK.muted }}>
+                    {risk.code}
+                  </Typography.Text>
+                  <StatusMark host="risk_matter" code={risk.status} />
+                  {/* 不再另挂「已归档」FlagMark：状态徽标本身就是「已归档」，
+                      同一屏说两遍是我们这一整轮在删的东西（归档日期在下面的字段行里）。 */}
+                  {!risk.ownerId && !risk.isArchived ? (
                     <FlagMark tone="warn">未指派</FlagMark>
-                  )}
-                  {/* 变更经办人是普通字段编辑，不进独立流程（GLOSSARY） */}
-                  {!risk.isArchived && (
-                    <Button size="small" type="link" onClick={() => setOwnerOpen(true)}>
-                      变更处理人
-                    </Button>
-                  )}
-                </MetaLine>
-                <MetaLine label="发现日期">{calDate(risk.discoverDate)}</MetaLine>
-                <MetaLine label="敞口金额">{money(risk.amount)}</MetaLine>
-                {/* 2026-10-12 从页头 `meta` 搬来：页头不再有第二行说明的位置。
-                    这两项是这条事项的分类，不是对标题的解释。 */}
-                <MetaLine label="风险类型">
-                  <FlagMark>{meta?.enums.riskTypes[risk.type] ?? risk.type}</FlagMark>
-                </MetaLine>
-                <MetaLine label="等级">
+                  ) : null}
                   <FlagMark tone={risk.level === "high" ? "danger" : "neutral"}>
                     {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
                   </FlagMark>
-                </MetaLine>
-              </Space>
-            </Card>
+                </Space>
+                <Typography.Title
+                  level={2}
+                  style={{ margin: 0, fontSize: 19, lineHeight: "28px", fontWeight: 600 }}
+                >
+                  {risk.name}
+                </Typography.Title>
+              </div>
 
-            {/* IQ-17：折叠区默认收起 */}
+              <Space size={8} wrap style={{ flex: "none" }}>
+                {/* 「撤销归档」不单设按钮：它就是一条状态迁移，走同一个「变更状态」
+                    （archive-view.tsx 的注释写的也是这条）。单设按钮会造出第二条到同一状态的路。 */}
+                <Button type="primary" onClick={() => setStatusOpen(true)}>
+                  变更状态
+                </Button>
+                {!risk.isArchived && <Button onClick={() => setOwnerOpen(true)}>变更经办人</Button>}
+                {!risk.isArchived && (
+                  <Popconfirm
+                    title="删除这条事项？"
+                    description="删除后不再出现在列表里；库里仍保留，但没有回收站。"
+                    okText="删除"
+                    cancelText="取消"
+                    onConfirm={() => softDelete.mutate()}
+                  >
+                    <Button danger loading={softDelete.isPending}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            </Flex>
+
+            {/* 描述与处置措施：主表业务字段，**整幅**——挤进动作按钮那一栏会被压到 ~300px 宽、白白多出两行。
+                截断用 antd 自带的 ellipsis（它内部做"是否真被裁"的判定）；
+                原型 HTML 里那套"摘掉 -webkit-line-clamp 再量"是没组件可用时的替代品，别搬过来。 */}
+            <div style={{ marginTop: 13 }}>
+              <div style={{ fontSize: 12, color: INK.muted, marginBottom: 5 }}>描述</div>
+              {risk.description ? (
+                <Typography.Paragraph
+                  style={{
+                    margin: 0,
+                    fontSize: 13.5,
+                    lineHeight: 1.72,
+                    color: INK.secondary,
+                    maxWidth: "74ch",
+                  }}
+                  ellipsis={{ rows: 3, expandable: "collapsible", symbol: "展开全文" }}
+                >
+                  {risk.description}
+                </Typography.Paragraph>
+              ) : (
+                <Dash />
+              )}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, color: INK.muted, marginBottom: 5 }}>处置措施</div>
+              {risk.measure ? (
+                <Typography.Paragraph
+                  style={{
+                    margin: 0,
+                    fontSize: 13.5,
+                    lineHeight: 1.72,
+                    color: INK.secondary,
+                    maxWidth: "74ch",
+                  }}
+                >
+                  {risk.measure}
+                </Typography.Paragraph>
+              ) : (
+                <Dash />
+              )}
+            </div>
+
+            {/* 字段行：一行装完。已转案件只给"几件"，细节在 hover 里（Popover 而不是自绘 CSS hover，为了键盘可达） */}
+            <Flex
+              gap={18}
+              wrap
+              align="center"
+              style={{
+                marginTop: 13,
+                paddingTop: 12,
+                borderTop: `1px solid ${INK.line}`,
+                fontSize: 12.5,
+              }}
+            >
+              <MetaLine label="风险类型">
+                <FlagMark>{meta?.enums.riskTypes[risk.type] ?? risk.type}</FlagMark>
+              </MetaLine>
+              <MetaLine label="等级">
+                <FlagMark tone={risk.level === "high" ? "danger" : "neutral"}>
+                  {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
+                </FlagMark>
+              </MetaLine>
+              <MetaLine label="发现日期">{calDate(risk.discoverDate)}</MetaLine>
+              <MetaLine label="敞口金额">{money(risk.amount)}</MetaLine>
+              <MetaLine label="经办人">
+                {risk.ownerId ? risk.ownerName : <FlagMark tone="warn">未指派</FlagMark>}
+              </MetaLine>
+              {risk.archivedAt ? (
+                <MetaLine label="归档">{calDate(risk.archivedAt)}</MetaLine>
+              ) : null}
+              <MetaLine label="已转案件">
+                {risk.convertedCases.length === 0 ? (
+                  "0 件"
+                ) : (
+                  <Popover
+                    trigger={["hover", "focus"]}
+                    content={
+                      <Space direction="vertical" size={8}>
+                        {risk.convertedCases.map((c) => (
+                          <Space key={c.id} size={8} align="baseline" wrap>
+                            <Link href={`/matters/${c.id}`} className="num">
+                              {c.internalCode}
+                            </Link>
+                            <span>{c.name}</span>
+                            <StatusMark host="matter" code={c.status} />
+                          </Space>
+                        ))}
+                      </Space>
+                    }
+                  >
+                    <span
+                      style={{
+                        cursor: "default",
+                        borderBottom: `1px dashed ${INK.rail}`,
+                      }}
+                    >
+                      {risk.convertedCases.length} 件
+                    </span>
+                  </Popover>
+                )}
+              </MetaLine>
+            </Flex>
+
+            {/* 参考材料：默认收起（描述与处置措施已经上首屏，这里只剩查阅物） */}
             <Collapse
               ghost
+              style={{ marginTop: 10 }}
               items={[
                 {
-                  key: "detail",
-                  label: <SectionTitle>展开描述、处置措施、当事人与登记信息</SectionTitle>,
+                  key: "ref",
+                  label: <SectionTitle>当事人 / 参与人 / 附件 / 登记信息</SectionTitle>,
                   children: (
                     <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                      <DetailBlock title="描述">{risk.description || <Dash />}</DetailBlock>
-                      <DetailBlock title="处置措施">{risk.measure || <Dash />}</DetailBlock>
                       <DetailBlock title="当事人">
                         {risk.parties.length === 0 ? (
                           <Dash hint="没有当事人时无法转案件——转案件要求每案至少 1 个当事人。" />
@@ -280,76 +350,118 @@ export function RiskDetail({ id }: { id: string }) {
                 },
               ]}
             />
+          </Card>
 
-            {/* 事项独有的块：已转案件反查 */}
-            {risk.convertedCases.length > 0 && (
-              <Card
-                size="small"
-                title={<SectionTitle count={risk.convertedCases.length}>已转案件</SectionTitle>}
-              >
-                <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                  {risk.convertedCases.map((c) => (
-                    <Space key={c.id} size={8} align="baseline">
-                      <Link href={`/matters/${c.id}`} className="num">
-                        {c.internalCode}
-                      </Link>
-                      <span>{c.name}</span>
-                      <StatusMark host="matter" code={c.status} />
-                    </Space>
-                  ))}
-                </Space>
-              </Card>
-            )}
+          {/* 内容卡：两枚页签。flex:1 让它在内容少时也把左列撑到与右栏同高（IQ-19 批注 ⑤） */}
+          <Card size="small" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+            <Tabs
+              defaultActiveKey="nodes"
+              items={[
+                {
+                  key: "nodes",
+                  label: `事项节点 (${risk.nodes.length})`,
+                  children: (
+                    <div>
+                      {/* 手动添加节点只出现在这个面板里（它属于节点列表，不属于页头） */}
+                      {!risk.isArchived && (
+                        <Flex justify="flex-end" style={{ marginBottom: 8 }}>
+                          <Button
+                            size="small"
+                            icon={<PlusOutlined />}
+                            onClick={() => setNodeOpen(true)}
+                          >
+                            手动添加节点
+                          </Button>
+                        </Flex>
+                      )}
+                      {risk.nodes.length === 0 ? (
+                        <StateBlock
+                          title="还没有节点"
+                          // 说清为什么是空的：事项侧不预设节点（IQ-5），节点只在确有时限时手动加
+                          hint="事项不预置节点。只有确有时限时才手动加一个时间点。"
+                          action={
+                            risk.isArchived ? undefined : (
+                              <Button size="small" onClick={() => setNodeOpen(true)}>
+                                加第一个节点
+                              </Button>
+                            )
+                          }
+                        />
+                      ) : (
+                        <List
+                          size="small"
+                          itemLayout="vertical"
+                          rowKey={(n: Risk["nodes"][number]) => String(n.id)}
+                          dataSource={risk.nodes}
+                          renderItem={(n: Risk["nodes"][number]) => (
+                            <NodeRow node={n} readOnly={risk.isArchived} onDone={invalidate} />
+                          )}
+                        />
+                      )}
+                    </div>
+                  ),
+                },
+                {
+                  key: "log",
+                  label: `活动日志 (${risk.activity.length})`,
+                  children:
+                    risk.activity.length === 0 ? (
+                      <Dash />
+                    ) : (
+                      <Timeline
+                        items={risk.activity.slice(0, 20).map((a) => ({
+                          children: (
+                            <Space direction="vertical" size={0}>
+                              <span>{meta?.enums.auditActions[a.action] ?? a.action}</span>
+                              <span style={{ color: INK.muted, fontSize: 12 }}>
+                                {dateTime(a.createdAt)}
+                              </span>
+                            </Space>
+                          ),
+                        }))}
+                      />
+                    ),
+                },
+              ]}
+            />
+          </Card>
+        </Col>
 
-            {/* IQ-17：处置记录在底部，最新在最上（评论已是倒序取，直接渲染） */}
+        {/* ── 右列：评论（事项的主交互面）。sticky + 自带滚动 + 输入框钉底；
+            高度按"本栏顶边 = 内容区顶边"直接算，不需要 JS 量。
+            356 = 卡片要的 340 + 16（antd gutter 给列两侧各 8 的内边距）——写 340 会得到 324 的内宽。 ── */}
+        <Col flex="356px">
+          <div
+            style={{
+              position: "sticky",
+              // 16 = 内容区内边距（滚动后本栏贴到内容区顶）；80 = 顶栏 64 + 下边距 16。
+              // 这组数让**首屏**与**滚动后**都不出折线：首屏 top=64、高 100vh-84 → 底边在折线以上 20。
+              // 20 是票面（MATT-55 / IQ-19 批注）写死的数，16 会让验收数字对不上（实测 752 → 距 16）。
+              top: 16,
+              // ⚠ height 而不是 maxHeight：maxHeight 只封顶不撑开，卡片会缩成内容高，
+              //   "输入框钉底"就不成立（原型第一版踩过同一个坑）。
+              height: "calc(100vh - 84px)",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
             <Card
               size="small"
-              title={<SectionTitle count={risk.comments.length}>处置记录</SectionTitle>}
+              title={<SectionTitle count={risk.comments.length}>评论</SectionTitle>}
+              style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+              styles={{
+                body: {
+                  flex: 1,
+                  minHeight: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  padding: 12,
+                },
+              }}
             >
               <CommentList risk={risk} readOnly={risk.isArchived} onDone={invalidate} />
             </Card>
-
-            <Card
-              size="small"
-              title={<SectionTitle count={risk.activity.length}>活动日志</SectionTitle>}
-            >
-              {risk.activity.length === 0 ? (
-                <Dash />
-              ) : (
-                <Timeline
-                  items={risk.activity.slice(0, 20).map((a) => ({
-                    children: (
-                      <Space direction="vertical" size={0}>
-                        <span>{meta?.enums.auditActions[a.action] ?? a.action}</span>
-                        <span style={{ color: INK.muted, fontSize: 12 }}>
-                          {dateTime(a.createdAt)}
-                        </span>
-                      </Space>
-                    ),
-                  }))}
-                />
-              )}
-            </Card>
-
-            {!risk.isArchived && (
-              <Space size={8} wrap>
-                <Button type="primary" onClick={() => setStatusOpen(true)}>
-                  变更状态
-                </Button>
-                <Popconfirm
-                  title="删除这条事项？"
-                  description="删除后不再出现在列表里；库里仍保留，但没有回收站。"
-                  okText="删除"
-                  cancelText="取消"
-                  onConfirm={() => softDelete.mutate()}
-                >
-                  <Button danger loading={softDelete.isPending}>
-                    删除
-                  </Button>
-                </Popconfirm>
-              </Space>
-            )}
-          </Space>
+          </div>
         </Col>
       </Row>
 
@@ -485,88 +597,96 @@ function CommentList({
   });
 
   return (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
-      {!readOnly && (
-        <Space.Compact style={{ width: "100%" }}>
-          <Input.TextArea
-            autoSize={{ minRows: 2, maxRows: 6 }}
-            placeholder="记一条处置：核查结论、已做的动作、需要别人接的事"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-          />
-          <Button
-            type="primary"
-            loading={post.isPending}
-            disabled={!body.trim()}
-            onClick={() => post.mutate()}
-          >
-            记录
-          </Button>
-        </Space.Compact>
-      )}
-      {risk.comments.length === 0 ? (
-        <Dash hint="事项的核查走处置记录，不靠进展——所以这里可能是空的。" />
-      ) : (
-        <List
-          size="small"
-          itemLayout="vertical"
-          rowKey={(c: Risk["comments"][number]) => String(c.id)}
-          dataSource={risk.comments}
-          renderItem={(c: Risk["comments"][number]) => (
-            <List.Item>
-              <Space direction="vertical" size={4} style={{ width: "100%" }}>
-                <Space size={8} align="baseline">
-                  <Typography.Text strong>{c.authorName}</Typography.Text>
-                  <span style={{ color: INK.muted, fontSize: 12 }}>{fromNow(c.createdAt)}</span>
-                  {c.isEdited && <span style={{ color: INK.muted, fontSize: 12 }}>（已编辑）</span>}
-                </Space>
-                {editing === c.id ? (
-                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
-                    <Input.TextArea
-                      autoSize={{ minRows: 2, maxRows: 6 }}
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                    />
-                    <Space size={6}>
-                      <Button
-                        size="small"
-                        type="primary"
-                        loading={edit.isPending}
-                        disabled={!editText.trim()}
-                        onClick={() => edit.mutate({ id: c.id, text: editText })}
-                      >
-                        保存
-                      </Button>
-                      <Button size="small" onClick={() => setEditing(null)}>
-                        取消
-                      </Button>
-                    </Space>
-                  </Space>
-                ) : (
-                  <>
-                    <Typography.Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                      {c.body}
-                    </Typography.Paragraph>
-                    {!readOnly && (
-                      <Button
-                        size="small"
-                        type="link"
-                        onClick={() => {
-                          setEditing(c.id);
-                          setEditText(c.body);
-                        }}
-                      >
-                        编辑
-                      </Button>
+    /* D2：列表在上、输入框钉在底部（评论是这条事项的主交互面，不该滚到底才写得进）。
+       外层 flex 列 + minHeight:0 是让内层列表真正可滚的前提——少一个都滚不起来。 */
+    <div style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+      <div style={{ flex: 1, minHeight: 80, overflow: "auto", paddingRight: 2 }}>
+        {risk.comments.length === 0 ? (
+          <Dash hint="事项的核查走评论，不靠进展——所以这里可能是空的。" />
+        ) : (
+          <List
+            size="small"
+            itemLayout="vertical"
+            rowKey={(c: Risk["comments"][number]) => String(c.id)}
+            dataSource={risk.comments}
+            renderItem={(c: Risk["comments"][number]) => (
+              <List.Item>
+                <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                  <Space size={8} align="baseline" wrap>
+                    <Typography.Text strong>{c.authorName}</Typography.Text>
+                    <span style={{ color: INK.muted, fontSize: 12 }}>{fromNow(c.createdAt)}</span>
+                    {c.isEdited && (
+                      <span style={{ color: INK.muted, fontSize: 12 }}>（已编辑）</span>
                     )}
-                  </>
-                )}
-              </Space>
-            </List.Item>
-          )}
-        />
+                  </Space>
+                  {editing === c.id ? (
+                    <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                      <Input.TextArea
+                        autoSize={{ minRows: 2, maxRows: 6 }}
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                      />
+                      <Space size={6}>
+                        <Button
+                          size="small"
+                          type="primary"
+                          loading={edit.isPending}
+                          disabled={!editText.trim()}
+                          onClick={() => edit.mutate({ id: c.id, text: editText })}
+                        >
+                          保存
+                        </Button>
+                        <Button size="small" onClick={() => setEditing(null)}>
+                          取消
+                        </Button>
+                      </Space>
+                    </Space>
+                  ) : (
+                    <>
+                      <Typography.Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                        {c.body}
+                      </Typography.Paragraph>
+                      {!readOnly && (
+                        <Button
+                          size="small"
+                          type="link"
+                          onClick={() => {
+                            setEditing(c.id);
+                            setEditText(c.body);
+                          }}
+                        >
+                          编辑
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </Space>
+              </List.Item>
+            )}
+          />
+        )}
+      </div>
+      {!readOnly && (
+        <div style={{ borderTop: `1px solid ${INK.line}`, paddingTop: 10, marginTop: 10 }}>
+          <Space.Compact style={{ width: "100%" }}>
+            <Input.TextArea
+              autoSize={{ minRows: 2, maxRows: 6 }}
+              placeholder="写一条评论：核查结论、已做的动作、需要别人接的事"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+            />
+            <Button
+              type="primary"
+              loading={post.isPending}
+              disabled={!body.trim()}
+              onClick={() => post.mutate()}
+            >
+              发布
+            </Button>
+          </Space.Compact>
+        </div>
       )}
-    </Space>
+    </div>
   );
 }
 
