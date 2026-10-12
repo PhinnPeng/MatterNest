@@ -122,6 +122,8 @@ export const readActor = cache(async (): Promise<Actor | null> => {
       isEnabled: appUser.isEnabled,
       isAdmin: appUser.isAdmin,
       activationStatus: appUser.activationStatus,
+      // 软删：会话一旦建立就不会自己作废，所以**每个请求**都得重判一次（审计 F5）
+      isDeleted: appUser.isDeleted,
       expiresAt: authSession.expiresAt,
     })
     .from(authSession)
@@ -132,7 +134,7 @@ export const readActor = cache(async (): Promise<Actor | null> => {
   if (!row) return null;
   if (new Date(row.expiresAt).getTime() < Date.now()) return null;
   // 停用/离职与"自动建号但未批准"都在此拦住（§5 失效链路、§7 假设 F）
-  if (!row.isEnabled || row.activationStatus !== "active") return null;
+  if (!row.isEnabled || row.activationStatus !== "active" || row.isDeleted) return null;
 
   const grants = await db
     .select({

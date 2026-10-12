@@ -60,16 +60,28 @@ async function call(method, path, cookie, payload) {
   return { status: res.status, body };
 }
 
-const acct = await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], isAdmin: true });
-const lr = await fetch(`${BASE}/api/auth/login`, {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ username: acct.username, password: acct.password }),
-});
-const cookie = (lr.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+// ⚠ 账号创建必须在 `try` **之内**。原来它在外面：反向红那两轮正好在改 `risks.ts`、
+// dev server 正在重编译，于是登录那步抛错 → 账号从��被清 → 库里留了两个孤儿。
+// 「测试装置自己漏清理」这种坑，只有真去反查残留才发现得了。
+const acct = await (async () => {
+  try {
+    return await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], isAdmin: true });
+  } catch (e) {
+    console.log(`  · 建账号失败：${String(e.message).split("\n")[0]}`);
+    await sql.end();
+    process.exit(2);
+  }
+})();
 
+let cookie = "";
 let riskId = null;
 try {
+  const lr = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: acct.username, password: acct.password }),
+  });
+  cookie = (lr.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
   ok("临时账号登录", lr.status === 200 && Boolean(cookie), `status=${lr.status}`);
 
   // 造一条自己的事项
@@ -142,14 +154,19 @@ try {
   ok("登录页不含演示账号清单", leaked.length === 0, leaked.length ? `仍出现：${leaked.join(", ")}` : "");
   ok("登录页不再宣称「口令 = 账号」", !lhtml.includes("口令 = 账号"), "");
 } finally {
-  if (riskId) await sql`delete from mn_risk_matter where id = ${riskId}`;
-  try {
-    await dropSmokeAccount(sql, acct.id);
-  } catch (e) {
-    // 助手拒绝删业务行时照实报出，但不该让门禁自身崩掉
-    console.log(`  · 清场提示：${String(e.message).split("\n")[0]}`);
-  }
-  await sql.end();
+  // 清场各步**互相独立**：一步抛错不能连累后面的（原来第一句抛了就什么都不剩）
+  const step = async (label, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      console.log(`  · 清场「${label}」未完成：${String(e.message).split("\n")[0]}`);
+    }
+  };
+  await step("删探针事项", async () => {
+    if (riskId) await sql`delete from mn_risk_matter where id = ${riskId}`;
+  });
+  await step("删临时账号", () => dropSmokeAccount(sql, acct.id));
+  await step("断开数据库", () => sql.end());
 }
 
 console.log(`\nPASS：${pass} 通过 / ${fail} 失败`);

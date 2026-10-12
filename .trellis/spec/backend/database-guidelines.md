@@ -195,6 +195,12 @@ index("uk_rule_scope").unique()
    postgres.js 的池子满时，事务持有者互等就是死锁。三个新建入口（建案 / 建事项 / 转案件）都按这个形状写。
 4. **`count(*) filter (where …)` 只能用 `sql` 模板**，drizzle 的 `count()` 没有 `.filter()` 方法。
    工作台三个到期分桶靠它一次扫描出三个数（`services/overview.ts`）。
+5. **别名一律用全下划线，不要驼峰**（`agent-work/*.mjs` 里的裸 SQL 尤其容易踩）。
+   postgres.js 会把不加引号的别名**转成小写**：`select (password_hash is null) as noPwd`
+   返回的键是 `nopwd`，不是 `noPwd`——于是 `r.noPwd` 读到 `undefined`。
+   实测后果：一次 F1 复核因此报了**假红**（"内置账号又有口令了"），差点去追一个不存在的安全回归。
+   假红与假绿同样有害：它让人去改本来正确的东西。
+   写 `as no_pwd`，或给别名加双引号 `"noPwd"`。Drizzle 侧不受影响（它自己管别名）。
 
 ## 排序白名单与映射必须逐字相等
 

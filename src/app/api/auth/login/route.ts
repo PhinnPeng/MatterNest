@@ -25,6 +25,8 @@ export async function POST(req: Request) {
       hash: appUser.passwordHash,
       isEnabled: appUser.isEnabled,
       activationStatus: appUser.activationStatus,
+      // 软删：人已经离开公司，行留在库里只为留痕，但**不该再登得进来**（审计 F5）
+      isDeleted: appUser.isDeleted,
     })
     .from(appUser)
     .where(eq(appUser.username, username))
@@ -39,7 +41,7 @@ export async function POST(req: Request) {
    * 等于把"这个账号存在但没开通"单独标出来 —— 本文件上面那条口径就白写了。
    * 本轮冒烟正是拿这条断言发现的：代码此前返回 `unauthorized()`，与注释互相矛盾。
    */
-  if (!row.isEnabled || row.activationStatus !== "active")
+  if (!row.isEnabled || row.activationStatus !== "active" || row.isDeleted)
     return fail(401, "bad_credentials", same);
 
   const { token, expiresAt } = await createSession(String(row.id));
