@@ -239,7 +239,7 @@ export const partySearchSchema = z.object({
 
 export const loginSchema = z.object({
   username: z.string().trim().min(2, "请输入账号").max(64),
-  password: z.string().min(1, "请输入口令").max(200),
+  password: z.string().min(1, "请输入密码").max(200),
 });
 /** 表单侧一律用 `z.input`（见本文件顶部第三条约定：不用 `.default()`，避免 input/output 类型分裂） */
 export type LoginInput = z.input<typeof loginSchema>;

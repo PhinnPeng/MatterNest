@@ -31,6 +31,18 @@ export const TARGET_TYPES = [
   "risk_matter_node",
   "matter_progress",
   "matter_expense",
+  /**
+   * 账号维度（MATT-10，迁移 0006）。
+   *
+   * 加它的直接原因是**审计日志写不进去账号动作**：F6-9/F6-11 每一步都要落审计，
+   * 而库里的 target_type 取值里没有账号这一档，于是开通本地凭据、批准待开通、
+   * 授予角色这些动作无处记录——动作发生了，事后查不到。
+   *
+   * ⚠ 它是**唯一不挂业务宿主**的落点（迁移 0006 为此放宽了宿主列约束）。
+   *   业务侧六条线仍然必须带宿主列，所以「事件流必须挂在真实业务对象上」那条
+   *   原意没有被削弱——加这一档是给账号管理开一个**有边界的**口子，不是普遍放开。
+   */
+  "app_user",
 ] as const;
 export type TargetType = (typeof TARGET_TYPES)[number];
 export const TARGET_TYPE_LABELS: Record<TargetType, string> = {
@@ -40,6 +52,7 @@ export const TARGET_TYPE_LABELS: Record<TargetType, string> = {
   risk_matter_node: "事项节点",
   matter_progress: "案件进展",
   matter_expense: "案件费用",
+  app_user: "账号",
 };
 
 /** E04 `*_staff.staff_role`：除 `owner` 外可多行 */

@@ -222,6 +222,8 @@ export const ENUM_REGISTRY: readonly EnumEntry[] = [
     landing: "in-db",
     values: TARGET_TYPES,
     labels: TARGET_TYPE_LABELS,
+    // `comment.target_type` 是同源但更窄的子集（不收 app_user），理由见 schema 侧注释。
+    // 落点判定走子集语义，见 `enum-check.spec.ts` 的「反向加固」那条。
     usedBy: ["activity_log.target_type", "comment.target_type"],
   }),
   entry({

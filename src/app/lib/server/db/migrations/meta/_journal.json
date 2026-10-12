@@ -43,6 +43,13 @@
       "when": 1791878400000,
       "tag": "0005_risk_matter_owner_nullable",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791964800000,
+      "tag": "0006_activity_log_user_scope",
+      "breakpoints": true
     }
   ]
 }

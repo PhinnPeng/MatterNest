@@ -1,6 +1,5 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,6 +21,12 @@ import { rulesFor } from "@/app/components/form/zod-rules";
  * 它依赖「seed 的口令 = 用户名」这个前提；F1 把口令摘要从 seed 与库里都清掉之后，
  * 该前提不成立，那块就变成了一个必然 401 的控件（页面上却写着"点一下填入"），
  * 已整块撤除。冒烟改走运行时自建的一次性账号，不依赖仓库里的任何凭据。
+ *
+ * 2026-10-12 页面优化：① 标题下的副标题（"用公司账号。…"）按产品口径撤除 ——
+ * 它原本承担 Title 与表单之间的 22px，撤除后把这个值并回 Title 的 marginBottom，节奏不变；
+ * ② 文案口径统一为"密码"：标签、`loginSchema` 的 validation 文案、登录接口的 401 文案
+ * 三处一起改。只改标签会让用户在"请输入口令"和"账号或口令不正确"里继续见到旧词，
+ * 那不算口径统一。
  */
 type FormValues = { username: string; password: string };
 
@@ -56,12 +61,9 @@ export function LoginForm() {
 
   return (
     <div>
-      <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>
+      <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 22 }}>
         登录
       </Typography.Title>
-      <Typography.Paragraph style={{ fontSize: 12, color: INK.secondary, marginBottom: 22 }}>
-        用公司账号。连续失败不会锁定，但每次都会记进审计。
-      </Typography.Paragraph>
 
       {serverError ? (
         <Alert
@@ -83,7 +85,7 @@ export function LoginForm() {
         <Form.Item label="账号" name="username" rules={rulesFor(loginSchema, ["username"])}>
           <Input size="large" autoFocus autoComplete="username" allowClear />
         </Form.Item>
-        <Form.Item label="口令" name="password" rules={rulesFor(loginSchema, ["password"])}>
+        <Form.Item label="密码" name="password" rules={rulesFor(loginSchema, ["password"])}>
           <Input.Password size="large" autoComplete="current-password" />
         </Form.Item>
         <Button size="large" type="primary" htmlType="submit" block loading={busy}>

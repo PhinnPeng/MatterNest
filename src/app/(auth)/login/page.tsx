@@ -19,6 +19,7 @@ export const metadata: Metadata = { title: "登录 · MatterNest" };
  * 只有 520px 宽，白栏 400px 里飘着一个 233px 的表单、上下各 456px 空白。
  * 卡片高度由内容决定，两栏各自承重，1366 与 1920 都不再有空场。
  * 一期只做 PC 宽屏（技术选型 §7 假设 G），所以窄屏只保证不溢出，不做重排。
+ * 2026-10-12：左栏底脚（"数据留在公司内网，不外发。"）按产品口径撤除，侧栏改为整组居中。
  */
 export default function LoginPage() {
   return (
@@ -50,31 +51,35 @@ export default function LoginPage() {
             minWidth: 0,
             display: "flex",
             flexDirection: "column",
-            justifyContent: "space-between",
-            gap: 36,
+            justifyContent: "center",
             padding: "34px 40px 30px",
             background: `linear-gradient(160deg,${BRAND.sider.bg} 0%,${BRAND.sider.gradient} 100%)`,
             color: BRAND.sider.item,
           }}
         >
-          {/* 字标：与全站状态标记同一套"点 + 词"语法，不另起一种品牌表达 */}
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <span
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: 2,
-                background: BRAND.primary,
-                flex: "0 0 auto",
-              }}
-            />
-            <span style={{ color: "#fff", fontSize: 15, fontWeight: 600, letterSpacing: 0.2 }}>
-              MatterNest
-            </span>
-            <span style={{ fontSize: 11, color: alpha(BRAND.sider.item, 0.62) }}>企业内部系统</span>
-          </div>
+          {/* 字标与主标题合成一组、整组垂直居中（2026-10-12 撤掉底部脚注后改）：
+              脚注在时 space-between 把三样东西摊开；只剩两样再 space-between，
+              字标钉顶边、标题甩底边、中间空一大块 —— 那正是本轮构图要避免的"空场" */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 24, maxWidth: 520 }}>
+            {/* 字标：与全站状态标记同一套"点 + 词"语法，不另起一种品牌表达 */}
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <span
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: 2,
+                  background: BRAND.primary,
+                  flex: "0 0 auto",
+                }}
+              />
+              <span style={{ color: "#fff", fontSize: 15, fontWeight: 600, letterSpacing: 0.2 }}>
+                MatterNest
+              </span>
+              <span style={{ fontSize: 11, color: alpha(BRAND.sider.item, 0.62) }}>
+                企业内部系统
+              </span>
+            </div>
 
-          <div style={{ maxWidth: 520 }}>
             <h1
               style={{
                 color: "#fff",
@@ -86,10 +91,6 @@ export default function LoginPage() {
             >
               风险事项与案件全生命周期
             </h1>
-          </div>
-
-          <div style={{ fontSize: 11, color: alpha(BRAND.sider.item, 0.72) }}>
-            数据留在公司内网，不外发。
           </div>
         </aside>
 

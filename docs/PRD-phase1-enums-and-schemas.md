@@ -31,7 +31,7 @@
 |---|---|---|---|---|
 | E01 | `app_user.status` 类 | — | — | 无此列，用 `is_enabled boolean` |
 | E02 | `role.data_scope` | `all` `participating` `owned` | `participating` | 权限草案 §1。**无 L4** |
-| E03 | `target_type` | `matter` `risk_matter` `matter_node` `risk_matter_node` `matter_progress` `matter_expense` | — | 修订稿 §1.0.2。禁止缩写 `risk`；`case_study` 随模块移出 |
+| E03 | `target_type` | `matter` `risk_matter` `matter_node` `risk_matter_node` `matter_progress` `matter_expense` `app_user` | — | 修订稿 §1.0.2。禁止缩写 `risk`；`case_study` 随模块移出。**`app_user`（MATT-10，迁移 0006，2026-10-12）**：账号维度落点，是**唯一不挂业务宿主**的一档——F6-9 开通本地凭据、F6-11 批准待开通这些动作每一步都要落审计，而本表原先六个取值里没有账号，于是这些动作写不进去。宿主列约束同步放宽为「业务六条线仍必须有宿主，账号维度除外」，业务侧原意未削弱 |
 | E04 | `*_staff.staff_role` | `owner` `co_owner` `follower` | — | 除 `owner` 外可多行 |
 | E05 | `user_watch.watch_type` | `follow` `favorite` | — | `follow` 由 staff 同步生成；`favorite` 仅本人 |
 | E06 | `*_party.party_role` | 见 E12 | — | 复用诉讼地位取值。**语义钉（IQ-7/Q24）：指「对方」在该案中的地位，相对我方（本企业）视角——本企业永不入 party 表，我方地位是案件单值 `litigation_role`（见 E12）** |

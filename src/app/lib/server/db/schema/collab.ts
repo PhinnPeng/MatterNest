@@ -56,7 +56,19 @@ export const comment = pgTable(
       .on(t.targetType, t.targetId, t.createdAt)
       .where(sql`NOT is_deleted`),
     index("ix_mn_comment_parent").on(t.parentId),
-    check("ck_mn_comment_target_type", sqlInList("target_type", TARGET_TYPES)),
+    // 评论只挂**业务对象**（案件 / 风险事项 / 节点 / 进展 / 费用），**不挂账号**。
+    //
+    // 值域与 `TARGET_TYPES` 同源但**刻意更窄**：MATT-10 给审计落点加了 `app_user`
+    // （迁移 0006，账号开通与角色授予要落审计），而评论挂在账号上没有意义——
+    // 让评论表为了"值数量相同"而收下账号，等于为一个没人用的能力放宽约束。
+    // `enum-check` 的落点判定已改成子集语义，并另加一条"不得整体收窄"的反向守卫。
+    check(
+      "ck_mn_comment_target_type",
+      sqlInList(
+        "target_type",
+        TARGET_TYPES.filter((t) => t !== "app_user"),
+      ),
+    ),
   ],
 );
 
@@ -95,7 +107,13 @@ export const activityLog = pgTable(
     index("ix_mn_activity_risk_matter").on(t.riskMatterId),
     check("ck_mn_activity_action", sqlInList("action", AUDIT_ACTIONS)),
     check("ck_mn_activity_target_type", sqlInList("target_type", TARGET_TYPES)),
-    check("ck_mn_activity_host", sql`matter_id IS NOT NULL OR risk_matter_id IS NOT NULL`),
+    // 迁移 0006：账号维度是**唯一不挂业务宿主**的落点，所以这里为它开一个口子。
+    // 写法是 `target_type='app_user'` 而不是「三个宿主列都空就放行」——后者会让一条
+    // 填错落点、漏填宿主列的行悄悄合法，那正是这条约束当初要挡的。业务六条线没松。
+    check(
+      "ck_mn_activity_host",
+      sql`matter_id IS NOT NULL OR risk_matter_id IS NOT NULL OR target_type = 'app_user'`,
+    ),
   ],
 );
 

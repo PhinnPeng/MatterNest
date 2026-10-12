@@ -172,9 +172,34 @@ describe("注册表 ↔ 迁移里的 CHECK", () => {
         const found = checks.find((c) => c.name === name);
         expect(found, `${e.id} 声明了 ${name}，迁移里找不到（${table}）`).toBeTruthy();
         expect(found?.column, `${name} 守的不是 ${table}.${column}`).toBe(column);
-        expect(found?.values.length, `${name} 值数量不同`).toBe(e.values.length);
-        expect([...(found?.values ?? [])].sort()).toEqual([...e.values].map(String).sort());
+        // ⚠ 这里比的是**子集**，不是相等——而且是有意的。
+        //
+        // 原断言是「长度相等 + 逐字相等」，它编码了一个假设：同一枚举的每个落点
+        // 值域必然相同。MATT-10 打破了这个假设：`mn_comment.target_type` 与
+        // `mn_activity_log.target_type` 共用 E03，但**评论只挂业务对象**，
+        // 账号维度（app_user，MATT-10 迁移 0006）对评论没有意义也不该有。
+        // 让评论表为了"值数量相同"而收下账号，等于为一个没人用的能力放宽约束。
+        //
+        // 子集判定仍然抓得住两类真错：迁移里多写了注册表没有的值（拼错/漏登记），
+        // 以及约束守错了列。下面那条「不得整体收窄」堵住剩下的漏洞——
+        // 否则把所有落点统一删成一个值，这条也会绿。
+        const declared = new Set(e.values.map(String));
+        const extra = (found?.values ?? []).filter((v) => !declared.has(v));
+        expect(extra, `${name} 里有注册表 ${e.id} 没登记的值：${extra.join(", ")}`).toEqual([]);
       }
+    }
+  });
+
+  it("反向加固：每个枚举至少一个落点用满值域（防'整体收窄'蒙混过关）", () => {
+    // 子集判定的代价：若某天有人把 E03 的两个落点一起收窄成同一个值，
+    // 上面那条仍会绿。所以要求「注册表的每个值至少被一个落点认领」。
+    for (const e of landed) {
+      const union = new Set<string>();
+      for (const [, , name] of e.checks) {
+        for (const v of checks.find((c) => c.name === name)?.values ?? []) union.add(v);
+      }
+      const missing = e.values.map(String).filter((v) => !union.has(v));
+      expect(missing, `${e.id} 的值没有任何落点认领：${missing.join(", ")}`).toEqual([]);
     }
   });
 

@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     .where(eq(appUser.username, username))
     .limit(1);
 
-  const same = "账号或口令不正确";
+  const same = "账号或密码不正确";
   if (!row || !verifyPassword(password, username, row.hash))
     return fail(401, "bad_credentials", same);
   /**
