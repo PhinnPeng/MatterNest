@@ -73,6 +73,38 @@ export const NOTIFICATION_EVENT_TYPE_LABELS: Record<NotificationEventType, strin
 /** 已作废值登记：历史数据与旧文档里仍会出现，禁止再当新事件写入 */
 export const RETIRED_NOTIFICATION_EVENT_TYPES = ["expense_added"] as const;
 
+/**
+ * E29 的 8 个事件 → `mn_notification_template.code`（B5 定稿的 8 条模板）。
+ *
+ * 为什么是 1:1 而不是"事件多、模板少、靠 payload 分支"：§2.4 明写
+ * 「原 `case_closed` 已被 `status_changed` 取代——规则 2 现覆盖任意状态变更，
+ * 结案文案由模板内『旧状态 → 新状态』分支渲染」，也就是**分支在正文里，不在模板选择上**。
+ * 于是 `risk_converted` 复用 `case_archived` 是这条映射里唯一一处多对一，且它是文档明写的
+ * （§2.4「「转案件归档」无独立模板，复用 `case_archived`」）。
+ *
+ * 渲染发生在**读取时**（权限草案 §7.1），所以这张表是"事件该被怎么描述"的唯一出口；
+ * 事件行本身不存 `template_code`（多一列就多一处能与本表漂移的取值）。
+ */
+export const NOTIFICATION_TEMPLATE_BY_EVENT: Record<NotificationEventType, string> = {
+  status_changed: "status_changed",
+  node_due_start: "node_start",
+  node_due_end: "node_end",
+  stale_30d: "stale_30d",
+  mention: "mention",
+  new_comment: "comment_new",
+  risk_converted: "case_archived",
+  archive_incomplete: "archive_incomplete",
+};
+
+/**
+ * 一期唯一渠道（IQ-8）。
+ *
+ * `email` 的值保留在 E25 里只为 CHECK 不返工，**不得接投递实现**：
+ * 云之家消息渠道的调研（MATT-34）结论出来前，email 不进一期排期——
+ * 绝不把 G3（期限类提醒到达率）押在无人查看的邮箱上。
+ */
+export const PHASE1_NOTIFY_CHANNEL: NotifyChannel = "in_app";
+
 /** E30 `notification_event.source_type`：去重与排障按它分流 */
 export const NOTIFICATION_SOURCE_TYPES = ["node_remind", "custom_reminder", "auto_rule"] as const;
 export type NotificationSourceType = (typeof NOTIFICATION_SOURCE_TYPES)[number];

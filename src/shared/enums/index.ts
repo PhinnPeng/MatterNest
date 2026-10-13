@@ -145,6 +145,10 @@ export const IN_DB_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
   E03: [
     ["mn_activity_log", "target_type", "ck_mn_activity_target_type"],
     ["mn_comment", "target_type", "ck_mn_comment_target_type"],
+    // `mn_user_watch` 是 4.6 跨宿主 feed 与 ⭐收藏 的载体（迁移 0010）。
+    // 它收**全值域**而不是像 comment 那样收窄：收藏/关注的目标类型由 UI 决定，
+    // 而 comment 那一侧的收窄理由是 `app_user` 对评论**语义上不可能**（见 collab.ts 注释）。
+    ["mn_user_watch", "target_type", "ck_mn_user_watch_target_type"],
   ],
   E04: [
     ["mn_matter_staff", "staff_role", "ck_mn_matter_staff_role"],
@@ -156,6 +160,8 @@ export const IN_DB_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
   ],
   E08: [["mn_status_config", "host_type", "ck_status_host_type"]],
   E09: [["mn_status_config", "semantics", "ck_status_semantics"]],
+  // E05：`mn_user_watch` 在迁移 0010 落地（此前是 pending-table）
+  E05: [["mn_user_watch", "watch_type", "ck_mn_user_watch_type"]],
   // `mn_tag.host_type` 用同一值域，但枚举表没给它一行 —— 先挂在 E10 下，已回写 §5.1
   E10: [
     ["mn_node_type_config", "host_type", "ck_mn_node_type_host"],
@@ -170,6 +176,12 @@ export const IN_DB_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
   E17: [["mn_party", "type", "ck_mn_party_type"]],
   E18: [["mn_party", "id_type", "ck_mn_party_id_type"]],
   E19: [["mn_matter_progress", "progress_type", "ck_mn_matter_progress_type"]],
+  // E20 随 MATT-47（迁移 0011）进库。费用是**同构一对**，两个落点都要登记：
+  // 只登记一侧会被下面那条反向检查（"迁移里的 IN 型 CHECK 必须被认领"）当场拦下。
+  E20: [
+    ["mn_matter_expense", "status", "ck_mn_matter_expense_status"],
+    ["mn_risk_matter_expense", "status", "ck_mn_risk_matter_expense_status"],
+  ],
   E21: [
     ["mn_matter_node", "status", "ck_mn_matter_node_status"],
     ["mn_risk_matter_node", "status", "ck_mn_risk_matter_node_status"],
@@ -183,6 +195,20 @@ export const IN_DB_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
     ["mn_risk_matter", "currency", "ck_mn_risk_matter_currency"],
   ],
   E28: [["mn_risk_matter", "conversion_status", "ck_mn_risk_matter_conversion"]],
+  // E25/E29/E30/E31/E32：迁移 0010 把通知三表 + outbox 的值域一次落库。
+  // outbox 那张表 0003 就建好了，但**值域一直没进 CHECK**（E32 此前是 pending-table）——
+  // 于是"库里塞进一个没人认识的事件名"在 0010 之前是拦不住的。
+  E25: [
+    ["mn_notification_delivery", "channel", "ck_mn_notification_delivery_channel"],
+    ["mn_notification_template", "channel", "ck_mn_notification_template_channel"],
+  ],
+  E29: [
+    ["mn_notification_event", "event_type", "ck_mn_notification_event_type"],
+    ["mn_notification_template", "event_type", "ck_mn_notification_template_event_type"],
+  ],
+  E30: [["mn_notification_event", "source_type", "ck_mn_notification_event_source_type"]],
+  E31: [["mn_notification_delivery", "status", "ck_mn_notification_delivery_status"]],
+  E32: [["mn_event_outbox", "event_type", "ck_mn_outbox_event_type"]],
   E35: [["mn_auth_session", "auth_via", "ck_mn_auth_session_auth_via"]],
   E37: [["mn_app_user", "activation_status", "ck_mn_app_user_activation"]],
 };
@@ -237,7 +263,7 @@ export const ENUM_REGISTRY: readonly EnumEntry[] = [
   entry({
     id: "E05",
     field: "user_watch.watch_type",
-    landing: "pending-table",
+    landing: "in-db",
     values: WATCH_TYPES,
     labels: WATCH_TYPE_LABELS,
   }),
@@ -344,9 +370,12 @@ export const ENUM_REGISTRY: readonly EnumEntry[] = [
   entry({
     id: "E20",
     field: "matter_expense.status",
-    landing: "pending-table",
+    // MATT-47（迁移 0011）：费用两张同构表建好，CHECK 落在两个 `*_expense.status` 上。
+    // **`approved` 仍不在这里** —— 第一期无审批流，它是二期的位（枚举表 §2 E20 原文）。
+    landing: "in-db",
     values: EXPENSE_STATUSES,
     labels: EXPENSE_STATUS_LABELS,
+    usedBy: ["matter_expense.status", "risk_matter_expense.status"],
   }),
   entry({
     id: "E21",
@@ -380,9 +409,10 @@ export const ENUM_REGISTRY: readonly EnumEntry[] = [
   entry({
     id: "E25",
     field: "notify_channel",
-    landing: "pending-table",
+    landing: "in-db",
     values: NOTIFY_CHANNELS,
     labels: NOTIFY_CHANNEL_LABELS,
+    usedBy: ["notification_delivery.channel", "notification_template.channel"],
   }),
   entry({
     id: "E26",
@@ -408,28 +438,29 @@ export const ENUM_REGISTRY: readonly EnumEntry[] = [
   entry({
     id: "E29",
     field: "notification_event.event_type",
-    landing: "pending-table",
+    landing: "in-db",
     values: NOTIFICATION_EVENT_TYPES,
     labels: NOTIFICATION_EVENT_TYPE_LABELS,
+    usedBy: ["notification_event.event_type", "notification_template.event_type"],
   }),
   entry({
     id: "E30",
     field: "notification_event.source_type",
-    landing: "pending-table",
+    landing: "in-db",
     values: NOTIFICATION_SOURCE_TYPES,
     labels: NOTIFICATION_SOURCE_TYPE_LABELS,
   }),
   entry({
     id: "E31",
     field: "notification_delivery.status",
-    landing: "pending-table",
+    landing: "in-db",
     values: DELIVERY_STATUSES,
     labels: DELIVERY_STATUS_LABELS,
   }),
   entry({
     id: "E32",
     field: "event_outbox.event_type",
-    landing: "pending-table",
+    landing: "in-db",
     values: OUTBOX_EVENT_TYPES,
     labels: OUTBOX_EVENT_TYPE_LABELS,
   }),
