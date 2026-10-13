@@ -41,6 +41,8 @@ import type { Dayjs } from "dayjs";
 import { api, ApiFailure, useActor, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
 import { SectionTitle } from "@/app/components/page-header";
+import { ExpensePanel } from "@/app/components/expense-panel";
+import { ExportFileButton } from "@/app/components/export-file-button";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
@@ -211,6 +213,8 @@ export function RiskDetail({ id }: { id: string }) {
                 <Button type="primary" onClick={() => setStatusOpen(true)}>
                   变更状态
                 </Button>
+                {/* 整卷导出：两档（脱敏 / 明文），与案件详情页同一个组件 */}
+                <ExportFileButton host="risk_matter" hostId={risk.id} code={risk.code} />
                 {/* 转案件是建案入口之一（IQ-3），详情页与列表页都要能发起（T2 验收原文）。
                     归档态不给：归档是终态，服务层会 422 archived。 */}
                 {!risk.isArchived && <Button onClick={() => setConvertOpen(true)}>转案件</Button>}
@@ -340,7 +344,7 @@ export function RiskDetail({ id }: { id: string }) {
               items={[
                 {
                   key: "ref",
-                  label: <SectionTitle>当事人 / 参与人 / 附件 / 登记信息</SectionTitle>,
+                  label: <SectionTitle>当事人 / 参与人 / 费用 / 附件 / 登记信息</SectionTitle>,
                   children: (
                     <Space direction="vertical" size={12} style={{ width: "100%" }}>
                       <DetailBlock title="当事人">
@@ -375,6 +379,16 @@ export function RiskDetail({ id }: { id: string }) {
                             </Tag>
                           ))}
                         </Space>
+                      </DetailBlock>
+                      <DetailBlock title="费用">
+                        {/* 费用在这里而不是新开一枚页签：F7-6 对事项侧的裁定是
+                            「两枚页签〔事项节点 / 活动日志〕」，加第三枚就是改形态。
+                            费用是台账上的一行，与当事人/参与人同级，所以进参考材料区。 */}
+                        <ExpensePanel
+                          host="risk_matter"
+                          hostId={risk.id}
+                          archived={risk.isArchived}
+                        />
                       </DetailBlock>
                       <DetailBlock title="登记信息">
                         <Space direction="vertical" size={4}>

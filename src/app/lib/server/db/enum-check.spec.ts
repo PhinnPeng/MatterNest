@@ -331,6 +331,10 @@ const ISO_PAIRS = [
   { a: "mn_matter_staff", b: "mn_risk_matter_staff" },
   { a: "mn_matter_party", b: "mn_risk_matter_party" },
   { a: "mn_matter_node", b: "mn_risk_matter_node" },
+  // 第四对（MATT-47 / 迁移 0011）。加进来的理由与本文件上面那段完全一样：
+  // 工厂函数只保证"这一次生成时一致"，保证不了"以后没人只给一侧加列"——
+  // 而这张表刚建，正是最容易被后来者只补一侧的时候。
+  { a: "mn_matter_expense", b: "mn_risk_matter_expense" },
 ] as const;
 
 /** 宿主外键列：`matter_id` / `risk_matter_id` 都归一成它，这是唯一的合法差异 */
@@ -375,7 +379,7 @@ function columnsOfTable(table: string): string[] | null {
 }
 
 describe("同构表对：列集合 diff 为空（W1-3 / MATT-8）", () => {
-  it("解析器没空转：三对表都解析出了列", () => {
+  it("解析器没空转：四对表都解析出了列", () => {
     // 校验类脚本最典型的空转形态是"正则没命中 ⇒ 零条 ⇒ 看起来和全部一致一样绿"
     //（本文件上面那条注释记着同一个教训）。所以先证明真读到了东西。
     for (const { a, b } of ISO_PAIRS) {

@@ -38,6 +38,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         const reasons: Record<UnconvertBlocker, string> = {
           progress: "案件上已经登记了进展",
           nodes: "案件上有非系统生成的节点",
+          // MATT-47 接上的第三条（映射矩阵 §5.1：无进展 / 无费用 / 无非预设节点）
+          expenses: "案件上已经登记了费用",
         };
         return fail(
           422,

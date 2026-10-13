@@ -370,6 +370,40 @@ const again = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie
 });
 ok("重复撤销 → 404（幂等，不是 500）", again.status === 404, `status=${again.status}`);
 
+// ---- 12b. 软删的进展**不再**挡撤销（三条前置同口径）----
+//
+// 三条前置（进展/节点/费用）必须**同口径**：`NOT is_deleted`。原先只有进展那条漏了，
+// 于是"列表里已经看不到这条进展了，撤销却还被它挡着"，而提示语会说"案件上已经登记了进展"。
+// 光读注释看不出来（注释把三条写成了统一口径），是检查子代理逐条对照谓词才发现的。
+// 与费用那条（`smoke-expenses.mjs` 的"软删的费用不再挡撤销"）对称。
+//
+// ⚠ 放在最末、且**自己新转一张案件**：这条断言会真的把关联撤掉（200），
+// 挂在前面几步上会把它们的前提弄没（第一版就是这么红的）。
+const convSoft = await call("POST", `/api/risk-matters/${riskId}/convert`, cookie, {
+  cases: [card(4, { caseNo: `软删进展用例-${stamp}` })],
+});
+ok("为软删用例新转一张案件 → 201", convSoft.status === 201, `status=${convSoft.status}`);
+const softCaseId = String(convSoft.body?.cases?.[0]?.id ?? "");
+if (softCaseId) createdCaseIds.add(softCaseId);
+const [progSoft] = await sql`
+  insert into mn_matter_progress (id, matter_id, progress_type, content, progress_date, author_id, created_at, updated_at)
+  values (${7200000000000000000n + BigInt(stamp)}, ${softCaseId}, 'routine', '冒烟：将被软删的进展', current_date, ${author.id}, now(), now())
+  returning id`;
+const softBlocked = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie, {
+  caseId: softCaseId,
+  reason: "冒烟：先确认它挡得住",
+});
+ok("未软删时它挡得住（前提成立，否则下一条是空过）", softBlocked.status === 422, `status=${softBlocked.status}`);
+await sql`update mn_matter_progress set is_deleted = true, deleted_at = now() where id = ${progSoft.id}`;
+const softPass = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie, {
+  caseId: softCaseId,
+  reason: "冒烟：进展已软删，撤销应放行",
+});
+ok(
+  "**软删的进展不再挡撤销 → 200**（三条前置同口径）",
+  softPass.status === 200,
+  `status=${softPass.status} err=${softPass.body?.error}`,
+);
 // ---- 清场在 finally 里，见上方 cleanup ----
 } catch (err) {
   fail++;

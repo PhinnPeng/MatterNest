@@ -1,10 +1,7 @@
 /**
- * 5 张配置表里的 3 张（状态配置在 `status-config.ts`，另两张是 `mn_risk_level_config` / `mn_tag`）。
+ * 5 张配置表里的 4 张（状态配置在 `status-config.ts`，第 5 张是 `mn_tag`）。
  * 出处：枚举表 §0「配置驱动清单」——状态、节点类型、费用项目、风险等级、标签；
- *      修订稿 §4（节点生成两条互斥路径）、§6.3。
- *
- * 费用项目配置（`mn_expense_item_config`）**一期不建**：Demo 切片里没有费用录入入口，
- * 建了会多一套没人用的 CRUD + 权限。需要时按同构写法补，不改动本文件其余部分。
+ *      修订稿 §4（节点生成两条互斥路径）、§6.3、基线 7.6（费用项目配置）。
  */
 import { sql } from "drizzle-orm";
 import { boolean, index, integer, pgTable, uniqueIndex, varchar } from "drizzle-orm/pg-core";
@@ -82,3 +79,27 @@ export const tag = pgTable(
 );
 
 /** 宿主 ↔ 标签：两张宿主表都用 `tag_ids bigint[]` + GIN（修订稿 §12.1），故不建中间表 */
+
+/**
+ * `mn_expense_item_config`：费用项目（基线 7.6：「名称、编码、是否启用、排序（仅支出）」）。
+ *
+ * 形状照 `mn_risk_level_config`：`code` 唯一、`is_system` 区分预置与自建、`is_enabled`
+ * 是停用位。用 `createdOnlyColumns` 而不是 `auditColumns`：配置表**不软删**
+ * （`common.ts` 写明那一组只给"不软删"的配置/明细表），停用由 `is_enabled` 承担。
+ *
+ * 配置**页**（P16）归 M5；本票只建表 + seed（`seed/0004_expense_item_config.sql`）并只读消费它
+ * —— 费用写入时 `item_id` 由这里的行来验，所以"费用项目走配置"不是一句约定，是一条真外键。
+ */
+export const expenseItemConfig = pgTable(
+  "mn_expense_item_config",
+  {
+    id: id(),
+    code: varchar("code", { length: 32 }).notNull(),
+    name: varchar("name", { length: 50 }).notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isSystem: boolean("is_system").notNull().default(false),
+    isEnabled: boolean("is_enabled").notNull().default(true),
+    ...createdOnlyColumns,
+  },
+  (t) => [uniqueIndex("uk_mn_expense_item_code").on(t.code)],
+);

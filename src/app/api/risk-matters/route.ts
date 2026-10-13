@@ -4,6 +4,7 @@ import {
   MAX_PAGE_SIZE,
   SORTABLE_COLUMNS,
   archivedOnlyField,
+  configStatusField,
   ownerEmptyField,
 } from "@/shared/schema/list-query";
 import { riskCreateSchema, pruneEmpty, type PartyLinkInput } from "@/shared/schema/hosts";
@@ -15,13 +16,16 @@ import { body, fail, json, query, withActor } from "@/app/lib/server/http";
 /**
  * 事项列表的分页口径与案件一致，但状态筛选**不收进枚举**：
  * 事项的 `status` 存的是 `mn_status_config.code`，运营可新增（配置驱动，枚举表 §0），
- * 所以这里只限长度。案件侧那四个值恰好是内置 code 才用 enum —— 两边不是不一致，是值域来源不同。
+ * 所以只限长度。案件侧那四个值恰好是内置 code 才用 enum —— 两边不是不一致，是值域来源不同。
+ * 这一份宽松定义住在 `shared/schema/list-query.ts`（`configStatusField`），因为报表两卡也要它。
  */
 const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
   keyword: z.string().trim().max(60).optional(),
-  status: z.string().trim().max(32).optional(),
+  // 同一个字段定义从 shared 引（禁令⑧：校验规则单源）——报表两卡也用这一份，
+  // 所以"列表能筛、卡片 400"这种值域分裂在类型层就写不出来。
+  status: configStatusField.optional(),
   // 与案件侧同一套排序列白名单（同一份定义从 shared 引，禁令⑧）：不接受自由字符串。
   sortBy: z.enum(SORTABLE_COLUMNS).default("updated_at"),
   sortDir: z.enum(["asc", "desc"]).default("desc"),

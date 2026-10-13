@@ -21,9 +21,9 @@ import {
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { TableColumnsType } from "antd";
 
-import { api, ApiFailure, toOptions, useActor, useMeta } from "@/app/lib/client/api";
+// `downloadCsv` 随 MATT-47 搬到 `api.ts`（当事人导出与整卷导出共用同一个下载实现）
+import { api, ApiFailure, downloadCsv, toOptions, useActor, useMeta } from "@/app/lib/client/api";
 import {
-  downloadCsv,
   useParties,
   usePartyNameCheck,
   type PartyExportPayload,

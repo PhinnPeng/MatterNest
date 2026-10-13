@@ -37,10 +37,16 @@ import { canManageStaffList, ownsAttribution } from "../scope/guards";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
+// 撤销前置的"费用"那一条复用费用模块的谓词（MATT-47）：两处各写一遍 SQL，
+// 失效时不会报错 —— 只会让费用录满的案件也能被撤。
+import { hasMatterExpenses } from "./expenses";
 import type { Actor } from "../auth/auth";
 import { nextCode } from "./numbering";
 import { hostStatusRows, initialStatusCode } from "./statuses";
 import { logActivity } from "./activity";
+// 通知意图的两个生产点（MATT-41 / T4）：状态变更**同事务**落事件，新评论**只落 outbox**。
+// 两者都不在业务事务里做"投递"这个动作本身 —— 见 services/notifications.ts 文件头。
+import { enqueueCommentIntent, notifyStatusChanged, quoteOf } from "./notifications";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -560,6 +566,11 @@ export async function convertToCase(
 
     // 事件**在同事务里**写 outbox（映射矩阵 §4.1）。事后再补会丢；而在事务内同步执行
     // 规则 7 则会读到未提交行、或自身失败把整次转换一起回滚。
+    //
+    // `case_ids` 与 `batch_id` 一起进 payload：消费侧要为**每个案件**各生成一条通知意图
+    // （MATT-41 / §7.2 合并规则 1），而它们共享同一个 `batch_id` ⇒ 聚合键相同
+    // ⇒ N 条意图被吸收成 1 条事件（`merge_count` 记下吸收了几条）。
+    // 少了 `actor_name`，`case_archived` 模板的 `{actor}` 就只能落 `—`。
     await tx.insert(eventOutbox).values({
       id: BigInt(nextId()),
       eventType: "risk_converted",
@@ -568,6 +579,8 @@ export async function convertToCase(
         risk_matter_id: riskId,
         case_ids: caseIds.map((c) => String(c)),
         from: src.code,
+        actor_id: actor.userId,
+        actor_name: actor.displayName,
       },
     });
 
@@ -591,7 +604,7 @@ export async function convertToCase(
 }
 
 /** 阻止撤销的原因。列出来而不是并成一个布尔：前端要逐条告诉用户"还差什么" */
-export type UnconvertBlocker = "progress" | "nodes";
+export type UnconvertBlocker = "progress" | "nodes" | "expenses";
 
 export type UnconvertResult =
   | { ok: true; caseId: string; remaining: number }
@@ -610,9 +623,11 @@ export type UnconvertResult =
  * 预设节点由系统在建案时生成（`source_kind='preset'`），用户还没动手；
  * 不排除它就等于"刚转出来的案件永远撤不掉"（映射矩阵 §5.1 原话）。
  *
- * **已知缺口（属 T9）**：`mn_matter_expense` 表**尚不存在**，所以"费用"这条前置
- * 目前**形同虚设**。T9 落费用表时必须把 `expenses` 加进下面的 `blockers` 判定，
- * 否则费用录满的案件也能被撤。已在 T9 票面记为验收项，不靠注释备忘。
+ * ⚠ **"费用"这条前置由 MATT-47（迁移 0011）接上**：在此之前 `mn_matter_expense` 表
+ * 不存在，所以这条判定形同虚设（旧注释就记着这个缺口）。现在它走
+ * `hasMatterExpenses`（`services/expenses.ts`）——与费用列表**同一份谓词**
+ * （未软删 + 属于这个案件）。两处各写一遍 SQL 的失败形态是"列表里看不到的费用
+ * 却挡着撤销"，而它**不报错**：前置失效是静默的。
  *
  * **不自动解除归档**（映射矩阵 §5.1）：自动回滚归档等于让一次动作隐式解开另一次
  * 状态变更，审计链会断。已归档的案件保持归档，需人工持 `can_unarchive` 撤销。
@@ -653,10 +668,18 @@ export async function unconvertFromCase(
   if (!link) return { ok: false, why: "not_linked" };
 
   const blockers: UnconvertBlocker[] = [];
+  // **排掉软删行**：与下面节点那条 `NOT is_deleted` 同口径，也与费用那条同口径 ——
+  // "已经删掉的登记不算还投入在上面"。`mn_matter_progress` 确实有 `is_deleted`
+  // （`auditColumns` 那一组），不排它就会出现"列表里已经看不到这条进展了，
+  // 撤销却还被它挡着"——而且提示语会说"案件上已经登记了进展"。
+  //
+  // ⚠ 这条是**后补的**：三条前置里原先只有它没排软删，而 MATT-47 的注释
+  // 已经把"软删不算投入"写成了统一口径（注释先行、实现漏了一条）。
+  // 检查子代理逐条对照三处谓词时发现的——**三处谓词只对了两处，光读注释看不出来**。
   const [progressRows] = await db
     .select({ n: dcount() })
     .from(matterProgress)
-    .where(eq(matterProgress.matterId, BigInt(caseId)));
+    .where(and(eq(matterProgress.matterId, BigInt(caseId)), sql`NOT ${matterProgress.isDeleted}`));
   if ((progressRows?.n ?? 0) > 0) blockers.push("progress");
 
   // **排除 preset**：系统在建案瞬间生成的那批节点不算用户投入。
@@ -673,6 +696,18 @@ export async function unconvertFromCase(
       ),
     );
   if ((nodeRows?.n ?? 0) > 0) blockers.push("nodes");
+
+  /**
+   * 费用（映射矩阵 §5.1 的前置第三条）。
+   *
+   * 判定复用 `hasMatterExpenses`（`services/expenses.ts`）：它与费用列表读的是
+   * **同一份谓词**（属于这个案件 + 未软删）。这里不自己写一遍 SQL —— 那正是这条前置
+   * 失效时不会报错的原因：列表里看不见的费用，会静默地挡住（或放行）一次撤销。
+   *
+   * 软删行**不算投入**：与上面节点那条 `NOT is_deleted` 同口径（"已经删掉的登记
+   * 不算还投入在上面"）。用户删掉唯一一条费用之后，撤销就该重新可用。
+   */
+  if (await hasMatterExpenses(db, BigInt(caseId))) blockers.push("expenses");
 
   if (blockers.length > 0) return { ok: false, why: "blocked", blockers };
 
@@ -948,6 +983,8 @@ export async function changeRiskStatus(
   const rows = await db
     .select({
       code: statusConfig.code,
+      // 通知文案的 `{from} → {to}` 用显示名（已登记/进行中/了结），见 notifyStatusChanged 的注释
+      name: statusConfig.name,
       semantics: statusConfig.semantics,
       nextStatusCodes: statusConfig.nextStatusCodes,
     })
@@ -990,6 +1027,17 @@ export async function changeRiskStatus(
       action: archiving ? "ARCHIVED" : "STATUS_CHANGED",
       reason: reason ?? null,
       diffs: { status: { from: cur.status, to } },
+    });
+    // 通知意图（预置规则 2）：与状态写**同一事务**。`isArchivedAfter` 是写入后的归档态，
+    // `→ archived` 这一步静默（M4「什么时候不用」：归档记录不再产生新通知）。
+    await notifyStatusChanged(actor, tx, {
+      host: "risk_matter",
+      hostId: BigInt(id),
+      from: cur.status,
+      to,
+      fromName: curRow?.name ?? cur.status,
+      toName: target.name,
+      isArchivedAfter: archiving,
     });
   });
   return { ok: true };
@@ -1188,6 +1236,14 @@ export async function addRiskComment(
       targetType: "risk_matter",
       targetId: BigInt(riskId),
       action: "COMMENT_CREATED",
+    });
+    // 新评论的通知意图：**只写 outbox**（预置规则 8 的触发是 `comment_added` 领域事件）。
+    // 归档事项返回 false（不发通知），但评论照写 —— 基线 1.7 明写"归档后仍可新增评论"。
+    await enqueueCommentIntent(actor, tx, {
+      host: "risk_matter",
+      hostId: BigInt(riskId),
+      commentId: id,
+      quoted: quoteOf(body),
     });
   });
   return { id: String(id) };

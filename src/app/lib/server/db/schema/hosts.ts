@@ -28,6 +28,7 @@ import {
   CASE_TYPES,
   CASE_TYPE_LABELS,
   CURRENCIES,
+  EXPENSE_STATUSES,
   ID_TYPES,
   LITIGATION_ROLES,
   NODE_SOURCE_KINDS,
@@ -305,6 +306,68 @@ function nodeTable(host: HostKind) {
   );
 }
 
+/**
+ * 费用：基线 4.6「仅支出」，列口径 = 费用项目 / 金额 / 发生日期 / 状态 / 备注。
+ *
+ * ## 为什么只记支出、没有"当事人付我方费用"这一侧
+ *
+ * 企业口径下没有"客户付我方律师费"这种事（IQ-7：我方=本企业，`mn_party` 只放对方与第三人），
+ * 所以一张表就是全部：**支出**。审批位（E20 的 `approved`）留二期 —— 一期无审批流，
+ * 加一个没人推的位等于给二期挖坑。
+ *
+ * ## 为什么是同构一对
+ *
+ * 修订稿 §1：运行时从属表按宿主拆表、真外键。`MATT-8` 的 `ISO_PAIRS` 契约测试逐对校验
+ * 列集合，所以两张表必须由同一个工厂产出 —— 手写两份必然漂移，而漂移的形态是
+ * "两条 SQL 各扫自己表"那类跨宿主查询在一侧静默少一列。
+ *
+ * ## 金额：`numeric(18,2)`，禁 float（修订稿 §12.2）
+ *
+ * 进出**都是字符串**：drizzle 的 `numeric` 默认按 string 读写，postgres.js 也把 `numeric`
+ * 读成 string（实测 `'0.10'` 而非 `0.1`）。服务层与 SQL 里不许出现 `Number()`/`parseFloat`
+ * ——`0.10 + 0.20` 走一次 float 就变成 `0.30000000000000004`，而它**不会报错**。
+ * 合计在 SQL 里 `sum()`（见 `services/expenses.ts`），不经 JS 运算。
+ *
+ * 没有 `currency` 列：一期 E27 只有 `CNY`，费用与宿主同币种；另立一列会让合计必须按币种
+ * 分组，而一期没有第二种币种可分组。
+ */
+function expenseTable(host: HostKind) {
+  const col = host === "matter" ? "matter_id" : "risk_matter_id";
+  const parent = host === "matter" ? matter.id : riskMatter.id;
+  return pgTable(
+    `mn_${host}_expense`,
+    {
+      id: id(),
+      /** 宿主外键取 RESTRICT：与 `*_node` / `matter_progress` 一致（宿主是软删的） */
+      hostId: fk(col)
+        .notNull()
+        .references(() => parent, { onDelete: "restrict" }),
+      /** 费用项目，真外键到配置表；RESTRICT 让"被引用的项目不许删"由数据库守住 */
+      itemId: fk("item_id")
+        .notNull()
+        .references(() => expenseItemRef, { onDelete: "restrict" }),
+      /** 金额，`numeric(18,2)`。CHECK `>= 0` 与两张宿主表的 `amount` 同口径 */
+      amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+      /** 发生日期：`date` 而非 `timestamptz`（§12.2：日历日期跨时区会漂一天） */
+      occurredDate: date("occurred_date").notNull(),
+      /** E20 三值；**不含 `approved`**（第一期无审批流） */
+      status: varchar("status", { length: 16 }).notNull().default("pending_pay"),
+      remark: text("remark"),
+      ...auditColumns,
+    },
+    (t) => [
+      // 列表与合计都走 (宿主, 发生日期)；partial 与 `ix_mn_matter_progress_host` 同口径
+      index(`ix_mn_${host}_expense_host`)
+        .on(t.hostId, t.occurredDate)
+        .where(sql`NOT is_deleted`),
+      // 按项目分组的反查
+      index(`ix_mn_${host}_expense_item`).on(t.itemId),
+      check(`ck_mn_${host}_expense_status`, sqlInList("status", EXPENSE_STATUSES)),
+      check(`ck_mn_${host}_expense_amount`, sql`amount >= 0`),
+    ],
+  );
+}
+
 /** 案件进展：基线 1.5，一期**案件专属**（§6.3 明写不给事项加进展表） */
 export const matterProgress = pgTable(
   "mn_matter_progress",
@@ -438,13 +501,15 @@ export const riskMatterCase = pgTable(
   ],
 );
 
-/* 工厂产出的四对同构表：显式命名，供仓储层与 seed 引用 */
+/* 工厂产出的五对同构表：显式命名，供仓储层与 seed 引用 */
 export const matterStaff = staffTable("matter");
 export const riskMatterStaff = staffTable("risk_matter");
 export const matterParty = partyLinkTable("matter");
 export const riskMatterParty = partyLinkTable("risk_matter");
 export const matterNode = nodeTable("matter");
 export const riskMatterNode = nodeTable("risk_matter");
+export const matterExpense = expenseTable("matter");
+export const riskMatterExpense = expenseTable("risk_matter");
 
 /** 宿主类型 → E03 `target_type` 的前缀，供 activity_log 与附件定位 */
 export const HOST_TARGET_PREFIX: Record<HostKind, string> = {
@@ -462,9 +527,10 @@ function smallintNotNull(name: string) {
   return integer(name).notNull().default(0);
 }
 
-/** 节点类型配置的外键目标（在 `config.ts` 里定义；此处用变量延迟，避免成环 import） */
-import { nodeTypeConfig } from "./config";
+/** 节点类型与费用项目配置的外键目标（在 `config.ts` 里定义；此处用变量延迟，避免成环 import） */
+import { expenseItemConfig, nodeTypeConfig } from "./config";
 const nodeTypeRef = nodeTypeConfig.id;
+const expenseItemRef = expenseItemConfig.id;
 
 export type MatterRow = typeof matter.$inferSelect;
 export type RiskMatterRow = typeof riskMatter.$inferSelect;

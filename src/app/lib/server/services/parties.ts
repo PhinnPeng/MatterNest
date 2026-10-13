@@ -14,11 +14,13 @@ import { z } from "zod";
 import { nextId } from "@/shared/ids/snowflake";
 import { ID_TYPES, ID_TYPE_LABELS, PARTY_TYPES, PARTY_TYPE_LABELS } from "@/shared/enums/business";
 import { listQuerySchema, SORTABLE_COLUMNS } from "@/shared/schema/list-query";
+import { plainExportField } from "@/shared/schema/expenses";
 import { getDb } from "../db/client";
 import { matter, matterParty, party, riskMatter, riskMatterParty } from "../db/schema";
 import { scopedWhere } from "../scope/visibility";
 import { blindIndex, decryptField, encryptField } from "../crypto/field-crypto";
 import { logActivity } from "./activity";
+import { csvText, exportAuditPayload, maskValue } from "./exports";
 import type { Actor } from "../auth/auth";
 
 /** 下拉一次给 20 条（与 §4.1 `selectable-users` 的"分页上限 + 不接受批量列举"同一口径） */
@@ -201,13 +203,16 @@ export const partyMergeSchema = z
   .strict();
 export type PartyMergeInput = z.infer<typeof partyMergeSchema>;
 
-/** 导出：`plain=1` 走明文档（要 `canReadPlain`），否则脱敏档 */
+/**
+ * 导出：`plain=1` 走明文档（要 `canReadPlain`），否则脱敏档。
+ *
+ * `plain` 的解析（`1` / `true` / `0` / `false`）与整卷导出**共用同一个字段定义**
+ * （`shared/schema/expenses.ts` 的 `plainExportField`）：两处各写一遍的失败形态是
+ * "一处认 `1`、另一处只认 `true`"，用户看到的是同一个按钮在两个页面行为不同。
+ */
 export const partyExportQuerySchema = z.object({
   keyword: z.string().trim().min(1).max(60).optional(),
-  plain: z
-    .enum(["1", "true", "0", "false"])
-    .optional()
-    .transform((v) => v === "1" || v === "true"),
+  plain: plainExportField,
 });
 export type PartyExportQuery = z.infer<typeof partyExportQuerySchema>;
 
@@ -997,26 +1002,12 @@ export type PartyExportRow = {
 };
 
 /**
- * 脱敏：**只留尾四位**。短于五位的一律全遮 —— 留两位等于没遮。
- * 这是**导出档**的写法，不是展示层：展示层全明文（IQ-12），两者不要互相借用。
- */
-export function maskValue(v: string | null): string {
-  if (!v) return "";
-  const s = v.trim();
-  if (s.length <= 4) return "****";
-  return `****${s.slice(-4)}`;
-}
-
-/** CSV 单元格：逗号/引号/换行都要包起来，换行折成空格（Excel 里一行一条才对得上） */
-function csvCell(v: string): string {
-  const s = v.replace(/\r?\n/g, " ");
-  return /[",\s]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-/**
- * 导出的 CSV 文本在**服务端**拼（不是把行丢给浏览器拼）：格式只有一处实现，
- * 于是它能被离线单测（引号、逗号、换行三个坑都有用例），而浏览器只负责下载。
- * BOM 是给 Excel 的：没有它，中文表头在 Windows 版 Excel 里是乱码。
+ * 当事人档案的 CSV。
+ *
+ * ⚠ 脱敏规则（`maskValue`）、CSV 单元格编码（`csvCell`）、BOM 与行分隔（`csvText`）
+ * 都不在本文件里 —— 它们与**整卷导出**（`services/exports.ts` 的 `exportHostFile`）
+ * 共用同一份实现。这里只留"当事人这张表有哪几列"这一件本文件才知道的事。
+ * 各写一份的失败形态是"同一份证件号在两条导出链路上脱敏结果不同"，而两边都不报错。
  */
 export function partiesCsv(rows: readonly PartyExportRow[]): string {
   const header = [
@@ -1030,22 +1021,18 @@ export function partiesCsv(rows: readonly PartyExportRow[]): string {
     "涉及事项",
     "更新时间",
   ];
-  const lines = rows.map((r) =>
-    [
-      r.name,
-      PARTY_TYPE_LABELS[r.type as keyof typeof PARTY_TYPE_LABELS] ?? r.type,
-      r.idType ? (ID_TYPE_LABELS[r.idType as keyof typeof ID_TYPE_LABELS] ?? r.idType) : "",
-      r.idNumber ?? "",
-      r.contact ?? "",
-      r.remark ?? "",
-      String(r.matterCount),
-      String(r.riskCount),
-      r.updatedAt,
-    ]
-      .map(csvCell)
-      .join(","),
-  );
-  return `\uFEFF${[header.join(","), ...lines].join("\r\n")}`;
+  const lines = rows.map((r) => [
+    r.name,
+    PARTY_TYPE_LABELS[r.type as keyof typeof PARTY_TYPE_LABELS] ?? r.type,
+    r.idType ? (ID_TYPE_LABELS[r.idType as keyof typeof ID_TYPE_LABELS] ?? r.idType) : "",
+    r.idNumber ?? "",
+    r.contact ?? "",
+    r.remark ?? "",
+    String(r.matterCount),
+    String(r.riskCount),
+    r.updatedAt,
+  ]);
+  return csvText([header, ...lines]);
 }
 
 /**
@@ -1105,11 +1092,18 @@ export async function exportParties(
     await logActivity(tx, actor, {
       ...partyAuditLanding(actor),
       action: "EXPORT",
+      // 载荷形状与整卷导出**同一份实现**（`exportAuditPayload`）：两处各拼一次
+      // 就会出现"一个记 rows、一个记 count"这种审计口径分叉，而两条链路都 200。
+      // 列表类导出没有"件"这个量纲，所以不传 `count`（形状仍是同一个类型）。
       payload: {
-        target_type: "party",
-        scope: "party_list",
-        rows: out.length,
-        plain: opts.plain,
+        ...exportAuditPayload({
+          targetType: "party",
+          scope: "party_list",
+          rows: out.length,
+          plain: opts.plain,
+        }),
+        // 关键词是**这次导出的范围**（"我导的是筛过的那一屏"），形状之外的一件上下文，
+        // 所以它由调用方补 —— 载荷 builder 只管两条导出链路共有的那几个键。
         ...(opts.keyword ? { keyword: opts.keyword } : {}),
       },
     });

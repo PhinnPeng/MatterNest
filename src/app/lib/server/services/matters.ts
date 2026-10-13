@@ -30,6 +30,7 @@ import { nextCode } from "./numbering";
 import { initialStatusCode, hostStatusRows } from "./statuses";
 import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
+import { enqueueCommentIntent, notifyStatusChanged, quoteOf } from "./notifications";
 import { NODE_STATUS_LABELS } from "@/shared/enums/business";
 
 /**
@@ -427,6 +428,9 @@ export async function changeStatus(
   const rows = await db
     .select({
       code: statusConfig.code,
+      // `name` 一起取：通知文案里的 `{from} → {to}` 要用**显示名**（已登记/进行中），
+      // 不是 code。IQ-5/6 专门改过显示名，通知里退回 code 等于在用户可见处抹掉那次改名。
+      name: statusConfig.name,
       semantics: statusConfig.semantics,
       nextStatusCodes: statusConfig.nextStatusCodes,
     })
@@ -521,6 +525,25 @@ export async function changeStatus(
           }
         : {}),
     });
+    /**
+     * 通知意图（预置规则 2，收件人 `["follower","creator"]`）——**与状态写同一事务**。
+     *
+     * 放在事务里的理由与 `activity_log` 完全一样：分开提交会留下"状态改了但没人收到回音"
+     * 或反过来的中间态，而这条链路服务的正是"报了没回音，下次就不报了"（G1 的根因）。
+     *
+     * `isArchivedAfter: archiving` 是**写入后**的归档态：M4「什么时候不用」裁了
+     * 「归档记录不再产生新通知」，所以 `→ archived` 这一步静默。
+     * 撤销归档（`archived → 别的`）不在这个分支里，照常发。
+     */
+    await notifyStatusChanged(actor, tx, {
+      host: "matter",
+      hostId: BigInt(id),
+      from: cur.status,
+      to,
+      fromName: curRow?.name ?? cur.status,
+      toName: target.name,
+      isArchivedAfter: archiving,
+    });
   });
   return { ok: true };
 }
@@ -555,6 +578,21 @@ export async function addComment(
       action: "COMMENT_CREATED",
       targetType: "matter",
       targetId: BigInt(matterId),
+    });
+    /**
+     * 新评论的通知意图 —— **只写 outbox，不在这里发**（预置规则 8 的触发是
+     * `comment_added` 领域事件，属 E32/E33 的值域）。
+     *
+     * 事件名落 outbox、由消费者展开成通知，是"投递走 outbox 不直发"的兑现方式：
+     * 业务事务只管把"发生了什么"记下来，真正生成通知的动作发生在消费侧，而那一侧可重入。
+     * 归档宿主由 `enqueueCommentIntent` 直接返回 false（归档记录不再产生新通知），
+     * 但**评论照写**——基线 1.7 明写"归档后仍可新增评论"，只是不发通知。
+     */
+    await enqueueCommentIntent(actor, tx, {
+      host: "matter",
+      hostId: BigInt(matterId),
+      commentId: id,
+      quoted: quoteOf(body),
     });
   });
   return { id: String(id) };

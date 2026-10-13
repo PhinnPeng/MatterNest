@@ -5,12 +5,14 @@ import {
   UnknownPartyError,
   batchKeyOf,
   isOwnCompanyName,
-  maskValue,
   ownCompanyNames,
   partiesCsv,
   pickPartyLink,
   type PartyLinkInput,
 } from "./parties";
+// `maskValue` 随 MATT-47 搬到 `services/exports.ts`：脱敏规则现在由当事人导出与
+// 整卷导出**共用一份**实现（两处各写一遍的失败形态是同一份证件号两种脱敏结果）。
+import { maskValue } from "./exports";
 import { MAX_MERGED_PARTIES, MergeInputError, normalizeMergeInput } from "./party-merge";
 import {
   blindIndex,

@@ -27,6 +27,8 @@ import type { TableColumnsType } from "antd";
 import { api, ApiFailure, useMeta, type MatterDetail as Matter } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
 import { PageHeader } from "@/app/components/page-header";
+import { ExpensePanel } from "@/app/components/expense-panel";
+import { ExportFileButton } from "@/app/components/export-file-button";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
@@ -212,7 +214,12 @@ export function MatterDetail({ id }: { id: string }) {
             {m.closingDate ? <FlagMark tone="info">已结案</FlagMark> : null}
           </>
         }
-        actions={<Button onClick={() => setStatusOpen(true)}>变更状态</Button>}
+        actions={
+          <Space size={8}>
+            <ExportFileButton host="matter" hostId={m.id} code={m.internalCode} />
+            <Button onClick={() => setStatusOpen(true)}>变更状态</Button>
+          </Space>
+        }
       />
 
       <Card size="small" styles={{ body: { padding: "0 12px 12px" } }}>
@@ -463,6 +470,11 @@ export function MatterDetail({ id }: { id: string }) {
                   </Card>
                 </Flex>
               ),
+            },
+            {
+              key: "expenses",
+              label: "费用",
+              children: <ExpensePanel host="matter" hostId={m.id} archived={m.isArchived} />,
             },
             {
               key: "log",

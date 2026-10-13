@@ -47,7 +47,12 @@ export async function nextCode(
       -- 这条契约（上面第 3 条：溢出 999 后扩成 4 位）原先只写在注释里、实现是反的，
       -- 而它在计数器 <1000 时**完全看不出来** —— 本仓的 AJ 计数器今天过千才显形，
       -- 那一刻起建案开始随机 500，排查时症状（唯一索引冲突）离根因（一个字符串函数语义）很远。
-      -- 门禁见 numbering.spec.ts（含 999/1000/1074 三个边界）与 revred-numbering.mjs。
+      -- 门禁见 agent-work/smoke-numbering.mjs（三组判据：lpad 语义、连号不重复、
+      -- ≥1000 原样十进制；反向红已验 —— 注回截断版会红 3 条，且是断言红）。
+      --
+      -- ⚠ 本行原先写的是「门禁见 numbering.spec.ts 与 revred-numbering.mjs」，
+      --   而那两个文件**都不存在** —— 又一次"声明了但没有实现"。注释里点名一个门禁，
+      --   就必须真有一个；否则下一个人会以为已经被守着。检查子代理逐条核了这句。
       case when value < 1000 then lpad(value::text, 3, '0') else value::text end as code
     from step
   `);

@@ -11,3 +11,4 @@ export * from "./config";
 export * from "./hosts";
 export * from "./collab";
 export * from "./outbox";
+export * from "./notifications";

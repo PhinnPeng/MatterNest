@@ -143,19 +143,3 @@ export function usePartyNameCheck(name: string) {
     staleTime: 60_000,
   });
 }
-
-/**
- * 下载服务端拼好的 CSV。
- *
- * 为什么不在浏览器里拼 CSV：格式（引号、逗号、换行、BOM）只有一处实现，
- * 它才能被离线单测；浏览器只负责"把这段文本变成一次下载"。
- * BOM 由服务端写在文本开头（Excel 认它），这里用 `text/csv;charset=utf-8` 保持一致。
- */
-export function downloadCsv(filename: string, csv: string): void {
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}

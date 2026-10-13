@@ -118,12 +118,21 @@ export type StatusRow = {
 };
 export type LevelRow = { code: string; name: string };
 
+/**
+ * 费用项目（F5-4 / 基线 7.6，**配置驱动**）。
+ *
+ * `isEnabled` 一起给：选择器只列启用的，而详情/导出要显示**历史费用指着的那一项**
+ * （可能已被停用）。两个读法共用这一份数据，前端不各自请求一次。
+ */
+export type ExpenseItemRow = { id: string; code: string; name: string; isEnabled: boolean };
+
 /** `/api/meta` 的响应。字典分两半的理由见那个 route handler 的注释。 */
 export type Meta = {
   actor: Actor;
   statuses: StatusRow[];
   levels: LevelRow[];
   tags: { id: string; name: string }[];
+  expenseItems: ExpenseItemRow[];
   enums: {
     caseTypes: Record<string, string>;
     procedures: Record<string, string>;
@@ -139,7 +148,47 @@ export type Meta = {
     timeTypes: Record<string, string>;
     auditActions: Record<string, string>;
     semantics: Record<string, string>;
+    /** E20 三值的中文名（**不含 approved**：第一期无审批流） */
+    expenseStatuses: Record<string, string>;
   };
+};
+
+/**
+ * 费用行（`GET /api/matters/{id}/expenses` 与事项侧同构）。
+ *
+ * `amount` 是**字符串**：列是 `numeric(18,2)`，驱动读回来的就是 `"0.10"` 这种形态，
+ * 转 `number` 会把"两位小数"这个刻度丢掉（`0.30 → 0.3`），而它不会报错。
+ * 展示走 `format.money()`（同样是字符串处理），运算一律留给服务端。
+ */
+export type ExpenseRow = {
+  id: string;
+  itemId: string;
+  itemName: string;
+  amount: string;
+  occurredDate: string;
+  status: string;
+  remark: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** 费用列表 + 合计 + 按项目分组（F2-13）。合计是**整卷口径**，不随分页变化 */
+export type ExpenseList = {
+  items: ExpenseRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totals: { sum: string; count: number };
+  byItem: { itemId: string; itemName: string; sum: string; count: number }[];
+};
+
+/** 整卷导出的响应（US-42 两档）。`csv` 由服务端拼好，浏览器只负责下载 */
+export type HostFileExport = {
+  plain: boolean;
+  rows: number;
+  count: number;
+  truncated: boolean;
+  csv: string;
 };
 
 /**
@@ -333,6 +382,25 @@ export function useMeta(host: HostKind) {
     queryFn: () => api.get<Meta>(`/api/meta?host=${host}`),
     staleTime: 60_000,
   });
+}
+
+/**
+ * 下载服务端拼好的 CSV。
+ *
+ * 为什么不在浏览器里拼 CSV：格式（引号、逗号、换行、BOM）只有一处实现
+ * （`services/exports.ts` 的 `csvText`），它才能被离线单测；浏览器只负责
+ * "把这段文本变成一次下载"。
+ *
+ * 为什么住在 `api.ts` 而不是某个业务模块：当事人导出与整卷导出都用它 ——
+ * 两处各写一遍 Blob/anchor 那几行，将来加个"下载中"态或改 MIME 就只会改到一半。
+ */
+export function downloadCsv(filename: string, csv: string): void {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /** 把枚举字典变成 `<select>` 的选项，避免每个表单自己写一遍 map */
