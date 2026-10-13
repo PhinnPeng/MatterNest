@@ -40,6 +40,18 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 
 const F_PRESET = "src/shared/notification/preset-rules.ts";
+/**
+ * ⚠ **收件人的字面量源在 MATT-43 之后搬到了这里**（原来在 `F_PRESET`）。
+ *
+ * MATT-43 把 `notification/preset-rules.ts` 重构成**派生视图**——它现在从规则目录的
+ * `action_config` 里取 `receivers`（"两份各写一遍 `["follower","creator"]` 正是它要防的事"）。
+ * 于是 `creator-drop` 的锚点在旧文件里**命中 0 次**，被 `verify-anchors.mjs` 当场抓住。
+ *
+ * 这正是那份锚点预检的价值：**一次合法重构会让反向红工具静默失效**，
+ * 而失效的工具照样"跑完不报错"（它会在校验命中次数时退出 2，但如果没人跑它，
+ * 那道反向红就永远不再被执行）。锚点跟着实现搬，是维护这类工具的一部分。
+ */
+const F_AUTO = "src/shared/automation/preset-rules.ts";
 const F_SVC = "src/app/lib/server/services/notifications.ts";
 const F_DEDUPE = "src/shared/notification/dedupe.ts";
 const F_TIME = "src/shared/time/zh-cn.ts";
@@ -53,12 +65,14 @@ const F_SCAN = "src/shared/notification/scan.ts";
 const ANCHORS = {
   "creator-drop": {
     mode: "creator-drop",
-    file: F_PRESET,
+    // 锚点跟着实现搬：收件人的**字面量源**现在是规则目录的 `action_config`
+    // （MATT-43 把通知侧改成了派生视图，见 F_AUTO 的注释）
+    file: F_AUTO,
     tag: "creator-drop",
-    needle: `  templateCode: "status_changed",
-  receivers: ["follower", "creator"],`,
-    replacement: `  templateCode: "status_changed",
-  receivers: ["follower"],`,
+    needle: `      receivers: ["follower", "creator"],
+      template_code: "status_changed",`,
+    replacement: `      receivers: ["follower"],
+      template_code: "status_changed",`,
   },
   "creator-watch": {
     mode: "creator-watch",
