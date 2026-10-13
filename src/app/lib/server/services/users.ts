@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { activityLog, appUser, appUserRole, authSession, role } from "../db/schema";
 import { hashPassword, type Actor } from "../auth/auth";
@@ -14,8 +14,12 @@ import { nextId } from "@/shared/ids/snowflake";
  * 2. **不得提供裸的用户列表接口**。§4.1 收窄之后，能列出全部在册同事就等于拿到一份花名册；
  *    所以本模块的读入口一律要求 `canManageUser`，且**不返回**证件号/手机号之类的敏感列
  *    （那些在 `mn_party`，与本表无关）。参与人选择面走 `selectable-users` 那条带宿主上下文的路。
- * 3. **软删账号不得被派活**（§4.1 成文于软删出现之前）。本模块的写路径与选择面都要挡住
- *    `is_deleted` 的账号；登录那条已由 F5 堵上，派活这条是同一件事的另一面。
+ * 3. **软删账号不得被派活**（§4.1 成文于软删出现之前）。本模块的写路径挡住 `is_deleted`
+ *    的账号；**"可派活集合"那个谓词不在这里**——`selectable-users.ts` 已经有同一套
+ *    （`isEnabled && activationStatus='active' && !isDeleted`，外加共现收窄），
+ *    在这里再写一遍就是第二份实现，而两份谓词会各自漂移：漂移了不会报错，
+ *    只会让某个离职的人重新出现在下拉里。要"全体在册可用用户"（MATT-49 的创建期例外）
+ *    时去扩那一份。
  *
  * ## 为什么启停要挡三类对象
  *
@@ -407,26 +411,4 @@ export async function setUserCredential(
     });
   });
   return { ok: true };
-}
-
-/**
- * 可派活的账号集合：软删与停用的都排除（§4.1 的补条）。
- *
- * 供后续把"选择面"接到案件侧时复用（MATT-49）。这里只暴露一个谓词形状的读函数，
- * 不提供"列出全部用户"的裸接口——那正是 §4.1 要挡的东西。
- */
-export async function selectableUserIds(): Promise<string[]> {
-  const db = await getDb();
-  const rows = await db
-    .select({ id: appUser.id })
-    .from(appUser)
-    .where(
-      and(
-        eq(appUser.isEnabled, true),
-        eq(appUser.isDeleted, false),
-        eq(appUser.activationStatus, "active"),
-        ne(appUser.username, ""),
-      ),
-    );
-  return rows.map((r) => String(r.id));
 }
