@@ -207,7 +207,8 @@ export function ExpensePanel({
             <span style={{ color: INK.muted, fontSize: 12 }}>
               {" "}
               · 表格只显示前 {data?.items?.length ?? 0} 笔，还有{" "}
-              <span className="num">{(totals?.count ?? 0) - (data?.items?.length ?? 0)}</span> 笔未列出
+              <span className="num">{(totals?.count ?? 0) - (data?.items?.length ?? 0)}</span>{" "}
+              笔未列出
             </span>
           ) : null}
           {data?.byItem?.length ? (
