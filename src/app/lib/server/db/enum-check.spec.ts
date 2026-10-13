@@ -297,3 +297,137 @@ describe("注册表 ↔ 枚举表原文", () => {
     expect(e08?.values).toBe(e10?.values);
   });
 });
+
+/**
+ * 同构表对「列集合 diff 为空」契约测试（W1-3 收尾 / MATT-8）。
+ *
+ * ## 为什么需要它（不是"代码保证就够了"）
+ *
+ * `mn_matter_*` 与 `mn_risk_matter_*` 三对表由 `hosts.ts` 的工厂函数
+ * （`staffTable`/`partyLinkTable`/`nodeTable`）产出，结构一致**当下**是代码保证的。
+ * 但 spec 里那类「两条 SQL 各扫自己表」的跨宿主查询（如节点到期卡的 UNION）要成立，
+ * 靠的是"两张表真的同构"这个前提——而它没有任何东西在改列时当场拦住。
+ * 工厂函数只能保证"这一次生成时一致"，保证不了"以后没人只给一侧加列"。
+ *
+ * ## 为什么读迁移 SQL 而不是读 Drizzle 列定义
+ *
+ * 与上面 CHECK 比对同一条理由（禁令④：迁移文件是唯一事实）。比 TS 只能证明
+ * "两份 TS 互相抄对了"，库照样可以不一样。而且这里复用同一个 `migrationSql`——
+ * 本文件已经有"按文件名排序读全部迁移"的逻辑，再建一套就是第四份比对口径。
+ *
+ * ## 唯一合法的差异：宿主外键列名
+ *
+ * 实测（三对表逐列对过）：原始差集**恰好只有** `matter_id` ↔ `risk_matter_id` 这一处，
+ * 归一化成 `host_id` 之后三对的列集合完全相等（5/5、7/7、25/25）。
+ * 所以测试做两件事，缺一不可：
+ *   1. 归一化后对称差为空 —— 这才是"同构"的断言；
+ *   2. 原始差集**必须恰好等于**那一对宿主列 —— 否则"归一化"会变成一块遮羞布：
+ *      有人给一侧加一列、再给另一侧加个不同名的列，归一化后的相等断言照样绿。
+ *
+ * 将来若出现第二条合法差异，必须写进 `ISO_ALLOWED_DIFFS` 并写明理由——
+ * 白名单为空是当前的事实，不是"懒得填"。
+ */
+const ISO_PAIRS = [
+  { a: "mn_matter_staff", b: "mn_risk_matter_staff" },
+  { a: "mn_matter_party", b: "mn_risk_matter_party" },
+  { a: "mn_matter_node", b: "mn_risk_matter_node" },
+] as const;
+
+/** 宿主外键列：`matter_id` / `risk_matter_id` 都归一成它，这是唯一的合法差异 */
+const HOST_FK = /^(?:risk_matter|matter)_id$/;
+const HOST_FK_NAMES = ["matter_id", "risk_matter_id"];
+
+/** 显式列白名单：目前为空（宿主列由归一化处理，不算例外）。加条目必须带理由。 */
+const ISO_ALLOWED_DIFFS: Record<string, { onlyA?: string[]; onlyB?: string[] }> = {};
+
+/**
+ * 抽一张表的列名集合：`CREATE TABLE` 的列行 + 后续迁移里的 `ADD COLUMN` / `DROP COLUMN`。
+ *
+ * 只读 `CREATE TABLE` 会留一个盲区：以后有人用迁移给一侧加列，基线里看不出来，
+ * 测试就成了"只守第一天的同构"。这里把两种 DDL 都算上。
+ * `CONSTRAINT` 行不是列，跳过。
+ */
+function columnsOfTable(table: string): string[] | null {
+  const create = new RegExp(`CREATE TABLE "${table}" \\(([\\s\\S]*?)\\n\\);`).exec(migrationSql);
+  if (!create?.[1]) return null;
+  const cols = create[1]
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('"'))
+    .map((l) => /^"([^"]+)"/.exec(l)?.[1])
+    .filter((c): c is string => typeof c === "string");
+
+  // 后续迁移的列级变更（按语句逐个扫，避免跨语句误配）
+  const alter = new RegExp(
+    `ALTER TABLE "${table}"[^;]*?\\b(ADD|DROP) COLUMN\\s+"?([a-z0-9_]+)"?`,
+    "gi",
+  );
+  for (const m of migrationSql.matchAll(alter)) {
+    const [, op, col] = m;
+    if (!op || !col) continue;
+    if (op.toUpperCase() === "ADD" && !cols.includes(col)) cols.push(col);
+    if (op.toUpperCase() === "DROP") {
+      const i = cols.indexOf(col);
+      if (i >= 0) cols.splice(i, 1);
+    }
+  }
+  return cols;
+}
+
+describe("同构表对：列集合 diff 为空（W1-3 / MATT-8）", () => {
+  it("解析器没空转：三对表都解析出了列", () => {
+    // 校验类脚本最典型的空转形态是"正则没命中 ⇒ 零条 ⇒ 看起来和全部一致一样绿"
+    //（本文件上面那条注释记着同一个教训）。所以先证明真读到了东西。
+    for (const { a, b } of ISO_PAIRS) {
+      const ca = columnsOfTable(a);
+      const cb = columnsOfTable(b);
+      expect(ca, `迁移里找不到 CREATE TABLE "${a}"`).toBeTruthy();
+      expect(cb, `迁移里找不到 CREATE TABLE "${b}"`).toBeTruthy();
+      expect(ca?.length ?? 0).toBeGreaterThan(3);
+      expect(cb?.length ?? 0).toBeGreaterThan(3);
+      // 探针列：只断行数的话，"整列解析丢了但两侧一起丢"也能绿
+      expect(ca).toContain("id");
+      expect(cb).toContain("id");
+      expect(ca).toContain("created_at");
+      expect(cb).toContain("created_at");
+    }
+  });
+
+  it.each(ISO_PAIRS.map((p) => [p.a, p.b] as const))(
+    "%s 与 %s 归一化宿主列后列集合相等",
+    (a, b) => {
+      const ca = columnsOfTable(a) ?? [];
+      const cb = columnsOfTable(b) ?? [];
+      const na = ca.map((c) => (HOST_FK.test(c) ? "host_id" : c));
+      const nb = cb.map((c) => (HOST_FK.test(c) ? "host_id" : c));
+      const onlyA = na.filter((c) => !nb.includes(c));
+      const onlyB = nb.filter((c) => !na.includes(c));
+      const allowed = ISO_ALLOWED_DIFFS[a] ?? {};
+      expect(
+        onlyA.filter((c) => !(allowed.onlyA ?? []).includes(c)),
+        `${a} 独有而 ${b} 没有的列：${onlyA.join(", ")}`,
+      ).toEqual([]);
+      expect(
+        onlyB.filter((c) => !(allowed.onlyB ?? []).includes(c)),
+        `${b} 独有而 ${a} 没有的列：${onlyB.join(", ")}`,
+      ).toEqual([]);
+    },
+  );
+
+  it.each(ISO_PAIRS.map((p) => [p.a, p.b] as const))(
+    "%s 与 %s 的**原始**差集恰好只有宿主外键列",
+    (a, b) => {
+      const ca = columnsOfTable(a) ?? [];
+      const cb = columnsOfTable(b) ?? [];
+      const rawOnlyA = ca.filter((c) => !cb.includes(c));
+      const rawOnlyB = cb.filter((c) => !ca.includes(c));
+      // 这条是防"归一化变遮羞布"的：两侧各加一个不同名的列，归一化后的相等断言会绿。
+      expect(rawOnlyA.sort(), `${a} 的原始独有列`).toEqual([HOST_FK_NAMES[0]]);
+      expect(rawOnlyB.sort(), `${b} 的原始独有列`).toEqual([HOST_FK_NAMES[1]]);
+    },
+  );
+
+  it("白名单当前为空（有例外就必须写进 ISO_ALLOWED_DIFFS 并写明理由）", () => {
+    expect(Object.keys(ISO_ALLOWED_DIFFS)).toEqual([]);
+  });
+});
