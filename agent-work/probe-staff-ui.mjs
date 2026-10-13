@@ -136,9 +136,22 @@ try {
   const dlg = page.locator(".ant-modal-wrap:visible");
   await dlg.locator(".ant-select").first().waitFor({ state: "visible", timeout: 10000 });
   await dlg.locator(".ant-select").first().click();
-  await page.waitForTimeout(500);
+  /**
+   * ⚠ 这里等的是**条件**，不是固定时长。
+   *
+   * 初版写 `waitForTimeout(500)` 然后数选项 —— 选项来自
+   * `GET /api/matters/{id}/selectable-users`，首次请求在 dev 下要编译 + 查库，
+   * 500ms 常常不够，于是数出 0 个，报成"选择面接口没接上"。
+   * **那是个假失败，而且指向错误的修复方向**（会让人去查接口，而接口是好的：
+   * `smoke-staff.mjs` 的 34 条真 HTTP 断言覆盖着它）。
+   * 探针等条件而不是等时间，才不会把"慢"报成"坏"。
+   */
   const opts = page.locator(".ant-select-dropdown:visible .ant-select-item-option");
-  const optCount = await opts.count();
+  const optCount = await opts
+    .first()
+    .waitFor({ state: "visible", timeout: 15000 })
+    .then(() => opts.count())
+    .catch(() => 0);
   ok(
     "**加协办弹窗的选项不是空的**（选择面接口真的接上了）",
     optCount > 0,

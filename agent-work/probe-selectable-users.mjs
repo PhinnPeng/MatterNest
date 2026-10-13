@@ -135,8 +135,26 @@ try {
   ok("看不见该事项的账号拿到 404", selStranger.status === 404, `status=${selStranger.status}`);
 
   // 4) 裸 /users 不提供（§4.1 明写第一期不提供）
+  //
+  // ⚠ 这条断言**改过一次**，原因值得记：它原先断言 `404 || 405`（"接口不存在"），
+  //   写于 `/api/users` 尚未建的时候。MATT-10 按自己的 AC 建了它——AC 原文是
+  //   "**不得提供裸的用户列表接口**……只有持「管理账号」特权者的管理页可读企业内全部用户"。
+  //   所以接口**按设计存在**，但普通账号拿不到花名册。
+  //   要断的是**实质**（拿不到名单），不是"路径不存在"：404 与 403 都合格，唯独 200 不行。
+  //   把状态码钉死成 404 会让这条门禁在"设计如此"的改动下变红——而它一红，
+  //   人就会去改断言，于是真正该守的那条（拿不到名单）反而没人看。
   const bare = await call("GET", "/api/users", c1.cookie);
-  ok("裸 /users 不存在", bare.status === 404 || bare.status === 405, `status=${bare.status}`);
+  const bareBody = JSON.stringify(bare.body ?? "");
+  ok(
+    "裸 /users 不提供花名册（403/404 皆可，唯独不能 200）",
+    bare.status !== 200 && (bare.status === 403 || bare.status === 404),
+    `status=${bare.status} body=${bareBody.slice(0, 80)}`,
+  );
+  ok(
+    "非 200 时响应体里没有用户行",
+    bare.status === 200 || !/username|displayName|"items"/.test(bareBody),
+    `body=${bareBody.slice(0, 80)}`,
+  );
 
   // 5) ★ 写路径收窄：L2 直接 PATCH 一个它**选不到**的 ownerId，必须被拒
   const bypass = await call("PATCH", `/api/risk-matters/${riskId}`, c2.cookie, {
