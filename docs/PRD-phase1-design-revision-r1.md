@@ -103,7 +103,7 @@
 ```
 scope_key = sha1_12(
     trigger_type
-  + trigger_target_type            // matter | risk_matter | matter_node | risk_matter_node
+  + trigger_target_type            // all | matter | risk_matter | matter_node | risk_matter_node
   + normalized(trigger_config)     // 键排序、值取 code 而非 id、去空白
 )
 ```
@@ -115,7 +115,7 @@ scope_key = sha1_12(
 | scope_key | varchar(32) | 是 | 保存时由服务端计算，不可手改 |
 | is_system | boolean | 是 | 预置规则为 true：可停用、可调参，不可删、不可改 trigger |
 | host_type | 枚举 | 是 | `matter` / `risk_matter` / `all`，声明规则作用于哪类宿主（取代原文 `target_scope`；拆表后该列只出现在规则表，不出现在被拆的从属表） |
-| trigger_target_type | 枚举 | 是 | `matter` / `risk_matter` / `matter_node` / `risk_matter_node`，声明触发实体 |
+| trigger_target_type | 枚举 | 是 | `all` / `matter` / `risk_matter` / `matter_node` / `risk_matter_node`，声明触发实体。**第 5 值 `all` 是 2026-10-13 补登记的**（MATT-43 落地时发现，父代理裁定采纳）：本条原先只给 4 值，但 §2.3 里规则 1/2/5/6/8 的 `host_type='all'`、触发实体写"宿主" —— 4 值表达不了"触发实体是**两条宿主线**"，硬塞 `matter` 会让规则行写着"仅案件"而它实际也吃事项。而 `scope_key` **完全建立在这个值上**（见下方第 130 行），所以填错不会报错，只会让唯一约束**静默失效**。它登记在 `STRUCT_CHECKS` 而不是 E 行（它是列的值域，不是枚举表的 E 编号项） |
 | last_run_at | timestamptz | 否 | 排障与幂等辅助 |
 | created_by / updated_by | bigint | 是 / 否 | 原文缺失，补上 |
 
