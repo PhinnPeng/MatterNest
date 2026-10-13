@@ -29,7 +29,7 @@ import {
   type PartyHit,
 } from "@/app/lib/client/api";
 import { matterCreateSchema, pruneEmpty, type MatterCreateInput } from "@/shared/schema/hosts";
-import { rulesFor, setFieldErrors } from "@/app/components/form/zod-rules";
+import { rulesFor, setFieldErrors, validateAndFocusFirst } from "@/app/components/form/zod-rules";
 
 /**
  * 当事人名称框：既是输入框也是「引用既有」的入口（F2-15「关联 + 快速新增」在一个控件里）。
@@ -140,7 +140,7 @@ export function MatterCreateDialog({
   }
 
   async function submit() {
-    const values = await form.validateFields().catch(() => null);
+    const values = await validateAndFocusFirst(form);
     if (!values) return;
     const parsed = matterCreateSchema.safeParse(toValues(values));
     if (!parsed.success) {

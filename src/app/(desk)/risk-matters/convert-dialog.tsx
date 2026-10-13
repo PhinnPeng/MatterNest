@@ -31,7 +31,7 @@ import {
   type MatterCreateInput,
 } from "@/shared/schema/hosts";
 import type { z } from "zod";
-import { rulesFor, setFieldErrors } from "@/app/components/form/zod-rules";
+import { rulesFor, setFieldErrors, validateAndFocusFirst } from "@/app/components/form/zod-rules";
 
 /** 一次转案件提交的形状：从 schema 反推，避免手写一份再漂移 */
 type ConvertRequest = z.infer<typeof convertSchema>;
@@ -186,8 +186,8 @@ export function ConvertDialog({
     if (!source) return;
     // 先跑当前卡的即时校验（给人"哪个框没填"的红框）；
     // 但**不能**用它的返回值当载荷——未渲染的卡不在里面（见 allCases 注释）。
-    const okVisible = await form.validateFields().catch(() => null);
-    if (!okVisible) return; // Form 的 scrollToFirstError 已把人带到第一个错字段
+    const okVisible = await validateAndFocusFirst(form);
+    if (!okVisible) return; // 焦点已送到第一个错字段（只滚不聚焦不算数）
 
     const cases = allCases().map((c) => {
       const { filingDate, ...rest } = c;

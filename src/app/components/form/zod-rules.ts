@@ -139,3 +139,46 @@ export function applyServerIssues(
   if (!issues?.length) return;
   setFieldErrors(form, issues);
 }
+
+/**
+ * 客户端校验失败 → 把**焦点**送到第一个出错字段（MATT-33）。
+ *
+ * ## 为什么不能只靠 `Form` 的 `scrollToFirstError`
+ *
+ * 它**只滚不聚焦**。实测（真 Chromium，1366×768，空表单提交建事项弹窗）：
+ * 首错「事项名称」已标红、也在视口内，但 `document.activeElement` 仍是那个提交按钮。
+ * 键盘用户因此要多按一串 Tab 才能走到该改的框——「错误在视口外等于点了没反应」
+ * 这句话的另一半正是"焦点没过去，键盘用户不知道错在哪"。
+ *
+ * ## 为什么取 `errorFields[0].name` 而不自己扫 DOM
+ *
+ * antd 已经把"第一个错"算好了，顺序就是字段注册顺序（与视觉顺序一致）。
+ * 自己扫 `.ant-form-item-has-error` 等于把同一件事算第二遍，还会与
+ * `scrollToFirstError` 的选择打架。
+ *
+ * `focus` 选项是真实存在的（读过实现：`scrollToField` 里 `if (focus) wrapForm.focusField(name)`），
+ * 不是猜的。
+ */
+export function focusFirstError(
+  form: FormInstance,
+  errorFields?: readonly { name?: unknown }[] | null,
+) {
+  const first = errorFields?.[0]?.name;
+  if (!first) return;
+  form.scrollToField(first as never, { focus: true, block: "center", behavior: "smooth" });
+}
+
+/**
+ * `validateFields()` 的失败收口：**取回第一个错字段并聚焦**，再返回 null 让调用方早退。
+ *
+ * 三个弹窗原先都写 `.catch(() => null)` —— 错误对象被丢掉，于是只剩 antd 的自动滚动。
+ * 收成一个助手，是因为"漏掉聚焦"这件事在三个地方各写一遍就会各漏一遍。
+ */
+export async function validateAndFocusFirst<T>(form: FormInstance<T>): Promise<T | null> {
+  try {
+    return await form.validateFields();
+  } catch (e) {
+    focusFirstError(form, (e as { errorFields?: { name?: unknown }[] })?.errorFields);
+    return null;
+  }
+}

@@ -19,7 +19,7 @@ import type { Dayjs } from "dayjs";
 
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
 import { pruneEmpty, riskCreateSchema, type RiskCreateInput } from "@/shared/schema/hosts";
-import { rulesFor, setFieldErrors } from "@/app/components/form/zod-rules";
+import { rulesFor, setFieldErrors, validateAndFocusFirst } from "@/app/components/form/zod-rules";
 import { RichTextFormField } from "@/app/components/ui/rich-text";
 
 /**
@@ -59,7 +59,7 @@ export function RiskCreateDialog({
   const created = mut.data;
 
   async function submit() {
-    const values = await form.validateFields().catch(() => null);
+    const values = await validateAndFocusFirst(form);
     if (!values) return;
     const { discoverDate, ...rest } = values;
     const parsed = riskCreateSchema.safeParse(
