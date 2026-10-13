@@ -1,0 +1,172 @@
+# MatterNest 部署栈（MATT-71）
+#
+# ## 形态：单副本（MATT-35，2026-10-13 裁定「一期单副本」）
+#
+# `app` **没有** `deploy.replicas`，也**不该有**。一期单副本是有依据的裁定
+# （收益为零：内网自用工具，发布停机可接受），不是「还没配」。
+#
+# ## 本文件不做什么
+#
+# **B7 三把密钥的托管口径不在这里拍**（MATT-36，HITL 待决）。本文件只做两件事：
+#   1. 把变量名列出来，让「缺哪个」在启动时报错而不是运行时才发现；
+#   2. **全部留空值** —— 真实值只经 `deploy/.env` 注入，该文件被 `.gitignore`
+#      的 `.env` 规则排除（已用 `git check-ignore` 核实）。
+#
+# ## 尚未启用的服务，以及为什么
+#
+# · `worker`（独立进程跑 node-cron）—— MATT-35 裁定一期**不引调度进程**：
+#   通知泵由外部触发器（systemd timer 或 croner）驱动，`worker/` 下当前只有
+#   README、没有实现。留一个指向不存在代码的服务比不写更糟，故不写。
+# · TLS 终结 —— 部署域名未定死（MATT-34 云之家联调前置），证书托管属 MATT-36。
+#   `nginx.conf` 里 443 那一段是注释。
+#
+# ## 怎么跑
+#
+#   cp .env.example .env     # 填真实值；本仓开发机的 PG/MinIO 是共享机端口映射
+#   docker compose up -d --build
+#
+# 迁移**不随 app 起来**：`migrator` 是一次性服务，`app` `depends_on` 它的
+# 成功退出。这是技术选型 §3.2c 的口径 —— 应用副本不跑迁移，多副本抢跑的问题
+# 因此结构性消失。
+
+name: matternest
+
+x-app-env: &app-env
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION:-unset}
+
+  # 数据库
+  PGHOST: ${PGHOST:-postgres}
+  PGPORT: ${PGPORT:-5432}
+  PGDATABASE: ${PGDATABASE:-matternest}
+  PGUSER: ${PGUSER:-matternest}
+  PGPASSWORD: ${PGPASSWORD:-}
+  PG_POOL_MAX: ${PG_POOL_MAX:-10}
+  PG_SESSION_TIMEZONE: ${PG_SESSION_TIMEZONE:-UTC}
+
+  # 对象存储（MinIO）
+  MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+  MINIO_CONSOLE: ${MINIO_CONSOLE:-http://localhost:9001}
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-}
+  MINIO_BUCKET: ${MINIO_BUCKET:-mn-attachments}
+  MINIO_PRESIGN_GET_SECONDS: ${MINIO_PRESIGN_GET_SECONDS:-60}
+
+  # 字段加密 —— **两把密钥必须分离**（技术选型 §6.3 / 部署安全项第 1 条）
+  MN_AES_KEY: ${MN_AES_KEY:-}
+  MN_HMAC_KEY: ${MN_HMAC_KEY:-}
+  MN_KEY_VERSION: ${MN_KEY_VERSION:-1}
+  MN_OWN_COMPANY_NAMES: ${MN_OWN_COMPANY_NAMES:-}
+
+  # 云之家（回调登记以云之家侧规则为准 ⇒ 域名必须在联调前定死）
+  YZJ_APP_ID: ${YZJ_APP_ID:-}
+  YZJ_APP_SECRET: ${YZJ_APP_SECRET:-}
+  YZJ_REDIRECT_URI: ${YZJ_REDIRECT_URI:-}
+  YZJ_STATE_SECRET: ${YZJ_STATE_SECRET:-}
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
+
+  # ⚠ 与「多副本」无关，**不填就直接起不来**：`auth.ts` 的 `pepper()` 缺值即抛。
+  #   它和上面两个多副本时代的空槽住在同一段里，最容易被一起留空
+  #   （MATT-35 实测记录的正是这一点）。
+  MN_SESSION_PEPPER: ${MN_SESSION_PEPPER:-}
+
+  # 单副本下这两个是空槽（MATT-35 已证伪其必要性：无 Server Function 可加密，
+  # 无滚动发布窗口）。保留键名是为了将来加副本时不必改代码。
+  NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:-}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-matternest}
+      POSTGRES_USER: ${PGUSER:-matternest}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-}
+      # 会话固定 UTC 由**角色级**强制（`ALTER ROLE ... SET timezone='UTC'`），
+      # 见 tools/db-check.mjs；镜像层再钉一次是廉价的第二道。
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: UTC
+    command:
+      - postgres
+      - -c
+      - timezone=UTC
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-matternest} -d ${PGDATABASE:-matternest}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # 一次性迁移服务（技术选型 §3.2c）。跑完退出 0，app 依赖它的**成功退出**。
+  migrator:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: builder
+    command: ["node", "tools/migrate.mjs", "--migrate-only"]
+    environment:
+      <<: *app-env
+      # migrator 的第一道闸门：`MN_DB_CONFIRM` 必须与 `current_database()` 逐字相等，
+      # 否则 `tools/migrate.mjs` 直接拒跑（共享实例上连错库跑迁移是唯一不可逆事故）。
+      MN_DB_CONFIRM: ${PGDATABASE:-matternest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    # 不对宿主暴露端口：入口只有 nginx（技术选型 §6「只暴露 /api 与静态资源」）。
+    expose:
+      - "3000"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # TLS 未启用（MATT-34 域名未定死 / MATT-36 证书托管待决）。
+      # 启用时把证书挂到 /etc/nginx/tls 并取消 nginx.conf 里 443 段的注释。
+      # - ./tls:/etc/nginx/tls:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:
