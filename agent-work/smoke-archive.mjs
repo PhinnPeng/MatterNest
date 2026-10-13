@@ -219,7 +219,11 @@ try {
   const nodes = detailB.body?.nodes ?? [];
   ok("齐备案件有预设节点可做", nodes.length > 0, `节点=${nodes.length}`);
   for (const n of nodes) {
-    await call("PATCH", `/api/matters/${b.body.id}/nodes?nodeId=${n.id}`, s.cookie, {
+    // ⚠ 契约：**POST** `/api/matters/{id}/nodes/{nodeId}`（nodeId 在**路径**里），
+    //   不是 `PATCH …/nodes?nodeId=` —— 事项侧才是查询串形状，两侧不同形。
+    //   本轮靠读路由源码才发现（库断着，跑不出来）：写错会 404，于是节点全留在
+    //   未决状态，"齐备案件"那一节会以一条看不懂的信息全红。
+    await call("POST", `/api/matters/${b.body.id}/nodes/${n.id}`, s.cookie, {
       status: "completed",
     });
   }
