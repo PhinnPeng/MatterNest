@@ -3,6 +3,7 @@
 import { INK } from "@/app/theme/brand";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   App as AntdApp,
@@ -44,6 +45,7 @@ import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark"
 import { StateBlock } from "@/app/components/ui/state-block";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { RichTextView, RichTextEditorLazy } from "@/app/components/ui/rich-text";
+import { ConvertDialog } from "../convert-dialog";
 import { NODE_STATUS_LABELS, LITIGATION_ROLE_LABELS } from "@/shared/enums/business";
 
 /**
@@ -63,11 +65,13 @@ import { NODE_STATUS_LABELS, LITIGATION_ROLE_LABELS } from "@/shared/enums/busin
  */
 export function RiskDetail({ id }: { id: string }) {
   const qc = useQueryClient();
+  const router = useRouter();
   const { message } = AntdApp.useApp();
   const [statusOpen, setStatusOpen] = useState(false);
   const [nodeOpen, setNodeOpen] = useState(false);
   const [ownerOpen, setOwnerOpen] = useState(false);
   const [descOpen, setDescOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
 
   const { data, isPending, isError, error } = useQuery({
     queryKey: ["risk", id],
@@ -157,9 +161,15 @@ export function RiskDetail({ id }: { id: string }) {
           原型里那套 JS 量 `--rail-h` 是为"整幅页头把评论栏推下去"那个偏移准备的，D2 没有那个偏移。
           76 = 顶栏 60 + 内容区上内边距 16；-92 再留 16 的底边距。 */}
       <Row gutter={16} align="stretch">
-        {/* ── 左列：页头 + 内容页签 ── */}
+        {/* ── 左列：页头 + 内容页签 ──
+            `flex="1 1 0"` 而不是 `flex="auto"`（= `1 1 auto`）：auto 的 flex base 是
+            **内容 max-content**，而 antd Row 默认 `flex-wrap: wrap` —— 左列内容一旦宽过
+            (行宽 − 356)，右栏就被换行挤到下一行，两列顶边不再同 y（D2 的硬要求）。
+            加「转案件」按钮那次就正好把页头推过阈值：1134 的行里左列独占 1134、右栏掉到 y=748。
+            basis 归零后左列宽度只由"行宽 − 右栏"决定，与内容宽度无关；
+            `minWidth: 0` 保证内容仍能在列内收缩（表格自己横向滚）。 */}
         <Col
-          flex="auto"
+          flex="1 1 0"
           style={{
             minWidth: 0,
             display: "flex",
@@ -201,6 +211,9 @@ export function RiskDetail({ id }: { id: string }) {
                 <Button type="primary" onClick={() => setStatusOpen(true)}>
                   变更状态
                 </Button>
+                {/* 转案件是建案入口之一（IQ-3），详情页与列表页都要能发起（T2 验收原文）。
+                    归档态不给：归档是终态，服务层会 422 archived。 */}
+                {!risk.isArchived && <Button onClick={() => setConvertOpen(true)}>转案件</Button>}
                 {!risk.isArchived && <Button onClick={() => setOwnerOpen(true)}>变更经办人</Button>}
                 <FollowGroup risk={risk} onDone={invalidate} />
                 {!risk.isArchived && (
@@ -519,6 +532,24 @@ export function RiskDetail({ id }: { id: string }) {
         saving={saveDesc.isPending}
         onClose={() => setDescOpen(false)}
         onSave={(md) => saveDesc.mutate(md)}
+      />
+      {/* 详情页入口：源事实直接给详情 DTO（含当事人名单，列表页那行数据没有它） */}
+      <ConvertDialog
+        source={
+          convertOpen
+            ? {
+                id: risk.id,
+                code: risk.code,
+                name: risk.name,
+                level: risk.level,
+                amount: risk.amount,
+                ownerName: risk.ownerName ?? undefined,
+                parties: risk.parties.map((p) => ({ name: p.name, partyRole: p.partyRole })),
+              }
+            : null
+        }
+        onClose={() => setConvertOpen(false)}
+        onOpenCase={(cid) => router.push(`/matters/${cid}`)}
       />
     </div>
   );

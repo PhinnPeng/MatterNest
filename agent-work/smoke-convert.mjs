@@ -54,13 +54,14 @@ async function call(method, path, cookie, payload) {
 }
 
 const stamp = Date.now();
-const card = (i) => ({
+const card = (i, over = {}) => ({
   name: `转案件冒烟 ${stamp}-${i}`,
   cause: "建设工程施工合同纠纷",
   caseType: "civil_commercial",
   procedure: "first_instance",
   litigationRole: "defendant",
   level: "high",
+  ...over,
 });
 
 const { default: postgres } = await import("postgres");
@@ -117,6 +118,8 @@ const created = await call("POST", "/api/risk-matters", cookie, {
   type: "contract",
   level: "high",
   description: "冒烟用临时事项",
+  // 给一个显眼的敞口：用来证明**金额不继承**（映射矩阵 §2.4 逐案自填）
+  amount: "999999.00",
 });
 ok("建事项", created.status === 201, `status=${created.status}`);
 const riskId = created.body?.id;
@@ -194,14 +197,43 @@ const [rep] = await sql`
 ok("**represented 全为 false** —— 新路径没有把它写回去", rep.any_true !== true, `any_true=${rep.any_true}`);
 
 // ---- 4. 一次转 N=2 ----
+// 两张卡各带自己的金额（AC：金额留空逐案填、**不继承**事项敞口 999999）；
+// 第 2 张还带一个自定义案号，用来验「案号可改」。
 const conv = await call("POST", `/api/risk-matters/${riskId}/convert`, cookie, {
-  cases: [card(1), card(2)],
+  cases: [card(1, { amount: "1000.00" }), card(2, { amount: "2000.00", caseNo: `自定义案号-${stamp}` })],
 });
 ok("一次提交 N=2 建出 2 个案件", conv.status === 201 && conv.body?.cases?.length === 2, `status=${conv.status} n=${conv.body?.cases?.length}`);
 const made = conv.body?.cases ?? [];
 ok("两案编号不同（取号不重号）", made.length === 2 && made[0].internalCode !== made[1].internalCode, made.map((c) => c.internalCode).join(" / "));
 const ids = made.map((c) => c.id);
 const bigIds = ids.map(BigInt);
+
+// AC 5：金额逐案填、不继承敞口
+const amounts = await sql`
+  select id::text as id, amount::text as amount, case_no, internal_code
+  from mn_matter where id = any(${sql.array(bigIds)}::bigint[]) order by internal_code`;
+ok(
+  "**金额逐案自填**（两案各是各的，不是同一个值）",
+  amounts[0]?.amount === "1000.00" && amounts[1]?.amount === "2000.00",
+  amounts.map((a) => a.amount).join(" / "),
+);
+ok(
+  "**金额不继承事项敞口**（没有一案拿到 999999）",
+  amounts.every((a) => a.amount !== "999999.00"),
+  amounts.map((a) => a.amount).join(" / "),
+);
+
+// AC 6：案号默认取内部编号、可改
+ok(
+  "**案号默认回退为内部编号**（未填那张）",
+  amounts[0]?.case_no === amounts[0]?.internal_code,
+  `case_no=${amounts[0]?.case_no} internal=${amounts[0]?.internal_code}`,
+);
+ok(
+  "**案号可改**（填了就用填的）",
+  amounts[1]?.case_no === `自定义案号-${stamp}`,
+  `case_no=${amounts[1]?.case_no}`,
+);
 
 const [afterConv] = await sql`select conversion_status, converted_case_count from mn_risk_matter where id = ${riskId}`;
 ok("conversion_status=1 且计数=2", afterConv.conversion_status === 1 && afterConv.converted_case_count === 2, `status=${afterConv.conversion_status} count=${afterConv.converted_case_count}`);
@@ -228,7 +260,16 @@ const [obx] = await sql`select count(*)::int as n from mn_event_outbox where pay
 ok("同事务写了 outbox", obx.n === 1, `n=${obx.n}`);
 
 // ---- 5. 追加转（可二次）----
-const conv2 = await call("POST", `/api/risk-matters/${riskId}/convert`, cookie, { cases: [card(3)] });
+// 这张**故意用与上一张相同的案号**：§6.3 明写案号非唯一、重复只提示不阻止
+//（不同法院案号体系会重号，真正的唯一锚点始终是内部编号）。
+const conv2 = await call("POST", `/api/risk-matters/${riskId}/convert`, cookie, {
+  cases: [card(3, { caseNo: `自定义案号-${stamp}` })],
+});
+ok(
+  "**案号非唯一**：重复案号照样建案（只提示不阻止）",
+  conv2.status === 201,
+  `status=${conv2.status} ${JSON.stringify(conv2.body)?.slice(0, 80)}`,
+);
 const [afterConv2] = await sql`select conversion_status, converted_case_count from mn_risk_matter where id = ${riskId}`;
 ok("可二次转：status 保持 1、计数到 3", conv2.status === 201 && afterConv2.conversion_status === 1 && afterConv2.converted_case_count === 3, `count=${afterConv2.converted_case_count}`);
 const all3 = [...bigIds, BigInt(conv2.body.cases[0].id)];
