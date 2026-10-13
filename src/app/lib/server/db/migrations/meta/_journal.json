@@ -71,6 +71,20 @@
       "when": 1792224000000,
       "tag": "0009_party_identity_and_merge",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792310400000,
+      "tag": "0010_notification_pipeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792396800000,
+      "tag": "0011_expenses_and_expense_items",
+      "breakpoints": true
     }
   ]
 }
