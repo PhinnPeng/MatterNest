@@ -108,8 +108,18 @@ export async function listMatters(actor: Actor, q: ListQuery) {
       archivedAt: matter.archivedAt,
       ownerName: appUserName(),
       updatedAt: matter.updatedAt,
+      /**
+       * 最近一个未决节点的期限。
+       *
+       * ⚠ 关联键必须是**裸限定名** `mn_matter.id`，不能写 `${matter.id}`：
+       * 在 **select 列表**上下文里 drizzle 把本表列渲染成**无限定**的 `"id"`，
+       * 而子查询里那张表**自己就有 `id`** ⇒ `n.matter_id = "id"` 被解析成 `n.matter_id = n.id`，
+       * **恒假**。这里比 `archive-readiness.ts` 那处更阴——子查询只有一张表，
+       * PG **不会报歧义**，`min()` 静默恒 NULL：列表的「下一期限」一列永远是空的，
+       * 而没有任何测试盯着它（检查子代理用真库实测：6 个案件里本该 4 个有期限，实际全空）。
+       */
       nextDeadline: sql<string | null>`(select min(n.deadline_time) from mn_matter_node n
-        where n.matter_id = ${matter.id} and not n.is_deleted
+        where n.matter_id = mn_matter.id and not n.is_deleted
           and n.status in ('not_started','in_progress'))`,
     })
     .from(matter)

@@ -48,3 +48,58 @@ describe("db/client：启动断言", () => {
     await expect(assertSessionConventions(poolReturning("utc", "utf8"))).resolves.toBe(true);
   });
 });
+
+/**
+ * 「断言失败不许被缓存」——这条守的是一个**进程级永久钉死**的缺陷。
+ *
+ * `getDb()` 缓存 `asserted` 是为了让并发请求只测一回，但**promise 会把失败也缓存住**：
+ * 一次瞬时断连（共享 dev 机的端口映射一抖）让断言失败之后，那个 rejected promise 会永久留在
+ * `asserted` 上，之后每个请求都 await 到同一个失败 ⇒ 进程从此 500，哪怕库早就恢复。
+ *
+ * 症状是"跑着跑着所有接口都 500，重启 dev server 就好"——而重启**掩盖了根因**。
+ * 本轮实测反复重启了三次才定位到这一行，所以必须有断言钉着，不能靠下次记得。
+ *
+ * ⚠ 假池必须走 `vi.mock`（模块级）：ESM 的 default 导出不可 spy
+ * （`Module namespace is not configurable in ESM`）。`vi.hoisted` 是为了让工厂能引用到
+ * 可变容器——`vi.mock` 的工厂会被提升到 import 之前。
+ */
+const h = vi.hoisted(() => ({ pool: undefined as unknown }));
+vi.mock("postgres", () => ({ default: () => h.pool }));
+
+describe("db/client：断言失败不被缓存（瞬时断连不许把进程钉死）", () => {
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await closeDb();
+  });
+
+  it("第一次断言失败 → 抛；下一次请求会**重跑断言**（失败的 promise 不被永久缓存）", async () => {
+    vi.stubEnv("PGHOST", "127.0.0.1");
+    vi.stubEnv("PGDATABASE", "fake");
+    vi.stubEnv("PGUSER", "fake");
+    await closeDb();
+
+    let calls = 0;
+    const flaky = Object.assign(
+      async () => {
+        calls += 1;
+        if (calls === 1) throw new Error("write CONNECT_TIMEOUT 127.0.0.1:30432");
+        return [{ tz: "UTC", enc: "UTF8" }];
+      },
+      { end: async () => {} },
+    );
+    h.pool = flaky;
+
+    await expect(getDb()).rejects.toThrow(/CONNECT_TIMEOUT/);
+
+    /**
+     * 第二次调用：**断言会重新跑一遍**（`calls` 从 1 变 2）——这正是这条修复要保证的事。
+     *
+     * ⚠ 它仍然会 reject，但原因是**假池不完整**：断言通过之后 `drizzle(pool, …)` 会去读
+     * 真 postgres.js 客户端上才有的属性（`parsers` 之类）。所以这里只断言"断言被重跑了"，
+     * 不断言"整个 getDb 成功"——后者需要造一个完整到能骗过 drizzle 的假池，
+     * 而那是另一个测试的活（真池的路径由真 HTTP 冒烟覆盖）。
+     */
+    await expect(getDb()).rejects.toThrow();
+    expect(calls).toBeGreaterThanOrEqual(2);
+  });
+});

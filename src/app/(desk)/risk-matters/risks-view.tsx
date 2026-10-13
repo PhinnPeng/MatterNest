@@ -23,7 +23,7 @@ import type { TableColumnsType } from "antd";
 import { api, ApiFailure, useMeta, type Meta } from "@/app/lib/client/api";
 import { toQuery, useListState } from "@/app/lib/client/use-list-state";
 import { calDate, fromNow, money } from "@/app/lib/client/format";
-import { BATCH_SKIP_REASON_LABELS, type BatchSummary } from "@/shared/schema/batch";
+import { BATCH_SKIP_REASON_LABELS, MAX_BATCH_IDS, type BatchSummary } from "@/shared/schema/batch";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { FilterField, QueryFilter } from "@/app/components/query-filter";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
@@ -102,7 +102,12 @@ export function RisksView() {
   const pageRows = useMemo(() => data?.items ?? [], [data]);
   const pageIds = useMemo(() => pageRows.map((r) => r.id), [pageRows]);
   useEffect(() => {
-    setSelected((prev) => prev.filter((id) => pageIds.includes(id)));
+    // 没变就返回**同一个数组**：每次 refetch 都会换掉 `pageIds` 的身份，
+    // 无条件 `setSelected` 会让"刷新一下"多一次全表重渲染（选中集合其实没变）
+    setSelected((prev) => {
+      const next = prev.filter((id) => pageIds.includes(id));
+      return next.length === prev.length ? prev : next;
+    });
   }, [pageIds]);
   const selectedRows = useMemo(
     () => pageRows.filter((r) => selected.includes(r.id)),
@@ -371,14 +376,24 @@ export function RisksView() {
             {/*
               选中集合的入口就在三个动作按钮旁边：`DataTable` 不支持逐行勾选（见上面 `selected`
               的注释），所以这里必须把"选了多少条"说出来——否则用户是按了按钮才知道作用范围的。
+
+              `pageSize` 可以到 100（`MAX_PAGE_SIZE`），而一次批量最多 `MAX_BATCH_IDS`（50）条：
+              两者不等时"全选当前页"会**做出一个注定 400 的选择**。所以那一档直接禁掉并把原因
+              写出来——静默只选前 50 条更糟，用户会以为"全选"就是全选。
             */}
             <Checkbox
               checked={pageIds.length > 0 && selected.length === pageIds.length}
-              disabled={!pageIds.length}
+              disabled={!pageIds.length || pageIds.length > MAX_BATCH_IDS}
               onChange={(e) => setSelected(e.target.checked ? pageIds : [])}
             >
               全选当前页
             </Checkbox>
+            {pageIds.length > MAX_BATCH_IDS ? (
+              <Typography.Text style={{ fontSize: 12, color: INK.muted }}>
+                当前页 <span className="num">{pageIds.length}</span> 条，超过一次批量的上限{" "}
+                <span className="num">{MAX_BATCH_IDS}</span> 条
+              </Typography.Text>
+            ) : null}
             {selected.length ? (
               <Typography.Text style={{ fontSize: 12, color: INK.secondary }}>
                 已选 <span className="num">{selected.length}</span> 条

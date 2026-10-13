@@ -1,6 +1,7 @@
 import { riskPartyAppendSchema } from "@/shared/schema/hosts";
 import { appendRiskParties, listRiskParties } from "@/app/lib/server/services/risks";
-import { body, json, notFound, pathId, withActor } from "@/app/lib/server/http";
+import { UnknownPartyError } from "@/app/lib/server/services/parties";
+import { body, fail, json, notFound, pathId, withActor } from "@/app/lib/server/http";
 
 /**
  * 事项的当事人区：读全部 + 追加若干（T10）。
@@ -35,9 +36,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!pid.ok) return pid.res;
 
   return withActor(async (actor) => {
-    const r = await appendRiskParties(actor, id, parsed.data.parties);
-    // 不可见 / 已归档一律 404。归档是终态（§5.2），对已归档事项改当事人同样不该放行。
-    if (!r.ok) return notFound();
-    return json({ added: r.added });
+    try {
+      const r = await appendRiskParties(actor, id, parsed.data.parties);
+      // 不可见 / 已归档一律 404。归档是终态（§5.2），对已归档事项改当事人同样不该放行。
+      if (!r.ok) return notFound();
+      return json({ added: r.added });
+    } catch (e) {
+      /**
+       * 与 `/api/risk-matters`（建事项）和 `/api/matters`（建案件）同形。
+       *
+       * 这条入口是事项**事后**追加当事人的唯一路径，而它此前没有任何 catch
+       * ⇒ 输入本企业名或引用一个不存在的 partyId 都得到 500。
+       * AC 第 4 条要求"提示而非建档"，500 既不是提示也没说下一步。
+       */
+      if (e instanceof UnknownPartyError) return fail(400, "unknown_party", e.message);
+      throw e;
+    }
   });
 }

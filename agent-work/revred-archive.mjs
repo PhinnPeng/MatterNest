@@ -35,13 +35,19 @@
  *    声明在 `shared/enums/status.ts` 里，是可读的承诺，不该靠人记得。
  *
  * ⚠ 还原后别立刻跑冒烟：`next dev` 热更新有窗口（revred-convert 那轮踩过）。
+ *
+ * ⚠ **备份路径必须与别的 revred 工具不同**。初版用 `matters.ts.revred.bak`，与
+ * `revred-batch.mjs`（另一个 agent 写的，同一棵树）**逐字相同**：两边同时注入时，
+ * 一方的 `restore` 会把另一方的注入提前还原并删掉备份 ⇒ **一次假绿**
+ * （对方实测撞上过，我也在树里发现过"注入态残留"）。假绿比不验证更糟——
+ * 它给的是"验过了"的错觉。所以后缀带上本工具的名字。
  */
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 
 const F_SVC = "src/app/lib/server/services/archive-readiness.ts";
 const F_MATTERS = "src/app/lib/server/services/matters.ts";
-const BAK_SVC = `${F_SVC}.revred.bak`;
-const BAK_MATTERS = `${F_MATTERS}.revred.bak`;
+const BAK_SVC = `${F_SVC}.revred-archive.bak`;
+const BAK_MATTERS = `${F_MATTERS}.revred-archive.bak`;
 const mode = process.argv[2];
 
 if (mode === "restore" || process.argv[3] === "restore") {

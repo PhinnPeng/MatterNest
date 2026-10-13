@@ -24,14 +24,42 @@ function extractNeedles(file) {
   const out = [];
 
   // 形状 ①
-  const re1 = /needle:\s*`([\s\S]*?)`,\s*\n\s*replacement:/g;
-  let m;
-  while ((m = re1.exec(src))) {
-    const before = src.slice(Math.max(0, m.index - 400), m.index);
-    const after = src.slice(m.index, m.index + 4000);
-    const fileM = [...before.matchAll(/file:\s*(F\w*|"[^"]+")/g)].pop();
-    const tagM = after.match(/tag:\s*"([^"]+)"/);
-    out.push({ tag: tagM?.[1] ?? "?", fileConst: fileM?.[1] ?? null, needle: m[1] });
+  //
+  // ⚠ **按对象条目切分**，不要用"needle 后面紧跟 replacement"的正则再往前后各扫 400 字
+  //   去找 `file:` / `tag:`。初版就是这么写的，而条目里只要夹一段注释（`revred-batch` 的
+  //   `tag-scope` 在 needle 与 replacement 之间有一段讲 `void actor;` 的注释）就会：
+  //     ① 那条 needle 根本抽不出来；
+  //     ② 前一条的 needle 配上了后一条的 `tag:` ⇒ **张冠李戴**，报出"某锚点 0 命中"的**假红**。
+  //   假红比漏报更坏：它让人去改一个本来正确的锚点，同时把真正失效的那条掩盖在噪声里。
+  //   现在每个条目是一块（顶层 2 空格缩进的 `"key": {`），块内各自取 file/needle/tag，
+  //   配对不会跨条目。
+  const blocks = src.split(/\n {2}(?=")/).slice(1);
+  for (const block of blocks) {
+    const tag = block.match(/tag:\s*"([^"]+)"/)?.[1];
+    const fileConst = block.match(/file:\s*(F\w*|"[^"]+")/)?.[1];
+    // needle 的收尾是「反引号 + 逗号 + 换行」；允许 needle 里出现转义反引号（`\``）
+    const needleM = block.match(/needle:\s*`((?:\\[\s\S]|[^`\\])*)`,\n/);
+    if (!needleM) continue;
+    out.push({ tag: tag ?? "?", fileConst: fileConst ?? null, needle: needleM[1] });
+  }
+  if (out.length) return out;
+
+  // 形状 ①b：`needle: "..."`（双引号，可能换行写在冒号下一行 —— revred-reports 那批）。
+  //   键名当 tag（那批工具用模式名作键），`file:` 取同块内的。
+  //   ⚠ 不覆盖它的话，`revred-reports.mjs` 会显示"未解析出 needle"——**门禁的盲区**，
+  //     而它恰好是"能编译、能跑通、只是口径错了"那类最难发现的缺陷的守卫。
+  for (const block of blocks) {
+    const key = block.match(/^"([^"]+)"/)?.[1];
+    const fileConst = block.match(/file:\s*(F\w*|"[^"]+")/)?.[1];
+    const needleM = block.match(/needle:\s*\n?\s*"((?:[^"\\]|\\.)*)",\n/);
+    if (!needleM) continue;
+    out.push({
+      tag: key ?? "?",
+      fileConst: fileConst ?? "F",
+      needle: needleM[1].replace(/\\(n|t|r|"|\\)/g, (_x, c) =>
+        c === "n" ? "\n" : c === "t" ? "\t" : c === "r" ? "\r" : c,
+      ),
+    });
   }
   if (out.length) return out;
 
@@ -40,6 +68,7 @@ function extractNeedles(file) {
   // ⚠ 模板串要**整体匹配到收尾反引号**，不能按 `;` 截断：模板串里常常含 `;`（例如
   //   `const picked = {};` 那种多行代码片段），非贪婪匹配会在第一个 `;\n` 处停下，
   //   于是"解析不出 needle"——本轮 revred-copycard 就是这么被漏掉的。
+  let m;
   const reTpl = /const\s+(needle|NEEDLE|anchor)\s*=\s*`([\s\S]*?)`;/g;
   while ((m = reTpl.exec(src))) {
     out.push({ tag: m[1], fileConst: "F", needle: m[2] });

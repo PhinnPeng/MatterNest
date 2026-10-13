@@ -2,6 +2,7 @@ import { and, asc, count as dcount, desc, eq, inArray, isNull, sql, type SQL } f
 import { nextId } from "@/shared/ids/snowflake";
 import { SORTABLE_COLUMNS } from "@/shared/schema/list-query";
 import { assertAssignable, listSelectableUsers } from "./selectable-users";
+import { decryptField } from "../crypto/field-crypto";
 import { getDb } from "../db/client";
 import {
   matter,
@@ -383,7 +384,15 @@ export async function listRiskParties(actor: Actor, riskId: string) {
     partyRole: r.partyRole,
     name: r.name,
     type: r.type,
-    idNumber: r.idNumber,
+    /**
+     * ⚠ **必须解密**：MATT-40 把 `party.id_number` 改成存密文（`v1:<base64url>` 信封）之后，
+     * 直接回原文就是把密文交给接口——而信封是个合法字符串，**不会报错**，只有眼睛能发现。
+     * `decryptField` 对"不是信封"的值原样返回，所以存量明文行（未回填的演示数据）照常显示。
+     *
+     * 这条修过一次又被并发写入覆盖（同一棵树上另一条流在改这个文件），
+     * 所以它现在有冒烟断言盯着（`smoke-parties.mjs` 断言 `idNumber` 不含 `v1:` 前缀）。
+     */
+    idNumber: decryptField(r.idNumber),
   }));
 }
 

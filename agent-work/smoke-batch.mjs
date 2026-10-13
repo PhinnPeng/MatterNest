@@ -131,6 +131,21 @@ try {
 }
 
 /**
+ * `--probe`：只探"库现在能不能用"就退出（成功打印 `[probe] 库可用`）。
+ *
+ * 为什么要有它：本机到库的隧道会**分钟级地断断续续**（本票验证时就撞上过三轮），
+ * 而反向红那几步是"注入缺陷 → 跑冒烟 → 还原"。拿整脚本当探针的话，
+ * 一次探测要跑 25 秒，而且探到"可用"之后留给真正那轮冒烟的窗口可能已经过去了
+ * ——结果是**缺陷注入着、冒烟却什么都没验成**。`--probe` 是 10 秒内出结果的一条命令，
+ * 让重试循环既便宜又安全（探测阶段不注入任何东西）。
+ */
+if (process.argv.includes("--probe")) {
+  console.log(`[probe] 库可用（${process.env.PGHOST}:${process.env.PGPORT}）`);
+  await sql.end({ timeout: 2 }).catch(() => {});
+  process.exit(0);
+}
+
+/**
  * 摘要校验：`{applied: number, skipped: [{id, reason}]}` 且每个 reason 都在字典里。
  * 形状本身也要验：`BatchSummary` 是前后端共用的一份 DTO，多一个字段就说明
  * "未处理条数"之类的口径被偷偷加回来了（那正是本票第 1 条要防的）。
@@ -232,7 +247,26 @@ try {
   const l1s = await login(l1.username, l1.password);
   const l2s = await login(l2.username, l2.password);
   const l3s = await login(l3.username, l3.password);
-  ok("三个夹具账号都能登录", l1s.status === 200 && l2s.status === 200 && l3s.status === 200);
+  ok(
+    "三个夹具账号都能登录",
+    l1s.status === 200 && l2s.status === 200 && l3s.status === 200,
+    `L1=${l1s.status} L2=${l2s.status} L3=${l3s.status}`,
+  );
+  /**
+   * 登录不成就**立刻停**，别让后面的夹具带着空 cookie 去撞一屏 401。
+   *
+   * 实测过的形态：隧道在"建号成功"与"登录请求"之间断了，登录回 500，
+   * 于是后面每一条断言都以 401 红，最后还因为 `String(undefined)` 拼出的
+   * `where id = 'undefined'` 抛一个 PostgresError——满屏红里**没有一条**指向真正的原因
+   * （库不可用），读日志的人会以为是实现坏了。一条明确的早停比十条误导的红有用。
+   */
+  if (l1s.status !== 200 || l2s.status !== 200 || l3s.status !== 200) {
+    console.log(
+      "[FAIL] 夹具账号登不进去 —— 先看库与服务端是否可用（`--probe` 可单独探库），" +
+        "不要把这当成断言失败。",
+    );
+    throw new Error("login_failed");
+  }
 
   // ---- 夹具：三条案件 + 两条事项 ----
   const mkMatter = (cookie, name) =>
@@ -265,6 +299,11 @@ try {
     `mA=${mA.status} mB=${mB.status} mC=${mC.status} mD=${mD.status}`,
   );
   matterIds.push(mA.body?.id, mB.body?.id, mC.body?.id, mD.body?.id);
+  // 夹具建不出来就停：下面每一条断言都要用这四个 id，而失败时它们是 `undefined`
+  // ——拼进 `where id = 'undefined'` 会抛 PostgresError，把"服务端不可用"伪装成脚本 bug
+  if (mA.status !== 201 || mB.status !== 201 || mC.status !== 201 || mD.status !== 201) {
+    throw new Error("fixture_failed");
+  }
   const idA = String(mA.body.id);
   const idB = String(mB.body.id);
   const idC = String(mC.body.id);
@@ -296,6 +335,9 @@ try {
   });
   ok("三条夹具事项都建出来了", r1.status === 201 && r2.status === 201 && r3.status === 201);
   riskIds.push(r1.body?.id, r2.body?.id, r3.body?.id);
+  if (r1.status !== 201 || r2.status !== 201 || r3.status !== 201) {
+    throw new Error("fixture_failed");
+  }
   const idR1 = String(r1.body.id);
   const idR2 = String(r2.body.id);
   const idR3 = String(r3.body.id);

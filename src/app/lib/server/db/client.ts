@@ -74,7 +74,23 @@ export async function assertSessionConventions(p: Pool): Promise<true> {
 /** 懒建池：Route Handler 里第一次用到才连，模块加载期不碰网络（Next 会在构建期 import 路由文件） */
 export async function getDb(): Promise<Db> {
   pool ??= makePool();
-  asserted ??= assertSessionConventions(pool);
+  /**
+   * ⚠ 断言失败必须**清掉缓存**，不能只 `asserted ??=`。
+   *
+   * 缓存的是 **promise**（为了让并发请求只测一回），而 promise 会把**失败也缓存住**：
+   * 一次瞬时断连（共享 dev 机的端口映射一抖）让断言失败之后，`asserted` 就永久持有那个
+   * rejected promise，之后**每个请求**都 await 到同一个失败 ⇒ 进程从此 500，
+   * 哪怕库早就恢复了。症状是"改完代码好好的，过一会儿所有接口都 500，重启 dev server 就好"
+   * ——而重启掩盖了根因（本轮实测：隧道抖动期间反复出现，我重启了三次才定位到这一行）。
+   *
+   * 修法：失败时把 `asserted` 置回 undefined，下一个请求重试。成功仍然只跑一次。
+   */
+  if (!asserted) {
+    asserted = assertSessionConventions(pool).catch((e: unknown) => {
+      asserted = undefined;
+      throw e;
+    });
+  }
   await asserted;
   dbInstance ??= drizzle(pool, { schema }) as unknown as Db;
   return dbInstance;

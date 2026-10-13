@@ -110,6 +110,7 @@ const smoke = await createSmokeAccount(sql, { roles: [ROLE_CODES.fullAdmin], isA
 /** L2 且**没有** `can_read_plain`（joined_operator）：用来撞明文导出的那道 403 */
 const smoke2 = await createSmokeAccount(sql, { roles: [ROLE_CODES.joined] });
 const matterIds = [];
+const riskMatterIds = [];
 const partyIds = [];
 
 /** 当事人夹具：名字带 stamp，证件号唯一（18 位，形状像统一社会信用代码） */
@@ -142,6 +143,7 @@ const partyRow = (p, role = "defendant") => ({
 
 async function cleanup() {
   const mids = matterIds.map(BigInt);
+  const rids = riskMatterIds.map(BigInt);
   const pids = partyIds.map(BigInt);
   if (mids.length) {
     await sql`delete from mn_activity_log where matter_id = any(${sql.array(mids)}::bigint[])`;
@@ -149,6 +151,13 @@ async function cleanup() {
     await sql`delete from mn_matter_node where matter_id = any(${sql.array(mids)}::bigint[])`;
     await sql`delete from mn_matter_staff where matter_id = any(${sql.array(mids)}::bigint[])`;
     await sql`delete from mn_matter where id = any(${sql.array(mids)}::bigint[])`;
+  }
+  if (rids.length) {
+    await sql`delete from mn_activity_log where risk_matter_id = any(${sql.array(rids)}::bigint[])`;
+    await sql`delete from mn_risk_matter_party where risk_matter_id = any(${sql.array(rids)}::bigint[])`;
+    await sql`delete from mn_risk_matter_node where risk_matter_id = any(${sql.array(rids)}::bigint[])`;
+    await sql`delete from mn_risk_matter_staff where risk_matter_id = any(${sql.array(rids)}::bigint[])`;
+    await sql`delete from mn_risk_matter where id = any(${sql.array(rids)}::bigint[])`;
   }
   if (pids.length) {
     await sql`delete from mn_activity_log where target_id = any(${sql.array(pids)}::bigint[])`;
@@ -429,6 +438,88 @@ try {
     listForL2.status === 200 && !listForL2.body.items.some((x) => x.id === String(rowA.id)),
     `n=${listForL2.body?.items?.length}`,
   );
+
+  /**
+   * 列表的「涉及案件/事项」两列。
+   *
+   * ⚠ 这条断言是**补上来的**：此前完全没有断言碰 `matterCount` / `riskCount`，
+   * 而这两列的子查询把 `${party.id}` 写在 select 列表上下文里
+   * ⇒ drizzle 渲染成无限定的 `"id"`、子查询里两张表都有 `id` ⇒ PG 报
+   * `42702 column reference "id" is ambiguous` ⇒ **列表页与两档导出 100% 500**。
+   * 上面两条导出断言其实会红，但当时没人真跑过冒烟。现在补上"计数列本身有值"——
+   * 否则即使接口 200，计数恒 0 也看不出来（那正是 `archive-readiness.ts` 那处的形态：静默 0）。
+   */
+  const listForL1Counts = await call(
+    "GET",
+    `/api/parties?keyword=${encodeURIComponent(A.name)}`,
+    cookie,
+  );
+  const rowWithCounts = (listForL1Counts.body?.items ?? []).find((x) => x.id === String(rowA.id));
+  ok(
+    "**列表的「涉及案件」计数是真的**（不是 0、也不是 500）",
+    listForL1Counts.status === 200 && Number(rowWithCounts?.matterCount) >= 1,
+    `status=${listForL1Counts.status} matterCount=${rowWithCounts?.matterCount} riskCount=${rowWithCounts?.riskCount}`,
+  );
+
+  /**
+   * 事项侧读路径也必须回明文。
+   *
+   * ⚠ 这条守的是"某处忘了 decrypt"这一类缺陷——检查子代理抓到 `risks.ts` 的
+   * `listRiskParties` 曾直接回密文（`v1:<base64url>`），而**信封是个合法字符串**、
+   * 不会报错，只有眼睛能发现。当时 UI 只渲染 `p.name` 所以还没画到屏幕上，
+   * 但接口已经在回密文了。同一处修过一次又被并发写入覆盖，所以必须有断言钉着。
+   *
+   * 顺带覆盖 AC 第 4 条在事项侧的那一半：`/api/risk-matters` 此前不 catch
+   * `UnknownPartyError` ⇒ 输入本企业名得到 500 而不是 400（下面那条断言）。
+   */
+  const riskCreated = await call("POST", "/api/risk-matters", cookie, {
+    name: `冒烟事项 ${stamp}`,
+    type: "contract",
+    level: "mid",
+    description: "冒烟：当事人读路径的明文口径",
+  });
+  ok("建事项 → 201", riskCreated.status === 201, `status=${riskCreated.status}`);
+  riskMatterIds.push(riskCreated.body?.id);
+
+  const riskAppended = await call(
+    "POST",
+    `/api/risk-matters/${riskCreated.body.id}/parties`,
+    cookie,
+    {
+      parties: [{ partyId: String(rowA.id), partyRole: "defendant" }],
+    },
+  );
+  ok(
+    // 路由回 200（`json({added})` 默认状态码），不是 201——追加不是"创建了一个新资源"，
+    // 只是给已存在的事项挂了一条关联
+    "事项追加当事人（按 id 引用既有档案）→ 200",
+    riskAppended.status === 200 && riskAppended.body?.added === 1,
+    `status=${riskAppended.status} added=${riskAppended.body?.added}`,
+  );
+
+  const riskDetail = await call("GET", `/api/risk-matters/${riskCreated.body.id}`, cookie);
+  const riskParties = riskDetail.body?.parties ?? [];
+  ok(
+    "**事项详情的当事人证件号是明文，不含 `v1:` 信封**",
+    riskDetail.status === 200 &&
+      riskParties.length >= 1 &&
+      riskParties.every((p) => !String(p.idNumber ?? "").startsWith("v1:")),
+    `status=${riskDetail.status} n=${riskParties.length} 样本=${String(riskParties[0]?.idNumber ?? "无").slice(0, 14)}`,
+  );
+
+  const riskOwnCompany = await call("POST", "/api/risk-matters", cookie, {
+    name: `冒烟事项防呆 ${stamp}`,
+    type: "contract",
+    level: "mid",
+    description: "冒烟：事项侧的本企业名防呆",
+    parties: [{ name: ownNames[0], type: "legal_person", partyRole: "defendant" }],
+  });
+  ok(
+    "**事项侧输入本企业名 → 400（不是 500）且没有建档**",
+    riskOwnCompany.status === 400 && riskOwnCompany.body?.error === "unknown_party",
+    `status=${riskOwnCompany.status} err=${riskOwnCompany.body?.error}`,
+  );
+
   const listForL1 = await call("GET", `/api/parties?keyword=${encodeURIComponent(A.name)}`, cookie);
   ok(
     "L1 用**完整证件号**也能搜到（盲索引的正当用法）",

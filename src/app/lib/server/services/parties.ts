@@ -579,13 +579,21 @@ export async function listParties(actor: Actor, q: PartyListQuery) {
        * 涉及案件/事项的条数**只数我看得见的那些**：数与详情页列出来的行必须对得上，
        * 否则列表说"3 个案件"、点进去只列 1 个，读起来是"数据丢了"。
        * 看不见的那部分由详情页的「部分结果因权限未显示」说明（§7.2）。
+       *
+       * ⚠ 关联键必须写成**裸限定名** `mn_party.id`，不能写 `${party.id}`：
+       * 在 **select 列表**上下文里 drizzle 会把本表列渲染成**无限定**的 `"id"`
+       * （它假定单表 select 不必带前缀），而子查询里 `mn_matter_party` 与 `mn_matter`
+       * **都有 `id` 列** ⇒ PG 直接报 `42702 column reference "id" is ambiguous`，
+       * 于是**当事人列表页与两档导出 100% 500**。
+       * 这个坑与 `archive-readiness.ts` 里那处同源（那里是静默恒 0，这里是直接报错）。
+       * 上面的 `scopedWhere` 本来就写裸限定名，所以这里保持同一风格。
        */
       matterCount: sql<number>`(select count(*)::int from mn_matter_party mp
         join mn_matter on mn_matter.id = mp.matter_id
-       where mp.party_id = ${party.id} and ${scopedWhere("matter", actor)})`,
+       where mp.party_id = mn_party.id and ${scopedWhere("matter", actor)})`,
       riskCount: sql<number>`(select count(*)::int from mn_risk_matter_party rp
         join mn_risk_matter on mn_risk_matter.id = rp.risk_matter_id
-       where rp.party_id = ${party.id} and ${scopedWhere("risk_matter", actor)})`,
+       where rp.party_id = mn_party.id and ${scopedWhere("risk_matter", actor)})`,
     })
     .from(party)
     .where(where)
@@ -1069,10 +1077,10 @@ export async function exportParties(
       updatedAt: party.updatedAt,
       matterCount: sql<number>`(select count(*)::int from mn_matter_party mp
         join mn_matter on mn_matter.id = mp.matter_id
-       where mp.party_id = ${party.id} and ${scopedWhere("matter", actor)})`,
+       where mp.party_id = mn_party.id and ${scopedWhere("matter", actor)})`,
       riskCount: sql<number>`(select count(*)::int from mn_risk_matter_party rp
         join mn_risk_matter on mn_risk_matter.id = rp.risk_matter_id
-       where rp.party_id = ${party.id} and ${scopedWhere("risk_matter", actor)})`,
+       where rp.party_id = mn_party.id and ${scopedWhere("risk_matter", actor)})`,
     })
     .from(party)
     .where(where)
