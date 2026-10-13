@@ -22,7 +22,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node tools/migrate.mjs --migrate-only",
     "db:seed": "node tools/migrate.mjs --seed-only",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs"
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs && pnpm anchors:check",
+    "anchors:check": "node agent-work/verify-anchors.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
