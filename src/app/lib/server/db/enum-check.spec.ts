@@ -4,6 +4,7 @@ import {
   AUDIT_ACTION_MAX_LENGTH,
   claimedChecks,
   ENUM_REGISTRY,
+  STRUCT_CHECKS,
   STRUCT_REGISTRY,
 } from "@/shared/enums";
 
@@ -20,22 +21,61 @@ import {
  */
 const MIGRATIONS = "src/app/lib/server/db/migrations";
 
-type ParsedCheck = { name: string; column: string; values: string[] };
+/**
+ * ⚠ **`table` 是 2026-10-13 补的，起因是一个真漏洞**（MATT-43 的检查子代理实测）：
+ *
+ * 本文件原先的 `ParsedCheck` 只有 `{name, column, values}`，**没有表名** ⇒ 消费方
+ * 只能断言「这个约束名存在、且它守的列名对」，**不能断言它在哪张表里**。
+ * 于是把一条 `CONSTRAINT` 原样挪进**另一张** `CREATE TABLE`（列名不变）⇒ 门禁全绿，
+ * 而那条值域约束已经从它该在的表上消失了。
+ *
+ * 同一次实测还发现第二个形态：`parseEnumChecks()` 的正则跑在**未剥注释**的原始 SQL 上 ⇒
+ * 把整行 `CONSTRAINT … CHECK (…)` 前面加 `-- ` 注释掉，**约束彻底消失而 34 条测试全绿**。
+ * 两个形态都是「迁移里写了」这一层唯一的守卫在漏，而 `db-check.mjs` 的 C10「约束实撞」
+ * 只探 `mn_status_config`、C15 也不看 CHECK ⇒ 漏了没有任何别的东西兜住。
+ */
+type ParsedCheck = { name: string; table: string; column: string; values: string[] };
+
+/**
+ * 剥掉 SQL 行注释（`-- …` 到行尾）与块注释（`/* … *​/`）。
+ *
+ * 为什么必须剥：迁移文件里**到处是注释**（本仓的迁移头注很长，且注释里就写着
+ * `CONSTRAINT "ck_xxx" CHECK (col IN ('a','b'))` 这种**示例**）。不剥的后果有两个方向：
+ * 一是注释掉真实约束后门禁**不红**（实测过），二是注释里的示例会被**误当成真约束**。
+ */
+function stripSqlComments(sql: string): string {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
+}
 
 /** 只认 `CHECK (col IN ('a','b',…))` 这一种字面量集合形态：DDL 里带参数占位符的写法本身非法（禁令②） */
 export function parseEnumChecks(sql: string): ParsedCheck[] {
   const out: ParsedCheck[] = [];
+  const clean = stripSqlComments(sql);
   // 约束名**可带引号也可不带**：drizzle 产的是 "ck_x"，而枚举表 §5.2 的手写补丁模板写的是裸名 ck_x。
   // 只认带引号的形态，就等于给"尾部手写 CHECK 不被反向检查发现"留了个洞（本轮实测踩过）。
   // 可空列的 CHECK 是 `CHECK (col IS NULL OR col IN (…))` 形状，也要能认出来 ——
   // drizzle 把 `sql\`x IS NULL OR \${sqlInList(...)}\`` 原样产出，漏了这形状就等于该列没人守。
   const re =
     /CONSTRAINT\s+"?([a-z0-9_]+)"?\s+CHECK\s*\(\s*(?:([a-z0-9_]+) IS NULL OR )?([a-z0-9_]+)\s+IN\s*\(([^)]*)\)\s*\)/gs;
-  for (const m of sql.matchAll(re)) {
+  // 归属表：往**回**找最近的 `CREATE TABLE "x"` 或 `ALTER TABLE "x"`。
+  // 两种形态都要认：约束可能写在建表语句里（drizzle 的 `CHECK`），也可能是一条独立的
+  // `ALTER TABLE … ADD CONSTRAINT`（扩值域的正规姿势）。找不到归属时给空串，
+  // 由消费方那条「声明了就必须在同名表里」的断言把它报出来 —— **不确定要显形，不要默认通过**。
+  const tableRe = /(?:CREATE TABLE(?:\s+IF NOT EXISTS)?|ALTER TABLE)\s+"?([a-z0-9_]+)"?/gi;
+  const tableAt = (idx: number): string => {
+    let last = "";
+    for (const t of clean.matchAll(tableRe)) {
+      if ((t.index ?? 0) > idx) break;
+      last = t[1] ?? "";
+    }
+    return last;
+  };
+  for (const m of clean.matchAll(re)) {
     const [, name, , column, inner] = m;
     if (!name || !column || inner === undefined) continue;
     out.push({
       name,
+      table: tableAt(m.index ?? 0),
       column,
       values: inner
         .split(",")
@@ -126,24 +166,44 @@ describe("枚举注册表自身", () => {
 
 describe("注册表 ↔ 迁移里的 CHECK", () => {
   it("解析器不是空转：能认出字面量集合，也不会误认别的 CHECK", () => {
+    // ⚠ `table` 是 2026-10-13 补的（见 `ParsedCheck` 的注释）。这两条**刻意不写表名**，
+    //   于是它们同时钉住了"找不到归属时给空串"这个约定 —— 消费方那条
+    //   「声明了就必须在**同名表**里」的断言，就是靠空串把这种情况报出来的。
+    //   给空串而不是给某个默认表名，是有意的：**不确定要显形，不要默认通过**。
     const one = parseEnumChecks(`CONSTRAINT "ck_x" CHECK (foo IN ('a','b'))`);
-    expect(one).toEqual([{ name: "ck_x", column: "foo", values: ["a", "b"] }]);
+    expect(one).toEqual([{ name: "ck_x", table: "", column: "foo", values: ["a", "b"] }]);
     expect(parseEnumChecks(`CONSTRAINT "ck_y" CHECK (a <> 'cancelled' OR b IS NOT NULL)`)).toEqual(
       [],
     );
     expect(parseEnumChecks(`CONSTRAINT "ck_z" CHECK (col IN ('a')::text[])`)).toEqual([]);
-    // 裸名（§5.2 手写补丁模板的写法）也必须被认出，否则反向检查形同虚设
+    // 裸名（§5.2 手写补丁模板的写法）也必须被认出，否则反向检查形同虚设。
+    // 这一条**带 `ALTER TABLE matter`** ⇒ 归属表必须被填上，否则"挪到别的表"就抓不住。
     expect(
       parseEnumChecks(`ALTER TABLE matter ADD CONSTRAINT ck_matter_case_type
   CHECK (case_type IN ('civil_commercial','criminal'));`),
     ).toEqual([
       {
         name: "ck_matter_case_type",
+        table: "matter",
         column: "case_type",
         values: ["civil_commercial", "criminal"],
       },
     ]);
     expect(migrationFiles.length, "迁移目录为空？").toBeGreaterThan(0);
+  });
+
+  it("注释掉的约束不算存在（未剥注释 ⇒ 整行 COMMENT 掉也全绿，实测漏洞）", () => {
+    // 这是 D1 的第一个形态：`parseEnumChecks` 原先跑在未剥注释的原始 SQL 上。
+    const commented = `-- CONSTRAINT "ck_gone" CHECK (col IN ('a','b'))`;
+    expect(parseEnumChecks(commented)).toEqual([]);
+    // 而注释**旁边**的真约束仍要被认出（剥注释不能误伤邻行）
+    const mixed = `-- CONSTRAINT "ck_gone" CHECK (col IN ('a','b'))
+CREATE TABLE "t" (
+  CONSTRAINT "ck_real" CHECK (col IN ('a','b'))
+);`;
+    expect(parseEnumChecks(mixed).map((c) => c.name)).toEqual(["ck_real"]);
+    // 块注释同理
+    expect(parseEnumChecks(`/* CONSTRAINT "ck_gone" CHECK (col IN ('a')) */`)).toEqual([]);
   });
 
   it("同名 CHECK 取最后一次（扩值域迁移不能被旧值集盖住）", () => {
@@ -156,7 +216,7 @@ describe("注册表 ↔ 迁移里的 CHECK", () => {
     expect(twice.length).toBe(2);
     // 去重发生在调用方，这里断言的是"最后一次生效"这个语义本身
     const effective = [...new Map(twice.map((c) => [c.name, c])).values()];
-    expect(effective).toEqual([{ name: "ck_a", column: "s", values: ["old", "new"] }]);
+    expect(effective).toEqual([{ name: "ck_a", table: "t", column: "s", values: ["old", "new"] }]);
   });
 
   it("迁移文件按文件名排序读入（0002 必须排在 0000 之后）", () => {
@@ -172,6 +232,10 @@ describe("注册表 ↔ 迁移里的 CHECK", () => {
         const found = checks.find((c) => c.name === name);
         expect(found, `${e.id} 声明了 ${name}，迁移里找不到（${table}）`).toBeTruthy();
         expect(found?.column, `${name} 守的不是 ${table}.${column}`).toBe(column);
+        // ⚠ **表名也要断言**（2026-10-13 补，D1 的第二个形态）：把一条 `CONSTRAINT`
+        //   原样挪进**另一张** `CREATE TABLE`（列名不变）原先**门禁全绿** ——
+        //   因为 `ParsedCheck` 当时没有表名，这里只能比列名。
+        expect(found?.table, `${name} 不在 ${table} 里（可能被挪到了别的表）`).toBe(table);
         // ⚠ 这里比的是**子集**，不是相等——而且是有意的。
         //
         // 原断言是「长度相等 + 逐字相等」，它编码了一个假设：同一枚举的每个落点
@@ -218,6 +282,92 @@ describe("注册表 ↔ 迁移里的 CHECK", () => {
       unclaimed,
       `这些 CHECK 没登记进 ENUM_REGISTRY，会成为第二事实源：${unclaimed.join(", ")}`,
     ).toEqual([]);
+  });
+
+  /**
+   * **STRUCT 行也要双向核**（MATT-43 补的那半）。
+   *
+   * 原实现只对 `ENUM_REGISTRY` 里 `landing === "in-db"` 的行做正向比对，
+   * 而 `STRUCT_CHECKS`（不占 E 行号的结构取值，如 `activity_log.action`、
+   * `automation_rule.trigger_type`）**只被反向检查覆盖**——也就是说：
+   * 注册表里写着"`automation_rule.action_type` 有这 5 个值"，
+   * 而迁移里那条 CHECK 到底存不存在、守的是不是那一列、值集合是不是被收窄成 1 个，
+   * 没有任何断言在管。这与 E 行那半的纪律不一致，而"少一半"是看不出来的。
+   *
+   * 本票新增的两条规则表约束（host_type / trigger_target_type）正是这么进来的：
+   * 没有这条断言，它们只是"我在迁移里写了"，而不是"被机器核过"。
+   */
+  const structLanded = STRUCT_REGISTRY.flatMap((s) =>
+    (STRUCT_CHECKS[s.key] ?? []).map(([table, column, name]) => ({
+      key: s.key,
+      table,
+      column,
+      name,
+      values: s.values,
+    })),
+  );
+
+  it("STRUCT 注册表里确实有落点（否则下面两条是空转）", () => {
+    expect(structLanded.length).toBeGreaterThanOrEqual(1);
+    // 探针：本票新增的那两条必须在里面
+    expect(structLanded.map((s) => s.name)).toContain("ck_mn_automation_rule_host_type");
+    expect(structLanded.map((s) => s.name)).toContain("ck_mn_automation_rule_trigger_target");
+  });
+
+  it("STRUCT 行说已进库的约束，迁移里必须存在、守对列、值集合逐字相等", () => {
+    for (const s of structLanded) {
+      /**
+       * ⚠ **表还没建的落点先跳过**，但这不是"放过它"：
+       *
+       * 并行流（MATT-44 / 迁移 0013）先把 `import_batch.host_type` 的落点登记进了
+       * `STRUCT_CHECKS`，而它的迁移文件当时还没落盘。若这里直接断言"必须找得到"，
+       * 红的是**别人的半成品**，而不是本仓的真缺陷——而一条会因为时序变红的门禁，
+       * 下一步就是被人加 `if` 绕过。
+       *
+       * 跳过只在"`CREATE TABLE` 都还没有"时成立，所以它**不会变成永久盲区**：
+       * 表一落盘，这条断言立刻开始核它（而那时若 CHECK 没登记，下面的反向检查会红）。
+       */
+      if (!new RegExp(`CREATE TABLE (IF NOT EXISTS )?"${s.table}"`).test(migrationSql)) continue;
+      const found = checks.find((c) => c.name === s.name);
+      expect(found, `${s.key} 声明了 ${s.name}，迁移里找不到（${s.table}）`).toBeTruthy();
+      expect(found?.column, `${s.name} 守的不是 ${s.table}.${s.column}`).toBe(s.column);
+      // 表名同 E 行那处：不加这一条，"约束被挪到别的表"就抓不住（D1 的第二个形态）
+      expect(found?.table, `${s.name} 不在 ${s.table} 里（可能被挪到了别的表）`).toBe(s.table);
+      const declared = new Set(s.values.map(String));
+      const extra = (found?.values ?? []).filter((v) => !declared.has(v));
+      expect(extra, `${s.name} 里有注册表 ${s.key} 没登记的值：${extra.join(", ")}`).toEqual([]);
+    }
+  });
+
+  it("探针：本票（MATT-43）登记的四条规则表约束都被上面那条真核过", () => {
+    const mine = structLanded.filter((s) => s.table === "mn_automation_rule");
+    expect(mine.map((s) => s.name).sort()).toEqual([
+      "ck_mn_automation_rule_action_type",
+      "ck_mn_automation_rule_host_type",
+      "ck_mn_automation_rule_trigger_target",
+      "ck_mn_automation_rule_trigger_type",
+    ]);
+    // 探针要证明"不是被跳过的"：表已建 ⇒ 每条都在迁移里找得到
+    for (const s of mine)
+      expect(
+        checks.find((c) => c.name === s.name),
+        s.name,
+      ).toBeTruthy();
+  });
+
+  it("STRUCT 反向加固：有落点且表已建的行，每个值至少被一个落点用满（防'整体收窄'）", () => {
+    for (const s of STRUCT_REGISTRY) {
+      const targets = STRUCT_CHECKS[s.key] ?? [];
+      if (targets.length === 0) continue; // 无落点的行（如 extra_condition.op）不参与
+      const union = new Set<string>();
+      for (const [table, , name] of targets) {
+        if (!new RegExp(`CREATE TABLE (IF NOT EXISTS )?"${table}"`).test(migrationSql)) continue;
+        for (const v of checks.find((c) => c.name === name)?.values ?? []) union.add(v);
+      }
+      if (union.size === 0) continue; // 落点的表全都没建：见上一条的说明
+      const missing = s.values.map(String).filter((v) => !union.has(v));
+      expect(missing, `${s.key} 的值没有任何落点认领：${missing.join(", ")}`).toEqual([]);
+    }
   });
 
   it("迁移里至少落了 20 条值域 CHECK（少于这个数说明大面积没登记）", () => {
