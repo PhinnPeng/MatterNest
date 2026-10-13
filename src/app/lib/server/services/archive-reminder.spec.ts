@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MISSING_CHECK_BY_CODE,
   MISSING_CODE_BY_CHECK,
   MISSING_ITEM_LABELS,
   READINESS_CHECK_KEYS,
@@ -152,21 +153,54 @@ describe("规则 9 的判定（纯函数）", () => {
   });
 });
 
-describe("缺项码：判定键 → B5 码 → 中文（两套码不许混用）", () => {
-  it("**shared 的判定键集合与服务端 `READINESS_CHECKS` 逐字相同**", () => {
-    expect(READINESS_CHECKS.map((c) => c.key).sort()).toEqual([...READINESS_CHECK_KEYS].sort());
+describe("缺项码：判定键 → B5 码 → 中文（两套码不许混用，且必须可逆）", () => {
+  /**
+   * **服务端那份 `READINESS_CHECKS` 是这一组的唯一"真源"**：接缝表
+   * （`READINESS_SEAM`）与它一样是手写的，两边都改才会漂。断言拿服务端逐键比，
+   * 而不是拿 shared 自己比——后者是永真。
+   */
+  const SERVER_CHECK_KEYS = READINESS_CHECKS.map((c) => c.key);
+
+  it("**shared 的判定键集合与服务端 `READINESS_CHECKS` 逐字相同**（服务端加第四项而接缝表没跟，当场红）", () => {
+    expect(READINESS_CHECK_KEYS.slice().sort()).toEqual(SERVER_CHECK_KEYS.slice().sort());
   });
 
-  it("每个判定键都有 B5 码，且那个码在 `MISSING_ITEM_LABELS` 里有中文名", () => {
-    for (const key of READINESS_CHECK_KEYS) {
+  it("**遍历服务端全部判定键**：每个都有 B5 码，且那个码在 `MISSING_ITEM_LABELS` 里有中文名", () => {
+    for (const key of SERVER_CHECK_KEYS) {
       const code = MISSING_CODE_BY_CHECK[key];
-      expect(code, `${key} 没有 B5 码`).toBeTruthy();
-      expect(MISSING_ITEM_LABELS[code], `${code} 没有中文名`).toBeTruthy();
+      expect(code, `${key} 没有 B5 码（漏配 ⇒ 正文里渲染出判定键本身）`).toBeTruthy();
+      expect(MISSING_ITEM_LABELS[code ?? ""], `${code} 没有中文名`).toBeTruthy();
     }
   });
 
-  it("映射表没有多余键（多一个就是在描述一个不存在的校验项）", () => {
+  it("**映射可逆**：码 → 判定键原路返回（否则审计里的 `missing_at_archive[]` 与通知对不上账）", () => {
+    for (const key of SERVER_CHECK_KEYS) {
+      const code = MISSING_CODE_BY_CHECK[key] ?? "";
+      expect(MISSING_CHECK_BY_CODE[code], `${code} 反查不回 ${key}（两套码不是一一对应）`).toBe(
+        key,
+      );
+    }
+  });
+
+  it("正向与反向都没有多余项：多余的码/标签 = 在描述一项不存在的校验", () => {
     expect(Object.keys(MISSING_CODE_BY_CHECK).sort()).toEqual([...READINESS_CHECK_KEYS].sort());
+    expect(Object.keys(MISSING_CHECK_BY_CODE).sort()).toEqual(
+      Object.values(MISSING_CODE_BY_CHECK).sort(),
+    );
+    expect(Object.keys(MISSING_ITEM_LABELS).sort()).toEqual(
+      Object.keys(MISSING_CHECK_BY_CODE).sort(),
+    );
+  });
+
+  it("**每个判定键渲染成中文，且渲染结果里一个拉丁字母/下划线都没有**——漏一个键时正文里会冒出 `closingDate`", () => {
+    for (const key of SERVER_CHECK_KEYS) {
+      const text = archiveReminderMissingText([key]);
+      expect(text, `${key} 没有渲染成中文（得到 ${JSON.stringify(text)}）`).not.toMatch(
+        /[A-Za-z_]/,
+      );
+    }
+    // 三项一起（通知正文"缺：A、B"的真实形态）也不许漏
+    expect(archiveReminderMissingText(SERVER_CHECK_KEYS)).not.toMatch(/[A-Za-z_]/);
   });
 
   it("用**真实判定键**跑一遍：`openNodes` 渲染成「待定节点未决」，不是 `openNodes`", () => {

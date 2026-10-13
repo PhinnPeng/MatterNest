@@ -207,8 +207,13 @@ const MODES = {
       {
         file: F_TEMPLATE,
         tag: "missing-code-raw",
-        needle: `  openNodes: "pending_nodes",`,
-        replacement: `  openNodes: "open_nodes",`,
+        // ⚠ **第二次改锚点**（MATT-70）：`MISSING_CODE_BY_CHECK` 从手写字面量收敛成接缝表
+        //   `READINESS_SEAM` 的**推导结果**，原锚点 `openNodes: "pending_nodes",` 随之消失
+        //   （命中 0 次，`verify-anchors.mjs` 当场抓到）。
+        //   同样的教训、同样的修法：**锚点只框住"要抽掉的那半句"**——这里只框 `code` 的值，
+        //   不带 `itemLabel`，因为中文用词与本模式要制造的那个缺陷无关。
+        needle: `code: "pending_nodes"`,
+        replacement: `code: "open_nodes"`,
       },
     ],
   },

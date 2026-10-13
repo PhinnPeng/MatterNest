@@ -43,6 +43,17 @@ type Db = Awaited<ReturnType<typeof getDb>>;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type Conn = Db | Tx;
 
+/**
+ * 三项校验的**判定键**（本文件是它的**源头声明**，刻意不从 shared 推导）。
+ *
+ * ⚠ 同一件事在通知那边还有第二套词汇（B5 的 `judgment_doc`/`closing_date`/`pending_nodes`），
+ * 两套之间的翻译**单一来源**在 `@/shared/notification/template` 的 `READINESS_SEAM`——
+ * 那张表是推导出来的，而这里这份联合是**手写的**。所以两边各改一处时会漂移，
+ * 抓住它的是 `archive-reminder.spec.ts`（拿本文件的 `READINESS_CHECKS` 逐键比对那张表）。
+ * 别把这里也改成从 shared 推导：两侧同源之后那条比对断言就成了永真。
+ *
+ * MATT-70 说明了为什么两套词汇都留着（两套都已写进 jsonb 里的历史行，统一口径要回填审计事实）。
+ */
 export type ReadinessCheckKey = "judgment" | "closingDate" | "openNodes";
 
 /** `unavailable` 是第三种状态：不是"红"也不是"绿"——见文件头注 */

@@ -28,53 +28,102 @@ export const INVISIBLE_NOTIFICATION_TITLE = "无权查看的记录";
 const EMPTY = "—";
 
 /**
- * F2-26 三项校验码 → 中文（`docs/PRD-phase1-g-targets-b5-draft.md` 措辞设计说明第 4 条）。
+ * F2-26 三项校验的**接缝表**（MATT-70）：判定键 / B5 码 / 中文缺项用词，**各写一次**。
  *
- * 这张映射住在 shared 而不是 `archive-readiness.ts`：那一侧给的是**校验结果**，
- * 这一侧要的是**给人读的缺项清单**，两者由同一个码集相连。少一处映射就会多一份口径。
+ * ## 同一件事实有两套词汇，两套各自在自己的边界内都是对的
+ *
+ * | 词汇 | 值 | 用在哪 |
+ * |---|---|---|
+ * | **判定键** | `judgment` / `closingDate` / `openNodes` | 服务端 `services/archive-readiness.ts` 的 `READINESS_CHECKS`、`ARCHIVED.payload.missing_at_archive[]`（G4 唯一数据源）、`smoke-archive` |
+ * | **B5 `{missing}` 码** | `judgment_doc` / `closing_date` / `pending_nodes` | 通知 `payload.missing` 与正文（`docs/PRD-phase1-g-targets-b5-draft.md` 措辞设计说明第 4 条） |
+ *
+ * ## 为什么这次**不**统一到一套词汇（MATT-70 的取舍，票面要求先写清再动手）
+ *
+ * 因为**两套码都已经写进 jsonb 里的历史行了**：归档时 `missing_at_archive[]` 落的是判定键
+ * （`services/matters.ts`），MATT-43 落进 `archive_incomplete` 事件的 `payload.missing` 是 B5 码。
+ * 统一口径必然要求回填历史行——那是**改写审计里已经成立的事实**，票面边界明确禁止顺带做掉。
+ * 而任选一套当新口径，都会让同一列里从此并存两套词（G4 指标与事后对账都要为此写兼容分支），
+ * 比今天的"一张翻译表"更贵。
+ *
+ * 所以保留两套，代价是这张表必须**单一来源 + 可逆**——下面就是它。
+ *
+ * ## 为什么它原来是四张手抄的表
+ *
+ * 旧形态：`READINESS_CHECK_KEYS`（判定键）+ `MISSING_CODE_BY_CHECK`（键→码）+
+ * `MISSING_ITEM_LABELS`（码→中文）三处各抄一遍；判定键本身还有第四处独立声明
+ * （服务端 `ReadinessCheckKey` 与客户端 `ReadinessKey` 两个联合）。
+ * 加一项校验要改三处，而**漏改不报错、不类型错、测试也绿**——
+ * 只是通知正文里多冒出一个英文驼峰词（`closingDate`）或下划线词（`closing_date`）。
+ * 本仓纪律是"手抄的清单就是漂移点"，所以这里收敛成一张：其余全是推导。
+ *
+ * ## 推导出来的三张索引为什么仍然声明成 `Record<string, …>`
+ *
+ * 因为声明成 `Record<ReadinessCheckKey, …>` 会让**类型替我们担保键齐了**，
+ * 而 `Object.fromEntries` 在类型上恰恰证明不了这一点（它的返回值就是 `Record<string, string>`）。
+ * `Record<string, …>` 配上 `noUncheckedIndexedAccess` 才是诚实的：查一个不存在的键得到
+ * `string | undefined`，调用点的 `?? 兜底` 才真的是兜底而不是摆设。
+ * **齐不齐由断言回答**（`services/archive-reminder.spec.ts` 拿服务端那份**独立**声明逐键比对），
+ * 不由类型回答——这也正是"删掉一个键要红成断言、不是红成编译错"的原因。
  */
-export const MISSING_ITEM_LABELS: Readonly<Record<string, string>> = {
-  judgment_doc: "裁判文书附件",
-  closing_date: "结案日期",
-  pending_nodes: "待定节点未决",
-};
+export const READINESS_SEAM = {
+  judgment: { code: "judgment_doc", itemLabel: "裁判文书附件" },
+  closingDate: { code: "closing_date", itemLabel: "结案日期" },
+  openNodes: { code: "pending_nodes", itemLabel: "待定节点未决" },
+} as const;
 
 /**
- * F2-26 三项校验的**判定键**（服务端 `services/archive-readiness.ts` 的 `ReadinessCheckKey`、
- * 客户端 `lib/client/archive-readiness.ts` 的 `ReadinessKey` 都是它）。
+ * F2-26 三项校验的**判定键**。
  *
- * ## 为什么这里要重声明一次，而不是从服务端 import
+ * ## 为什么 shared 这里还要有一份声明，而不是从服务端 import
  *
- * 禁令①：`src/shared/**` 不得反向依赖 app 层。所以共享层只能**自己声明**这个联合，
- * 而"两份声明漂移"由断言堵：`services/archive-reminder.spec.ts` 拿服务端的
- * `READINESS_CHECKS` 逐键比对（服务端加第四项而这里没跟，当场红）。
+ * 禁令①：`src/shared/**` 不得反向依赖 app 层，所以共享层只能自己声明这个联合。
+ * 现在它是从接缝表推出来的（不是手抄的），而服务端那份 `ReadinessCheckKey`
+ * 仍是**刻意保留的独立第二处声明**——两份漂移由 `archive-reminder.spec.ts` 逐键比对堵住。
  *
- * ## 为什么它必须存在（而不是直接拿字符串拼）
- *
- * 两个码集**不是同一套**：判定侧是 `judgment`/`closingDate`/`openNodes`，
- * 而 B5 的 `{missing}` 占位符吃的是 `judgment_doc`/`closing_date`/`pending_nodes`。
- * 直接把判定键塞进 payload 的后果是通知正文渲染成「缺：closingDate、openNodes」——
- * **中文界面里冒出两个英文驼峰词**，而它不会报错、不会有类型错误。
- * 规则 9（MATT-43）是第一个真的把判定结果送进通知的路径，所以这层映射在这里补齐。
+ * ⚠ 别把服务端也改成从这张表推导：两侧一旦同源，"服务端加了第四项而接缝表没跟"就
+ * 永远不会发生，那条比对断言也就退化成永真、什么也钉不住。独立才有比对的意义。
  */
-export const READINESS_CHECK_KEYS = ["judgment", "closingDate", "openNodes"] as const;
-export type ReadinessCheckKey = (typeof READINESS_CHECK_KEYS)[number];
+export type ReadinessCheckKey = keyof typeof READINESS_SEAM;
+
+/**
+ * 接缝表的键序（= 三项的固定顺序）。由 `Object.keys` 取得，插入序即书写序，
+ * 所以"三项一起渲染"的通知正文顺序与 `archive-readiness.ts` 的 `READINESS_CHECKS` 一致。
+ */
+export const READINESS_CHECK_KEYS = Object.keys(READINESS_SEAM) as readonly ReadinessCheckKey[];
 
 /** 判定键 → B5 的 payload 码（§措辞设计说明第 4 条的三对，逐字） */
-export const MISSING_CODE_BY_CHECK: Readonly<Record<ReadinessCheckKey, string>> = {
-  judgment: "judgment_doc",
-  closingDate: "closing_date",
-  openNodes: "pending_nodes",
-};
+export const MISSING_CODE_BY_CHECK: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(READINESS_SEAM).map(([key, seam]) => [key, seam.code]),
+);
+
+/**
+ * B5 码 → 判定键（**反向**索引）。
+ *
+ * 它是"映射可逆"的兑现处（MATT-70 票面要求）：审计里的 `missing_at_archive[]` 存判定键、
+ * 通知 `payload.missing` 存 B5 码，没有这张表就只能人对着接缝表逐个念，
+ * 事后拿"用户当时看到的话"对"当时到底缺了什么"就对不齐。
+ */
+export const MISSING_CHECK_BY_CODE: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(READINESS_SEAM).map(([key, seam]) => [seam.code, key]),
+);
+
+/** B5 码 → 通知正文里的中文缺项用词（同一张接缝表推出来的，不再手抄第二遍） */
+export const MISSING_ITEM_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(READINESS_SEAM).map(([, seam]) => [seam.code, seam.itemLabel]),
+);
 
 /**
  * 判定键数组 → 通知 payload 的 `missing`（B5 码）。
  *
  * 未知键**原样透传**而不是丢掉：丢掉会让"服务端加了一项校验、通知里却不提它"
  * 变成静默的漏报；透传至少会在界面上露出一个生词，而这正是能被发现的形态。
+ *
+ * ⚠ 查表是**运行时**查的（入参是 `string`，不是判定键联合）——所以漏配一个键不会类型报错，
+ * 只会把 `closingDate` 原样送进正文。抓住那个形态的是 `archive-reminder.spec.ts` 里
+ * "渲染结果不得含拉丁字母/下划线"那条断言，不是这里的类型。
  */
 export function missingCodes(keys: readonly string[]): string[] {
-  return keys.map((k) => MISSING_CODE_BY_CHECK[k as ReadinessCheckKey] ?? k);
+  return keys.map((k) => MISSING_CODE_BY_CHECK[k] ?? k);
 }
 
 /** `{占位符}` 的形态。只认小写字母与下划线，避免把正文里的 `{}`（JSON 片段）吃掉 */
