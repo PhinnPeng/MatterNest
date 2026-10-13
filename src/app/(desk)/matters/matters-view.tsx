@@ -3,7 +3,7 @@
 import { INK } from "@/app/theme/brand";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   App as AntdApp,
@@ -25,6 +25,7 @@ import { fromNow, money } from "@/app/lib/client/format";
 import { BATCH_SKIP_REASON_LABELS, MAX_BATCH_IDS, type BatchSummary } from "@/shared/schema/batch";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { FilterField, QueryFilter } from "@/app/components/query-filter";
+import { ReportCards } from "@/app/components/report-cards";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { StatusMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
@@ -61,6 +62,7 @@ type ListResult = { items: MatterRow[]; page: number; pageSize: number; total: n
  */
 export function MattersView() {
   const router = useRouter();
+  const qc = useQueryClient();
   const { state, push } = useListState();
   const { data: meta } = useMeta("matter");
   const [creating, setCreating] = useState(false);
@@ -297,6 +299,14 @@ export function MattersView() {
         </FilterField>
       </QueryFilter>
 
+      {/*
+        统计卡（MATT-46 / F8-1 + F8-2）。位置：查询区**下面**、表格上面——
+        它是查询区那几个筛选的读数（改筛选 → 数字跟着变），所以紧挨着筛选；
+        而查询区本身留在全站列表页的第一屏位置（五个列表页的查询区都在同一处，
+        把卡片插到它上面会让本页与其余四页的结构对不上）。
+      */}
+      <ReportCards host="matter" filters={state} />
+
       {batchResult ? (
         <Alert
           type={batchResult.summary.skipped.length ? "warning" : "success"}
@@ -369,7 +379,15 @@ export function MattersView() {
             <Button size="small" disabled={!selected.length} onClick={() => setBatch("tag")}>
               加标签
             </Button>
-            <Button icon={<ReloadOutlined />} onClick={() => void refetch()} />
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                void refetch();
+                // 统计卡是同一页的另一份读数：只刷列表会让"列表 21 行、卡片 20"同时成立
+                // （工作台的刷新也是这个口径：一次刷掉本页所有读数）
+                void qc.invalidateQueries({ queryKey: ["reports"] });
+              }}
+            />
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
               新建案件
             </Button>

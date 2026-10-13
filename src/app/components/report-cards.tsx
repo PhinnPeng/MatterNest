@@ -1,24 +1,29 @@
 "use client";
 
 import { useMemo } from "react";
-import { Button, Card, Flex, Segmented, Table, Tooltip } from "antd";
+import { Button, Card, Flex, Table, Tooltip } from "antd";
 import type { TableColumnsType } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
 
-import { PageHeader, SectionTitle } from "@/app/components/page-header";
 import { StateBlock } from "@/app/components/ui/state-block";
-import { useMeta } from "@/app/lib/client/api";
+import { useMeta, type HostKind } from "@/app/lib/client/api";
 import { useReports } from "@/app/lib/client/api-reports";
 import type { MatterMatrix, NodeDeadlineCard, RiskMatrix } from "@/app/lib/client/api-reports";
-import { useListState } from "@/app/lib/client/use-list-state";
+import { toReportQuery, type ListState } from "@/app/lib/client/use-list-state";
 import { DEADLINE_TONE } from "@/app/theme/antd";
 import { INK } from "@/app/theme/brand";
 import { LITIGATION_ROLE_LABELS } from "@/shared/enums/business";
-import { HOST_TYPE_LABELS, type HostType } from "@/shared/enums/targets";
+import { HOST_TYPE_LABELS } from "@/shared/enums/targets";
 
 /**
- * 报表两卡（MATT-46 / F8-1 + F8-2）。口径写在 `docs/PRD-phase1-master.md` §4.7，
- * 聚合全在 `/api/reports`（这个文件不做任何求和、分组，也不按行二次取数）。
+ * 报表两卡（MATT-46 / F8-1 + F8-2），挂在**两个列表页顶部**：P7 案件列表与 P4 事项列表。
+ *
+ * 形态由 P0-2 裁定：**不建报表页、不进菜单**（§4.7）。所以这里没有页头、没有自己的刷新按钮、
+ * 没有自己的归档开关——页面上已有的那些控件就是它的控件，`filters` 就是当前那份筛选。
+ *
+ * ## 一个组件，两处调用
+ *
+ * 两张卡在两个列表页上**逐字相同**，差别只有 `host`（画哪张矩阵）与 `filters`（当前筛选）。
+ * 各写一遍会得到两份会漂的实现：一处改了列宽或档位说明，另一处看不出来。
  *
  * ## 为什么这两张表不是 `DataTable`
  *
@@ -29,100 +34,112 @@ import { HOST_TYPE_LABELS, type HostType } from "@/shared/enums/targets";
  * 那张只读字典表的写法（`Card` + `pagination={false}` 的小表），
  * 密度契约仍照旧：每列给 `width` 与 `ellipsis`，`scroll.x` = 列宽合计。
  *
- * ## 口径的落点
+ * ## 口径的落点（副标题纪律）
  *
- * "临期"不是一眼能看出来的词（它按每个节点自己的提醒档算），所以它的定义挂在列头 tooltip 上
- * ——规则类的话落在动作发生处，不占版面写第二行说明。
+ * 卡片头上没有第二行说明。两条读者会问的规则各挂在自己的 tooltip 上：
+ *   · 「这些数字是哪些行的」→ 卡片标题（`SCOPE_HINT`）；
+ *   · 「为什么未指派时案件那一行是 0」→ 节点卡的「宿主」列头（`HOST_HINT`）；
+ *   · 「临期」按每个节点自己的提醒档算 → 各档列头（`BUCKET_HINT`）。
+ *
+ * ## 数字全部来自服务端
+ *
+ * 这个文件不做任何求和、分组或二次取数：行、列、合计（含表尾）都由 `/api/reports` 摆好
+ * （§4.7 第 5 条）。这里只把 code 换成配置里的显示名（`/api/meta` 是字典的唯一出口）。
  */
-export function ReportsView() {
-  const { state, push } = useListState();
-  const archivedOnly = state.archivedOnly;
-  const { data, isPending, isError, error, isFetching, refetch } = useReports(archivedOnly);
-
+export function ReportCards({ host, filters }: { host: HostKind; filters: ListState }) {
+  /**
+   * queryKey 就是真正发出去的那个请求串（`toReportQuery`）：筛选一变、请求串一变、
+   * key 跟着变——"筛选变了但卡片不重新取"在类型层写不出来。
+   */
+  const { data, isPending, isError, error, refetch } = useReports(toReportQuery(filters));
   // 状态与等级是**配置驱动**的字典，唯一出口是 `/api/meta`（工作台的状态分布也这么取）。
   // 服务层只给 code，所以运营在配置页改一次显示名，报表与列表一起变。
-  const { data: matterMeta } = useMeta("matter");
-  const { data: riskMeta } = useMeta("risk_matter");
-  const statusNames = useMemo(() => nameMap(matterMeta?.statuses), [matterMeta]);
-  const levelNames = useMemo(() => nameMap(matterMeta?.levels), [matterMeta]);
-  const riskStatusNames = useMemo(() => nameMap(riskMeta?.statuses), [riskMeta]);
+  const { data: dict } = useMeta(host);
+  const statusNames = useMemo(() => nameMap(dict?.statuses), [dict]);
+  const levelNames = useMemo(() => nameMap(dict?.levels), [dict]);
 
   if (isError) {
+    // 读数失败**只塌掉这两张卡**：下面的列表照常可用（它有自己的错误态），
+    // 所以这里不接管整页，也不把列表的错误混进来。
     return (
-      <StateBlock
-        tone="error"
-        title="报表读数没拿到"
-        hint={error instanceof Error ? error.message : "未知错误"}
-        action={
-          <Button size="small" onClick={() => void refetch()}>
-            重试
-          </Button>
-        }
-      />
+      <Card size="small" style={{ marginBottom: 12 }}>
+        <StateBlock
+          tone="error"
+          title="统计卡读数没拿到"
+          hint={error instanceof Error ? error.message : "未知错误"}
+          action={
+            <Button size="small" onClick={() => void refetch()}>
+              重试
+            </Button>
+          }
+        />
+      </Card>
     );
   }
-  if (isPending || !data) {
-    return <Card size="small" loading style={{ maxWidth: 1180, margin: "0 auto" }} />;
-  }
 
-  const empty = data.matters.total === 0 && data.risks.total === 0 && data.nodes.total === 0;
+  const loading = isPending || !data;
+  const name = (code: string) => statusNames.get(code) ?? code;
+  const level = (code: string) => levelNames.get(code) ?? code;
 
   return (
-    <div style={{ maxWidth: 1180, margin: "0 auto" }}>
-      <PageHeader
-        title="报表"
-        actions={
-          <>
-            {/* 二态开关，与两张列表同一个语义（`archivedOnlyField`）：在办与归档互为补集，不混着看 */}
-            <Segmented
-              value={archivedOnly ? "archived" : "live"}
-              onChange={(v) => push({ archivedOnly: v === "archived" })}
-              options={[
-                { label: "在办", value: "live" },
-                { label: "已归档", value: "archived" },
-              ]}
-            />
-            <Button icon={<ReloadOutlined />} loading={isFetching} onClick={() => void refetch()}>
-              刷新
-            </Button>
-          </>
-        }
-      />
-
-      {empty ? (
-        <Card size="small">
-          <StateBlock
-            title={archivedOnly ? "这个范围里还没有归档记录" : "这个范围里还没有在办记录"}
-            hint="报表只统计你能看见的记录；在办与已归档互为补集，切上面那个开关看另一半。"
-          />
-        </Card>
-      ) : (
-        <Flex vertical gap={16}>
-          <Card size="small" title="总览">
-            <SectionTitle count={data.matters.total}>案件</SectionTitle>
+    <Flex vertical gap={12} style={{ marginBottom: 12 }}>
+      <Card size="small" title={cardTitle("总览")} loading={loading}>
+        {data ? (
+          host === "matter" ? (
             <MatterMatrixTable
               m={data.matters}
-              loading={isFetching}
-              name={(code) => statusNames.get(code) ?? code}
-              level={(code) => levelNames.get(code) ?? code}
+              name={name}
+              level={level}
+              emptyText={emptyText(filters, data.archivedOnly, "案件")}
             />
-            <div className="h-4" />
-            <SectionTitle count={data.risks.total}>事项</SectionTitle>
+          ) : (
             <RiskMatrixTable
               m={data.risks}
-              loading={isFetching}
-              name={(code) => riskStatusNames.get(code) ?? code}
-              level={(code) => levelNames.get(code) ?? code}
+              name={name}
+              level={level}
+              emptyText={emptyText(filters, data.archivedOnly, "事项")}
             />
-          </Card>
+          )
+        ) : null}
+      </Card>
 
-          <Card size="small" title="节点到期">
-            <NodeDeadlineTable card={data.nodes} loading={isFetching} />
-          </Card>
-        </Flex>
-      )}
-    </div>
+      <Card size="small" title={cardTitle("节点到期")} loading={loading}>
+        {data ? <NodeDeadlineTable card={data.nodes} /> : null}
+      </Card>
+    </Flex>
   );
+}
+
+/**
+ * 卡片头上的规则。tooltip 是"规则类的话"的合法落点之一（另外三类：空态/错误态、
+ * 控件说明、字段表）——把同一句话写成卡片下的第二行说明就是被禁的那种旁白。
+ */
+const SCOPE_HINT =
+  "这些数字按当前筛选算：状态、经办人未指派、在办 / 已归档。关键词、排序与翻页不参与统计。";
+
+/** 节点卡两行的范围。`owner_id` 案件侧 NOT NULL（IQ-6），所以「未指派」下案件那行是 0 */
+const HOST_HINT = "两行都按当前筛选算。案件必有负责人，所以「经办人未指派」下案件那一行是 0。";
+
+function cardTitle(text: string) {
+  return (
+    <Tooltip title={SCOPE_HINT}>
+      {/* 虚线下划线是"这里有一条规则"的既有读法（与列头上的 tooltip 同一个信号） */}
+      <span style={{ borderBottom: `1px dashed ${INK.line}`, cursor: "help" }}>{text}</span>
+    </Tooltip>
+  );
+}
+
+/**
+ * 空态文案：有筛选时说清"是筛没了"，没筛选时才说"还没有"——两者要用户做的事不一样。
+ *
+ * 「在办还是归档」这一半用**服务端回显的 `data.archivedOnly`**，不用本地状态猜：
+ * 回显存在的意义就是"这两张卡算的是哪个范围"由服务端说了算（`ReportsPayload` 的注释）。
+ */
+function emptyText(filters: ListState, archivedOnly: boolean, what: string): string {
+  if (filters.status || filters.ownerEmpty || archivedOnly) {
+    return `当前筛选下没有可见${what}`;
+  }
+  return `还没有在办${what}`;
 }
 
 /** 字典数组 → code→名 的查表；配置里已经没有的 code 由调用方回落成 code 本身 */
@@ -139,14 +156,14 @@ function roleName(code: string): string {
 
 function MatterMatrixTable({
   m,
-  loading,
   name,
   level,
+  emptyText,
 }: {
   m: MatterMatrix;
-  loading: boolean;
   name: (code: string) => string;
   level: (code: string) => string;
+  emptyText: string;
 }) {
   /**
    * 状态列合并单元格：同一状态跨等级只写一次，格子里带该状态的小计。
@@ -225,11 +242,10 @@ function MatterMatrixTable({
       rowKey={(r) => `${r.status}\u0000${r.level}`}
       columns={columns}
       dataSource={m.rows}
-      loading={loading}
       pagination={false}
       tableLayout="fixed"
       scroll={{ x: width }}
-      locale={{ emptyText: "这个范围里没有案件" }}
+      locale={{ emptyText }}
       summary={() => (
         <Table.Summary.Row>
           <Table.Summary.Cell index={0} colSpan={2}>
@@ -255,14 +271,14 @@ function MatterMatrixTable({
 
 function RiskMatrixTable({
   m,
-  loading,
   name,
   level,
+  emptyText,
 }: {
   m: RiskMatrix;
-  loading: boolean;
   name: (code: string) => string;
   level: (code: string) => string;
+  emptyText: string;
 }) {
   const columns: TableColumnsType<RiskMatrix["rows"][number]> = [
     {
@@ -304,11 +320,10 @@ function RiskMatrixTable({
       rowKey={(r) => r.status}
       columns={columns}
       dataSource={m.rows}
-      loading={loading}
       pagination={false}
       tableLayout="fixed"
       scroll={{ x: width }}
-      locale={{ emptyText: "这个范围里没有事项" }}
+      locale={{ emptyText }}
       summary={() => (
         <Table.Summary.Row>
           <Table.Summary.Cell index={0}>合计</Table.Summary.Cell>
@@ -347,10 +362,14 @@ const BUCKET_TONE: Record<string, string> = {
   later: DEADLINE_TONE.later.color,
 };
 
-function NodeDeadlineTable({ card, loading }: { card: NodeDeadlineCard; loading: boolean }) {
+function NodeDeadlineTable({ card }: { card: NodeDeadlineCard }) {
   const columns: TableColumnsType<NodeDeadlineCard["rows"][number]> = [
     {
-      title: "宿主",
+      title: (
+        <Tooltip title={HOST_HINT}>
+          <span>宿主</span>
+        </Tooltip>
+      ),
       key: "kind",
       width: 140,
       ellipsis: true,
@@ -400,7 +419,6 @@ function NodeDeadlineTable({ card, loading }: { card: NodeDeadlineCard; loading:
       rowKey={(r) => r.kind}
       columns={columns}
       dataSource={card.rows}
-      loading={loading}
       pagination={false}
       tableLayout="fixed"
       scroll={{ x: width }}
@@ -424,6 +442,6 @@ function NodeDeadlineTable({ card, loading }: { card: NodeDeadlineCard; loading:
   );
 }
 
-function hostName(kind: string): string {
-  return HOST_TYPE_LABELS[kind as HostType] ?? kind;
+function hostName(kind: HostKind): string {
+  return HOST_TYPE_LABELS[kind] ?? kind;
 }

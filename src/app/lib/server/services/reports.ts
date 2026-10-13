@@ -1,7 +1,7 @@
-import { and, inArray, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { LITIGATION_ROLES, NODE_OPEN_STATUSES } from "@/shared/enums/business";
-import { archivedOnlyField } from "@/shared/schema/list-query";
+import { archivedOnlyField, configStatusField, ownerEmptyField } from "@/shared/schema/list-query";
 import type { Actor } from "../auth/auth";
 import { getDb } from "../db/client";
 import {
@@ -12,7 +12,7 @@ import {
   riskMatterNode,
   statusConfig,
 } from "../db/schema";
-import { archivedFilter, scopedWhere, type HostKind } from "../scope/visibility";
+import { HOSTS, archivedFilter, scopedWhere, type HostKind } from "../scope/visibility";
 
 /**
  * 报表两卡的服务端聚合（MATT-46 / F8-1 + F8-2）。
@@ -32,6 +32,8 @@ import { archivedFilter, scopedWhere, type HostKind } from "../scope/visibility"
  *    （`archivedOnly=1` 看归档，默认看在办；没有"混入"的第三种）。
  * 3. **聚合全在服务端**：两张卡各一条聚合查询（不是每格一次），返回的是已经摆好
  *    行 / 列 / 合计的矩阵；界面不做求和、不做分组、也不按行二次取数。
+ * 4. **列表筛选进得来、也只有一个出口**：`listFilterOf()` → 三个筛选（状态 / 未指派 /
+ *    在办·已归档），两个宿主同一谓词；关键词与分页排序**不是**筛选（§4.7 第 6 条）。
  *
  * ## 为什么不复用工作台的查询
  *
@@ -43,13 +45,23 @@ import { archivedFilter, scopedWhere, type HostKind } from "../scope/visibility"
 type Db = Awaited<ReturnType<typeof getDb>>;
 
 /**
- * 查询参数只有归档这一个开关。
+ * 查询参数 = **列表筛选里那三个**（F8-1「随筛选联动」）+ 归档开关。
  *
- * 复用 `archivedOnlyField` 而不是自己写一遍 `z.coerce.boolean()`：后者是
- * `Boolean("false") === true`，会把"退出归档视图"静默变成"一直看归档"（那条坑写在字段定义处）。
- * schema 挂在服务层是因为它只有这一个出口，值域本身仍来自 `@/shared`。
+ * 字段定义全部从 `@/shared/schema/list-query` 引（禁令⑧），与两张列表**同名同义**：
+ * 列表页把当前筛选原样交给卡片，卡片就能跟着变，不需要第二套"报表专用筛选"词汇。
+ *
+ * **关键词、排序、分页不在里面**，`missingMaterials` 也不在（理由见 §4.7 第 6 条）。
+ * `.strict()` 是刻意的：多传一个（比如把列表那份 `toQuery` 原样发过来）会 400，
+ * 而不是被 zod 默认剥掉——静默剥掉正是"筛选点了没反应"那类缺陷的形态
+ * （`ownerEmpty` 在客户端漏输出过一次，见 `use-list-state.spec.ts`）。
  */
-export const reportsQuerySchema = z.object({ archivedOnly: archivedOnlyField });
+export const reportsQuerySchema = z
+  .object({
+    status: configStatusField.optional(),
+    ownerEmpty: ownerEmptyField,
+    archivedOnly: archivedOnlyField,
+  })
+  .strict();
 export type ReportsQuery = z.infer<typeof reportsQuerySchema>;
 
 /**
@@ -124,6 +136,30 @@ function archiveOf(host: HostKind, archivedOnly: boolean): SQL {
   return archivedFilter(host, archivedOnly);
 }
 
+/**
+ * 列表筛选 → 报表谓词（F8-1「随筛选联动」的**唯一一处**）。
+ *
+ * 三个筛选对两个宿主**用同一个谓词**：卡片上的每个数字都是"当前筛选下的读数"，
+ * 一句话能解释整张卡——所以不按"这一行是不是本页宿主"分叉（那会让同一张卡的两行
+ * 处在两套范围里，读者无法从界面上分辨）。代价写在 §4.7 第 6 条：案件 `owner_id`
+ * 是 NOT NULL（IQ-6），所以「未指派」下案件那一行是 0 —— 那是事实，不是缺数。
+ *
+ * 列引用取 `HOSTS[host]`（`scopeOf` / `archiveOf` 用的也是它），所以这里不会长出
+ * 第二份表名/列名映射；无筛选时给 `sql\`true\`` 而不是 `undefined`，
+ * 因为调用点会把它直接嵌进 sql 模板（嵌 undefined 是运行时错误）。
+ */
+function listFilterOf(host: HostKind, q: ReportsQuery): SQL {
+  const h = HOSTS[host];
+  return (
+    and(
+      q.status ? eq(h.table.status, q.status) : undefined,
+      // 「未指派」= `owner_id IS NULL`，与事项列表那条筛选逐字同一个判据
+      // （`listRiskMatters` 里也是 `isNull`，`= ''` / `NOT EXISTS` 是另外两种"空"）
+      q.ownerEmpty ? isNull(h.table.ownerId) : undefined,
+    ) ?? sql`true`
+  );
+}
+
 type NodeTable = typeof matterNode | typeof riskMatterNode;
 
 /**
@@ -189,7 +225,7 @@ type RiskCellRow = {
  * 排序键（`statusSort` / `levelSort`）取自配置表：行顺序必须与配置页一致，
  * 否则"高 / 中 / 低"会被字典序排成"低 / 中 / 高"。
  */
-function matterCells(db: Db, actor: Actor, archivedOnly: boolean) {
+function matterCells(db: Db, actor: Actor, q: ReportsQuery) {
   return db
     .select({
       status: matter.status,
@@ -202,12 +238,14 @@ function matterCells(db: Db, actor: Actor, archivedOnly: boolean) {
       n: sql<number>`count(*)::int`,
     })
     .from(matter)
-    .where(and(scopeOf("matter", actor), archiveOf("matter", archivedOnly)))
+    .where(
+      and(scopeOf("matter", actor), archiveOf("matter", q.archivedOnly), listFilterOf("matter", q)),
+    )
     .groupBy(matter.status, matter.level, matter.litigationRole);
 }
 
 /** 事项格：`group by 状态, 等级`（事项侧没有"我方诉讼地位"这一列，维度到此为止） */
-function riskCells(db: Db, actor: Actor, archivedOnly: boolean) {
+function riskCells(db: Db, actor: Actor, q: ReportsQuery) {
   return db
     .select({
       status: riskMatter.status,
@@ -219,7 +257,13 @@ function riskCells(db: Db, actor: Actor, archivedOnly: boolean) {
       n: sql<number>`count(*)::int`,
     })
     .from(riskMatter)
-    .where(and(scopeOf("risk_matter", actor), archiveOf("risk_matter", archivedOnly)))
+    .where(
+      and(
+        scopeOf("risk_matter", actor),
+        archiveOf("risk_matter", q.archivedOnly),
+        listFilterOf("risk_matter", q),
+      ),
+    )
     .groupBy(riskMatter.status, riskMatter.level);
 }
 
@@ -317,20 +361,22 @@ type NodeBucketRow = { kind: string; bucket: string; n: number };
  * 节点自己没有范围列，可见性**跟着宿主走**（与工作台的活动日志同一条理由：
  * 能看见这条案卷才看得见它的节点，否则报表会变成案卷存在性的侧信道）。
  */
-async function nodeBuckets(db: Db, actor: Actor, archivedOnly: boolean): Promise<NodeBucketRow[]> {
+async function nodeBuckets(db: Db, actor: Actor, q: ReportsQuery): Promise<NodeBucketRow[]> {
   return db.execute<NodeBucketRow>(sql`
     with scanned as (
       select 'matter' as kind, ${bucketCase(matterNode)} as bucket
       from ${matterNode}
       inner join ${matter} on ${matter.id} = ${matterNode.hostId}
-      where ${scopeOf("matter", actor)} and ${archiveOf("matter", archivedOnly)}
+      where ${scopeOf("matter", actor)} and ${archiveOf("matter", q.archivedOnly)}
         and ${nodeScan(matterNode)}
+        and ${listFilterOf("matter", q)}
       union all
       select 'risk_matter' as kind, ${bucketCase(riskMatterNode)} as bucket
       from ${riskMatterNode}
       inner join ${riskMatter} on ${riskMatter.id} = ${riskMatterNode.hostId}
-      where ${scopeOf("risk_matter", actor)} and ${archiveOf("risk_matter", archivedOnly)}
+      where ${scopeOf("risk_matter", actor)} and ${archiveOf("risk_matter", q.archivedOnly)}
         and ${nodeScan(riskMatterNode)}
+        and ${listFilterOf("risk_matter", q)}
     )
     select kind, bucket, count(*)::int as n
     from scanned
@@ -368,15 +414,18 @@ function shapeNodes(rows: NodeBucketRow[]): NodeDeadlineCard {
 /* ──────────────────────────────── 出口 ──────────────────────────────── */
 
 /**
- * 两张卡一起给：页面一次请求拿到全部格子（同一次查询时刻，两张卡不会互相错开）。
+ * 两张卡一起给：列表页一次请求拿到全部格子（同一次查询时刻，两张卡不会互相错开）。
  * 三个聚合查询并发发出去——它们之间没有依赖。
+ *
+ * 界面只画自己宿主那一张矩阵（案件列表画案件矩阵、事项列表画事项矩阵），但**两张矩阵都算**
+ * ——它们在同一个响应里，读者看到的是同一时刻的两个读数，而不是"先看案件、两秒后看事项"。
  */
 export async function reports(actor: Actor, q: ReportsQuery): Promise<ReportsPayload> {
   const db = await getDb();
   const [matters, risks, nodes] = await Promise.all([
-    matterCells(db, actor, q.archivedOnly),
-    riskCells(db, actor, q.archivedOnly),
-    nodeBuckets(db, actor, q.archivedOnly),
+    matterCells(db, actor, q),
+    riskCells(db, actor, q),
+    nodeBuckets(db, actor, q),
   ]);
   return {
     archivedOnly: q.archivedOnly,

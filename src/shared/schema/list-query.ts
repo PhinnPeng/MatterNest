@@ -87,6 +87,54 @@ export const missingMaterialsField = z
   .optional()
   .transform((v) => v === "1" || v === "true");
 
+/**
+ * 状态筛选字段（**配置驱动**那一份）。事项列表与报表两卡用它。
+ *
+ * 与 `listQuerySchema.status`（四值枚举）不是两套口径，而是**值域来源不同**：
+ * 案件列表那四个值恰好就是 seed 里的内置 code，所以收得成枚举；事项的状态是
+ * `mn_status_config.code`，运营可以新增（枚举表 §0），收枚举就等于"运营加一个状态、
+ * 列表能筛而卡片 400"。
+ *
+ * 报表两卡跨两个宿主，所以只能取两者的**并集**——也就是这一份宽松的。
+ */
+export const configStatusField = z.string().trim().max(32);
+
+/**
+ * 报表两卡吃的列表筛选（F8-1「随筛选联动」）。**这是分类，不是第二套筛选定义**：
+ * 键名、取值、URL 语义全部沿用列表那一套，这里只说"哪几个进报表"。
+ *
+ * 进：`status` / `ownerEmpty` / `archivedOnly` —— 三者都是**集合的范围**：
+ * 它们回答"这一堆行是哪些行"，而卡片画的正是这一堆行的分布。
+ *
+ * 与 `REPORT_OMITTED_KEYS` 合起来必须是列表状态的一个**划分**：客户端
+ * （`use-list-state.spec.ts`）与服务端 schema（`services/reports.spec.ts`）各有一条
+ * 结构性断言盯着它——"界面点了没反应"（筛选没进请求）与"筛选被静默丢掉"
+ * （服务端 zod 默认剥掉不认识的键）都在这两条断言的射程里。
+ */
+export const REPORT_FILTER_KEYS = ["status", "ownerEmpty", "archivedOnly"] as const;
+
+/**
+ * 明确**不进**报表的列表键，每个都带一句理由（理由要写下来，否则下一个人会以为是漏了）。
+ *
+ *  · `keyword` —— 它是"找某一条"（案号/名称/案由的模糊命中），不是"看哪一片"。
+ *    让它进报表，卡片会在输入一个词之后塌成一行、每格 1，分布读数当场失效；
+ *    而"我搜出来的这条在全局里占多少"并不是这两张卡要回答的问题。
+ *  · `page` / `pageSize` —— 分页是**视口**，不是集合的属性：同一批行翻到第 2 页，
+ *    集合没变，卡片变数字就是错的。
+ *  · `sortBy` / `sortDir` —— 排序改的是行的次序，不是行本身；点一下表头卡片就变数
+ *    会让人以为卡片坏了。
+ *  · `missingMaterials` —— F2-26 的运维视角出口，只对**已归档**案件成立，而它唯一的宿主页
+ *    是 `/archive`；两张卡挂在 P4/P7（P0-2 裁定），所以这个键没有进来的场合。
+ */
+export const REPORT_OMITTED_KEYS = [
+  "keyword",
+  "page",
+  "pageSize",
+  "sortBy",
+  "sortDir",
+  "missingMaterials",
+] as const;
+
 export const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),

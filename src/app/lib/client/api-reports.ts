@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api } from "./api";
+import { api, type HostKind } from "./api";
 
 /**
  * 报表两卡的客户端读取层（MATT-46）。
@@ -41,7 +41,12 @@ export type NodeDeadlineCard = {
   total: number;
   /** 档位与中文名都随响应下发：界面按这个顺序画列，不自己定义档位 */
   buckets: { key: string; label: string }[];
-  rows: { kind: string; total: number; counts: Record<string, number> }[];
+  /**
+   * 两个宿主恒各一行（0 也留着）。`kind` 收成 `HostKind` 而不是 `string`：
+   * 界面要用它去查 `HOST_TYPE_LABELS`，收窄之后"服务端加了第三个宿主、界面还是两行"
+   * 这种事编译期就红，不用等看到一张少一行的卡。
+   */
+  rows: { kind: HostKind; total: number; counts: Record<string, number> }[];
   /** 每档合计（表尾那一行）。服务端算好——界面连表尾都不求和 */
   bucketTotals: Record<string, number>;
 };
@@ -54,14 +59,17 @@ export type ReportsPayload = {
 };
 
 /**
- * `staleTime` 60 秒：到期档与计数都是按"现在"算的，隔一分钟就可能变档；
- * 但报表不该每次进页面都敲一遍库，所以给一分钟新鲜度 + 页头的手动刷新
- * （与工作台 `/api/overview` 同一个口径）。
+ * 读数。`query` 是**已经拼好的请求串**（`use-list-state.ts` 的 `toReportQuery`），
+ * 不是一堆参数：这样 queryKey 与真正发出去的请求逐字同源——"参数变了但 key 没变"
+ * （于是卡片不跟着筛选变）在类型层就写不出来。
+ *
+ * 没有 `staleTime`：卡片现在长在列表页顶部，而列表的契约是"每次筛选都重新取"。
+ * 给 60 秒新鲜度会让"列表 21 行、卡片 20"同时成立——两个数字挨着显示却对不上，
+ * 比多敲一次库贵得多（上一版独立报表页给 60 秒是因为它自己就是一张页）。
  */
-export function useReports(archivedOnly: boolean) {
+export function useReports(query: string) {
   return useQuery({
-    queryKey: ["reports", archivedOnly],
-    queryFn: () => api.get<ReportsPayload>(`/api/reports${archivedOnly ? "?archivedOnly=1" : ""}`),
-    staleTime: 60_000,
+    queryKey: ["reports", query],
+    queryFn: () => api.get<ReportsPayload>(`/api/reports${query ? `?${query}` : ""}`),
   });
 }

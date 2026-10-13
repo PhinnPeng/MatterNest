@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import { App as AntdApp, Avatar, Dropdown, Layout, Menu, Space, Tag, Typography } from "antd";
 import type { MenuProps } from "antd";
 import {
-  BarChartOutlined,
+  BellOutlined,
   DashboardOutlined,
   ExportOutlined,
   FileTextOutlined,
@@ -45,7 +45,13 @@ const NAV: { type: "group"; label: string; children: Item[] }[] = [
     // 组名从"今日"改成"概要"（2026-10-12）：这一组只有一个入口，而"今日"说的是时间
     // （今天/临期），与组里"工作台"的实际职责对不上——菜单按职责分组，不按时间分组。
     label: "概要",
-    children: [{ key: "/", label: "工作台", icon: <DashboardOutlined /> }],
+    children: [
+      { key: "/", label: "工作台", icon: <DashboardOutlined /> },
+      // 通知中心（MATT-41 / T4）。放进"概要"而不是"业务"：它是**我的收件箱**
+      // （未读徽标、已读态都是"我对这条通知"的状态），不是一类业务实体——
+      // 与"案件/事项/当事人"并列会让它看起来像第五种记录。
+      { key: "/notifications", label: "通知", icon: <BellOutlined /> },
+    ],
   },
   {
     type: "group",
@@ -65,8 +71,8 @@ const NAV: { type: "group"; label: string; children: Item[] }[] = [
         label: "已归档",
         icon: <InboxOutlined />,
       },
-      // 报表（MATT-46 / T8）：运维视角的聚合读数，不是某个案卷的一部分，所以与案卷并列
-      { key: "/reports", label: "报表", icon: <BarChartOutlined /> },
+      // 报表（MATT-46 / T8）**不进菜单**：P0-2 裁定 M8 收窄为两张统计卡，
+      // 挂在 P7 案件列表与 P4 事项列表顶部（`components/report-cards.tsx`），不新增页面。
     ],
   },
   {
