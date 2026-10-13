@@ -403,7 +403,7 @@ export function pickDueReminders(node: ScannableNode, now: string | Date): DueRe
 | **新增部署件** | **1 个常驻进程**：Dockerfile 一层 + compose 一个 service + 一个 `restart: unless-stopped` + 健康检查 + SIGTERM drain（对齐 `db/client.ts:99` 已备好的 `closeDb()`）。内网单机也要多一个 compose service 与一个端口/进程。 | **0**。`instrumentation.ts` 一个文件（放 `src/` 根，见 `instrumentation.md:12`），加 1 个依赖。 |
 | **新增依赖** | `croner` 1 个（零传递依赖，251 个版本、MIT） | 同样 1 个（或 0：`setInterval` 就够，见下方「失败形态」列） |
 | **失败形态** | ① 进程起不来 → 该 service 不 Ready，**主站仍然正常**（轮询停摆，用户读请求兜底）。② 进程跑到一半崩 → outbox 积压，下次起来自愈（§5.2）。③ SIGTERM 没 drain → 同 ②，损失一次批。 | ① `register()` 抛错 → **整个 Next 进程 `exit 1`，全站不可用**（§6.1①）。② `tick` 抛错 → `unhandledRejection`；Node 22 默认**不因未处理拒绝退出**（`--unhandled-rejections=throw` 是默认，Node ≥15 起默认 `throw` ⇒ **实际会退出**）。③ 定时器静默不跑 → 零事件，与「没人该收」同形（§6.1②）。 |
-| **可观测性** | 独立 stdout / 独立容器日志 / 可单独 `docker logs` / 可接外部 metrics。失败有独立的退出码与重启计数。 | 混在 Next 进程 stdout 里，没有独立生命周期信号。「定时器还活着吗」**没有内建答案**——`croner` 给了 `isRunning()` / `isBusy()` / `lastRun()`，但没人调用就没人知道。 |
+| **可观测性** | 独立 stdout / 独立容器日志 / 可单独 `docker logs` / 可接外部 metrics。失败有独立的退出码与重启计数。 | 混在 Next 进程 stdout 里，没有独立生命周期信号。「定时器还活着吗」**没有内建答案**——`croner` 的状态面全是**进程内存字段**（`src/croner.ts:63-86`），进程一死即归零；且 `previousRun()` 在 `finally` 里赋值（`:547-554`）⇒ **抛异常照样前进**，它答不出「跑成了没有」。详见 `docs/research-croner-status-heartbeat.md` §8。 |
 | **连接池压力** | **与主站是两个进程 ⇒ 两个独立的池**（各自 `max: 10`）。总连接数翻倍（20），但互不抢占。**这是本方案唯一的结构性优势。** | 与用户请求**共用同一个 10 条的池**。峰值 3 条（§4.1），单条连接被按住数秒；用户请求要排在后面等（§4.2）。 |
 | **崩溃恢复** | 独立重启。`croner` **不补跑**（§2.1），所以「重启」=「下一轮从现在起算」，与 ② **等价**。 | 随主站重启。语义与 ① **完全相同**（§5.3）——因为两者都不补跑。**这一维度不构成选型依据。** |
 | **开发机体验** | Windows 上要单独起一个进程（`tsx`/`node --watch`），跟 `next dev` 各跑各的。 | **零摩擦**：改完刷新页面就生效（改 `instrumentation.ts` 本身除外，要重启 dev server，§3.3 坑 1）。 |
@@ -440,7 +440,7 @@ export function pickDueReminders(node: ScannableNode, now: string | Date): DueRe
 - **单副本裁定被推翻**（要跑 ≥2 副本）。届时应用内定时器会在每个副本里各起一份，`protect` 挡得住自己、挡不住别人；`dedupe_key` 能保证通知不重复，但 1300 次往返的查询量会翻倍。此时 ① 的「独立进程 + 单副本 worker 编排」是正解。
 - **一次 pump 的实测耗时超过 1 秒且频繁发生**（说明 §4.1 的 1300 次往返不是理论值）。此时连接池的排队延迟已经开始被用户感知，① 的独立池是唯一干净的解。
 - **轮询器的失败被要求「绝不牵连主站」**——比如将来它要写审计、发外部请求、或跑一个可能 OOM 的重活。那时它就不该住在 Next 进程的地址空间里。
-- **需要「跑了没有」这个信号**。① 有独立容器日志与重启计数；② 要自己造（`croner` 给了 `isRunning()`/`lastRun()`，但没人调就等于没有）。**可观测性是 ② 最实在的短板**，不是连接池。
+- **需要「跑了没有」这个信号**。① 有独立容器日志与重启计数；② **要自己造，且不能靠 croner**——它的 `previousRun()` 记的是「跑完了」而非「跑成了」，且不挺过进程死亡（`docs/research-croner-status-heartbeat.md` §4.3b、§8）。**可观测性是 ② 最实在的短板**，不是连接池。
 
 ### 8.4 两个方案各自的失败形态（一句话版）
 

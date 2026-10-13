@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   AUDIT_ACTION_MAX_LENGTH,
+  AUDIT_ACTIONS,
   claimedChecks,
   ENUM_REGISTRY,
   STRUCT_CHECKS,
@@ -587,5 +588,402 @@ describe("同构表对：列集合 diff 为空（W1-3 / MATT-8）", () => {
 
   it("白名单当前为空（有例外就必须写进 ISO_ALLOWED_DIFFS 并写明理由）", () => {
     expect(Object.keys(ISO_ALLOWED_DIFFS)).toEqual([]);
+  });
+});
+
+/* ==========================================================================================
+ * 审计动作「有没有写入点」——补本文件前半段在结构上就看不见的那一半
+ * ========================================================================================== */
+
+/**
+ * ## 这一组补的是什么盲区
+ *
+ * 上面三组核的是「注册表 ↔ CHECK ↔ 文档三方一致」。三方一致只能证明**三份抄的是同一个
+ * 值集合**；三份**一起**抄错时它们全绿。而审计动作最要命的错法恰恰就是三方一致地写着一个
+ * **没人写得出来的值**：值域里有 `MATTER_DELETED`、CHECK 认它、文档列它、中文名表翻它，
+ * 于是"删除案件有留痕"在纸面上成立 —— 而**没有任何一条断言问过：有没有代码真的写出它**。
+ *
+ * 实测（2026-10-13）：生产 `.ts` 179 个、有字面量的写入点 37 处；清单 46 个动作里
+ * **29 个有写入点，17 个没有**。那 17 个不是笔误（逐条出处见 `AUDIT_WITHOUT_WRITESITE`），
+ * 这条门禁也不负责消灭它们 —— 它负责**钉住那笔账**：
+ *   · 新增一个没人写的动作 → 立刻红（要么补上写入点，要么把理由写进白名单）；
+ *   · 某个动作已经写出来了、白名单条目却忘了删 → 也立刻红（那条理由会变成过期承诺）。
+ *
+ * ⚠ 演示数据不算写入点：`db/seed/0003_demo.sql` 里躺着一行 `'PROGRESS_CREATED'`，
+ * 那是 seed 造的，不是任何用户操作产生的。所以本门禁**只读 `.ts`**，不读 SQL。
+ */
+
+/**
+ * 扫描范围：**生产** `.ts`/`.tsx`。三处刻意的排除，各有各的理由：
+ *
+ *   1. `*.spec.ts` —— 测试里的造数不是用户操作。`parties.spec.ts:361` 那种
+ *      "注释里提一句动作名"更不该算落点。
+ *   2. 迁移目录（`MIGRATIONS`）—— 那里今天只有 `.sql`/`.json`，**这条排除本身是空转**，
+ *      所以下面专门有一条断言钉住它是条真规则（目录非空 + 谓词对迁移目录里的 `.ts`
+ *      确实返回 false），而不是"碰巧没扫到"。
+ *   3. `node_modules` / `.next` / `.git` —— 不是源码。
+ *
+ * ⚠ 第二个根 `worker/`：今天只有一份 README（0 个 `.ts`），列进来是给将来用的 ——
+ * 提醒调度与自动化执行器（MATT-61 / MATT-73/74）真落地时很可能落在 `worker/` 里，
+ * 门禁不该因为"我只看 src"而看不见那边的写入点。
+ */
+const SCAN_ROOTS = ["src", "worker"] as const;
+const SKIP_DIRS = new Set(["node_modules", ".next", ".git"]);
+
+function walkTsFiles(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      walkTsFiles(path, out);
+    } else if (/\.tsx?$/.test(entry.name)) {
+      out.push(path);
+    }
+  }
+  return out;
+}
+
+/**
+ * 范围谓词**单独成函数**：下面那条契约断言要能直接调它，才能证明排除规则还活着
+ * （只断言"被扫文件里没有迁移目录的东西"的话，删掉排除那半句测试照样绿 —— 因为
+ * 迁移目录里今天根本没有 `.ts`，排除与否结果一样）。
+ */
+function isScannable(file: string): boolean {
+  return !file.endsWith(".spec.ts") && !file.startsWith(MIGRATIONS);
+}
+
+const scanFiles = SCAN_ROOTS.flatMap((root) => walkTsFiles(root))
+  .filter(isScannable)
+  .sort();
+
+/**
+ * 剥掉 TS 注释：行注释与块注释都换成**等长空格**。
+ *
+ * 等长 + 留换行是关键：行号是从剥完的文本上数的，替换成 `""` 会让后面所有位置的行号偏掉，
+ * 报错指到一个不相干的行 —— 而这份报错是本门禁唯一的沟通手段。
+ *
+ * 为什么必须剥：本仓注释里**到处**是动作名（`db/schema/outbox.ts:10` 提
+ * `AUTO_RULE_SKIPPED`、`import.ts:551` 提 `PARTY_MERGED`）。把注释掉的写入点算成真落点，
+ * 就是给"这个动作有出处"打假条 —— 而那正是本门禁要防的事。
+ *
+ * ⚠ 已知窄口（说清楚而不是藏起来）：正则分不清字符串里的 `//` 与 `/*`。实测 2026-10-13，
+ * 179 个生产文件里字符串字面量含 `//` 的有 **0 处**，所以今天剥与不剥结果完全一致。
+ * 真出现时的后果是**少报**（多一条"没有写入点"）⇒ 当场红，不是静悄悄的假通过。
+ */
+function stripTsComments(code: string): string {
+  return code
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+const OPEN_CHARS = new Set(["{", "(", "["]);
+const CLOSE_CHARS = new Set(["}", ")", "]"]);
+const QUOTE_CHARS = new Set(['"', "'", "`"]);
+const IDENT_CHAR = /[A-Za-z0-9_$]/;
+
+/** 从 `i`（引号本体）走到闭合引号。模板串的 `${…}` 插值递归吃掉，否则插值里的括号会打乱配平 */
+function endOfString(code: string, i: number): number {
+  const quote = code[i];
+  if (quote === undefined) return i;
+  for (i++; i < code.length; i++) {
+    const c = code[i] ?? "";
+    if (c === "\\") i++;
+    else if (c === quote) return i;
+    else if (quote === "`" && c === "$" && code[i + 1] === "{") i = endOfBlock(code, i + 1);
+  }
+  return i;
+}
+
+/** 从 `i`（`{`）走到配平的 `}` */
+function endOfBlock(code: string, i: number): number {
+  let depth = 0;
+  for (; i < code.length; i++) {
+    const c = code[i] ?? "";
+    if (QUOTE_CHARS.has(c)) i = endOfString(code, i);
+    else if (OPEN_CHARS.has(c)) depth++;
+    else if (CLOSE_CHARS.has(c) && --depth === 0) return i;
+  }
+  return i;
+}
+
+/**
+ * `i` 处是不是裸键 `key`（其后跟空白与 `:`，其前不是 `.` 或标识符字符）。
+ * `activityLog.action` 与 `actionLog:` 都得被排除，否则认错字段。
+ */
+function isKeyAt(code: string, i: number, key: string): boolean {
+  if (!code.startsWith(key, i)) return false;
+  if (IDENT_CHAR.test(code[i + key.length] ?? "")) return false;
+  let j = i + key.length;
+  while (j < code.length && /\s/.test(code[j] ?? "")) j++;
+  if (code[j] !== ":") return false;
+  for (let k = i - 1; k >= 0 && /\s/.test(code[k] ?? ""); k--) {
+    const prev = code[k] ?? "";
+    if (prev === "." || IDENT_CHAR.test(prev)) return false;
+  }
+  return true;
+}
+
+/** 调用的实参区间：按 depth-0 的逗号切 */
+function callArgs(code: string, openParen: number): [number, number][] {
+  const args: [number, number][] = [];
+  let depth = 0;
+  let start = openParen + 1;
+  for (let i = openParen; i <= code.length; i++) {
+    const c = code[i] ?? "";
+    if (QUOTE_CHARS.has(c)) i = endOfString(code, i);
+    else if (OPEN_CHARS.has(c)) depth++;
+    else if (CLOSE_CHARS.has(c) && --depth === 0) {
+      args.push([start, i]);
+      break;
+    } else if (c === "," && depth === 1) {
+      args.push([start, i]);
+      start = i + 1;
+    }
+  }
+  return args;
+}
+
+/**
+ * 对象字面量里 **depth-0** 的 `action:` 字段：行号 + 其中的字符串字面量。
+ *
+ * 只认 depth-0 —— `payload` / `diffs` 这些嵌套对象里的 `action` 不是审计动作字段。
+ * 值读到 depth-0 的逗号为止，于是
+ * `action: archiving ? "ARCHIVED" : "STATUS_CHANGED"`（`matters.ts:509` / `risks.ts:1032`）
+ * 与跨行的节点三选一（`matters.ts:685` / `risks.ts:1459`）被**整段**收下，不会只收前半截。
+ *
+ * 字面量按引号成对取，**不做子串匹配**：`"ARCHIVED"` 不可能从 `"UNARCHIVED"` 里长出来，
+ * `"ARCHIVED"` 也不会被 `ARCHIVED` 这种裸词匹配上。
+ */
+function actionFields(code: string, objOpen: number): { line: number; values: string[] }[] {
+  const objClose = endOfBlock(code, objOpen);
+  const out: { line: number; values: string[] }[] = [];
+  let depth = 0;
+  for (let i = objOpen + 1; i < objClose; i++) {
+    const c = code[i] ?? "";
+    if (QUOTE_CHARS.has(c)) {
+      i = endOfString(code, i);
+      continue;
+    }
+    if (OPEN_CHARS.has(c)) depth++;
+    else if (CLOSE_CHARS.has(c)) depth--;
+    else if (depth === 0 && isKeyAt(code, i, "action")) {
+      const from = code.indexOf(":", i) + 1;
+      let inner = 0;
+      let j = from;
+      for (; j < objClose; j++) {
+        const cc = code[j] ?? "";
+        if (QUOTE_CHARS.has(cc)) j = endOfString(code, j);
+        else if (OPEN_CHARS.has(cc)) inner++;
+        else if (CLOSE_CHARS.has(cc)) inner--;
+        else if (cc === "," && inner === 0) break;
+      }
+      out.push({
+        line: code.slice(0, from).split("\n").length,
+        values: [...code.slice(from, j).matchAll(/"([^"]*)"|'([^']*)'/g)].map(
+          (m) => m[1] ?? m[2] ?? "",
+        ),
+      });
+      i = j;
+    }
+  }
+  return out;
+}
+
+/** 一处审计写入点：哪个文件第几行的 `action:` 字段里出现了哪些字面量 */
+type WriteSite = { file: string; line: number; values: string[] };
+
+/**
+ * 两个产出形态（`activity.ts` 的文件头已把"唯一入口"写死，所以只有这两种）：
+ *   1. `logActivity(tx, actor, { … })`
+ *   2. `tx.insert(activityLog).values({ … })` —— `users.ts` 的账号类动作自己直写
+ *
+ * **实参必须是对象字面量**这一条，同时挡掉三样东西：
+ *   · `logActivity` 自己的函数声明（第三实参是 `e: { … }`，不是字面量）；
+ *   · `select({ action: activityLog.action })` 这种**读形态**（`matters.ts:238` /
+ *     `overview.ts:89` / `risks.ts:873`）—— 它们压根不是实参；
+ *   · 顺带把 `activity.ts:28` 那句 `action: e.action`（透传，不是字面量）也筛掉了。
+ */
+const PRODUCER_RE = /(?:\blogActivity\s*\(|\.insert\(\s*activityLog\s*\)\s*\.values\s*\()/g;
+
+export function scanSource(file: string, source: string): WriteSite[] {
+  const code = stripTsComments(source);
+  const sites: WriteSite[] = [];
+  for (const m of code.matchAll(PRODUCER_RE)) {
+    // 匹配串**以 `(` 结尾**，实参起点是它的最后一位。
+    // 用 `indexOf("(", m.index)` 会落到 `insert(` 的那个括号上 —— 那是 `.values(` 的实参，
+    // 于是 `users.ts` 的 5 个直写点会全部消失（本轮真踩过：少扫 5 处仍"看起来对"）。
+    for (const [start, end] of callArgs(code, (m.index ?? 0) + m[0].length - 1)) {
+      const arg = code.slice(start, end);
+      const lead = /^\s*/.exec(arg)?.[0].length ?? 0;
+      if (arg[lead] !== "{" || !arg.trimEnd().endsWith("}")) continue;
+      for (const field of actionFields(code, start + lead)) {
+        // 只有**含字符串字面量**的 `action:` 才算写入点：`activity.ts:28` 那句 `action: e.action`
+        // 是入口的搬运（把上游的值原样塞进行里），它不产出任何动作名，不该占一个"落点"。
+        if (field.values.length === 0) continue;
+        sites.push({ file, ...field });
+      }
+    }
+  }
+  return sites;
+}
+
+const writeSites = scanFiles.flatMap((f) => scanSource(f, readFileSync(f, "utf8")));
+
+/**
+ * 只认清单里的真值。节点三选一的条件串（`status === "completed"` / `"cancelled"`）
+ * 也落在 `action:` 的值里，但它们不是动作名 —— 按清单过滤掉，而不是让它们混进"已产出"。
+ */
+const ALL_ACTIONS: readonly string[] = AUDIT_ACTIONS;
+const produced = new Set(
+  writeSites.flatMap((s) => s.values).filter((v) => ALL_ACTIONS.includes(v)),
+);
+/** 清单里有、但全仓没有任何写入点产出的动作 */
+const deadActions = ALL_ACTIONS.filter((a) => !produced.has(a));
+/** 产出某个动作的全部文件（去重排序） */
+const filesProducing = (action: string): string[] =>
+  [...new Set(writeSites.filter((s) => s.values.includes(action)).map((s) => s.file))].sort();
+
+/**
+ * 没有写入点的动作，**逐条**写明理由。键 = 动作值，值 = 为什么它现在没有落点。
+ *
+ * 纪律（同本文件其它白名单一致）：
+ *   · **一条理由都不许是占位符**（下面那条断言要求理由里带票号或 file:line 出处）；
+ *   · 每条都要说清它是「等某张票」「已作废」还是「真缺口」—— 三种状态的处置完全不同，
+ *     混在一起写就会有人拿"等票"去解释一个根本没排期的洞；
+ *   · ⚠ 开头的几条**特别标了"MATT-62 只在顺带核对那节提到它"**：那张票会关掉，
+ *     但关掉它**不会**顺带给出写入点。把票号当落点承诺，是这份白名单最容易犯的错。
+ *
+ * 顺序与 `AUDIT_ACTIONS` 一致，方便逐行 diff。
+ */
+const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
+  MATTER_DELETED:
+    "等 **MATT-62**（删除案件端点）。不是「忘了留痕」：`src/app/api/matters/[id]/route.ts` 只有 `GET`，整条路径上**没有 DELETE handler**，所以那个动作还不存在。对照 `RISK_DELETED` 就有写入点（`risk-matters/[id]/route.ts` 的 DELETE 走通了）。",
+  NODE_DELETED:
+    "节点只有新增与状态变更，`matters/[id]/nodes/[nodeId]/route.ts` 仅导出 `POST`。节点是归档判定（`pending_nodes`）与到期卡的输入，现行口径是取消而非删除，**暂无票**。⚠ MATT-62 的描述里确实提到了它，但在「顺带核对（只报告、不改）」那一节 —— 关掉那票**不会**给它写入点，所以不能拿 MATT-62 当它的落点承诺。",
+  PROGRESS_CREATED:
+    "等 **MATT-59**（进展端点）。⚠ 注意演示库里**已经有**一行 `'PROGRESS_CREATED'`（`db/seed/0003_demo.sql`）—— 那正是本门禁坚持只读 `.ts` 的理由：演示数据写进去过，不等于任何用户操作产生过它。",
+  PROGRESS_UPDATED: "同 `PROGRESS_CREATED`，等 **MATT-59** 的进展端点。",
+  PROGRESS_DELETED: "同 `PROGRESS_CREATED`，等 **MATT-59** 的进展端点。",
+  PARTY_DELETED:
+    "`parties/[id]/route.ts` 只有 `GET` 与 `PATCH`。**删除当事人走合并**：同一条留痕是 `PARTY_MERGED`（`party-merge.ts`，载荷含「谁活下来、谁被并走」）。当事人是费用/进展的引用源，硬删与 FK RESTRICT 冲突，这条大概率**永远不会单独出现** —— 若将来真要物理删除，先在这里写明理由再删本条。⚠ 同上：MATT-62 只在「顺带核对（只报告、不改）」那节提到它，不构成落点承诺。",
+  COMMENT_DELETED:
+    "评论只有发表与编辑：`matters/[id]/comments/route.ts` 仅导出 `POST`（对应 `COMMENT_CREATED` / `COMMENT_UPDATED`）。一期不做删除，**暂无票**。⚠ 同上：MATT-62 只在「顺带核对（只报告、不改）」那节提到它，不构成落点承诺。",
+  ATTACHMENT_UPLOADED:
+    "等 **MATT-15**（MinIO 附件通道）。附件表与对象存储都还没接，上传动作产生前不可能有写入点；该票当前被外部凭据阻塞。",
+  ATTACHMENT_DELETED:
+    "同 `ATTACHMENT_UPLOADED`，等 **MATT-15**（MinIO 附件通道，外部凭据阻塞中）。",
+  UNARCHIVED:
+    '等 **MATT-60**。现状值得记一笔：撤销归档**是被走到的**——`can_unarchive` 列与 `requirePrivilege` 都在，只是它复用了通用状态迁移入口，而那个入口只写 `action: archiving ? "ARCHIVED" : "STATUS_CHANGED"`（`matters.ts` / `risks.ts`），于是「撤销归档」这件事在审计里被记成了 `STATUS_CHANGED`。MATT-60 拆出独立出口。',
+  SENSITIVE_FIELD_READ:
+    "**已作废，不是缺口** —— 本组 17 条里唯一一条「白名单本来就是对的」而非「欠一张票」的。裁定：IQ-12 / Q46′（2026-10-10）取消「显示明文」按钮与逐次读取审计，展示层改为全明文；明文外流改由 `EXPORT` 承接、并由 `can_read_plain` 把关。裁定原文写在 `src/shared/enums/audit.ts:13` 的文件头与枚举表 §3.3。本值按 §5.3 废弃流程**保留**在清单、CHECK 与中文名表里，**只为让历史行仍能反查**，不得再写入。它全仓仅有的两处出现都是**反面教材**：`crypto/field-crypto.ts:9` 与 `parties.spec.ts:361` 的注释都在说「别把这东西重新发明一遍」。⚠ 将来若有人正式推翻 IQ-12 恢复逐次审计，先删本条再写代码；在裁定被推翻之前，本条**不该**被当成待补缺口报出来。",
+  ACCESS_DENIED_WRITE:
+    "**没有承载点，也没票** —— 本组里唯一一条「不是等票、也不是已作废」的真缺口。写拒绝目前由 `http.ts` 的 `notFound()` / `attributionRequired()` / `requirePrivilege()` 直接返回 `NextResponse`：那些位置**手上没有事务也没有 actor**，压根调不动 `logActivity`。要记它得先补一个统一的拒绝留痕钩子（并想清楚拒绝时该记谁当 operator），那是设计工作不是补一行 `action:`。枚举表 §3.3 已把口径写死（只记写拒绝、读拒绝不记）。",
+  AUTO_RULE_EXECUTED:
+    "等 **MATT-61**（自动化规则执行器）。规则表与预置种子已进库，执行器尚未落地。`_SKIPPED` 载荷比 `EXECUTED` 多一个 `skip_reason`（冲突唯一键 / 冷却期 / 收件人不可见），去重语义已经写进 `db/schema/outbox.ts:10` 的文件头与迁移 0003 的注释 —— 但**注释不算写入点**，这正是本门禁存在的理由。⚠ 与 `SENSITIVE_FIELD_READ` 区分开：那一类是**已作废**，这一类是**未实现**（意图已写下、执行器还没有），所以它该跟着 MATT-61 变成有写入点，而不是永远挂着。",
+  AUTO_RULE_SKIPPED:
+    "等 **MATT-61**（自动化规则执行器）。规则表与预置种子已进库，执行器尚未落地。`_SKIPPED` 载荷比 `EXECUTED` 多一个 `skip_reason`（冲突唯一键 / 冷却期 / 收件人不可见），去重语义已经写进 `db/schema/outbox.ts:10` 的文件头与迁移 0003 的注释 —— 但**注释不算写入点**，这正是本门禁存在的理由。⚠ 与 `SENSITIVE_FIELD_READ` 区分开：那一类是**已作废**，这一类是**未实现**（意图已写下、执行器还没有），所以它该跟着 MATT-61 变成有写入点，而不是永远挂着。",
+  AUTO_RULE_FAILED:
+    "等 **MATT-61**（自动化规则执行器）。规则表与预置种子已进库，执行器尚未落地。`_SKIPPED` 载荷比 `EXECUTED` 多一个 `skip_reason`（冲突唯一键 / 冷却期 / 收件人不可见），去重语义已经写进 `db/schema/outbox.ts:10` 的文件头与迁移 0003 的注释 —— 但**注释不算写入点**，这正是本门禁存在的理由。⚠ 与 `SENSITIVE_FIELD_READ` 区分开：那一类是**已作废**，这一类是**未实现**（意图已写下、执行器还没有），所以它该跟着 MATT-61 变成有写入点，而不是永远挂着。",
+  REMINDER_SENT:
+    "等 **MATT-73/74**（提醒调度与投递）。提醒侧的 `mn_notification_delivery.status` 值域已进库，但调度器还没跑起来。",
+  REMINDER_FAILED:
+    "等 **MATT-73/74**（提醒调度与投递）。提醒侧的 `mn_notification_delivery.status` 值域已进库，但调度器还没跑起来。",
+};
+
+describe("审计动作 ↔ 写入点：清单里每个值都得有代码真写得出来（白名单那 17 条除外）", () => {
+  it("扫描器不是空转：扫到的文件、写入点、已产出动作都在预期量级（2026-10-13 实测 179 / 37 / 29）", () => {
+    // 校验类脚本最典型的空转形态是"什么都没扫到 ⇒ 零命中 ⇒ 看起来和全部一致一样绿"
+    // （本文件上面三处记着同一个教训）。所以先证明它真读到了东西。
+    expect(scanFiles.length, "扫到的生产文件太少（walk 空转或范围写错）").toBeGreaterThan(100);
+    expect(writeSites.length, "带字面量的写入点太少（剥注释或括号配平炸了）").toBeGreaterThan(30);
+    expect(produced.size, "有写入点的动作太少（判定规则收得太紧）").toBeGreaterThan(25);
+    // 只断总数的话，"范围悄悄缩到一个子目录"也可能照样过 ⇒ 再断一下**有多少个文件**在产出
+    expect(
+      new Set(writeSites.map((s) => s.file)).size,
+      "产出动作的文件太少",
+    ).toBeGreaterThanOrEqual(8);
+    // 清单本身也不能被截断：它是本门禁的输入，输入短了是"核得少"而不是"核得对"
+    expect(ALL_ACTIONS.length, "AUDIT_ACTIONS 被截短了？").toBeGreaterThanOrEqual(46);
+  });
+
+  it("范围与判定规则各有反例钉住：迁移目录被排除、读形态不算写入点、注释里的值不算", () => {
+    // (1) 迁移排除**在生效**，而不是碰巧：目录非空（前提成立）+ 被扫文件全在谓词内 +
+    //     谓词对迁移目录里的 `.ts` 确实返回 false。把 `!file.startsWith(MIGRATIONS)`
+    //     那半句删掉，这三条里最后一条立刻红。
+    expect(readdirSync(MIGRATIONS).length, "迁移目录空了？").toBeGreaterThan(0);
+    expect(scanFiles.every(isScannable)).toBe(true);
+    expect(isScannable(`${MIGRATIONS}/0001_probe.ts`)).toBe(false);
+    expect(isScannable("src/app/lib/server/services/risks.ts")).toBe(true);
+
+    // (2) 读形态不算：`select({ action: activityLog.action })` 不是实参（`matters.ts:238` 等三处）
+    expect(
+      scanSource("inline.ts", `await db.select({ action: activityLog.action }).from(activityLog);`),
+    ).toEqual([]);
+
+    // (3) 注释掉的生产点不算 —— 剥注释真的在干活。
+    //     ⚠ 实测当前仓库剥与不剥结果一致（0 处差异），所以这条只能靠构造反例来证明；
+    //     等哪天真出现"注释掉的写入点"，它会当场把这条打红。
+    expect(
+      scanSource(
+        "inline.ts",
+        [
+          "await logActivity(tx, actor, {",
+          '  // action: "MATTER_CREATED",',
+          '  action: "MATTER_UPDATED",',
+          "});",
+        ].join("\n"),
+      ).map((s) => s.values),
+    ).toEqual([["MATTER_UPDATED"]]);
+
+    // (4) 字面量按引号成对取，不做子串匹配：`UNARCHIVED` 不可能从 `UNARCHIVED_PENDING` 里长出来
+    expect(
+      scanSource("inline.ts", `logActivity(tx, actor, { action: "UNARCHIVED_PENDING" })`).map(
+        (s) => s.values,
+      ),
+    ).toEqual([["UNARCHIVED_PENDING"]]);
+
+    // (5) 两个**假通过**的坑，逐个钉住：
+    //     · `PARTY_MERGED` 只有一个产出文件 `party-merge.ts`；`import.ts:551` 那句
+    //       "与 `PARTY_MERGED` 同一种落点"是 `//` 注释，**不算写入点**；
+    //       哪天有人把注释当证据（或漏剥注释），`import.ts` 会冒出来，这条立刻红。
+    expect(filesProducing("PARTY_MERGED")).toEqual(["src/app/lib/server/services/party-merge.ts"]);
+    //     · `UNCONVERT` 同理：`expenses.ts:394` 提它是为了说明"所以不硬删"，也在注释里。
+    expect(filesProducing("UNCONVERT")).toEqual(["src/app/lib/server/services/risks.ts"]);
+  });
+
+  it("双向：没写入点的动作必须逐条登记理由，登记过的也必须还真的没写入点", () => {
+    // 两个方向**分开报**是刻意的：合成一条 `toEqual` 时，diff 会把"白名单里多出来的过期条目"
+    // 报成"清单里有你没登记的动作" —— 方向反了，读报错的人会去删错的那一边。
+    const undeclared = deadActions.filter((a) => !Object.hasOwn(AUDIT_WITHOUT_WRITESITE, a));
+    const stale = Object.keys(AUDIT_WITHOUT_WRITESITE).filter((a) => produced.has(a));
+    expect(
+      undeclared,
+      "这些动作没有任何代码写得出来，却没写进 AUDIT_WITHOUT_WRITESITE：补写入点，或写明理由后登记",
+    ).toEqual([]);
+    expect(
+      stale,
+      "AUDIT_WITHOUT_WRITESITE 里的这些动作已经有写入点了：该删条目（别让过期承诺留着）",
+    ).toEqual([]);
+    // 正向相等：两边必须**逐项相等**，不多不少。上面两条各自为空还不够 ——
+    // 万一将来有人把 `produced` 算错成空集，这里会同时把两条方向打红（这正是我们要的）
+    expect([...deadActions].sort()).toEqual(Object.keys(AUDIT_WITHOUT_WRITESITE).sort());
+  });
+
+  it("白名单自身完整：取值都是清单里的真值、理由非空且带出处、无重复", () => {
+    const keys = Object.keys(AUDIT_WITHOUT_WRITESITE);
+    // 重复键在对象字面量里本来就是 `no-dupe-keys` 报错（lint 会拦），这里再钉一次是因为
+    // 白名单将来可能改成从别处拼出来的 —— 那时 lint 就拦不住了
+    expect(new Set(keys).size, "白名单里有重复动作").toBe(keys.length);
+    for (const [action, reason] of Object.entries(AUDIT_WITHOUT_WRITESITE)) {
+      expect(ALL_ACTIONS, `白名单里的 ${action} 不在 AUDIT_ACTIONS 里（拼错了？）`).toContain(
+        action,
+      );
+      expect(reason.trim().length, `${action} 没写理由`).toBeGreaterThan(0);
+      // 防"等某某票"式占位符：理由必须带**可核的出处**（票号或 file:line），
+      // 否则白名单就退化成一张"先挂着"的表，而那正是它要防的事
+      expect(reason, `${action} 的理由里既没有票号也没有文件出处`).toMatch(
+        /MATT-\d+|[\w./[\]-]+\.(?:ts|tsx|sql)/,
+      );
+    }
   });
 });
