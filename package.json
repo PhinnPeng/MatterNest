@@ -19,10 +19,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:check": "node tools/db-check.mjs",
+    "deploy:check": "node deploy/verify-deploy.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node tools/migrate.mjs --migrate-only",
     "db:seed": "node tools/migrate.mjs --seed-only",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs && pnpm anchors:check",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs && pnpm anchors:check && pnpm deploy:check",
     "anchors:check": "node agent-work/verify-anchors.mjs"
   },
   "devDependencies": {
