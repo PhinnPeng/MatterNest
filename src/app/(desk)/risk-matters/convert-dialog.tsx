@@ -20,7 +20,7 @@ import {
   theme,
   Typography,
 } from "antd";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { CopyOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { Dayjs } from "dayjs";
 
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
@@ -154,6 +154,32 @@ export function ConvertDialog({
     if (cases.length <= 1) return; // 至少留一张（min 1）
     form.setFieldsValue({ cases: cases.filter((_, k) => k !== i) });
     setActive((a) => (a >= i ? Math.max(0, a - 1) : a));
+  }
+
+  /**
+   * 跨卡复制（MATT-19 的 AC）：把当前卡的内容复制到其余卡。
+   *
+   * **排除 id 类字段**——这是这条 AC 的全部要点。逐项说清本表单里有哪些：
+   *  · `caseNo`（案号）**在表单里，必须排除**。它默认取内部编号、可改，但把一张的案号
+   *    抄给 N 张，就是给 N 个案卷安同一个法院案号。库层"非唯一、重复只提示不阻止"
+   *    是给"不同法院案号体系重号"留的口子，不是给"复制粘贴批量重号"用的——
+   *    而且这种错**不会报错**，等对账时才发现，正是 AC 要防的"以为带过去了"。
+   *  · 内部编号**不在表单里**：它由服务端在事务内取号（`nextCode`），前端预占会浪费号段。
+   *  · 事项外键**不在卡里**：路由从 URL 拿 `riskId` 传给服务层，卡上根本没有这个字段。
+   *
+   * 其余字段（名称/案由/类型/程序/诉讼地位/法院/等级/金额/立案日期）照抄——
+   * 名称不在"id 类"里，多案同名是常态，用户要改自己改。
+   * 目标卡**自己的案号不清空**：排除的语义是"不抄过来"，不是"抹掉你原来填的"。
+   */
+  function copyToOthers() {
+    const cases = allCases();
+    if (cases.length < 2) return;
+    const src = cases[active] ?? {};
+    const copyable: Partial<CaseForm> = { ...src };
+    delete copyable.caseNo; // 案号是 id 类字段：不抄（理由见上）
+    form.setFieldsValue({
+      cases: cases.map((c, i) => (i === active ? c : { ...c, ...copyable })),
+    });
   }
 
   async function submit() {
@@ -349,6 +375,7 @@ export function ConvertDialog({
           count={caseCount}
           removable={caseCount > 1}
           onRemove={() => removeCase(active)}
+          onCopyToOthers={copyToOthers}
         />
         <CaseFields dict={meta} active={active} source={source} />
       </Form>
@@ -356,17 +383,19 @@ export function ConvertDialog({
   );
 }
 
-/** 当前卡的小标题（案件 i/N + 删除这张）——切换条已给总数，这里只定位"正在编辑哪张" */
+/** 当前卡的小标题（案件 i/N + 跨卡复制 + 删除这张）——切换条已给总数，这里只定位"正在编辑哪张" */
 function CardHeader({
   index,
   count,
   removable,
   onRemove,
+  onCopyToOthers,
 }: {
   index: number;
   count: number;
   removable: boolean;
   onRemove: () => void;
+  onCopyToOthers: () => void;
 }) {
   return (
     <Flex align="center" justify="space-between" style={{ marginBottom: 8 }}>
@@ -380,11 +409,18 @@ function CardHeader({
           </Typography.Text>
         )}
       </Space>
-      {removable && (
-        <Button size="small" danger type="text" icon={<DeleteOutlined />} onClick={onRemove}>
-          删除这张
-        </Button>
-      )}
+      <Space size={4}>
+        {count > 1 && (
+          <Button size="small" type="text" icon={<CopyOutlined />} onClick={onCopyToOthers}>
+            复制到其余卡
+          </Button>
+        )}
+        {removable && (
+          <Button size="small" danger type="text" icon={<DeleteOutlined />} onClick={onRemove}>
+            删除这张
+          </Button>
+        )}
+      </Space>
     </Flex>
   );
 }

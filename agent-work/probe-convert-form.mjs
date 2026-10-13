@@ -170,7 +170,24 @@ try {
     .inputValue();
   ok("**切回第 2 张，金额仍在**", card2Amount === "12000.00", `值=${card2Amount}`);
 
-  // ⑤ 提交 → 成功屏列出 2 个内部编号
+  // ⑤ 跨卡复制（MATT-19 的 AC）：从第 2 张复制到其余卡，**案号必须不被抄**
+  await fill("案号", "COPY-TEST-案号");
+  await page.locator(".ant-modal button", { hasText: "复制到其余卡" }).first().click();
+  await page.waitForTimeout(300);
+  await page.locator(".ant-modal button", { hasText: "案件 1" }).first().click();
+  await page.waitForTimeout(300);
+  const c1 = async (label) =>
+    page.locator(".ant-modal .ant-form-item", { hasText: label }).first().locator("input").inputValue();
+  ok("**跨卡复制：案由抄过来了**", (await c1("案由")) === "建设工程施工合同纠纷", `案由=${await c1("案由")}`);
+  ok(
+    "**跨卡复制：案号没被抄**（id 类字段排除——抄了就是给 N 个案卷安同一个法院案号）",
+    (await c1("案号")) === "",
+    `案号=${JSON.stringify(await c1("案号"))}`,
+  );
+  // 还原第 1 张的案由，让下面「两案案由不同」那条库断言仍然判得动
+  await fill("案由", "买卖合同纠纷");
+
+  // ⑥ 提交 → 成功屏列出 2 个内部编号
   await page.locator(".ant-modal-footer button").last().click();
   await page.waitForSelector(".ant-modal .ant-result", { timeout: 20000 });
   await page.waitForTimeout(600);
