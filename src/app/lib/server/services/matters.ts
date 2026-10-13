@@ -28,6 +28,7 @@ import type { PartyLinkInput } from "./parties";
 import type { Actor } from "../auth/auth";
 import { nextCode } from "./numbering";
 import { initialStatusCode, hostStatusRows } from "./statuses";
+import { businessDateKey } from "@/shared/time/zh-cn";
 import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
 import {
@@ -393,6 +394,55 @@ export async function createMatter(
 }
 
 /**
+ * 目标语义 + 当前结案日期 ⇒ `closing_date` 该写成什么（MATT-69）。
+ *
+ * 抽出来的唯一理由是**可测**：`changeStatus` 一进去就连库、开事务，而 `pnpm verify`
+ * 的口径是离线可跑（与 `risks.spec.ts` 里"为什么不测 `convertToCase` 本体"同一条理由）。
+ * 判定逻辑与抽出来之前逐字相同，唯一的变化是签名把"现在"作为**入参**——
+ * 于是测试能钉住一个具体的瞬时，而不必去改机器时钟（改全局时钟的测试会与并行用例互相污染）。
+ *
+ * ## 写入规则（F2-26 第②项的前提，也是 `SEMANTICS_RULES.closed.effect`
+ * 那句"视为结案，closing_date 自动写入"的落地）
+ *
+ * ⚠ MATT-42 之前**没有任何路径能写这一列**：建案 schema 里没有它、案件侧也没有字段编辑接口。
+ *   结果是 `closing_date` 恒为 NULL ⇒ 详情页的「已结案」标记永不出现、
+ *   归档完备性的第②项恒判"缺"。那一条属于"声明了效果但没实现"，
+ *   不是"没人用所以先不做"——声明在 `shared/enums/status.ts` 里，是可读的承诺。
+ *
+ * 进入 `closed` 语义时若为空则写今天；**离开 `closed` 时清空**
+ * （不结案了，"结案日期"就不该留着——留着会让第②项在办案件上恒绿）。
+ * 已有的日期不覆盖：重复进入 closed 不改第一次的结案日。
+ *
+ * ## 为什么"今天"必须过 `businessDateKey` 而不是切 UTC 串
+ *
+ * ⚠ `closing_date` 是 `date` 列、业务日语义的（"结案那天是哪天"），
+ *   详情页与导出都把它当纸面事实读。`now.slice(0, 10)` 切的是 **UTC 日**，
+ *   上海 00:00–08:00 之间结案的案件因此落成**前一天**——而用户当天点的是"结案"，
+ *   界面上没有任何东西提示它错了。连带后果：规则 9 的 14 天原点取自这一列，
+ *   于是那一批案件提前一天收到"材料不全"提醒（方向是"宁可提醒"，但仍是错的）。
+ *
+ * 本仓的纪律是"同一件事只有一个取数口径"（业务日 = `businessDateKey`，
+ * `shared/time/zh-cn.ts`），`archive-reminder.ts` 与 `notifications.ts` 都走它；
+ * 这里曾是离群者。
+ */
+export function resolveClosingDate(
+  targetSemantics: string,
+  currentClosingDate: string | null,
+  now: string,
+): string | null {
+  if (targetSemantics === "closed") return currentClosingDate ?? businessDateKey(now);
+  // ⚠ 归档**保留**结案日期。初版写成"离开 closed 就清空"，而 `closed → archived`
+  //   恰好命中（seed 里 `closed` 的推荐后继就是 `archived`）⇒ 归档时把日期抹掉。
+  //   后果不是一条断言红，而是三件事同时发生：①判定在 `tx.update` **之前**跑，
+  //   读到旧值 ⇒ 审计记 `missing_at_archive: []`（齐备），而列表筛选读归档后的行
+  //   （已被抹成 NULL）⇒ 判它"缺材料"——**两个出口互相打架**，正是本票 AC 第 1 条
+  //   要防的；②G4 指标"归档材料完整率"的唯一数据源变成**假的空数组**；
+  //   ③「已结案缺材料」筛选退化成"全部归档案件"（因为主路径每条都缺）。
+  if (targetSemantics === "archived") return currentClosingDate;
+  return null;
+}
+
+/**
  * 状态变更。
  *
  * 三道判定按"先贵后贱"排：可见性 → 归属 → 原因。
@@ -460,31 +510,10 @@ export async function changeStatus(
     const now = new Date().toISOString();
     const archiving = target.semantics === "archived";
     /**
-     * `closing_date` 的自动写入（F2-26 第②项的前提，也是 `SEMANTICS_RULES.closed.effect`
-     * 那句"视为结案，closing_date 自动写入"的落地）。
-     *
-     * ⚠ 此前**没有任何路径能写这一列**：建案 schema 里没有它、案件侧也没有字段编辑接口。
-     * 结果是 `closing_date` 恒为 NULL ⇒ 详情页的「已结案」标记永不出现、
-     * 归档完备性的第②项恒判"缺"。这一条属于"声明了效果但没实现"，
-     * 不是"没人用所以先不做"——声明在 `shared/enums/status.ts` 里，是可读的承诺。
-     *
-     * 写入规则：进入 `closed` 语义时若为空则写今天；**离开 `closed` 时清空**
-     * （不结案了，"结案日期"就不该留着——留着会让第②项在办案件上恒绿）。
-     * 已有的日期不覆盖：重复进入 closed 不改第一次的结案日。
+     * `closing_date` 的自动写入。规则与它踩过的坑都写在 `resolveClosingDate` 的注释里——
+     * 抽出去不是为了好看，是为了能拿一个具体的瞬时把它测住。
      */
-    const closingDate =
-      target.semantics === "closed"
-        ? (cur.closingDate ?? now.slice(0, 10))
-        : target.semantics === "archived"
-          ? // ⚠ 归档**保留**结案日期。初版写成"离开 closed 就清空"，而 `closed → archived`
-            //   恰好命中（seed 里 `closed` 的推荐后继就是 `archived`）⇒ 归档时把日期抹掉。
-            //   后果不是一条断言红，而是三件事同时发生：①判定在 `tx.update` **之前**跑，
-            //   读到旧值 ⇒ 审计记 `missing_at_archive: []`（齐备），而列表筛选读归档后的行
-            //   （已被抹成 NULL）⇒ 判它"缺材料"——**两个出口互相打架**，正是本票 AC 第 1 条
-            //   要防的；②G4 指标"归档材料完整率"的唯一数据源变成**假的空数组**；
-            //   ③「已结案缺材料」筛选退化成"全部归档案件"（因为主路径每条都缺）。
-            cur.closingDate
-          : null;
+    const closingDate = resolveClosingDate(target.semantics, cur.closingDate, now);
     /**
      * 归档完备性（F2-26 / G4）：**判定在事务内跑**，与归档写、审计写同一事务——
      * 判定结果要随 `ARCHIVED` 落库，分开算会留下"审计里记的缺项与实际归档状态不一致"。

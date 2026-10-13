@@ -90,14 +90,18 @@ const NEEDLES = {
   },
   "no-closing": {
     file: F_MATTERS,
-    // ⚠ 锚点只取"判断目标语义是不是 closed"那一句：它唯一、且不随注释改字而腐。
+    // ⚠ 锚点只取"判断目标语义是不是 closed"那一句：它唯一、且不随注释与日期写法改字而腐。
     //   初版锚点框住了整个三目表达式（含注释），我在修 🔴 时一改注释它就匹配不到了——
     //   `verify-anchors.mjs` 当场抓到，所以没等到真跑才发现。
-    needle: `      target.semantics === "closed"
-        ? (cur.closingDate ?? now.slice(0, 10))`,
-    // `cur.status === "__never__"` 恒假，但 TS 折不了（比 `false ?` 稳：后者可能被 lint 判为常量条件）
-    replacement: `      cur.status === "__never__"
-        ? (cur.closingDate ?? now.slice(0, 10))`,
+    //   **第二次改锚点**（MATT-69）：判定被抽成纯函数 `resolveClosingDate`，
+    //   而那一行里的 `now.slice(0, 10)` 又被换成了 `businessDateKey(now)`——
+    //   锚点连同它框住的表达式一起消失了（命中 0 次）。教训与初版同一条：
+    //   **锚点只框住"要抽掉的那半句"，别框住它旁边的实现细节**。
+    //   本仓已有先例：`revred-notifications` 的 `timezone` 锚在 `zh-cn.ts` 上，
+    //   它同样只锚一个表达式、不带上下文。
+    needle: `  if (targetSemantics === "closed") return currentClosingDate ?? businessDateKey(now);`,
+    // `"__never__"` 恒假，但 TS 折不了（比 `false ?` 稳：后者可能被 lint 判为常量条件）
+    replacement: `  if (targetSemantics === "__never__") return currentClosingDate ?? businessDateKey(now);`,
     tag: "no-closing",
   },
 };
