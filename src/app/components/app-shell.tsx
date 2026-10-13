@@ -14,6 +14,7 @@ import {
   LogoutOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
+  TeamOutlined,
 } from "@ant-design/icons";
 
 import { api, useActor } from "@/app/lib/client/api";
@@ -65,7 +66,13 @@ const NAV: { type: "group"; label: string; children: Item[] }[] = [
   {
     type: "group",
     label: "系统",
-    children: [{ key: "/config", label: "配置字典", icon: <SettingOutlined /> }],
+    children: [
+      { key: "/config", label: "配置字典", icon: <SettingOutlined /> },
+      // 用户与角色（MATT-10 / P13）。**不做按权限隐藏**：无 canManageUser 的人点进来
+      // 看到的是"这个页面需要「管理账号」权限"这句话，而不是一个凭空消失的菜单项
+      // ——菜单项消失会让人以为"系统没有这个功能"，那是另一件事。
+      { key: "/users", label: "用户与角色", icon: <TeamOutlined /> },
+    ],
   },
 ];
 

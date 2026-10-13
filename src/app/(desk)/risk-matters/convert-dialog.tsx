@@ -27,6 +27,7 @@ import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
 import {
   convertSchema,
   convertCardSchema,
+  copyConvertCard,
   pruneEmpty,
   type MatterCreateInput,
 } from "@/shared/schema/hosts";
@@ -159,26 +160,25 @@ export function ConvertDialog({
   /**
    * 跨卡复制（MATT-19 的 AC）：把当前卡的内容复制到其余卡。
    *
-   * **排除 id 类字段**——这是这条 AC 的全部要点。逐项说清本表单里有哪些：
-   *  · `caseNo`（案号）**在表单里，必须排除**。它默认取内部编号、可改，但把一张的案号
-   *    抄给 N 张，就是给 N 个案卷安同一个法院案号。库层"非唯一、重复只提示不阻止"
-   *    是给"不同法院案号体系重号"留的口子，不是给"复制粘贴批量重号"用的——
-   *    而且这种错**不会报错**，等对账时才发现，正是 AC 要防的"以为带过去了"。
-   *  · 内部编号**不在表单里**：它由服务端在事务内取号（`nextCode`），前端预占会浪费号段。
-   *  · 事项外键**不在卡里**：路由从 URL 拿 `riskId` 传给服务层，卡上根本没有这个字段。
+   * **排除 id 类字段**——这条 AC 的全部要点。实现走 `shared/schema/hosts.ts` 的
+   * **白名单** `CONVERT_CARD_COPYABLE_FIELDS`（不是"spread 再删掉案号"）：
+   * 黑名单会随字段增长而漏（新字段默认被复制过去），白名单则默认不复制。
    *
-   * 其余字段（名称/案由/类型/程序/诉讼地位/法院/等级/金额/立案日期）照抄——
-   * 名称不在"id 类"里，多案同名是常态，用户要改自己改。
+   * 本表单里的 id 类字段与它们的去处，逐项说清：
+   *  · `caseNo`（案号）**在表单里，被白名单排除**。把一张的案号抄给 N 张，就是给 N 个
+   *    案卷安同一个法院案号。库层"非唯一、重复只提示不阻止"是给"不同法院案号体系重号"
+   *    留的口子，不是给"复制粘贴批量重号"用的——而且这种错**不会报错**，等对账时才发现。
+   *  · 内部编号**不在表单里**：由服务端在事务内取号（`nextCode`），前端预占会浪费号段。
+   *  · 事项外键**不在卡里**：路由从 URL 拿 `riskId` 传给服务层。
+   *
    * 目标卡**自己的案号不清空**：排除的语义是"不抄过来"，不是"抹掉你原来填的"。
    */
   function copyToOthers() {
     const cases = allCases();
     if (cases.length < 2) return;
     const src = cases[active] ?? {};
-    const copyable: Partial<CaseForm> = { ...src };
-    delete copyable.caseNo; // 案号是 id 类字段：不抄（理由见上）
     form.setFieldsValue({
-      cases: cases.map((c, i) => (i === active ? c : { ...c, ...copyable })),
+      cases: cases.map((c, i) => (i === active ? c : copyConvertCard(src, c))),
     });
   }
 

@@ -157,6 +157,59 @@ export const convertCardSchema = matterCreateSchema
   // 不加的话 `description` 会被无声丢掉——正是「描述不复制」要防的"以为带过去了"。
   .strict();
 
+export type ConvertCard = z.infer<typeof convertCardSchema>;
+
+/**
+ * 跨卡复制的**白名单**（MATT-19 / 矩阵 §3）。
+ *
+ * **为什么是白名单而不是"spread 一下再删掉案号"**：黑名单会随字段增长而漏——
+ * 将来给案件卡加一个新字段（比如"保全金额"），黑名单写法会**默认把它复制过去**，
+ * 而新字段是不是 id 类只有加字段的人知道。白名单反过来：新字段默认不复制，
+ * 漏了当场就能在表单上看见（"我填了怎么没带过去"比"案号被悄悄抄了"好查得多）。
+ *
+ * 这也是前端 spec 点名的口径（`component-guidelines.md`：跨卡复制用白名单
+ * `COPYABLE_FIELDS`，不是靠约定）。
+ * ⚠ 仓库里另有一份 `shared/schema/convert-form.ts` 是 N7 spike 的遗留模块
+ * （**无生产代码引用**，只有它自己的 spec 在跑），那里的同名常量对不上活表单的
+ * 字段名，别照抄它。
+ */
+export const CONVERT_CARD_COPYABLE_FIELDS = [
+  "name",
+  "cause",
+  "caseType",
+  "procedure",
+  "litigationRole",
+  "court",
+  "level",
+  "amount",
+  "filingDate",
+] as const;
+
+/**
+ * 明确**不参与**复制的字段。列出来是为了让测试能断言「白名单 ∩ 黑名单 = ∅」——
+ * 少了这条断言，"两边都写了同一个字段"会静默按实现顺序决定结果。
+ *
+ * 本表单里只有案号：
+ *  · `caseNo` 是 id 类。把一张的案号抄给 N 张，就是给 N 个案卷安同一个法院案号；
+ *    库层「非唯一、重复只提示不阻止」是给「不同法院案号体系重号」留的口子（§6.3），
+ *    不是给「复制粘贴批量重号」用的。
+ *  · 内部编号不在卡里（服务端事务内取号），事项外键也不在卡里（路由从 URL 拿）。
+ */
+export const CONVERT_CARD_NON_COPYABLE_FIELDS = ["caseNo"] as const;
+
+/**
+ * 跨卡复制：只搬白名单字段（矩阵 §3）。写成函数而不是在组件里 spread，
+ * 是为了让「复制不带走 id」这件事**可测**（单测 + 浏览器探针各一条）。
+ * 目标卡**自己的案号不清空**：排除的语义是"不抄过来"，不是"抹掉你原来填的"。
+ */
+export function copyConvertCard<T extends Record<string, unknown>>(source: T, target: T): T {
+  const picked: Record<string, unknown> = {};
+  for (const f of CONVERT_CARD_COPYABLE_FIELDS) {
+    if (f in source) picked[f] = source[f];
+  }
+  return { ...target, ...picked } as T;
+}
+
 /**
  * 转案件请求：`cases` 是数组。
  *
