@@ -73,14 +73,17 @@ const NEEDLES = {
     //   而编译红证明不了断言会红：编译失败时 dev server 继续发旧产物，冒烟会**假绿**。
     //   （本轮实测过一次：assignable 模式第一次跑就是编译红 + 28/0 全绿。）
     file: F,
-    needle: `  await assertAssignable([String(owner)]);`,
+    // ⚠ 锚点会随调用处一起变：MATT-49 给创建路径加了 `followerIds`（"处理人与关注人合成
+    //   一次查询"），旧的 `[String(owner)]` 锚点就再也匹配不到了。这类**静默失效**由
+    //   `agent-work/_check-anchors.mjs` 兜住——它不需要数据库，能在跑反向红之前先验锚点。
+    needle: `  await assertAssignable([String(owner), ...(input.followerIds ?? [])]);`,
     replacement: `  // 反向红：摘掉创建路径的"被指派者必须在册可用"
   void assertAssignable;`,
     tag: "no-create-guard",
   },
   "create-guard-risk": {
     file: F_RISK,
-    needle: `  await assertAssignable([owner === null ? null : String(owner)]);`,
+    needle: `  await assertAssignable([owner === null ? null : String(owner), ...(input.followerIds ?? [])]);`,
     replacement: `  // 反向红：摘掉事项侧创建路径的"被指派者必须在册可用"
   void assertAssignable;`,
     tag: "no-create-guard-risk",
