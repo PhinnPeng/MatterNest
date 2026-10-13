@@ -56,9 +56,7 @@ function extractNeedles(file) {
     out.push({
       tag: key ?? "?",
       fileConst: fileConst ?? "F",
-      needle: needleM[1].replace(/\\(n|t|r|"|\\)/g, (_x, c) =>
-        c === "n" ? "\n" : c === "t" ? "\t" : c === "r" ? "\r" : c,
-      ),
+      needle: unescapeLiteral(needleM[1]),
     });
   }
   if (out.length) return out;
@@ -84,14 +82,39 @@ function extractNeedles(file) {
   while ((m = re2.exec(src))) {
     const parts = [...m[2].matchAll(/"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g)].map((p) => {
       const raw = p[1] ?? p[2] ?? "";
-      return raw.replace(/\\(n|t|r|"|'|\\)/g, (_x, c) =>
-        c === "n" ? "\n" : c === "t" ? "\t" : c === "r" ? "\r" : c,
-      );
+      return unescapeLiteral(raw);
     });
     if (!parts.length) continue;
     out.push({ tag: m[1], fileConst: "F", needle: parts.join("") });
   }
   return out;
+}
+
+/**
+ * 把**脚本源码里那段字面量文本**还原成它运行时的值。
+ *
+ * ## 为什么必须**单遍**、且必须包含 `\\`
+ *
+ * 这个工具读的是**别的脚本的源码文本**，不是 import 它们，所以 JS 在解析期做的转义
+ * **它得自己做一遍**。少做一种，那个锚点就会**永远命中 0 次**——而症状与"实现变了、
+ * 锚点腐化"**一模一样**，于是它会把人赶去改一个本来是对的锚点。
+ *
+ * ⚠ 本函数就是被这个坑逼出来的（MATT-44 报告的范围外发现 3）：本文件原先**三处各自
+ *   写了一套**反转义，其中"对象 + 反引号 needle"那一处**只处理了 `` \` `` 与 `\$`**，
+ *   漏了 `\\`。后果：needle 里含正则（`\\d`）时，源码文本里的 3 个字符 `\\d`
+ *   没有被还原成运行时的 2 个字符 `\d`，于是 `src.split(...)` 找不到 ⇒ **假红**。
+ *   实现者当时的应对是"把锚点改成无反斜杠的形态"——**被工具缺陷赶着改了写法**。
+ *
+ * ⚠ **必须单遍**：多遍会把已经还原出来的 `\` 再吃一次（`\\\\` 会退化成 `\`）。
+ *   一个正则 + 一个映射函数天然是单遍的。
+ *
+ * 覆盖的转义：模板串的 `` \` `` `\$` `\\`，以及字符串共有的 `\n \t \r \" \'`。
+ * 其余（如 `\uXXXX`）本仓锚点用不到；**真用到时要在这里补**，别在调用点各补一份。
+ */
+function unescapeLiteral(raw) {
+  return raw.replace(/\\(n|t|r|`|\$|"|'|\\)/g, (_x, c) =>
+    c === "n" ? "\n" : c === "t" ? "\t" : c === "r" ? "\r" : c,
+  );
 }
 
 /** revred 脚本里的文件常量（F / F_SVC / F_MATTERS / F_RISK …） */
@@ -127,8 +150,9 @@ for (const f of files) {
       bad++;
       continue;
     }
-    // needle 在脚本里是**转义过的**（\` 与 \$），读回来要还原成源码里的样子
-    const unescaped = n.needle.replace(/\\`/g, "`").replace(/\\\$/g, "$");
+    // needle 在脚本里是**转义过的**（模板串的 `` \` ``/`\$`/`\\`，以及 `\n` 之类），
+    // 读回来必须还原成运行时的样子——**用共享的那一个函数，别在这里手写一套**
+    const unescaped = unescapeLiteral(n.needle);
     const hits = src.split(unescaped).length - 1;
     const mark = hits === 1 ? "[✓]" : "[✗]";
     if (hits !== 1) bad++;
