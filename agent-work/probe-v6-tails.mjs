@@ -44,9 +44,27 @@ async function measure(page, path, label) {
   await page.waitForTimeout(400);
   const m = await page.evaluate(() => {
     const doc = document.documentElement;
-    const holder = document.querySelector(".ant-table-content, .ant-table-body");
-    const headCells = [...document.querySelectorAll(".ant-table-thead th")];
-    const firstRow = document.querySelector(".ant-table-tbody tr.ant-table-row");
+    /**
+     * ⚠ **作用域**：只量「列表那张表」，不是全文档的表。
+     *
+     * 初版写的是 `document.querySelectorAll(".ant-table-thead th")` —— 那时页面上
+     * 只有一张表，所以"全文档"恰好等于"列表"。MATT-46 把两张报表卡挂到列表页顶部之后，
+     * 卡片各自带一个 antd Table ⇒ 这条断言开始把**三张表的列宽加在一起**
+     * （实测合计从 ~1100 跳到 **3301**），报出"密度契约被破坏"的**假红**。
+     * 假红比漏报更坏：它让人去改一个本来正确的布局。
+     *
+     * 定位方式：`DataTable` 渲染成一个带「列设置」按钮的 Card，就取那个 Card 里的表。
+     * 兜底取**最后**一张 `.ant-table`（DOM 顺序上卡片在上、列表在下）。
+     */
+    const scope =
+      [...document.querySelectorAll("button")]
+        .find((b) => (b.textContent || "").includes("列设置"))
+        ?.closest(".ant-card") ?? document.body;
+    const tables = [...scope.querySelectorAll(".ant-table")];
+    const listTable = tables.at(-1) ?? document.querySelector(".ant-table");
+    const holder = listTable?.querySelector(".ant-table-content, .ant-table-body");
+    const headCells = [...(listTable?.querySelectorAll(".ant-table-thead th") ?? [])];
+    const firstRow = listTable?.querySelector(".ant-table-tbody tr.ant-table-row");
     const rowRect = firstRow?.getBoundingClientRect();
     return {
       docOverflow: doc.scrollWidth - doc.clientWidth,
@@ -55,9 +73,9 @@ async function measure(page, path, label) {
       rowH: rowRect ? Math.round(rowRect.height) : 0,
       colW: headCells.map((c) => Math.round(c.getBoundingClientRect().width)),
       colTitles: headCells.map((c) => (c.innerText || "").trim().slice(0, 6)),
-      tableW: Math.round(
-        (document.querySelector(".ant-table table")?.getBoundingClientRect().width ?? 0),
-      ),
+      tableW: Math.round((listTable?.querySelector("table")?.getBoundingClientRect().width ?? 0)),
+      // 量到了几张表：不是 1 就说明作用域选错了，报告里要能看出来
+      tablesInDoc: document.querySelectorAll(".ant-table").length,
     };
   });
   console.log(
