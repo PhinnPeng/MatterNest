@@ -8,7 +8,8 @@ import {
 } from "@/shared/schema/list-query";
 import { riskCreateSchema, pruneEmpty, type PartyLinkInput } from "@/shared/schema/hosts";
 import { createRiskMatter, listRiskMatters } from "@/app/lib/server/services/risks";
-import { body, json, query, withActor } from "@/app/lib/server/http";
+import { UnassignableAssigneeError } from "@/app/lib/server/services/selectable-users";
+import { body, fail, json, query, withActor } from "@/app/lib/server/http";
 
 /**
  * 事项列表的分页口径与案件一致，但状态筛选**不收进枚举**：
@@ -42,12 +43,19 @@ export async function POST(req: Request) {
     // parties **不**走 pruneEmpty：它的成员字段（partyId/type）允许空串占位，
     // pruneEmpty 会把整条数组结构擦成 Record，类型就没了。逐条清洗即可。
     const { parties, ...rest } = parsed.data;
-    const r = await createRiskMatter(actor, {
-      // 从服务签名反推参数类型，别手写一份再和实现漂移
-      ...(pruneEmpty(rest) as Omit<Parameters<typeof createRiskMatter>[1], "parties">),
-      parties: (parties ?? []).map((p) => pruneEmpty(p) as PartyLinkInput),
-    });
-    // 与案件侧同口径：返回 nameConflicts 供前端提示"同名不同证件号已另建一行"
-    return json(r, 201);
+    try {
+      const r = await createRiskMatter(actor, {
+        // 从服务签名反推参数类型，别手写一份再和实现漂移
+        ...(pruneEmpty(rest) as Omit<Parameters<typeof createRiskMatter>[1], "parties">),
+        parties: (parties ?? []).map((p) => pruneEmpty(p) as PartyLinkInput),
+      });
+      // 与案件侧同口径：返回 nameConflicts 供前端提示"同名不同证件号已另建一行"
+      return json(r, 201);
+    } catch (e) {
+      // 被指派者不合格（停用/待开通/软删）：422 + 点名是谁、怎么了。
+      // 与案件侧同一形状——两侧创建路径的这条判定共用 `assertAssignable`。
+      if (e instanceof UnassignableAssigneeError) return fail(422, "not_selectable", e.message);
+      throw e;
+    }
   });
 }

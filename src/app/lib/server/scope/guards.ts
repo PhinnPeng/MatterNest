@@ -50,3 +50,30 @@ export function canAddParticipant(
     unrestricted || (opts.coOccurred ?? false) || String(targetUserId) === String(actor.userId)
   );
 }
+
+/**
+ * 权限草案 §6：谁能改这条宿主的**参与人名单**（加/摘承办、协办、关注）。
+ *
+ * 三个主体：**经办人本人 / L1（含 `is_admin`）/ 创建人**。
+ * 协办与关注没有这条权利——他们看得见宿主（所以能读名单），但管不了名单。
+ *
+ * ## 为什么放在这里而不是各服务函数里
+ *
+ * 与护栏 1 同一条理由：这条判定要管**两侧宿主**（事项与案件）的多个端点，
+ * 散在各处必然出现"新加一个端点忘了套"。而且它是**与宿主无关**的纯判定
+ * （只看 actor 与宿主的 owner/creator 三列），没有任何理由分两份。
+ *
+ * ⚠ 2026-10-13 从 `risks.ts` 提取到这里：原先它是 risks.ts 里的局部函数，
+ * 案件侧要用就得再写一份——那就是第二份实现，而"谁能改名单"漂移了不会报错，
+ * 只会让某个协办悄悄获得加人的能力。
+ */
+export function canManageStaffList(
+  actor: ActorLike,
+  host: { ownerId: string | bigint | null; creatorId: string | bigint | null },
+): boolean {
+  if (actor.isAdmin) return true;
+  if (actor.dataScope === ("all" satisfies DataScope)) return true;
+  const uid = String(actor.userId);
+  if (host.ownerId !== null && String(host.ownerId) === uid) return true;
+  return host.creatorId !== null && String(host.creatorId) === uid;
+}

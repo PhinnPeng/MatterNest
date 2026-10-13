@@ -59,3 +59,19 @@ export type UserRolesInput = z.infer<typeof userRolesSchema>;
 export type UserEnabledInput = z.infer<typeof userEnabledSchema>;
 export type UserCredentialInput = z.infer<typeof userCredentialSchema>;
 export type UserApproveInput = z.infer<typeof userApproveSchema>;
+
+/**
+ * 给已有宿主加参与人（MATT-49 / 权限草案 §6）。
+ *
+ * `staffRole` **只收 `co_owner` 与 `follower`**：`owner` 有自己的路（字段编辑 + `OWNER_CHANGED`），
+ * 从这里再开一条就会出现"两条路到同一状态、其中一条不写审计"。
+ * 值域在 schema 就钉死，不留给服务层兜——前端也拿同一个枚举渲染下拉（禁令⑧ 单源）。
+ */
+export const staffAddSchema = z
+  .object({
+    userIds: z.array(idField("用户")).min(1, "至少选一个人").max(20, "一次最多加 20 个人"),
+    staffRole: z.enum(["co_owner", "follower"], { message: "只能加协办或关注人" }),
+  })
+  .strict();
+
+export type StaffAddInput = z.infer<typeof staffAddSchema>;

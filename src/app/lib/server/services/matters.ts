@@ -6,6 +6,7 @@ import { needsChangeReason } from "@/shared/schema/status-transition";
 import { getDb } from "../db/client";
 import {
   activityLog,
+  appUser,
   comment,
   matter,
   matterNode,
@@ -16,7 +17,8 @@ import {
   statusConfig,
 } from "../db/schema";
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
-import { ownsAttribution } from "../scope/guards";
+import { canManageStaffList, ownsAttribution } from "../scope/guards";
+import { assertAssignable, listSelectableUsers, type UnassignableUser } from "./selectable-users";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 import { insertNewParties, planPartyLinks } from "./parties";
 import type { PartyLinkInput } from "./parties";
@@ -263,6 +265,8 @@ export async function createMatter(
     caseNo?: string | null;
     filingDate?: string | null;
     ownerId?: string;
+    /** 创建时的关注人（IQ-5 + IQ-14 的创建期例外），见 `matterCreateSchema` 注释 */
+    followerIds?: string[];
     description?: string | null;
     /** 引用既有（`partyId`）或快速新增（名称+类型），见 `services/parties.ts` */
     parties?: PartyLinkInput[];
@@ -272,6 +276,12 @@ export async function createMatter(
   const { code } = await nextCode("matter");
   const id = BigInt(nextId());
   const owner = BigInt(input.ownerId ?? actor.userId);
+  // 被指派者必须在册可用（MATT-49）：创建表单的处理人与关注人走 IQ-14 的创建期例外
+  // （全体在册可用用户，不受共现集限制），但**"在册可用"这条不能免**——
+  // 停用/待开通/软删的账号不能拿活。这是"软删不得被派活"在创建路径上的落点：
+  // 没有下拉能约束一个直接构造的 POST，所以判定必须在服务层真的跑一遍。
+  // 处理人与关注人**合成一次查询**：分成两次是同一个谓词跑两遍。
+  await assertAssignable([String(owner), ...(input.followerIds ?? [])]);
 
   /** 初始态从配置表取，不写字面量 —— 理由见 `services/statuses.ts` */
   const initial = await initialStatusCode("matter");
@@ -313,6 +323,16 @@ export async function createMatter(
               staffRole: "co_owner" as const,
             },
           ]),
+      // 创建时的关注人（IQ-5「处理人与关注人在表单上可选填」+ IQ-14 的创建期例外）。
+      // 与 owner 同事务：分开提交会留下"案件建好了但关注人没进去"的中间态，
+      // 而用户看到的是"我填了关注人"——那种账对不上，也没有入口能补回来。
+      // 去重：同一批里重复的 id 会撞 `uk_mn_matter_staff_triple`。
+      ...[...new Set(input.followerIds ?? [])].map((uid, i) => ({
+        id: BigInt(nextId()) + BigInt(i),
+        hostId: id,
+        userId: BigInt(uid),
+        staffRole: "follower" as const,
+      })),
     ]);
     await insertNewParties(tx, partyPlan.rows, BigInt(actor.userId));
     for (const r of partyPlan.rows) {
@@ -547,4 +567,208 @@ export async function setNodeStatus(
     });
   });
   return { ok: true as const };
+}
+
+/* ─────────────── 参与人名单（MATT-49：案件侧补上写路径） ─────────────── */
+
+/**
+ * 案件侧「承办与协办 / 关注」名单的读写。
+ *
+ * ## 为什么案件侧此前只有读
+ *
+ * 详情页一直只**显示** `m.staff`（承办与协办），没有任何入口能加人——而事项侧有。
+ * 两件事叠在一起才看得出来：`/api/meta` 没有 `users` 键，而选择面那条带宿主上下文的接口
+ * 也只建了事项侧。所以案件侧的"加人"从来没有可用的数据源，界面干脆没做。
+ *
+ * ## 四道门，缺一不可（与事项侧同源；这里没有"自我关注"那一半）
+ *
+ * 1. **宿主可见性**：`scopedWhere` 查不到行 → 404（元规则 3，不给可区分的信号）。
+ * 2. **§6 名单管理权**：经办人 / L1（含 `is_admin`）/ 创建人。协办与关注看得见名单但改不了。
+ * 3. **§4.1 可见用户集**：被加者要落在 `listSelectableUsers(actor, "matter", id)` 里
+ *    （L1 等价全公司；其余只能加与自己共现于同一宿主的人）。
+ * 4. **被指派者必须在册可用**：停用 / 待开通 / 软删一律拒（`findUnassignable`，唯一谓词）。
+ *
+ * ## 为什么**不**允许从这里设 `owner`
+ *
+ * 换负责人是一条**字段编辑**（`ownerId`，走 `OWNER_CHANGED` 审计），已经有自己的路。
+ * 在这里再开一条"把某人加成 owner"的口子，就会出现两条到同一状态的路，
+ * 而其中一条不写 `OWNER_CHANGED`——那种"两条路各记一半"的账最难对。
+ * 所以本模块只收 `co_owner` / `follower`，收 `owner` 直接拒。
+ *
+ * ## 归档态
+ *
+ * 归档是只读终态（§5.2）：名单**仍可读**，写一律拒——与评论、节点、字段编辑同一口径。
+ */
+
+export type MatterStaffRole = "co_owner" | "follower";
+
+/** 取案件 + 判可见性；null = 看不见或不存在（→ 404） */
+async function loadMatterForStaff(db: Awaited<ReturnType<typeof getDb>>, actor: Actor, id: string) {
+  const [row] = await db
+    .select({
+      id: matter.id,
+      ownerId: matter.ownerId,
+      creatorId: matter.createdBy,
+      isArchived: matter.isArchived,
+    })
+    .from(matter)
+    .where(scopedWhere("matter", actor, eq(matter.id, BigInt(id))))
+    .limit(1);
+  return row ?? null;
+}
+
+export type MatterStaffRow = {
+  id: string;
+  userId: string;
+  displayName: string;
+  staffRole: string;
+};
+
+/** 当前名单（按角色 + 姓名排序，界面直接渲染） */
+export async function listMatterStaff(
+  actor: Actor,
+  matterId: string,
+): Promise<MatterStaffRow[] | null> {
+  const db = await getDb();
+  const src = await loadMatterForStaff(db, actor, matterId);
+  if (!src) return null;
+  const rows = await db
+    .select({
+      id: matterStaff.id,
+      userId: matterStaff.userId,
+      staffRole: matterStaff.staffRole,
+      displayName: appUser.displayName,
+    })
+    .from(matterStaff)
+    .innerJoin(appUser, eq(appUser.id, matterStaff.userId))
+    .where(eq(matterStaff.hostId, BigInt(matterId)))
+    .orderBy(asc(matterStaff.staffRole), asc(appUser.displayName));
+  return rows.map((r) => ({
+    id: String(r.id),
+    userId: String(r.userId),
+    displayName: r.displayName,
+    staffRole: r.staffRole,
+  }));
+}
+
+export type MatterStaffWriteResult =
+  | { ok: true; added: number; skipped: string[] }
+  | { ok: false; why: "not_found" | "archived" | "forbidden" }
+  | { ok: false; why: "not_selectable"; bad: UnassignableUser[] }
+  | { ok: false; why: "role_not_allowed" };
+
+/**
+ * 加参与人。**整批原子**：一个不合法就整请求拒。
+ *
+ * 部分成功会让"我加了三个同事只有一个进去了"变成看不见的洞——而用户看到的是
+ * "加过了"，于是再也不会去核对名单。这与 `addRiskFollowers` 的口径一致。
+ */
+export async function addMatterStaff(
+  actor: Actor,
+  matterId: string,
+  userIds: readonly string[],
+  staffRole: MatterStaffRole,
+): Promise<MatterStaffWriteResult> {
+  // 角色白名单：`owner` 有自己的路（见文件头注），不从这里开第二条
+  if (staffRole !== "co_owner" && staffRole !== "follower") {
+    return { ok: false, why: "role_not_allowed" };
+  }
+  const db = await getDb();
+  const src = await loadMatterForStaff(db, actor, matterId);
+  if (!src) return { ok: false, why: "not_found" };
+  if (src.isArchived) return { ok: false, why: "archived" };
+  if (!canManageStaffList(actor, src)) return { ok: false, why: "forbidden" };
+
+  // 门 3：可见用户集（带宿主上下文）
+  const selectable = await listSelectableUsers(actor, "matter", matterId);
+  if (selectable === null) return { ok: false, why: "not_found" };
+  const allowed = new Set(selectable.map((u) => u.id));
+  const outside = userIds.filter((u) => !allowed.has(u));
+  if (outside.length) {
+    // 不在可见用户集里的人：**不告诉调用方他是谁**（否则这个端点就成了花名册探测面）
+    return {
+      ok: false,
+      why: "not_selectable",
+      bad: outside.map((id) => ({ id, username: null, reason: "unknown" as const })),
+    };
+  }
+
+  // 门 4（在册可用：停用 / 待开通 / 软删）**不需要在这里再查一遍**：
+  // `listSelectableUsers` 的 WHERE 里已经有那三个条件（见它的文件头注），所以能出现在
+  // `selectable` 里的人在册状态必然合格，不在里面的人上面那道 `outside` 已经拦了。
+  // 两处都写不会更安全，只会让"哪一处才是真的"变成要读两处代码才能回答的问题。
+  //
+  // 反向红验过这一点：把单独的 `findUnassignable` 调用摘掉，三条"不得被指派"断言**照样绿**
+  // ——那说明它确实是冗余的，而不是我漏了。真正靠 `assertAssignable` 兜底的是**创建路径**
+  // （那里没有选择面可依）。
+
+  const ids = [...new Set(userIds)].map((u) => BigInt(u));
+  const existing = await db
+    .select({ userId: matterStaff.userId })
+    .from(matterStaff)
+    .where(and(eq(matterStaff.hostId, BigInt(matterId)), eq(matterStaff.staffRole, staffRole)));
+  const have = new Set(existing.map((e) => String(e.userId)));
+  const fresh = ids.filter((u) => !have.has(String(u)));
+  const skipped = ids.filter((u) => have.has(String(u))).map(String);
+
+  if (fresh.length) {
+    await db.transaction(async (tx) => {
+      await tx.insert(matterStaff).values(
+        fresh.map((uid, i) => ({
+          id: BigInt(nextId()) + BigInt(i),
+          hostId: BigInt(matterId),
+          userId: uid,
+          staffRole,
+        })),
+      );
+      await logActivity(tx, actor, {
+        matterId: BigInt(matterId),
+        targetType: "matter",
+        targetId: BigInt(matterId),
+        action: "STAFF_CHANGED",
+        payload: { added: fresh.map(String), removed: [], role: staffRole },
+      });
+    });
+  }
+  return { ok: true, added: fresh.length, skipped };
+}
+
+/**
+ * 摘参与人。**经办人本人摘不掉**：`owner` 那条行由"换负责人"负责，
+ * 直接从名单里摘掉会让案件落到"有人办但名单上没有他"的状态。
+ */
+export async function removeMatterStaff(
+  actor: Actor,
+  matterId: string,
+  userId: string,
+): Promise<
+  | { ok: true; removed: number }
+  | { ok: false; why: "not_found" | "archived" | "forbidden" | "owner_protected" }
+> {
+  const db = await getDb();
+  const src = await loadMatterForStaff(db, actor, matterId);
+  if (!src) return { ok: false, why: "not_found" };
+  if (src.isArchived) return { ok: false, why: "archived" };
+  if (!canManageStaffList(actor, src)) return { ok: false, why: "forbidden" };
+  if (src.ownerId !== null && String(src.ownerId) === String(userId)) {
+    return { ok: false, why: "owner_protected" };
+  }
+
+  const removed = await db.transaction(async (tx) => {
+    const rows = await tx
+      .delete(matterStaff)
+      .where(and(eq(matterStaff.hostId, BigInt(matterId)), eq(matterStaff.userId, BigInt(userId))))
+      .returning({ id: matterStaff.id });
+    if (rows.length) {
+      await logActivity(tx, actor, {
+        matterId: BigInt(matterId),
+        targetType: "matter",
+        targetId: BigInt(matterId),
+        action: "STAFF_CHANGED",
+        payload: { added: [], removed: [userId], role: null },
+      });
+    }
+    return rows.length;
+  });
+  return { ok: true, removed };
 }

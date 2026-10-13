@@ -20,6 +20,13 @@ import type { Dayjs } from "dayjs";
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
 import { pruneEmpty, riskCreateSchema, type RiskCreateInput } from "@/shared/schema/hosts";
 import { rulesFor, setFieldErrors, validateAndFocusFirst } from "@/app/components/form/zod-rules";
+import {
+  FollowersField,
+  OwnerField,
+  PeopleLoadHint,
+  toPeopleOptions,
+  useCreatePeople,
+} from "@/app/components/ui/people-fields";
 import { RichTextFormField } from "@/app/components/ui/rich-text";
 
 /**
@@ -39,6 +46,9 @@ export function RiskCreateDialog({
 }) {
   const qc = useQueryClient();
   const { data: meta } = useMeta("risk_matter");
+  // 处理人/关注人的候选（IQ-14 创建期例外）。在表单外拉一次，两个字段共用同一份
+  const peopleQ = useCreatePeople();
+  const people = toPeopleOptions(peopleQ.data?.users ?? []);
   const [form] = Form.useForm<FormValues>();
   const mut = useMutation({
     mutationFn: (values: RiskCreateInput) =>
@@ -203,6 +213,17 @@ export function RiskCreateDialog({
             >
               <Input.TextArea rows={2} maxLength={5000} />
             </Form.Item>
+          </Col>
+          {/* 处理人与关注人（MATT-49 / IQ-5 / IQ-14）：选人面走创建期例外，
+              见 people-fields.tsx 的文件头注（与详情页那个选择面不是同一个数据源）。 */}
+          <Col span={8}>
+            <OwnerField options={people} />
+          </Col>
+          <Col span={16}>
+            <FollowersField options={people} />
+          </Col>
+          <Col span={24}>
+            <PeopleLoadHint isError={peopleQ.isError} isPending={peopleQ.isPending} />
           </Col>
         </Row>
       </Form>

@@ -88,6 +88,14 @@ export const matterCreateSchema = z.object({
     .or(z.literal("")),
   description: z.string().trim().max(5000).optional().or(z.literal("")),
   ownerId: idField("负责人").optional(),
+  /**
+   * 创建时的关注人（IQ-5：处理人与关注人在表单上可选填）。
+   *
+   * 走 **IQ-14 的创建期例外**：全体在册且已开通的用户，不受 §4.1 共现集限制
+   * （首次上报的业务同事共现集为空，不放开的话这个字段对新上报人根本不可用）。
+   * 但"在册可用"这条不免——服务层用 `assertAssignable` 真的跑一遍，不靠下拉挡。
+   */
+  followerIds: z.array(idField("关注人")).max(20).optional(),
   /** 当事人区。定义见 `partyLinkSchema` —— 案件与事项同源，两条线共用一套值域与校验 */
   parties: z.array(partyLinkSchema).default([]),
 });
@@ -118,6 +126,8 @@ export const riskCreateSchema = z.object({
    * 少了后者，提交 `ownerId: null` 会被判 422。
    */
   ownerId: idField("负责人").nullable().optional(),
+  /** 创建时的关注人；与案件侧同源同规则，见 `matterCreateSchema` 上那条注释 */
+  followerIds: z.array(idField("关注人")).max(20).optional(),
   /**
    * 当事人区。**这是转案件能走通的前提**——`convertToCase` 的前置是"事项至少 1 个当事人"，
    * 而在本字段出现之前 `riskMatterParty` 全仓只有读没有写，所以任何走 UI 建的事项
@@ -189,13 +199,16 @@ export const CONVERT_CARD_COPYABLE_FIELDS = [
  * 明确**不参与**复制的字段。列出来是为了让测试能断言「白名单 ∩ 黑名单 = ∅」——
  * 少了这条断言，"两边都写了同一个字段"会静默按实现顺序决定结果。
  *
- * 本表单里只有案号：
+ * 本表单里只有案号与关注人：
  *  · `caseNo` 是 id 类。把一张的案号抄给 N 张，就是给 N 个案卷安同一个法院案号；
  *    库层「非唯一、重复只提示不阻止」是给「不同法院案号体系重号」留的口子（§6.3），
  *    不是给「复制粘贴批量重号」用的。
  *  · 内部编号不在卡里（服务端事务内取号），事项外键也不在卡里（路由从 URL 拿）。
+ *  · `followerIds`（MATT-49 加）是**人**：关注谁是逐案成立的判断，不是"这批案卷共享的事实"。
+ *    复制过去等于一次点击静默地把同一批人加进 N 个案卷——而"把谁加进案卷"是 §4.1 管的事，
+ *    用户没有对它做过决定。白名单默认不复制，但**"默认"要写下来才算数**（这条断言就是干这个的）。
  */
-export const CONVERT_CARD_NON_COPYABLE_FIELDS = ["caseNo"] as const;
+export const CONVERT_CARD_NON_COPYABLE_FIELDS = ["caseNo", "followerIds"] as const;
 
 /**
  * 跨卡复制：只搬白名单字段（矩阵 §3）。写成函数而不是在组件里 spread，

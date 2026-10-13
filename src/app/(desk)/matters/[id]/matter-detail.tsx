@@ -14,6 +14,7 @@ import {
   Flex,
   Input,
   List,
+  Popconfirm,
   Space,
   Table,
   Tabs,
@@ -30,6 +31,7 @@ import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
+import { StaffPicker } from "./staff-picker";
 
 /**
  * 案件详情。
@@ -53,6 +55,22 @@ export function MatterDetail({ id }: { id: string }) {
   const { data, isPending, isError, error } = useQuery({
     queryKey: ["matter", id],
     queryFn: () => api.get<Matter>(`/api/matters/${id}`),
+  });
+
+  const refetchDetail = () => {
+    void qc.invalidateQueries({ queryKey: ["matter", id] });
+    void qc.invalidateQueries({ queryKey: ["matters"] });
+  };
+
+  /** 移出参与人（MATT-49）。经办人那条服务端会拒（owner_protected），界面上也不摆按钮。 */
+  const removeStaff = useMutation({
+    mutationFn: (userId: string) =>
+      api.del<{ removed: number }>(`/api/matters/${id}/staff/${userId}`),
+    onSuccess: () => {
+      message.success("已移出名单");
+      refetchDetail();
+    },
+    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "移出失败"),
   });
 
   if (isPending) {
@@ -286,6 +304,24 @@ export function MatterDetail({ id }: { id: string }) {
                     size="small"
                     title={`承办与协办 (${m.staff.length})`}
                     style={{ flex: "1 1 320px" }}
+                    extra={
+                      <Space size={4}>
+                        <StaffPicker
+                          matterId={id}
+                          staffRole="co_owner"
+                          label="加协办"
+                          existingUserIds={m.staff.map((s) => s.userId)}
+                          onDone={refetchDetail}
+                        />
+                        <StaffPicker
+                          matterId={id}
+                          staffRole="follower"
+                          label="加关注"
+                          existingUserIds={m.staff.map((s) => s.userId)}
+                          onDone={refetchDetail}
+                        />
+                      </Space>
+                    }
                   >
                     <List
                       size="small"
@@ -301,6 +337,21 @@ export function MatterDetail({ id }: { id: string }) {
                             <span key="r" style={{ fontSize: 12, color: INK.muted }}>
                               {meta?.enums.staffRoles[s.staffRole] ?? s.staffRole}
                             </span>,
+                            // 经办人摘不掉（服务端 403 owner_protected）——所以这里不摆按钮。
+                            // 换负责人是「负责人」字段的事，不是名单的事。
+                            s.staffRole === "owner" ? null : (
+                              <Popconfirm
+                                key="x"
+                                title="把这位同事移出名单？"
+                                okText="移出"
+                                cancelText="取消"
+                                onConfirm={() => removeStaff.mutate(s.userId)}
+                              >
+                                <Button type="link" size="small" danger>
+                                  移出
+                                </Button>
+                              </Popconfirm>
+                            ),
                           ]}
                         >
                           <Space size={6}>

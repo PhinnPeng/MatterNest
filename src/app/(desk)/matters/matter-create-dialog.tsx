@@ -30,6 +30,13 @@ import {
 } from "@/app/lib/client/api";
 import { matterCreateSchema, pruneEmpty, type MatterCreateInput } from "@/shared/schema/hosts";
 import { rulesFor, setFieldErrors, validateAndFocusFirst } from "@/app/components/form/zod-rules";
+import {
+  FollowersField,
+  OwnerField,
+  PeopleLoadHint,
+  toPeopleOptions,
+  useCreatePeople,
+} from "@/app/components/ui/people-fields";
 
 /**
  * 当事人名称框：既是输入框也是「引用既有」的入口（F2-15「关联 + 快速新增」在一个控件里）。
@@ -108,6 +115,9 @@ export function MatterCreateDialog({
 }) {
   const qc = useQueryClient();
   const { data: meta } = useMeta("matter");
+  // 处理人/关注人的候选（IQ-14 创建期例外）。**在表单外拉一次**，两个字段共用同一份
+  const peopleQ = useCreatePeople();
+  const people = toPeopleOptions(peopleQ.data?.users ?? []);
   const [form] = Form.useForm<FormValues>();
   const mut = useMutation({
     mutationFn: (values: MatterCreateInput) => api.post("/api/matters", values),
@@ -318,6 +328,17 @@ export function MatterCreateDialog({
             >
               <Input.TextArea rows={3} maxLength={5000} showCount />
             </Form.Item>
+          </Col>
+          {/* 处理人与关注人（MATT-49 / IQ-5 / IQ-14）：选人面走创建期例外，
+              见 people-fields.tsx 的文件头注（与详情页那个选择面不是同一个数据源）。 */}
+          <Col span={8}>
+            <OwnerField options={people} />
+          </Col>
+          <Col span={16}>
+            <FollowersField options={people} />
+          </Col>
+          <Col span={24}>
+            <PeopleLoadHint isError={peopleQ.isError} isPending={peopleQ.isPending} />
           </Col>
         </Row>
 

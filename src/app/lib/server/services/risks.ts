@@ -1,7 +1,7 @@
 import { and, asc, count as dcount, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
 import { SORTABLE_COLUMNS } from "@/shared/schema/list-query";
-import { listSelectableUsers } from "./selectable-users";
+import { assertAssignable, listSelectableUsers } from "./selectable-users";
 import { getDb } from "../db/client";
 import {
   matter,
@@ -31,7 +31,7 @@ import {
   type PartyLinkPlanRow,
 } from "./parties";
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
-import { ownsAttribution } from "../scope/guards";
+import { canManageStaffList, ownsAttribution } from "../scope/guards";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 import type { Actor } from "../auth/auth";
@@ -169,6 +169,8 @@ export async function createRiskMatter(
     amount?: string;
     discoverDate?: string | null;
     ownerId?: string;
+    /** 创建时的关注人（IQ-5 + IQ-14 的创建期例外），见 `riskCreateSchema` 注释 */
+    followerIds?: string[];
     /**
      * 当事人。**这一栏之前根本不存在**——`riskMatterParty` 全仓只有读没有写，
      * 于是走 UI 建的事项必然当事人=0，转案件必然 422 `parties_required`，
@@ -185,6 +187,10 @@ export async function createRiskMatter(
   const { code } = await nextCode("riskMatter");
   const id = BigInt(nextId());
   const owner = input.ownerId ? BigInt(input.ownerId) : null;
+  // 被指派者必须在册可用（MATT-49）：与案件侧同一句判定（`assertAssignable` 是唯一谓词）。
+  // 事项的负责人**可空**（IQ-5），所以只有给了 id 才查——空值走不到这里。
+  // 处理人与关注人合成一次查询：同一个谓词跑两遍没有额外收益。
+  await assertAssignable([owner === null ? null : String(owner), ...(input.followerIds ?? [])]);
   // 在**进入事务前**取：事务内再向池子要一条连接去查配置，池子满时会互等成死锁
   const initial = await initialStatusCode("risk_matter");
   // ⚠ **事项侧不生成任何预设节点**（IQ-5：「事项是台账，案件是战场」）。
@@ -221,6 +227,21 @@ export async function createRiskMatter(
         userId: owner,
         staffRole: "owner",
       });
+    }
+    // 创建时的关注人（IQ-5「处理人与关注人在表单上可选填」+ IQ-14 的创建期例外）。
+    // 与 owner 同事务：分开提交会留下"事项建好了但关注人没进去"的中间态，
+    // 而用户看到的是"我填了关注人"——那种账对不上，也没有入口能补回来。
+    // 去重：同一批里重复的 id 会撞 `uk_mn_risk_matter_staff_triple`。
+    const followerIds = [...new Set(input.followerIds ?? [])].map(BigInt);
+    if (followerIds.length) {
+      await tx.insert(riskMatterStaff).values(
+        followerIds.map((uid, i) => ({
+          id: BigInt(nextId()) + BigInt(i),
+          hostId: id,
+          userId: uid,
+          staffRole: "follower",
+        })),
+      );
     }
     await linkRiskParties(tx, id, partyPlan.rows, BigInt(actor.userId));
     await logActivity(tx, actor, {
@@ -1026,6 +1047,11 @@ export async function updateRiskMatter(
    *
    * 置空（退回未指派）不走这条：空值不构成"把人加进案卷"，且这条路径本就是
    * `ownerAllows` 放开的场景——未指派的事项得有人能接手。
+   *
+   * ⚠ "被指派者必须在册可用"（停用/待开通/软删）**不需要在这里再查一遍**：
+   * `listSelectableUsers` 的 WHERE 里已经有那三个条件（见它的文件头注），
+   * 所以能出现在 `selectable` 里的人在册状态必然合格。这里只多判"在不在我的可见集内"。
+   * 两处都写一遍不会更安全，只会让"哪一处才是真的"变成需要读两遍代码才能回答的问题。
    */
   if (changingOwner && nextOwner !== null) {
     const selectable = await listSelectableUsers(actor, "risk_matter", id);
@@ -1447,16 +1473,13 @@ async function loadRiskForStaff(db: Awaited<ReturnType<typeof getDb>>, actor: Ac
   return row ?? null;
 }
 
-/** §6 名单管理权：经办人 / L1 / is_admin / 创建人 */
-function canManageStaffList(
-  actor: Actor,
-  host: { ownerId: bigint | null; creatorId: bigint | null },
-): boolean {
-  if (actor.isAdmin || actor.dataScope === "all") return true;
-  const uid = BigInt(actor.userId);
-  if (host.ownerId !== null && host.ownerId === uid) return true;
-  return host.creatorId !== null && host.creatorId === uid;
-}
+/**
+ * §6 名单管理权：经办人 / L1 / is_admin / 创建人。
+ *
+ * ⚠ 2026-10-13：实现**已提取到 `scope/guards.ts`**（MATT-49 做案件侧时要用同一份）。
+ * 这里不再留第二份——"谁能改名单"漂移了不会报错，只会让某个协办悄悄获得加人的能力。
+ * 本文件仍从 guards 导入后使用，函数名与语义不变。
+ */
 
 /** 当前关注名单（详情页右段「n 人关注」与菜单的唯一数据源） */
 export async function listRiskFollowers(actor: Actor, riskId: string) {
