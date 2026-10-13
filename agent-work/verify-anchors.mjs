@@ -127,6 +127,19 @@ function extractFileConsts(file) {
 
 const files = readdirSync("agent-work").filter((f) => /^revred-.*\.mjs$/.test(f));
 let bad = 0;
+/**
+ * 真的比对过的锚点数。
+ *
+ * ⚠ **这是自查，不是统计**（MATT-44 的检查子代理报的空转路径）：本文件此前在
+ * **一条 needle 都没抽出来**时照样打印「全部锚点合格」并 exit 0 —— 于是只要抽取正则
+ * 被某种格式变化打坏（本仓的 revred 脚本已有过三种形状），**这道门禁会静默变绿**，
+ * 而它的「绿」正是"反向红还有人守"这个结论的唯一依据。
+ *
+ * 与 `agent-work/verify-struct-registry.mjs`、以及我自己给 `_nowriter.mjs` 加的那条
+ * 是同一个纪律：**从源码里抠清单的脚本，抠不到东西时必须大声失败**。
+ * 报"0 条通过"与报"接口 200"一样，都不能当证据。
+ */
+let checked = 0;
 for (const f of files) {
   const path = `agent-work/${f}`;
   const consts = extractFileConsts(path);
@@ -156,8 +169,18 @@ for (const f of files) {
     const hits = src.split(unescaped).length - 1;
     const mark = hits === 1 ? "[✓]" : "[✗]";
     if (hits !== 1) bad++;
+    checked++;
     console.log(`${mark} ${f} / ${n.tag} → ${target}：命中 ${hits} 次（要恰好 1）`);
   }
 }
+// 自查：一条都没比对上 ⇒ 这不是"通过"，是脚本没读懂那些文件
+if (checked === 0) {
+  console.log(
+    `\n🔴 一条锚点都没比对（扫到 ${files.length} 个 revred 脚本，抽出 0 条 needle）——` +
+      `\n   这不是通过，是抽取正则跟不上脚本的写法了。先修本文件的 extractNeedles。`,
+  );
+  process.exit(1);
+}
+console.log(`\n（本次真的比对过 ${checked} 条锚点）`);
 console.log(bad ? `\n有 ${bad} 处锚点不合格` : "\n全部锚点合格");
 process.exit(bad ? 1 : 0);
