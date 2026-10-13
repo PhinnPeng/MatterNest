@@ -37,11 +37,15 @@ const MIGRATIONS = "src/app/lib/server/db/migrations";
 type ParsedCheck = { name: string; table: string; column: string; values: string[] };
 
 /**
- * 剥掉 SQL 行注释（`-- …` 到行尾）与块注释（`/* … *​/`）。
+ * 剥掉 SQL 行注释（`-- …` 到行尾）与块注释（`/` + `*` 起、`*` + `/` 止）。
  *
  * 为什么必须剥：迁移文件里**到处是注释**（本仓的迁移头注很长，且注释里就写着
  * `CONSTRAINT "ck_xxx" CHECK (col IN ('a','b'))` 这种**示例**）。不剥的后果有两个方向：
  * 一是注释掉真实约束后门禁**不红**（实测过），二是注释里的示例会被**误当成真约束**。
+ *
+ * ⚠ 注释里**不能出现「星号紧跟斜杠」这个定界符序列** —— 它会让 JSDoc 提前闭合，
+ * 后面的文字变成代码，而解析器要到几十行之后才报 `';' expected`，极难定位。
+ * 本行原稿里那个零宽空格恰好掩盖了这个缺陷：它让该序列不被认作定界符。
  */
 function stripSqlComments(sql: string): string {
   return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");

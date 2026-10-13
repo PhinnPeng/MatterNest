@@ -126,7 +126,7 @@ schema 真相    packages/db/schema/*.ts        （Drizzle，供类型安全查�
 1. **共享环境禁用 `drizzle-kit push`**，也禁用任何 schema sync。`push` 是"按当前 schema 直接改库"，多分支并行会静默丢列；只有编号迁移文件能 review、能回滚、能审计。
 2. **迁移文件是唯一事实**，不是 `schema.ts` 的产物快照。出现漂移时改迁移，不反向同步。
 3. **seed 是数据迁移，不是手点 SQL 控制台**：5 张配置表 + 5 角色 + 5 规则 + 7 模板写成幂等 `INSERT ... ON CONFLICT (code) DO NOTHING`，新环境一条命令拉起，测试库复用同一份。
-   > **数字已过期（2026-09-27 W0-7 校正）**：本行的"5 规则"是 A1/A2/A4/A8 合并前的旧值。现行 seed 清单以修订稿 §2.3 与落地方案 W1-6 为准：**5 配置表 + 8 状态 + 8 条预置规则 + 7 通知模板 + 5 角色（含 4 个特权开关）**。
+   > **数字已过期（2026-09-27 W0-7 校正）**：本行的"5 规则"是 A1/A2/A4/A8 合并前的旧值。现行 seed 清单以修订稿 §2.3 与落地方案 W1-6 为准：**5 配置表 + 8 状态 + 9 条预置规则 + 8 通知模板 + 5 角色（含 4 个特权开关）**（规则 8→9、模板 7→8 随 IQ-16/B5 定稿，2026-10-10；规则 seed 落库见 MATT-43 的 `0006_automation_rules.sql`）。
 
 > **✅ 这条悬置已于 2026-09-27 用实跑关掉：保留 Drizzle DSL，不退 SQL-first。** 拿三张最难的表（`automation_rule` 的 partial unique、`matter_node` 的生成列 + 表级 CHECK、`status_config` 的三个条件唯一索引）实跑 `drizzle-kit generate`（`drizzle-orm@0.45.3` + `drizzle-kit@0.31.10`，精确版本），产出的 SQL 逐条在共享 dev 机 PG 16.13 上建库并**撞过约束**：partial unique 生效、`GENERATED ALWAYS AS … STORED` 生效且拒手写、两个表级 CHECK 拒越界值、`text[]`/`integer[]` 与 `jsonb` 默认值正确。退路不需要启用。
 >

@@ -26,6 +26,8 @@
  *   C12 `next_status_codes` 在库里真是 `text[]`（0001 那条手写补丁生效了才算）
  *   C13 推荐后继已落库（6/8 行非空 —— 空数组在服务层等于"不限制"，偏离判定就永不为真）
  *   C14 `mn_app_user.is_admin` 已建列且持有者 1–2 人（草案 §3 的逃生口，人手都有等于没有）
+ *   C15 规则 seed 9 条系统规则 + 触发域唯一索引在且是 partial（MATT-43；表未建时**只回报**，见该处注释）
+ *   C16 批量导入两张表 + 幂等键 `uk_mn_import_row_content` 在且**真的是 partial**（MATT-44；同上，表未建只回报）
  */
 
 const MIN_MAJOR = 15;
@@ -297,7 +299,7 @@ try {
     `已配推荐后继的状态行 = ${nextFilled ?? 0}（要求 6：空数组在服务层等于"不限制"，偏离判定就永不为真）`,
   );
 
-  // C14 `is_admin` 列存在且恰好一人：它是"绕过范围的最后开关"，人手都有就等于没有
+  // ---- C14 `is_admin` 列存在且恰好一人：它是"绕过范围的最后开关"，人手都有就等于没有 ----
   const adminCol = (
     await sql`select count(*)::int as n from information_schema.columns
                where table_name = 'mn_app_user' and column_name = 'is_admin'`
@@ -308,6 +310,96 @@ try {
     "C14",
     `mn_app_user.is_admin 建列=${adminCol === 1 ? "是" : "否"} · 持有者 ${adminUsers ?? 0} 人（草案 §3：仅 1–2 人）`,
   );
+
+  // ---- C15 规则表的 seed 与触发域唯一约束（MATT-43 / T5b）----
+  // 票面 AC 第一条是「规则 9 进 seed，触发域唯一性由 **DB 约束**保证」——
+  // 而"约束建了但没生效"与"seed 少了一条"都不会报错，只会让同域同动作的规则能并存。
+  // 所以这里把两件事都读一遍：**9 条系统规则**，以及那条 partial unique index 真的在。
+  //
+  // 表不存在时**只回报不断言**（与 C9 的分工不同：C9 守的是基线，基线缺了整条链路都不成立；
+  // 本表是后续迁移，跳过必须留痕——`record` 会把这句打出来，不会静默消失）。
+  const ruleTable = (await sql`select to_regclass('public.mn_automation_rule') as r`)[0]?.r;
+  if (ruleTable === null || ruleTable === undefined) {
+    record(
+      "info",
+      "C15",
+      "mn_automation_rule 未建（迁移 0012 未应用）—— 规则 seed 与触发域唯一约束这项跳过",
+    );
+  } else {
+    const [r15] = await sql`
+      select count(*)::int as total,
+             count(*) filter (where is_system)::int as system,
+             count(*) filter (where is_enabled)::int as enabled
+        from mn_automation_rule`;
+    const [i15] = await sql`
+      select indexdef from pg_indexes
+       where schemaname = 'public' and indexname = 'ux_mn_automation_rule_enabled_action'`;
+    const partial = typeof i15?.indexdef === "string" && /where\s+is_enabled/i.test(i15.indexdef);
+    const ok15 = r15.total === 9 && r15.system === 9 && partial;
+    record(
+      ok15 ? "ok" : "fail",
+      "C15",
+      `预置规则 ${r15.total} 条（系统 ${r15.system} · 启用 ${r15.enabled}，规则 1 默认禁用故启用应为 8）· ` +
+        `触发域唯一索引 ${i15 ? (partial ? "在且是 partial（WHERE is_enabled）" : "在但**不是** partial") : "**缺失**"}`,
+    );
+  }
+
+  // ---- C16 批量导入的两张表 + 幂等键**真的是 partial**（MATT-44 / T6 / F7-4）----
+  // 「同文件重导不再产生重复行」靠的是 **DB 级**唯一性（服务层的"先查后插"有窗口，双击提交
+  // 就能穿过去），也就是这条 `uk_mn_import_row_content`。它**必须带 `WHERE status='imported'`**：
+  // 全表唯一会让"把错行改对再传一次"撞上自己上一轮的错误记录 —— 而**索引在但不是 partial
+  // 不会报任何错**，只会让重传永远失败。所以这里不只看它在不在，还要看 `pg_get_indexdef`
+  // 里有没有那个 WHERE（这是本条的主要价值，也是正向反向两次都实测过的）。
+  //
+  // 表不存在时只回报不断言（与 C15 同款：0012/0013 都是后续迁移，跳过必须留痕）。
+  const importTables = (
+    await sql`select to_regclass('public.mn_import_batch') as b,
+                     to_regclass('public.mn_import_row') as r`
+  )[0];
+  if (importTables.b === null || importTables.r === null) {
+    record(
+      "info",
+      "C16",
+      "mn_import_batch / mn_import_row 未建（迁移 0013 未应用）—— 幂等键 partial 这项跳过",
+    );
+  } else {
+    const [r16] = await sql`
+      select count(*)::int as total,
+             count(*) filter (where status = 'imported')::int as imported,
+             count(*) filter (where status = 'skipped')::int as skipped
+        from mn_import_row`;
+    const [i16] = await sql`
+      select indexdef from pg_indexes
+       where schemaname = 'public' and indexname = 'uk_mn_import_row_content'`;
+    const partial = typeof i16?.indexdef === "string" && /where\s+\(?\(?status/i.test(i16.indexdef);
+    // 三条值域 CHECK 是"值域写在库里"的那一半（`enum-check` 认领的就是它们）
+    const wantChecks = [
+      "ck_mn_import_batch_host",
+      "ck_mn_import_batch_status",
+      "ck_mn_import_row_status",
+    ];
+    const haveChecks = (
+      await sql`select conname from pg_constraint
+                 where conrelid in ('mn_import_batch'::regclass, 'mn_import_row'::regclass)
+                   and contype = 'c'`
+    ).map((r) => r.conname);
+    const missingChecks = wantChecks.filter((c) => !haveChecks.includes(c));
+    record(
+      partial && missingChecks.length === 0 ? "ok" : "fail",
+      "C16",
+      `导入行 ${r16.total} 条（imported ${r16.imported} · skipped ${r16.skipped}）· ` +
+        `幂等键 ${
+          i16
+            ? partial
+              ? "在且是 partial（WHERE status = 'imported'）"
+              : "在但**不是** partial ← 重传会撞上自己上一轮的错误记录"
+            : "**缺失**"
+        } · ` +
+        (missingChecks.length
+          ? `缺 CHECK：${missingChecks.join("、")}`
+          : `三条值域 CHECK 齐（${wantChecks.length}/${wantChecks.length}）`),
+    );
+  }
 
   // ---- 环境概况（不判定）----
   record("info", "ENV", (await sql`select version() as v`)[0].v);

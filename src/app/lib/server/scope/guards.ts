@@ -77,3 +77,22 @@ export function canManageStaffList(
   if (host.ownerId !== null && String(host.ownerId) === uid) return true;
   return host.creatorId !== null && String(host.creatorId) === uid;
 }
+
+/**
+ * 批量导入的执行权：**只有 L1 数据范围**（外加 `is_admin` 逃生口）。
+ *
+ * 依据：master F7-4 与 IQ-11 的裁定原文「权限：仅 L1 角色可执行（与 Q40 捞取面一致）」——
+ * Q40 那条是"未指派事项只对持 L1 的角色可见可捞"，所以这里用**同一个谓词**
+ * （`dataScope === "all"`），不是另立一套"谁能导"。
+ *
+ * 为什么单独一个函数而不是在各路由里写 `actor.dataScope === "all"`：
+ * 与上面两条护栏同一条理由 —— 这条判定要管四个端点（模板、导入、报告、批次列表），
+ * 散着写必然出现"新加一个端点忘了套"，而漏检的形态是"参与经办也能导全公司的账"。
+ *
+ * 它**不是**特权开关（`privileges` 那四个）：特权是角色授予的单项能力，
+ * 而这条是数据范围的一个门槛，随角色范围自动成立（权限草案 §1 三档范围）。
+ */
+export function canImport(actor: ActorLike): boolean {
+  if (actor.isAdmin) return true;
+  return actor.dataScope === ("all" satisfies DataScope);
+}

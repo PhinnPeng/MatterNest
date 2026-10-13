@@ -803,7 +803,7 @@ function CommentList({
           <Space.Compact style={{ width: "100%" }}>
             <Input.TextArea
               autoSize={{ minRows: 2, maxRows: 6 }}
-              placeholder="写一条评论：核查结论、已做的动作、需要别人接的事"
+              placeholder="写一条评论：核查结论、已做的动作、需要别人接的事；用 @姓名 提及同事"
               value={body}
               onChange={(e) => setBody(e.target.value)}
             />

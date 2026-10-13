@@ -20,8 +20,9 @@ import {
   type NotificationEventType,
   type NotificationSourceType,
 } from "@/shared/enums/notify";
-import type { NotifyReceiver } from "@/shared/enums/automation";
+import { CUSTOM_RECEIVER_KEY, type NotifyReceiver } from "@/shared/enums/automation";
 import { immediateDedupeKey, scheduledDedupeKey } from "@/shared/notification/dedupe";
+import { parseMentionIds } from "@/shared/notification/mention";
 import {
   INVISIBLE_NOTIFICATION_TITLE,
   renderNotification,
@@ -277,6 +278,23 @@ export type NotificationIntent = {
   recipients: readonly bigint[];
   windowStart?: string | null;
   windowEnd?: string | null;
+  /**
+   * 收件人**此刻看不到宿主**时怎么处置（MATT-58 / T4b 加的，只有 `mention` 用它）。
+   *
+   * · 缺省 / `false`：写 `status='void'` 静默剔除，行不进收件箱。
+   *   依据 `docs/PRD-phase1-permission-design-draft.md:233`（§8）：
+   *   「`notify` 的收件人解析后逐个校验可见性，不可见者静默剔除（不发"无权查看"的空通知）」。
+   * · `true`：照常投递（`sent`），由通知中心的**读取时**可见性判定把它渲染成
+   *   「无权查看的记录」占位（§7.1:192）——行在、标题被替换、摘要字段一个不发。
+   *
+   * **为什么 `mention` 走后者**：§8 那条按字面只圈了 `notify` **动作**的收件人，
+   * 而设计稿 `design-revision-r1.md:156` 明写 `mention`「**不经规则引擎**，由评论服务直接发事件」——
+   * 它不落在 §8 的字面范围里。而 §7.1 给占位的理由（「不隐藏整行——隐藏会被当成数据丢失
+   * 而去追问，占位能自助解释」）恰好就是 @ 提及的场景：被点名的同事需要知道
+   * 「有人找我了，但我现在看不到这条记录」，才能去要权限。
+   * 若这里也静默剔除，@ 一个非参与人就会**什么都不发生**——正是本票要挡的失败形态。
+   */
+  invisibleAsPlaceholder?: boolean;
 };
 
 export type InsertEventResult = { eventId: bigint | null; delivered: number; merged: boolean };
@@ -334,7 +352,15 @@ export async function insertNotificationEvent(
       userId,
       scopes.get(String(userId)),
     );
-    if (visible) delivered++;
+    /**
+     * `placeholder` = "看不见，但这一条仍要投递，由读取侧降级成占位"。
+     * 它只可能由 `invisibleAsPlaceholder` 打开（见 `NotificationIntent` 的注释）。
+     * `delivered` 按**真正投出去的行**计（`sent`），不按"看得见的行"计——
+     * §7.2 说 `recipient_count` 是"这条消息发给了几个人"，占位行也是发出去的。
+     */
+    const placeholder = !visible && intent.invisibleAsPlaceholder === true;
+    const sent = visible || placeholder;
+    if (sent) delivered++;
     await tx
       .insert(notificationDelivery)
       .values({
@@ -343,12 +369,19 @@ export async function insertNotificationEvent(
         userId,
         channel: PHASE1_NOTIFY_CHANNEL,
         // 站内渠道的"投递"就是这一行出现在收件箱里，所以可见即 `sent`
-        status: visible ? "sent" : "void",
+        status: sent ? "sent" : "void",
         attempt: 0,
-        sentAt: visible ? new Date().toISOString() : null,
+        sentAt: sent ? new Date().toISOString() : null,
         // `void` 的原因留在这里而不是丢掉：权限草案 §8 说"静默剔除"是**对用户静默**，
         // 而枚举表 E31 的注记把这类行点名为"安全事件线索"——线索要能被查到。
-        error: visible ? null : "recipient_cannot_see_host",
+        //
+        // 占位行（`sent` 但收件人当时看不见）也留一条痕迹：读取侧渲染时
+        // "投递时就不看见"与"投递后失权"长得一模一样，而排障要能分开这两件事。
+        error: visible
+          ? null
+          : placeholder
+            ? "recipient_cannot_see_host_placeholder"
+            : "recipient_cannot_see_host",
         isRead: false,
         readAt: null,
         createdAt: new Date().toISOString(),
@@ -379,21 +412,41 @@ async function emitForHost(
     eventType: NotificationEventType;
     sourceType: NotificationSourceType;
     receivers: readonly NotifyReceiver[];
+    /**
+     * 显式收件人（配 `receivers` 含 `custom`）。@提及走这一档：
+     * 被 @ 的人**不是**任何角色档位解析出来的，而是正文里点了名的那几个。
+     */
+    customUserIds?: readonly string[];
+    /**
+     * 解析完角色档位后**再减掉**的人（§7.2 合并规则 1）。
+     *
+     * 与 `customUserIds` 同一个层次：作用在"这次解析出来的**具体人**"上，而不是档位上
+     * ——档位是规则的输入（规则 8 就是 `["follower","creator"]`），被减的是同批里
+     * 已经收过更具体那条（`mention`）的人。
+     */
+    excludeUserIds?: readonly string[];
     targetType?: string;
     targetId?: bigint;
     batchId: string;
     payload: Record<string, unknown>;
     windowStart?: string | null;
     windowEnd?: string | null;
+    invisibleAsPlaceholder?: boolean;
   },
 ): Promise<InsertEventResult> {
-  const recipients = await resolveRecipients(
-    tx,
-    args.host,
-    args.hostId,
-    args.facts,
-    args.receivers,
-  );
+  const excluded = new Set((args.excludeUserIds ?? []).map(String));
+  const recipients = (
+    await resolveRecipients(
+      tx,
+      args.host,
+      args.hostId,
+      args.facts,
+      args.receivers,
+      args.customUserIds ?? [],
+    )
+  ).filter((id) => !excluded.has(String(id)));
+  // 减完为空 ⇒ 不落事件。这一条正是"被 @ 的关注人不会再收一条广播"的收口：
+  // 若全批的 follower ∪ creator 都被 @ 了，这条广播就没有收件人，留一条空事件毫无意义
   if (recipients.length === 0) return { eventId: null, delivered: 0, merged: false };
   const targetId = args.targetId ?? args.hostId;
   return insertNotificationEvent(tx, {
@@ -414,6 +467,7 @@ async function emitForHost(
     recipients,
     windowStart: args.windowStart ?? null,
     windowEnd: args.windowEnd ?? null,
+    invisibleAsPlaceholder: args.invisibleAsPlaceholder,
   });
 }
 
@@ -473,6 +527,40 @@ export async function notifyStatusChanged(
 }
 
 /**
+ * 评论正文里的 @提及 → 收件人 id（MATT-58 / T4b）。
+ *
+ * **全项目唯一一处把"评论里的 `@`"接到通知线上"**：候选人是全体**在职且已开通**的账号，
+ * 不是宿主的参与人。理由有两条，缺一条这个功能就废：
+ *
+ * · AC 要求"被 @ 的人看不到宿主时走不可见降级占位"——若候选人只在参与人里挑，
+ *   "看不到宿主"这一档**根本产生不出来**，那条 AC 就成了空转；
+ * · 实际用法是"@ 一个还没进来的同事帮我看下"，而 §4.1 的共现规则要**创建之后**
+ *   才让他成为参与人。先 @ 后授权是这个功能的正常时序，不是边角。
+ *
+ * 花名册无保密价值（IQ-14 同一条理由：十人企业，"防枚举"在此为空转顾虑）。
+ * 过滤 `is_enabled` 与 `activation_status='active'`：离职/未开通的账号登不进来看不到通知，
+ * 把他们解析成收件人只会留下一堆永远不读的投递行。
+ *
+ * 解析本身是纯函数（`shared/notification/mention.ts`），这里只负责取候选人。
+ */
+export async function resolveMentionIds(r: Reader, body: string): Promise<string[]> {
+  const rows = await r
+    .select({ id: appUser.id, displayName: appUser.displayName })
+    .from(appUser)
+    .where(
+      and(
+        eq(appUser.isEnabled, true),
+        eq(appUser.activationStatus, "active"),
+        sql`NOT ${appUser.isDeleted}`,
+      ),
+    );
+  return parseMentionIds(
+    body,
+    rows.map((x) => ({ id: String(x.id), displayName: x.displayName })),
+  );
+}
+
+/**
  * 新评论的通知意图 —— **只写 outbox，不在这里发**。
  *
  * 为什么评论走 outbox 而状态变更不走：评论对应 E32/E33 的 `comment_added` 领域事件
@@ -481,11 +569,32 @@ export async function notifyStatusChanged(
  *
  * 归档宿主直接不写：归档记录不再产生新通知（M4）。
  * ⚠ **归档后仍可新增评论**（基线 1.7 明文），只是不发通知——所以这里返回 false 而不是抛。
+ *
+ * ## 一行 outbox 承载两个事件（MATT-58）
+ *
+ * `mention` 与 `new_comment` **共用这一行**，消费侧再展开成两条意图：
+ * 设计稿 `design-revision-r1.md:156` 说 `mention`「不经规则引擎，由评论服务直接发事件」，
+ * 而"直接发事件"在本仓的兑现方式就是**写 outbox**（T4 已裁定"E32 允许处走 outbox"）。
+ * 另开一条直发路径会让 @ 提及绕开 `dedupe_key` 唯一键与至少一次重放——
+ * 那正是 T4 花力气统一掉的东西。
  */
 export async function enqueueCommentIntent(
   actor: Actor,
   tx: Tx,
-  args: { host: HostKind; hostId: bigint; commentId: bigint; quoted: string },
+  args: {
+    host: HostKind;
+    hostId: bigint;
+    commentId: bigint;
+    quoted: string;
+    /**
+     * 正文里 @ 到的人（`resolveMentionIds` 的结果）。
+     *
+     * **必填，不给默认值**：漏传会让 `mention` 静默不生效——而"@ 了人但通知没发出去"
+     * 正是本票要挡的失败形态，界面一切正常、没人会发现。写成可选参数就等于
+     * 把这个失败形态留在类型系统里等下一次调用点踩。
+     */
+    mentionIds: readonly string[];
+  },
 ): Promise<boolean> {
   const facts = await loadHostFacts(tx, args.host, args.hostId);
   if (!facts || facts.isArchived) return false;
@@ -502,6 +611,11 @@ export async function enqueueCommentIntent(
       author_id: actor.userId,
       author_name: actor.displayName,
       quoted: args.quoted,
+      // 被 @ 的人随行落进 payload，而不是让消费侧回头再解析一遍正文：
+      // 消费是**至少一次**的，重放时若候选人名单已经变了（有人停用/改名），
+      // 二次解析会得到不同的收件人集合 ⇒ 不同的 dedupe_key ⇒ 第二条通知。
+      // 事件发生那一刻的收件人是事实，事实进 payload。
+      mention_ids: [...args.mentionIds],
     },
   });
   return true;
@@ -518,61 +632,133 @@ export type OutboxRow = {
   payload: Record<string, unknown>;
 };
 
+/** 一条 outbox 行展开出的**一种**通知意图（`payloads` 里的每条各落一个事件） */
+export type OutboxIntent = {
+  host: HostKind;
+  hostId: bigint;
+  eventType: NotificationEventType;
+  /** 角色档位收件人。`mention` 用 `["custom"]` + `customUserIds` */
+  receivers: readonly NotifyReceiver[];
+  /** 显式收件人（@提及：正文里点了名的那几个）。见 `emitForHost` 的 `customUserIds` */
+  customUserIds?: readonly string[];
+  /**
+   * 从角色档位解析出来的收件人里**再减掉**这些人（user id 字符串）。
+   *
+   * 只有 `new_comment` 用它，值是同一批里被 @ 的人：§7.2 合并规则 1 在「关注人/创建人
+   * 同时被 @」这一档上的落地——那个人收更具体的 `mention` 那一条，不再重复收广播。
+   *
+   * ⚠ 它是**减法**，不是收件人档位：规则 8 的档位始终是 `["follower","creator"]`
+   * （规则本身没变），被减掉的是"这次解析出来的那几个人"。写成往 `receivers` 里删档位
+   * 会变成改规则 8；写成让消费侧比对两条事件的收件人再跳过投递，则要把去重从
+   * `dedupe_key` 搬到事务里的跨事件比对——近邻就有唯一键能表达这件事，不必。
+   */
+  excludeUserIds?: readonly string[];
+  /**
+   * 收件人看不到宿主时是否降级成占位而不是静默剔除。
+   * 只有 `mention` 为 true，理由见 `NotificationIntent.invisibleAsPlaceholder`。
+   */
+  invisibleAsPlaceholder?: boolean;
+  payloads: Record<string, unknown>[];
+};
+
 /**
  * 把一条 outbox 行展开成 N 条**通知意图**。
  *
- * `risk_converted` 是这里唯一一处"一行 → 多条"：§7.2 合并规则 1 的原话是
- * 「同一 `event_batch_id` 内，同一收件人只出 1 条事件（转案件不再分别发"归档+通知+节点"三条）」。
- * 一次转换生成 N 个案件时，若每个案件各发一条，用户会收到 N 条同源通知然后开始屏蔽通知（G3 反例）。
+ * ## `comment_added` 一行 → 两种事件（MATT-58）
+ *
+ * `new_comment`（规则 8：关注人 ∪ 创建人）与 `mention`（被 @ 的那几个人）是**两件事**：
+ * 前者是广播，后者是点名。它们的 `dedupe_key` 因为 `event_type` 不同而天然分开，
+ * 所以共用一行 outbox、共用同一个 `batch_id` 不会互相吸收。
+ *
+ * **但同一个人可以同时落在两个集合里**（既关注这条记录、又被 @）。§7.2 的「问题」
+ * 那句点名的正是这一档：「同一用户可同时是负责人+关注人+**被 @**；……原设计会产生
+ * 成倍重复推送」，而它下面两条合并规则都对着这一档写：
+ *
+ * · 规则 1「同一 `event_batch_id` 内，同一收件人只出 1 条事件」——条件只有
+ *   **批次 + 收件人**，`event_type` 不在条件里（括号里的"归档+通知+节点"也是三种 type）。
+ *   评论与提及共用一行 outbox ⇒ 同一个 `event_batch_id` ⇒ 条件成立。
+ * · 规则 2「命中角色重叠（owner ∩ follower ∩ **mention**）→ 收件人集合去重到 user 级」
+ *   ——括号里直接把 `mention` 列进了重叠集合。
+ *
+ * 所以 `new_comment` 的收件人要**减掉被 @ 的人**（`excludeUserIds`）：他收 `mention`
+ * 那一条，它更具体（点了名，且带 `{quoted}`）。反过来，**没被 @ 的关注人/创建人照常收
+ * `new_comment`**——规则 8 的档位一个字没动，减掉的只是"同一个人"在同一批次里的第二份。
+ *
+ * ## `risk_converted` 是这里唯一一处"一行 → 多个 payload"
+ *
+ * §7.2 合并规则 1 的原话是「同一 `event_batch_id` 内，同一收件人只出 1 条事件
+ * （转案件不再分别发"归档+通知+节点"三条）」。一次转换生成 N 个案件时，
+ * 若每个案件各发一条，用户会收到 N 条同源通知然后开始屏蔽通知（G3 反例）。
  * 所以这里**故意**为每个案件各生成一条意图：它们的 `dedupe_key` 因为共享 `event_batch_id`
  * 与同一个 `target_id`（事项）而完全相同，第二条起被 `ON CONFLICT` 吸收进同一条事件。
  * 这正是"聚合"这个词在本票里的可验证形态——`merge_count` 会如实记下吸收了几条。
  */
-export function intentsOfOutboxRow(row: OutboxRow): {
-  host: HostKind;
-  hostId: bigint;
-  eventType: NotificationEventType;
-  receivers: readonly NotifyReceiver[];
-  payloads: Record<string, unknown>[];
-} | null {
+export function intentsOfOutboxRow(row: OutboxRow): OutboxIntent[] {
   const p = row.payload;
   const host = String(p["host_type"] ?? "risk_matter") === "matter" ? "matter" : "risk_matter";
   if (row.eventType === "comment_added") {
     const hostId = BigInt(String(p["host_id"]));
-    return {
-      host,
-      hostId,
-      eventType: "new_comment",
-      receivers: RULE_COMMENT_ADDED_NOTIFY.receivers,
-      payloads: [
-        {
-          name: "",
-          code: "",
-          actor: String(p["author_name"] ?? ""),
-          quoted: String(p["quoted"] ?? ""),
-        },
-      ],
+    const payload = {
+      name: "",
+      code: "",
+      actor: String(p["author_name"] ?? ""),
+      // `{quoted}` 的真实来源：评论正文的截断片段（`quoteOf`），随 outbox payload 一起走。
+      // 它只出现在**可见**的那条通知里——收件人看不见宿主时读取侧把 body 抹成 null
+      // （权限草案 §7.1「摘要字段一律不发」），所以摘要不会从这个口子漏出去。
+      quoted: String(p["quoted"] ?? ""),
     };
+    const mentionIds = Array.isArray(p["mention_ids"])
+      ? (p["mention_ids"] as unknown[]).map(String).filter((x) => x.length > 0)
+      : [];
+    const intents: OutboxIntent[] = [
+      {
+        host,
+        hostId,
+        eventType: "new_comment",
+        receivers: RULE_COMMENT_ADDED_NOTIFY.receivers,
+        // §7.2 合并规则 1：被 @ 的人在**本批**里只收 `mention` 那一条，不重复收这条广播。
+        // 没被 @ 的关注人/创建人不受影响（减法只减 mention_ids 里那几个人）
+        excludeUserIds: mentionIds,
+        payloads: [payload],
+      },
+    ];
+    // 没有 @ 就没有 mention 意图：不要落一条收件人为空的空事件
+    // （`emitForHost` 也会挡住，但"不产生"比"产生了再被挡"少一次误读机会）
+    if (mentionIds.length > 0) {
+      intents.push({
+        host,
+        hostId,
+        eventType: "mention",
+        // `custom` 是 E04 里"指定人员"那一档，@提及正是它的第一个真实调用方
+        receivers: [CUSTOM_RECEIVER_KEY],
+        customUserIds: mentionIds,
+        invisibleAsPlaceholder: true,
+        payloads: [payload],
+      });
+    }
+    return intents;
   }
   if (row.eventType === "risk_converted") {
     const hostId = BigInt(String(p["risk_matter_id"]));
     const caseIds = Array.isArray(p["case_ids"]) ? (p["case_ids"] as unknown[]).map(String) : [""];
-    return {
-      host: "risk_matter",
-      hostId,
-      eventType: "risk_converted",
-      receivers: RULE_RISK_CONVERTED_NOTIFY.receivers,
-      payloads: caseIds.map((caseId) => ({
-        name: "",
-        code: "",
-        actor: String(p["actor_name"] ?? ""),
-        case_id: caseId,
-      })),
-    };
+    return [
+      {
+        host: "risk_matter",
+        hostId,
+        eventType: "risk_converted",
+        receivers: RULE_RISK_CONVERTED_NOTIFY.receivers,
+        payloads: caseIds.map((caseId) => ({
+          name: "",
+          code: "",
+          actor: String(p["actor_name"] ?? ""),
+          case_id: caseId,
+        })),
+      },
+    ];
   }
-  // 未知事件名不该走到这里（E32 的 CHECK 已经把它挡在库外）；返回 null 而不是抛，
+  // 未知事件名不该走到这里（E32 的 CHECK 已经把它挡在库外）；返回空数组而不是抛，
   // 让一条坏行不至于把整批消费卡死
-  return null;
+  return [];
 }
 
 /**
@@ -621,25 +807,32 @@ export async function consumeOutbox(limit = OUTBOX_BATCH): Promise<{
         });
         let made = 0;
         let absorbed = 0;
-        if (expanded) {
-          const facts = await loadHostFacts(tx, expanded.host, expanded.hostId);
+        if (expanded.length > 0) {
+          // 宿主事实按 (host, hostId) 取一次就够：一条 outbox 行的所有意图指向同一个宿主
+          const first = expanded[0]!;
+          const facts = await loadHostFacts(tx, first.host, first.hostId);
           // 宿主没了或已归档 ⇒ 静默丢弃（归档记录不再产生新通知）
           if (facts && !facts.isArchived) {
-            for (const payload of expanded.payloads) {
-              const res = await emitForHost(tx, {
-                host: expanded.host,
-                hostId: expanded.hostId,
-                facts,
-                eventType: expanded.eventType,
-                sourceType: "auto_rule",
-                receivers: expanded.receivers,
-                batchId: row.batchId,
-                // 模板变量里的 code/name 从**宿主事实**取，不从 outbox payload 取：
-                // payload 是事件发生那一刻的快照，而标题里的编号/名称应当反映读取时的记录
-                payload: { ...payload, code: facts.code, name: facts.name },
-              });
-              if (res.merged) absorbed++;
-              else if (res.eventId !== null) made++;
+            for (const spec of expanded) {
+              for (const payload of spec.payloads) {
+                const res = await emitForHost(tx, {
+                  host: spec.host,
+                  hostId: spec.hostId,
+                  facts,
+                  eventType: spec.eventType,
+                  sourceType: "auto_rule",
+                  receivers: spec.receivers,
+                  customUserIds: spec.customUserIds,
+                  excludeUserIds: spec.excludeUserIds,
+                  batchId: row.batchId,
+                  invisibleAsPlaceholder: spec.invisibleAsPlaceholder,
+                  // 模板变量里的 code/name 从**宿主事实**取，不从 outbox payload 取：
+                  // payload 是事件发生那一刻的快照，而标题里的编号/名称应当反映读取时的记录
+                  payload: { ...payload, code: facts.code, name: facts.name },
+                });
+                if (res.merged) absorbed++;
+                else if (res.eventId !== null) made++;
+              }
             }
           }
         }

@@ -39,6 +39,44 @@ export const MISSING_ITEM_LABELS: Readonly<Record<string, string>> = {
   pending_nodes: "待定节点未决",
 };
 
+/**
+ * F2-26 三项校验的**判定键**（服务端 `services/archive-readiness.ts` 的 `ReadinessCheckKey`、
+ * 客户端 `lib/client/archive-readiness.ts` 的 `ReadinessKey` 都是它）。
+ *
+ * ## 为什么这里要重声明一次，而不是从服务端 import
+ *
+ * 禁令①：`src/shared/**` 不得反向依赖 app 层。所以共享层只能**自己声明**这个联合，
+ * 而"两份声明漂移"由断言堵：`services/archive-reminder.spec.ts` 拿服务端的
+ * `READINESS_CHECKS` 逐键比对（服务端加第四项而这里没跟，当场红）。
+ *
+ * ## 为什么它必须存在（而不是直接拿字符串拼）
+ *
+ * 两个码集**不是同一套**：判定侧是 `judgment`/`closingDate`/`openNodes`，
+ * 而 B5 的 `{missing}` 占位符吃的是 `judgment_doc`/`closing_date`/`pending_nodes`。
+ * 直接把判定键塞进 payload 的后果是通知正文渲染成「缺：closingDate、openNodes」——
+ * **中文界面里冒出两个英文驼峰词**，而它不会报错、不会有类型错误。
+ * 规则 9（MATT-43）是第一个真的把判定结果送进通知的路径，所以这层映射在这里补齐。
+ */
+export const READINESS_CHECK_KEYS = ["judgment", "closingDate", "openNodes"] as const;
+export type ReadinessCheckKey = (typeof READINESS_CHECK_KEYS)[number];
+
+/** 判定键 → B5 的 payload 码（§措辞设计说明第 4 条的三对，逐字） */
+export const MISSING_CODE_BY_CHECK: Readonly<Record<ReadinessCheckKey, string>> = {
+  judgment: "judgment_doc",
+  closingDate: "closing_date",
+  openNodes: "pending_nodes",
+};
+
+/**
+ * 判定键数组 → 通知 payload 的 `missing`（B5 码）。
+ *
+ * 未知键**原样透传**而不是丢掉：丢掉会让"服务端加了一项校验、通知里却不提它"
+ * 变成静默的漏报；透传至少会在界面上露出一个生词，而这正是能被发现的形态。
+ */
+export function missingCodes(keys: readonly string[]): string[] {
+  return keys.map((k) => MISSING_CODE_BY_CHECK[k as ReadinessCheckKey] ?? k);
+}
+
 /** `{占位符}` 的形态。只认小写字母与下划线，避免把正文里的 `{}`（JSON 片段）吃掉 */
 const PLACEHOLDER = /\{([a-z_]+)\}/g;
 

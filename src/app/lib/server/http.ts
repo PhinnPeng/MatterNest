@@ -71,6 +71,20 @@ export const attributionRequired = (): NextResponse =>
   fail(403, "attribution_required", "只有负责人或具备全局范围的角色能改这条记录的归属与状态");
 
 /**
+ * 批量导入的拒绝路径（F7-4 / IQ-11「仅 L1 角色可执行」）。
+ *
+ * 给 403 而不是 404，理由与 `attributionRequired` 同：这不是"看不见这条记录"，
+ * 而是"这个动作轮不到你"。403 的措辞要能告诉对方**下一步**——去找谁、用什么角色，
+ * 而不是让他以为页面坏了。
+ */
+export const importForbidden = (): NextResponse =>
+  fail(
+    403,
+    "import_forbidden",
+    "批量导入只对持有全局数据范围的角色（全局管理 / 全局经办）开放，当前角色不具备",
+  );
+
+/**
  * 路径参数里的 id → BigInt，不合法给 **400**（不是 500）。
  *
  * 为什么单独一个函数：`BigInt("undefined")` 抛的是 SyntaxError，会从 handler 一路冒到

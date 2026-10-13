@@ -35,11 +35,25 @@ import {
   NOTIFY_RECEIVERS,
   NOTIFY_RECEIVER_LABELS,
   OFFSET_DAY_BASES,
+  RULE_HOST_TYPES,
+  RULE_HOST_TYPE_LABELS,
+  TRIGGER_TARGET_TYPES,
+  TRIGGER_TARGET_TYPE_LABELS,
   TRIGGER_TYPES,
   TRIGGER_TYPE_LABELS,
   UPDATABLE_FIELDS,
   UPDATABLE_FIELD_LABELS,
 } from "./automation";
+import {
+  IMPORT_BATCH_STATUSES,
+  IMPORT_BATCH_STATUS_LABELS,
+  IMPORT_ISSUE_CODES,
+  IMPORT_ISSUE_CODE_LABELS,
+  IMPORT_KINDS,
+  IMPORT_KIND_LABELS,
+  IMPORT_ROW_STATUSES,
+  IMPORT_ROW_STATUS_LABELS,
+} from "./import";
 import {
   ATTACHMENT_CATEGORIES,
   ATTACHMENT_CATEGORY_LABELS,
@@ -216,6 +230,25 @@ export const IN_DB_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
 /** §3 的活动动作同样进了库，但它不占 E 行号，所以另立一份映射 */
 export const STRUCT_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
   "activity_log.action": [["mn_activity_log", "action", "ck_mn_activity_action"]],
+  // 批量导入的两张表（MATT-44 / 迁移 0013）。值域都不占 E 行号，理由见 `./import` 文件头。
+  "import_batch.host_type": [["mn_import_batch", "host_type", "ck_mn_import_batch_host"]],
+  "import_batch.status": [["mn_import_batch", "status", "ck_mn_import_batch_status"]],
+  "import_row.status": [["mn_import_row", "status", "ck_mn_import_row_status"]],
+  // MATT-43（迁移 0012）：规则表的四条值域约束。`trigger_type` / `action_type` 的值域
+  // 本就登记在 STRUCT_REGISTRY 里（T0 时是"表还没建"），这里把它们认领到具体约束名上；
+  // 后两条是本次新增的 STRUCT 行（规则侧有自己的 host_type 与触发实体值域，见 automation.ts）。
+  "automation_rule.trigger_type": [
+    ["mn_automation_rule", "trigger_type", "ck_mn_automation_rule_trigger_type"],
+  ],
+  "automation_rule.action_type": [
+    ["mn_automation_rule", "action_type", "ck_mn_automation_rule_action_type"],
+  ],
+  "automation_rule.host_type": [
+    ["mn_automation_rule", "host_type", "ck_mn_automation_rule_host_type"],
+  ],
+  "automation_rule.trigger_target_type": [
+    ["mn_automation_rule", "trigger_target_type", "ck_mn_automation_rule_trigger_target"],
+  ],
 };
 
 type RawEntry = Omit<EnumEntry, "checks">;
@@ -512,8 +545,26 @@ export const STRUCT_REGISTRY: readonly {
   labels: Readonly<Record<string, string>>;
 }[] = [
   { key: "activity_log.action", values: AUDIT_ACTIONS, labels: AUDIT_ACTION_LABELS },
+  /**
+   * 批量导入的三个值域（MATT-44）。前两条有迁移里的 `CHECK` 守着（见 `STRUCT_CHECKS`），
+   * 第三条 `import_row.issue_code` **故意没有落点**：原因码住在 `mn_import_row.issues`
+   * 的 jsonb 数组元素里，DB 的 CHECK 看不见数组内部。登记它是为了可被发现、
+   * 可被 `import.spec.ts` 断言"码与中文名一一对应"——不假装库在守它。
+   */
+  { key: "import_batch.host_type", values: IMPORT_KINDS, labels: IMPORT_KIND_LABELS },
+  { key: "import_batch.status", values: IMPORT_BATCH_STATUSES, labels: IMPORT_BATCH_STATUS_LABELS },
+  { key: "import_row.status", values: IMPORT_ROW_STATUSES, labels: IMPORT_ROW_STATUS_LABELS },
+  { key: "import_row.issue_code", values: IMPORT_ISSUE_CODES, labels: IMPORT_ISSUE_CODE_LABELS },
   { key: "automation_rule.trigger_type", values: TRIGGER_TYPES, labels: TRIGGER_TYPE_LABELS },
   { key: "automation_rule.action_type", values: ACTION_TYPES, labels: ACTION_TYPE_LABELS },
+  // 规则侧的宿主作用域与触发实体（MATT-43）。两者都**不是** E 行：
+  // 前者比 E08/E10 多一个 `all`，后者是 E03 的真子集（理由见 automation.ts 的两段注释）。
+  { key: "automation_rule.host_type", values: RULE_HOST_TYPES, labels: RULE_HOST_TYPE_LABELS },
+  {
+    key: "automation_rule.trigger_target_type",
+    values: TRIGGER_TARGET_TYPES,
+    labels: TRIGGER_TARGET_TYPE_LABELS,
+  },
   { key: "extra_condition.op(逻辑)", values: LOGIC_OPS, labels: {} },
   { key: "extra_condition.op(比较)", values: COMPARE_OPS, labels: COMPARE_OP_LABELS },
   { key: "action_config.receivers", values: NOTIFY_RECEIVERS, labels: NOTIFY_RECEIVER_LABELS },
@@ -546,5 +597,6 @@ export * from "./notify";
 export * from "./auth";
 export * from "./audit";
 export * from "./automation";
+export * from "./import";
 
 export * from "./scope";

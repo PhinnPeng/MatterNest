@@ -30,7 +30,12 @@ import { nextCode } from "./numbering";
 import { initialStatusCode, hostStatusRows } from "./statuses";
 import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
-import { enqueueCommentIntent, notifyStatusChanged, quoteOf } from "./notifications";
+import {
+  enqueueCommentIntent,
+  notifyStatusChanged,
+  quoteOf,
+  resolveMentionIds,
+} from "./notifications";
 import { NODE_STATUS_LABELS } from "@/shared/enums/business";
 
 /**
@@ -562,6 +567,11 @@ export async function addComment(
     .limit(1);
   if (!visible) return null;
   const id = BigInt(nextId());
+  /**
+   * @提及在**事务外**解析：候选人是全体在职账号，与这次评论的写入没有一致性要求
+   * （一次全表读，十人组织里就是十行）。放进事务只会把这段读拉进写锁的持有期。
+   */
+  const mentionIds = await resolveMentionIds(db, body);
   await db.transaction(async (tx) => {
     await tx.insert(comment).values({
       id,
@@ -569,6 +579,9 @@ export async function addComment(
       targetId: BigInt(matterId),
       body,
       parentId: parentId ? BigInt(parentId) : null,
+      // `mention_ids` 是基线 0000 就有的列，列注写着「通知链路将来靠它展开」——
+      // 本票就是那个"将来"。落库让"谁被 @ 了"成为可查的事实，而不是只活在通知里。
+      mentionIds: mentionIds.map(BigInt),
       authorId: BigInt(actor.userId),
       createdBy: BigInt(actor.userId),
       updatedBy: BigInt(actor.userId),
@@ -593,6 +606,7 @@ export async function addComment(
       hostId: BigInt(matterId),
       commentId: id,
       quoted: quoteOf(body),
+      mentionIds,
     });
   });
   return { id: String(id) };

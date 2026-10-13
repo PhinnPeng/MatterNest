@@ -15,6 +15,7 @@ import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mj
  *   node --env-file=.env agent-work/smoke-notifications.mjs    # ⇒ 必须绿
  *
  * 多模式注入的完整清单见 `revred-notifications.mjs` 头部。
+ * @提及那一段（⑧）的反向红在 `revred-mention.mjs`，用法相同。
  *
  * ## 断言清单（票面 AC 逐条）
  *
@@ -25,6 +26,9 @@ import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mj
  *   ⑤ 通知文案时间一律 `Asia/Shanghai`（会话钉 UTC，差 8 小时）
  *   ⑥ 投递走 outbox 不直发；至少一次语义下**重放不产生第二条**
  *   ⑦ 归档记录不再产生新通知
+ *   ⑧ **@提及（MATT-58）**：评论里 @ 某人 → 那个人收到一条 `mention`；
+ *      收件人是被 @ 的人（不是关注人/创建人/作者）；同一批的多个 @ 合成一条事件；
+ *      `{quoted}` 来自评论片段；被 @ 的人看不到宿主时走**占位**且不发摘要字段
  *
  * ## 夹具为什么有一部分走 SQL
  *
@@ -113,6 +117,101 @@ const outsiderC = (await login(outsider.username, outsider.password)).cookie;
 const riskIds = [];
 const matterIds = [];
 const partyIds = [];
+/** 本脚本建的全部临时账号。清场与残留断言共用一份，免得两处各写一遍四个 id */
+const smokeUserIds = [admin.id, reporter.id, follower.id, outsider.id].map(String);
+
+/**
+ * 清场。**注册到崩溃路径上**（范围外发现 4，2026-10-14）。
+ *
+ * 改之前它只是脚本末尾的一段线性代码：夹具一崩（本轮实测过的形态——注入把锚点拆掉后
+ * `evA` 为空、postgres.js 对模板里的 `undefined` 直接抛 `UNDEFINED_VALUE`），
+ * 清场整段跳过，于是 **4 个 `mn_smoke_*` 账号**（其中一个是 `is_admin`）留在库里。
+ * 最贵的一点是**症状出现在完全不相干的地方**：`db:check` 的 C14 报残留账号 ——
+ * 排查的人会先去查 C14 那条检查项，而根因在一个他根本没跑过的冒烟脚本上。
+ *
+ * 形态与 `smoke-import.mjs` 一致（那里已经踩过同一个坑）：幂等函数 + 挂
+ * `unhandledRejection` / `uncaughtException`。本仓的冒烟是**顶层 await 的 ESM**，
+ * 中途抛错走的就是 unhandledRejection —— 它覆盖的范围与把整个脚本体包进 `try/finally`
+ * 相同，而不用为此把 794 行整体缩进一级（那会让这次改动在 diff 里盖住真正的改动，
+ * 而本仓的工作树里同时有别的 agent 在写）。
+ *
+ * 原则：**只动本脚本显式点名的账号与行**（宿主 id 从 riskIds/matterIds 来、
+ * 账号从 smokeUserIds 来）。宿主已经不在的孤儿事件行是唯一的例外，见下面那段。
+ */
+let cleaned = false;
+async function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
+  console.log(`\n══ 清场 ══`);
+  await sql`delete from mn_notification_delivery where user_id in ${sql(smokeUserIds)}`;
+  await sql`delete from mn_notification_delivery where event_id in (select id from mn_notification_event where host_id in ${sql([...riskIds, ...matterIds])})`;
+  await sql`delete from mn_notification_event where host_id in ${sql([...riskIds, ...matterIds])}`;
+  await sql`delete from mn_event_outbox where payload->>'risk_matter_id' in ${sql(riskIds)}`;
+  await sql`delete from mn_event_outbox where payload->>'host_id' in ${sql(riskIds)}`;
+  await sql`delete from mn_comment where target_id in ${sql([...riskIds, ...matterIds])}`;
+  await sql`delete from mn_activity_log where matter_id in ${sql(matterIds)} or risk_matter_id in ${sql(riskIds)}`;
+  await sql`delete from mn_matter_staff where matter_id in ${sql(matterIds)}`;
+  await sql`delete from mn_risk_matter_staff where risk_matter_id in ${sql(riskIds)}`;
+  await sql`delete from mn_matter_node where matter_id in ${sql(matterIds)}`;
+  await sql`delete from mn_matter_party where matter_id in ${sql(matterIds)}`;
+  await sql`delete from mn_risk_matter_party where risk_matter_id in ${sql(riskIds)}`;
+  await sql`delete from mn_risk_matter_case where risk_matter_id in ${sql(riskIds)}`;
+  await sql`delete from mn_matter where id in ${sql(matterIds)}`;
+  await sql`delete from mn_risk_matter where id in ${sql(riskIds)}`;
+  await sql`delete from mn_user_watch where user_id in ${sql(smokeUserIds)}`;
+  await sql`delete from mn_party where name like ${"冒烟回音对手方-" + stamp + "%"}`;
+
+  /**
+   * **孤儿事件清扫**（范围外发现的副产物，2026-10-14）。
+   *
+   * 本票把通知的**生产点**接进了 `changeStatus` / `addComment` 之后，**别的票的冒烟**
+   * （批量改状态、转案件、发评论）也会经由这两条路径产生 `mn_notification_event` 行——
+   * 而它们的清场脚本不认识这两张新表（`_cleanup_smoke_accounts.mjs` 认识
+   * `mn_notification_delivery` / `mn_user_watch`，**不认识 event**，而 event 对
+   * `app_user` 没有外键、宿主列也是多态的，所以谁都不会连带删它）。
+   *
+   * 实测：反向红跑九轮之后库里积了 31 条宿主已经不存在的孤儿事件行。
+   * 这里按"宿主没了就删"清掉：宿主还在的行**一定**不动（那是别人正在跑的夹具）。
+   */
+  const swept = await sql`
+    delete from mn_notification_event e
+    where not exists (select 1 from mn_matter m where m.id = e.host_id)
+      and not exists (select 1 from mn_risk_matter r where r.id = e.host_id)
+    returning id`;
+  if (swept.length) console.log(`顺带清掉 ${swept.length} 条孤儿通知事件（宿主已不存在）`);
+
+  // 逐个 try：一个账号删不掉不该挡住其余账号（`dropSmokeAccount` 自己会报出是哪张表拦的）
+  for (const u of [outsider, follower, reporter, admin]) {
+    try {
+      await dropSmokeAccount(sql, u.id);
+    } catch (e) {
+      // 大声报错**并且让它影响退出码**：删不掉的账号就是下一轮 db:check C14 的红
+      fail++;
+      failedNames.push(`清场：账号 ${u.username} 删不掉`);
+      console.error(`清场：账号 ${u.username}（${u.id}）删不掉 —— ${e?.message ?? e}`);
+    }
+  }
+  console.log("清场完成");
+}
+
+// 顶层 await 抛错走 `unhandledRejection`；同步抛错走 `uncaughtException`。两条都要挂
+// （与 `smoke-import.mjs` 同一形态，理由见上：它等价于把整个脚本体包进 try/finally，
+//  而不必为此缩进 794 行）。
+for (const ev of ["unhandledRejection", "uncaughtException"]) {
+  process.on(ev, async (e) => {
+    console.error(
+      `\n冒烟中断：${e?.message ?? e}\n` +
+        `正在清场（4 个 mn_smoke_* 账号与夹具行不留库：它们的残留会毒到 db:check 的 C14）…`,
+    );
+    try {
+      await cleanup();
+    } catch (err) {
+      console.error(`清场也失败了 —— 库里会留下残留：${err?.message ?? err}`);
+    }
+    await sql.end({ timeout: 5 }).catch(() => {});
+    process.exit(1);
+  });
+}
 
 /** 上海业务日（`YYYY-MM-DD`）。时区断言与扫描夹具都按它算，不用本机时区 */
 function shanghaiDay(offsetDays = 0) {
@@ -271,10 +370,36 @@ ok(
   convEvents.length === 1,
   `事件数=${convEvents.length}`,
 );
+/**
+ * ⚠ **这条与消费次数对账，不写死 `=== 1`**（2026-10-14 排障结论；与 ⑧-4 同一条机制，
+ * 只是上界的算法不同）。机制：`pumpNotifications()` 挂在**每一个** `GET /api/notifications`
+ * 上，消费是"至少一次"、无锁（去重靠 `dedupe_key` 唯一键）。**另一个冒烟脚本同时在跑**时
+ * 它也会 GET 通知中心，于是同一行可能被消费两次以上 ⇒ `merge_count` 变大，
+ * 而**代码完全正确**（`agent-work/_probe-merge.mjs` 逐次打出过 `attempts=1→2`、
+ * `merge_count=1→3`）。
+ *
+ * 这里的上界为什么是 `2 × attempts − 1` 而不是 ⑥b 的 `attempts − 1`：
+ * `risk_converted` 一行展开出 **2 个 payload**，所以
+ *   · **首次**消费只吸收 1 条（另一条建出了事件本身），
+ *   · 之后每次消费把 2 条都吸收掉。
+ * ⇒ `merge_count = 2 × attempts − 1`（吸收与 `attempts` 的 +1 在**同一个事务**里，
+ * 所以两者不会互相漂移：要么都可见，要么都回滚）。
+ *
+ * 下界 `≥ 1` 是必须成立、也是这条断言真正独有的价值：把第二个 payload 丢掉时
+ * **"事件数 = 1"仍然绿**（重复被静默丢弃，而不是被聚合成一条）——只有这里会红。
+ * 反向红实测见报告 §②：注入"只处理第一个 payload"后本断言红、上面那条绿。
+ */
+const [convAgg] = await sql`
+  select e.merge_count, o.attempts
+  from mn_notification_event e
+  join mn_event_outbox o on o.batch_id = e.event_batch_id
+  where e.event_type = 'risk_converted' and e.host_id = ${riskId}`;
 ok(
-  "`merge_count = 1`（被吸收掉的原始条数，§7.2 口径）",
-  convEvents[0]?.merge_count === 1,
-  `merge_count=${convEvents[0]?.merge_count}`,
+  "`merge_count ≥ 1` 且不超过消费次数能解释的上界（被吸收掉的原始条数，§7.2 口径）",
+  convAgg !== undefined &&
+    convAgg.merge_count >= 1 &&
+    convAgg.merge_count <= 2 * convAgg.attempts - 1,
+  `merge_count=${convAgg?.merge_count} attempts=${convAgg?.attempts}`,
 );
 const repList3 = await call("GET", "/api/notifications", reporterC);
 const convItems = (repList3.body?.items ?? []).filter((i) => i.eventType === "risk_converted");
@@ -288,9 +413,27 @@ const [replayEvents] = await sql`
   select count(*)::int as n from mn_notification_event
   where event_type = 'new_comment' and host_id = ${riskId}`;
 ok("**重放后事件数不变**（dedupe_key 唯一键吸收）", replayEvents.n === 1, `n=${replayEvents.n}`);
+/**
+ * ⚠ **同样与消费次数对账，不写死 `=== 1`**（机制见上面 ② 那段注释）。
+ * 这一行的展开是 **1 个 payload** ⇒ 首次消费建事件（记 0），之后每次消费各吸收 1 条，
+ * 所以 `merge_count = attempts − 1`。
+ *
+ * 这里用 `<=` 而不是 ⑧-4 的 `===`：消费端**失败**那条路径也会 `attempts + 1`
+ * （`consumeOutbox` 的 catch），于是"某次尝试没吸收却记了一次尝试"会让恒等式差 1——
+ * 那是并发下的正常噪声，不是缺陷；而"多记一笔"（超过 attempts 能解释的量）照样红。
+ */
 const [replayRow] = await sql`
-  select merge_count from mn_notification_event where event_type = 'new_comment' and host_id = ${riskId}`;
-ok("`merge_count` 记下这次吸收", replayRow?.merge_count === 1, `merge_count=${replayRow?.merge_count}`);
+  select e.merge_count, o.attempts
+  from mn_notification_event e
+  join mn_event_outbox o on o.payload->>'comment_id' = ${commentId ?? null}
+  where e.event_type = 'new_comment' and e.host_id = ${riskId}`;
+ok(
+  "`merge_count` 记下这次吸收，且不超过消费次数能解释的上界",
+  replayRow !== undefined &&
+    replayRow.merge_count >= 1 &&
+    replayRow.merge_count <= replayRow.attempts - 1,
+  `merge_count=${replayRow?.merge_count} attempts=${replayRow?.attempts}`,
+);
 const [replayPub] = await sql`
   select published_at from mn_event_outbox where payload->>'comment_id' = ${commentId}`;
 ok("重放的行重新打上投递时间戳", replayPub?.published_at !== null);
@@ -489,48 +632,383 @@ ok("无关的人看案件详情 404（元规则 3）", outDetail.status === 404,
 const outList = await call("GET", "/api/notifications", outsiderC);
 ok("无关的人通知中心是空的", (outList.body?.items ?? []).length === 0 && outList.body?.unread === 0);
 
-/* ── 清场 ──────────────────────────────────────────────────────────────── */
-console.log(`\n══ 清场 ══`);
-const allUsers = [admin.id, reporter.id, follower.id, outsider.id].map(String);
-await sql`delete from mn_notification_delivery where user_id in ${sql(allUsers)}`;
-await sql`delete from mn_notification_delivery where event_id in (select id from mn_notification_event where host_id in ${sql([...riskIds, ...matterIds])})`;
-await sql`delete from mn_notification_event where host_id in ${sql([...riskIds, ...matterIds])}`;
-await sql`delete from mn_event_outbox where payload->>'risk_matter_id' in ${sql(riskIds)}`;
-await sql`delete from mn_event_outbox where payload->>'host_id' in ${sql(riskIds)}`;
-await sql`delete from mn_comment where target_id in ${sql([...riskIds, ...matterIds])}`;
-await sql`delete from mn_activity_log where matter_id in ${sql(matterIds)} or risk_matter_id in ${sql(riskIds)}`;
-await sql`delete from mn_matter_staff where matter_id in ${sql(matterIds)}`;
-await sql`delete from mn_risk_matter_staff where risk_matter_id in ${sql(riskIds)}`;
-await sql`delete from mn_matter_node where matter_id in ${sql(matterIds)}`;
-await sql`delete from mn_matter_party where matter_id in ${sql(matterIds)}`;
-await sql`delete from mn_risk_matter_party where risk_matter_id in ${sql(riskIds)}`;
-await sql`delete from mn_risk_matter_case where risk_matter_id in ${sql(riskIds)}`;
-await sql`delete from mn_matter where id in ${sql(matterIds)}`;
-await sql`delete from mn_risk_matter where id in ${sql(riskIds)}`;
-await sql`delete from mn_user_watch where user_id in ${sql(allUsers)}`;
-await sql`delete from mn_party where name like ${"冒烟回音对手方-" + stamp + "%"}`;
+/* ── ⑧ @提及（MATT-58 / T4b）：评论里 @ 到的人要真的收到 ─────────────────── */
+console.log(`\n══ ⑧ @提及：评论里 @ 某人 → 那个人收到一条 mention ══`);
 
 /**
- * **孤儿事件清扫**（范围外发现的副产物，2026-10-14）。
+ * 三个角色刚好覆盖 AC 的三句话，一个夹具不用另造：
  *
- * 本票把通知的**生产点**接进了 `changeStatus` / `addComment` 之后，**别的票的冒烟**
- * （批量改状态、转案件、发评论）也会经由这两条路径产生 `mn_notification_event` 行——
- * 而它们的清场脚本不认识这两张新表（`_cleanup_smoke_accounts.mjs` 认识
- * `mn_notification_delivery` / `mn_user_watch`，**不认识 event**，而 event 对
- * `app_user` 没有外键、宿主列也是多态的，所以谁都不会连带删它）。
+ * | 谁 | 与 riskId 的关系 | 用来钉什么 |
+ * |---|---|---|
+ * | `admin` | 负责人（L1），**评论作者** | 作者自己**不是**收件人 |
+ * | `reporter` | **创建人**，能看见 | 被 @ 且看得见 ⇒ 渲染出 `{quoted}` |
+ * | `outsider` | 无关（L3 self_operator），**看不见** | 被 @ 但看不见 ⇒ 占位、不发摘要 |
  *
- * 实测：反向红跑九轮之后库里积了 31 条宿主已经不存在的孤儿事件行。
- * 这里按"宿主没了就删"清掉：宿主还在的行**一定**不动（那是别人正在跑的夹具）。
+ * ⚠ `follower` 在这一步已经被移出关注人（上面第 ③ 段），所以他也看不见 riskId ——
+ * 但他**没被 @**，因此一条 mention 都不该有。这正是"收件人是被 @ 的那个人，
+ * 不是关注人"的反证。
+ *
+ * 显示名一律**从库里读**，不在脚本里重算 `冒烟临时账号 ${username.slice(-6)}` 那个公式：
+ * 公式抄一遍就多一处能与 `_testacct.mjs` 漂移的地方，而 @ 的匹配**全靠这个名字**。
  */
-const swept = await sql`
-  delete from mn_notification_event e
-  where not exists (select 1 from mn_matter m where m.id = e.host_id)
-    and not exists (select 1 from mn_risk_matter r where r.id = e.host_id)
-  returning id`;
-if (swept.length) console.log(`顺带清掉 ${swept.length} 条孤儿通知事件（宿主已不存在）`);
+const nameOf = async (id) => {
+  const [row] = await sql`select display_name from mn_app_user where id = ${id}`;
+  return row?.display_name ?? "";
+};
+const adminName = await nameOf(admin.id);
+const reporterName = await nameOf(reporter.id);
+const outsiderName = await nameOf(outsider.id);
+const followerName = await nameOf(follower.id);
+ok(
+  "夹具：四个账号的显示名互不相同（同名会让 @ 的归属无法判定）",
+  new Set([adminName, reporterName, outsiderName, followerName]).size === 4,
+  `${adminName} / ${reporterName} / ${outsiderName} / ${followerName}`,
+);
 
-for (const u of [outsider, follower, reporter, admin]) await dropSmokeAccount(sql, u.id);
-console.log("清场完成");
+const mentionEventsOf = async () =>
+  sql`select id, dedupe_key, recipient_count, merge_count, event_batch_id, payload
+      from mn_notification_event where event_type = 'mention' and host_id = ${riskId}
+      order by id`;
+const mentionItemsOf = async (cookie) => {
+  const r = await call("GET", "/api/notifications", cookie);
+  return { status: r.status, items: (r.body?.items ?? []).filter((i) => i.eventType === "mention"), raw: r.body };
+};
+
+/* ⑧-1 只 @ 一个"看不见这条事项"的人 —— 最干净地证明收件人不是关注人/创建人 */
+const cmA = await call("POST", `/api/risk-matters/${riskId}/comments`, adminC, {
+  body: `@${outsiderName} 冒烟：这条只点名了一位看不到本事项的同事`,
+});
+ok("⑧-1 发一条 @ 了看不见本事项的人的评论 201", cmA.status === 201, `status=${cmA.status}`);
+const cmAId = cmA.body?.id;
+
+const [cmARow] = await sql`select mention_ids from mn_comment where id = ${cmAId ?? null}`;
+ok(
+  "**@ 在库里的形态**：`mn_comment.mention_ids` 落的是被 @ 的 user id",
+  (cmARow?.mention_ids ?? []).map(String).join(",") === String(outsider.id),
+  `mention_ids=${JSON.stringify((cmARow?.mention_ids ?? []).map(String))} 期望=${outsider.id}`,
+);
+
+const [obA] = await sql`
+  select payload, published_at from mn_event_outbox
+  where payload->>'comment_id' = ${cmAId ?? null}`;
+ok(
+  "**@提及走既有 outbox**（与 new_comment 同一行，`comment_added`；不是新开的直发路径）",
+  obA !== undefined && obA.published_at === null,
+  `outbox 行=${obA === undefined ? "无" : "有"} published_at=${obA?.published_at}`,
+);
+ok(
+  "被 @ 的人随 outbox payload 一起落库（重放时不再二次解析正文）",
+  (obA?.payload?.mention_ids ?? []).map(String).join(",") === String(outsider.id),
+  `payload.mention_ids=${JSON.stringify(obA?.payload?.mention_ids)}`,
+);
+
+const [evBeforeMention] = await sql`
+  select count(*)::int as n from mn_notification_event
+  where event_type = 'mention' and host_id = ${riskId}`;
+ok("**不直发**：评论刚写完时还没有 mention 事件", evBeforeMention.n === 0, `n=${evBeforeMention.n}`);
+
+const pumpA = await call("GET", "/api/notifications", adminC);
+ok("⑧-1 轮询（GET 通知中心）200", pumpA.status === 200, `status=${pumpA.status}`);
+
+const evA = await mentionEventsOf();
+ok("**评论里 @ 某人 → 库里多出一条 mention 事件**", evA.length === 1, `事件数=${evA.length}`);
+ok(
+  "**收件人是被 @ 的那个人**（不是负责人/作者、不是创建人、不是关注人）",
+  evA[0]?.recipient_count === 1,
+  `recipient_count=${evA[0]?.recipient_count}`,
+);
+/**
+ * ⚠ **不能写 `event_id = ${evA[0]?.id}`** —— 锚点被注入拆掉时 `evA` 是空的，
+ * 而 postgres.js 对模板里的 `undefined` 直接抛 `UNDEFINED_VALUE`：
+ * 冒烟**崩在中间**，⑧ 段后面那些断言一条都跑不到，账号也留在库里。
+ *
+ * 实测踩过：`mention-drop` / `mention-parse-off` 两轮反向红就是这样"崩溃红"的
+ * （见 `agent-work/_revred-mention-out/*.red.txt` 的 `UNDEFINED_VALUE`，以及它留下的
+ * 4 个 `mn_smoke_*` 账号把 `db:check` 的 C14 弄红）。反向红要的是**断言红**：
+ * 宁可这里取到 0 行、断言如实变红，也不要让脚本半路死掉。
+ */
+const delivA = evA[0]
+  ? await sql`select user_id, status, error from mn_notification_delivery where event_id = ${evA[0].id}`
+  : [];
+ok(
+  "投递行只有被 @ 的那一个人（作者 admin 与创建人 reporter 都不在其中）",
+  delivA.length === 1 && String(delivA[0].user_id) === String(outsider.id),
+  `投递=${delivA.map((d) => `${d.user_id}:${d.status}`).join(",")}`,
+);
+
+const outMention = await mentionItemsOf(outsiderC);
+ok(
+  "**被 @ 的人看不到宿主 → 走不可见降级占位**（行还在，不隐藏整行）",
+  outMention.items.length === 1 && outMention.items[0].visible === false,
+  `items=${outMention.items.length} visible=${outMention.items[0]?.visible}`,
+);
+ok(
+  "占位行标题是「无权查看的记录」",
+  outMention.items[0]?.title === "无权查看的记录",
+  `title=${outMention.items[0]?.title}`,
+);
+ok(
+  "**占位行不发摘要字段**（body / hostId 都是 null）",
+  outMention.items[0]?.body === null && outMention.items[0]?.hostId === null,
+);
+ok(
+  "**摘要一个字节都没漏**：被 @ 的评论片段不出现在响应里",
+  !JSON.stringify(outMention.raw ?? {}).includes("这条只点名了一位看不到本事项的同事"),
+);
+ok(
+  "占位行**不算未读**（未读计数按可见行计，与既有口径一致）",
+  (outMention.raw?.unread ?? -1) === 0,
+  `unread=${outMention.raw?.unread}`,
+);
+const adminMention = await mentionItemsOf(adminC);
+ok("评论作者自己**不是**收件人（@ 不是「我发的所以我收到」）", adminMention.items.length === 0, `items=${adminMention.items.length}`);
+const reporterMentionBefore = await mentionItemsOf(reporterC);
+ok("没被 @ 的创建人此刻**没有** mention（收件人 ≠ 创建人）", reporterMentionBefore.items.length === 0);
+const followerMention = await mentionItemsOf(followerC);
+ok("没被 @ 的关注人**没有** mention（收件人 ≠ 关注人）", followerMention.items.length === 0);
+
+/* ⑧-2 一条评论里 @ 两个人 —— 同一批的多个 @ 怎么算 */
+const cmB = await call("POST", `/api/risk-matters/${riskId}/comments`, adminC, {
+  body: `@${reporterName} @${outsiderName} 冒烟：同一批里点了两个人`,
+});
+ok("⑧-2 一条评论里 @ 两个人 201", cmB.status === 201, `status=${cmB.status}`);
+const cmBId = cmB.body?.id;
+const [cmBRow] = await sql`select mention_ids from mn_comment where id = ${cmBId ?? null}`;
+ok(
+  "**多个 @ 按出现顺序落库**（不是集合，顺序是排障时的第一手证据）",
+  (cmBRow?.mention_ids ?? []).map(String).join(",") === `${reporter.id},${outsider.id}`,
+  `mention_ids=${JSON.stringify((cmBRow?.mention_ids ?? []).map(String))}`,
+);
+await call("GET", "/api/notifications", adminC);
+const evB = await mentionEventsOf();
+ok(
+  "**同一批（同一条评论）的多个 @ 合成 1 条事件**，不是一人一条",
+  evB.length === 2,
+  `事件数=${evB.length}（期望 2：⑧-1 一条 + ⑧-2 一条）`,
+);
+ok(
+  "⑧-2 那条事件的收件人数 = 2（被 @ 的两个人）",
+  evB[1]?.recipient_count === 2,
+  `recipient_count=${evB[1]?.recipient_count}`,
+);
+ok(
+  "两条事件的 `dedupe_key` 不同（batch_id 不同：一条评论 = 一次业务操作）",
+  evB[0]?.dedupe_key !== evB[1]?.dedupe_key,
+);
+ok(
+  "**`dedupe_key` 口径与同批聚合一致**：`mention:<宿主 id>:<event_batch_id>:<收件人摘要>`",
+  typeof evB[1]?.dedupe_key === "string" &&
+    evB[1].dedupe_key.startsWith(`mention:${riskId}:`) &&
+    evB[1].dedupe_key.includes(String(evB[1].event_batch_id)),
+  `dedupe_key=${evB[1]?.dedupe_key}`,
+);
+
+const repMention = await mentionItemsOf(reporterC);
+ok(
+  "**被 @ 且看得见的人收到一条 mention**（可见，不是占位）",
+  repMention.items.length === 1 && repMention.items[0].visible === true,
+  `items=${repMention.items.length} visible=${repMention.items[0]?.visible}`,
+);
+ok(
+  "mention 标题带**评论作者**的名字（模板 `{actor}`）",
+  typeof repMention.items[0]?.title === "string" && repMention.items[0].title.includes(adminName),
+  `title=${repMention.items[0]?.title}`,
+);
+ok(
+  "**`{quoted}` 有真实来源**：正文带评论片段",
+  typeof repMention.items[0]?.body === "string" &&
+    repMention.items[0].body.includes("同一批里点了两个人"),
+  `body=${repMention.items[0]?.body}`,
+);
+ok(
+  "占位符被真正替换（正文里不残留字面 `{quoted}` / `{name}` / `{code}`）",
+  typeof repMention.items[0]?.body === "string" &&
+    !/\{(quoted|name|code|actor)\}/.test(`${repMention.items[0].title}${repMention.items[0].body}`),
+  `body=${repMention.items[0]?.body}`,
+);
+ok(
+  "同一批的 new_comment 照常发出（规则 8 的口径没被本票改动）",
+  (await call("GET", "/api/notifications", reporterC)).body?.items?.some(
+    (i) => i.eventType === "new_comment",
+  ) === true,
+);
+
+/* ⑧-3 普通评论不产生 mention（回归锁：别把每个 `@` 都当成提及） */
+const cmC = await call("POST", `/api/risk-matters/${riskId}/comments`, adminC, {
+  body: "冒烟：这条评论一个 @ 都没有，不该产生 mention",
+});
+ok("⑧-3 发一条没有 @ 的评论 201", cmC.status === 201, `status=${cmC.status}`);
+const [obC] = await sql`
+  select payload from mn_event_outbox where payload->>'comment_id' = ${cmC.body?.id ?? null}`;
+ok(
+  "没有 @ 时 `mention_ids` 是空数组（不是缺字段）",
+  Array.isArray(obC?.payload?.mention_ids) && obC.payload.mention_ids.length === 0,
+  `mention_ids=${JSON.stringify(obC?.payload?.mention_ids)}`,
+);
+await call("GET", "/api/notifications", adminC);
+ok("普通评论**不产生** mention 事件", (await mentionEventsOf()).length === 2);
+
+/* ⑧-4 至少一次语义：重放同一条 outbox 行不产生第二条 mention */
+await sql`update mn_event_outbox set published_at = null where payload->>'comment_id' = ${cmBId ?? null}`;
+await call("GET", "/api/notifications", adminC);
+const evReplay = await mentionEventsOf();
+ok("**重放后 mention 事件数不变**（dedupe_key 唯一键吸收）", evReplay.length === 2, `n=${evReplay.length}`);
+/**
+ * ⚠ **这条断言刻意写成"与消费次数对账"，不写死 `=== 1`**（2026-10-14 排障结论）。
+ *
+ * `pumpNotifications()` 挂在**每一个** `GET /api/notifications` 上，而消费是"至少一次"语义、
+ * 没有锁（这是设计：去重靠 `dedupe_key` 唯一键）。所以只要**另一个冒烟脚本同时在跑**
+ * （它也会 GET 通知中心），我在这里手工重置的那一行就可能被两个请求同时选中、
+ * 被消费两次 —— `merge_count` 于是变成 2 或 3，而**代码完全正确**。
+ *
+ * 实测证据：反向红六轮里有 3 轮的"复绿"跑出 `merge_count=2/3`（红的却是 T4 的断言），
+ * 而紧接着连跑三次冒烟 93/0/93/0/93/0 全绿；`agent-work/_probe-merge.mjs` 单跑时
+ * 逐次打出 `attempts=1→2`、`merge_count=0→1`，证明机制本身是一次消费一次记账。
+ *
+ * 所以这里钉的是**恒等式**：`merge_count === attempts - 1`（首次消费建事件记 0，
+ * 之后每次消费各吸收 1 条）。它比写死 1 更强——并发多消费一次也照样成立，
+ * 而"漏记一笔"或"多记一笔"都躲不过。
+ */
+const [mentionReplayRow] = await sql`
+  select e.merge_count, o.attempts
+  from mn_notification_event e, mn_event_outbox o
+  where e.event_type = 'mention' and e.host_id = ${riskId}
+    and o.payload->>'comment_id' = ${cmBId ?? null}
+  order by e.id desc limit 1`;
+ok(
+  "被吸收的那条记进 `merge_count`（§7.2：被本事件吸收掉的原始条数 = 消费次数 − 1）",
+  mentionReplayRow !== undefined &&
+    mentionReplayRow.merge_count >= 1 &&
+    mentionReplayRow.merge_count === mentionReplayRow.attempts - 1,
+  `merge_count=${mentionReplayRow?.merge_count} attempts=${mentionReplayRow?.attempts}`,
+);
+const repMention2 = await mentionItemsOf(reporterC);
+ok("重放后收件人**不会**多出一条 mention", repMention2.items.length === 1, `items=${repMention2.items.length}`);
+
+/* ── ⑧-5 §7.2 合并规则 1：同一个人既关注又被 @ ⇒ 恰好 1 条 ─────────────── */
+console.log(`\n══ ⑧-5 合并规则 1：关注人 / 创建人同时被 @ 只出 1 条 ══`);
+
+/**
+ * 这一批（= 一次业务操作）里的全部事件与投递行，用来回答
+ * "**这个人在这一批里收到了几条**"——`mention` 与 `new_comment` 共用一行 outbox，
+ * 所以 `event_batch_id` 就是判定"同一批"的唯一依据（§7.2 合并规则 1 的条件）。
+ */
+const batchRowsOf = async (commentId) =>
+  sql`select e.event_type, e.id as event_id, d.user_id, d.status
+      from mn_notification_event e
+      left join mn_notification_delivery d on d.event_id = e.id
+      where e.event_batch_id =
+        (select batch_id from mn_event_outbox where payload->>'comment_id' = ${commentId ?? null})
+      order by e.id, d.user_id`;
+
+/**
+ * ⚠ 这一段的夹具**故意让两个身份重叠**。裁定依据是 §7.2 的「问题」那句
+ * ——「同一用户可同时是负责人+关注人+**被 @**；……原设计会产生成倍重复推送」——
+ * 与它下面两条合并规则：
+ *   · 规则 1「同一 `event_batch_id` 内，同一收件人只出 1 条事件」：条件只有**批次 + 收件人**，
+ *     `event_type` 不在条件里（括号里的"归档+通知+节点"也是三种 type）；
+ *   · 规则 2「命中角色重叠（owner ∩ follower ∩ **mention**）→ 收件人集合去重到 user 级」：
+ *     括号里直接把 `mention` 列进了重叠集合。
+ * 所以"既是关注人又被 @"的同事**只收 1 条**：他收更具体的 `mention`，不再重复收广播。
+ *
+ * 断言钉在**投递行数**上而不是"通知中心里有几条"：后者会被别的批次的同类型通知稀释，
+ * 而合并规则 1 的条件恰恰是"同一 `event_batch_id` 内"。
+ */
+const reAddF = await call("POST", `/api/risk-matters/${riskId}/staff/followers`, adminC, {
+  userIds: [String(follower.id)],
+});
+ok(
+  "⑧-5 把 follower 加回关注人 200（他从此同时是：关注人 + 被 @）",
+  reAddF.status === 200,
+  `status=${reAddF.status} ${JSON.stringify(reAddF.body)?.slice(0, 80)}`,
+);
+
+const cmD = await call("POST", `/api/risk-matters/${riskId}/comments`, adminC, {
+  body: `@${followerName} 冒烟：同一个人既是关注人又被 @`,
+});
+ok("⑧-5 发一条 @ 了关注人的评论 201", cmD.status === 201, `status=${cmD.status}`);
+const cmDId = cmD.body?.id;
+await call("GET", "/api/notifications", adminC);
+
+const batchD = await batchRowsOf(cmDId);
+const followerBatch = batchD.filter((r) => String(r.user_id) === String(follower.id));
+ok(
+  "**§7.2 合并规则 1**（同一 `event_batch_id` 内同一收件人只出 1 条事件）：既是关注人又被 @ 的同事**恰好 1 条**通知",
+  followerBatch.length === 1 && followerBatch[0]?.event_type === "mention",
+  `该批内 follower 的投递=${followerBatch.map((r) => `${r.event_type}:${r.status}`).join(",") || "无"}`,
+);
+ok(
+  "那 1 条是 **`mention`**（更具体的那条：点了名 + 带 `{quoted}`），不是广播 `new_comment`",
+  followerBatch[0]?.event_type === "mention" && followerBatch[0]?.status === "sent",
+  `event_type=${followerBatch[0]?.event_type} status=${followerBatch[0]?.status}`,
+);
+ok(
+  "**没被 @ 的创建人照常收 `new_comment`**（规则 8 的档位没被减，减掉的只是被 @ 的那个人）",
+  batchD.some((r) => r.event_type === "new_comment" && String(r.user_id) === String(reporter.id)),
+  `该批 new_comment 的收件人=${batchD.filter((r) => r.event_type === "new_comment").map((r) => r.user_id).join(",")}`,
+);
+
+/**
+ * ⑧-5b 是 ⑧-5 的**镜像**：这次让"创建人"落在重叠集合里。
+ * 两句合起来才覆盖 §7.2 规则 2 括号里的 `owner ∩ follower ∩ mention` 那个交集形态，
+ * 同时也证明了**没被 @ 的关注人照常收广播**（本票只减 `mention_ids` 里的那几个人）。
+ */
+const cmE = await call("POST", `/api/risk-matters/${riskId}/comments`, adminC, {
+  body: `@${reporterName} 冒烟：只点名创建人，关注人没被点`,
+});
+ok("⑧-5b 发一条 @ 了创建人的评论 201", cmE.status === 201, `status=${cmE.status}`);
+const cmEId = cmE.body?.id;
+await call("GET", "/api/notifications", adminC);
+
+const batchE = await batchRowsOf(cmEId);
+const reporterBatchE = batchE.filter((r) => String(r.user_id) === String(reporter.id));
+ok(
+  "**§7.2 合并规则 1**：既是创建人又被 @ 的同事同样**恰好 1 条**（同一收件人在同一批只出一条事件）",
+  reporterBatchE.length === 1 && reporterBatchE[0]?.event_type === "mention",
+  `该批内 reporter 的投递=${reporterBatchE.map((r) => `${r.event_type}:${r.status}`).join(",") || "无"}`,
+);
+ok(
+  "**没被 @ 的关注人照常收 `new_comment`**（本票没把规则 8 改成\"被 @ 就不再广播\"）",
+  batchE.some((r) => r.event_type === "new_comment" && String(r.user_id) === String(follower.id)),
+  `该批 new_comment 的收件人=${batchE.filter((r) => r.event_type === "new_comment").map((r) => r.user_id).join(",")}`,
+);
+
+/* ── 清场 ──────────────────────────────────────────────────────────────── */
+/**
+ * ③ 崩溃路径探针（默认关闭）。用它**一条命令**验证"断言一抛错也会清场"：
+ *
+ *   SMOKE_ABORT_BEFORE_CLEANUP=1 node --env-file=.env agent-work/smoke-notifications.mjs
+ *   ⇒ 应当打印「冒烟中断 …」+「清场完成」，退出码 1，且
+ *      `node --env-file=.env agent-work/_probe-smoke-residue.mjs` 显示 0 残留。
+ *
+ * 为什么留着它而不是"临时改一行再改回来"：这条路径**只有崩的时候才走到**，
+ * 而它正是范围外发现 4 的现场（残留账号毒到 db:check 的 C14）。
+ * 一个需要人工改代码才能复现的守护，等于没有守护——留着开关，它才是可复验的。
+ */
+if (process.env.SMOKE_ABORT_BEFORE_CLEANUP === "1") {
+  throw new Error("③ 探针：故意在清场之前中断（验证 unhandledRejection 清场路径）");
+}
+
+await cleanup();
+
+/**
+ * 残留断言。**它盯的正是那个"毒到别的 check 项"的失败形态**：
+ * 账号（尤其 `is_admin` 的那个）留在库里，症状却出现在 `db:check` 的 C14 上。
+ * 与 `smoke-import.mjs` 末尾那条残留断言同一姿态——清场写完不算数，
+ * 要有一个当场看得见的数字证明它真的干净了。
+ */
+const [residue] = await sql`
+  select
+    (select count(*)::int from mn_app_user where id in ${sql(smokeUserIds)}) as users,
+    (select count(*)::int from mn_event_outbox
+       where payload->>'risk_matter_id' in ${sql(riskIds)} or payload->>'host_id' in ${sql(riskIds)}) as outbox,
+    (select count(*)::int from mn_notification_event
+       where host_id in ${sql([...riskIds, ...matterIds])}) as events`;
+ok(
+  "清场：临时账号 / 夹具 outbox 行 / 夹具通知事件都不在库里了（残留会毒到 db:check C14）",
+  residue.users === 0 && residue.outbox === 0 && residue.events === 0,
+  `账号=${residue.users} outbox=${residue.outbox} 事件=${residue.events}`,
+);
 
 await sql.end();
 console.log(`\n${fail === 0 ? "✅ 全绿" : "❌ 有红"}：${pass} 通过 / ${fail} 失败`);

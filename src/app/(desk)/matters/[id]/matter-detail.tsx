@@ -690,7 +690,7 @@ function LogTab({
             maxLength={2000}
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder="记录一个结论、一次沟通，或一个待确认的点"
+            placeholder="记录一个结论、一次沟通，或一个待确认的点；用 @姓名 提及同事"
           />
           <Button
             type="primary"

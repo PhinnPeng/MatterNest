@@ -100,9 +100,17 @@ export async function dropSmokeAccount(sql, userId) {
   // ⚠ 顺序：投递行先删。`mn_notification_event` 是**事件**（挂在宿主上，不挂人），
   //   所以不在这里删——删事件要连带它的业务语义，那是业务行，不是"这个账号的数据"。
   //   只删投递（"通知发给谁"）与关注（"谁关注了什么"）这两张按用户派生的表。
+  //
+  // ⚠ `mn_import_batch` 是**后补的第三张**（迁移 0013，MATT-44）。它指着操作人，
+  //   但**没有外键**（与 `mn_activity_log.operator_id` 同口径：审计物不指人），
+  //   所以删不掉账号这件事**不会报错** —— 只会留下一批指向不存在账号的批次记录。
+  //   没有外键不等于不用清：那正是"新表要有人回头补清场清单"最容易被漏掉的一种
+  //   （有外键的会被 PG 当场拦住，没外键的只会静静攒着）。
+  //   `mn_import_row` 随批次 CASCADE（迁移 0013 的外键动作），这里不用单独删。
   await sql`delete from mn_activity_log where operator_id = ${userId}`;
   await sql`delete from mn_notification_delivery where user_id = ${userId}`;
   await sql`delete from mn_user_watch where user_id = ${userId}`;
+  await sql`delete from mn_import_batch where created_by = ${userId}`;
 
   // 2) 可空的归属列：只解除引用，不动业务行
   await sql`update mn_matter_node set owner_id = null where owner_id = ${userId}`;

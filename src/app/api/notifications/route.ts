@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE } from "@/shared/schema/list-query";
 import { json, query, withActor } from "@/app/lib/server/http";
+import { scanArchiveIncomplete } from "@/app/lib/server/services/archive-reminder";
 import {
   listNotifications,
   pumpNotifications,
@@ -37,7 +38,21 @@ export async function GET(req: Request) {
   const parsed = await query(req, listSchema);
   if (!parsed.ok) return parsed.res;
   return withActor(async (actor) => {
+    /**
+     * **轮询点在这里，不在服务层。** 一期没有调度器（单副本、不引 Redis），
+     * 所以每个"定时/规则类"的扫描都由这个读请求推动——本行就是那个推动点。
+     *
+     * ⚠ **新增一个扫描器时，必须加在这个函数里**，否则它会变成"写好了但没人调用"，
+     * 而那种形态与"没人该收"在库里长得一模一样（零事件）。当前有三个：
+     *   · `pumpNotifications()` —— 抽干 outbox + 节点到期扫描（T4）
+     *   · `scanArchiveIncomplete()` —— 规则 9：结案材料不全（MATT-43 / T5b）
+     *
+     * 为什么规则 9 不并进 `pumpNotifications()`：那会形成
+     * `services/notifications.ts ↔ services/archive-reminder.ts` 的循环 import。
+     * 两个都是幂等的（`dedupe_key` + 冷却期），重复触发只是白跑几次索引扫描。
+     */
     await pumpNotifications();
+    await scanArchiveIncomplete();
     const page = await listNotifications(actor, {
       page: parsed.data.page,
       pageSize: parsed.data.pageSize,

@@ -32,13 +32,93 @@ export const TRIGGER_TARGET_BY_TYPE: Record<TriggerType, readonly string[]> = {
   node_before_end: ["matter_node", "risk_matter_node"],
   event_occurred: ["matter", "risk_matter"],
 };
+/**
+ * `mn_automation_rule.trigger_target_type` 的落库值域（迁移 0012 的 CHECK）。
+ *
+ * ⚠ **它比 §2.1 那行多一个 `all`**，这不是笔误：
+ * §2.1 给的是 `matter / risk_matter / matter_node / risk_matter_node` 四值，
+ * 而 §2.3 的规则清单里规则 1/2/5/6/8 的 `host_type` 是 `all`、触发实体写的是"宿主"——
+ * 四值域表达不了"这条规则的触发实体是**两条宿主线**"这件事。
+ * 硬塞一个具体值（比如 `matter`）会让行里写着"声明触发实体 = 案件"而规则实际也吃事项，
+ * 而 `scope_key` 又完全建立在这个值上（唯一约束的判定依据）⇒ 宁可把 `all` 显式登记出来。
+ *
+ * 它是 E03 的**真超集**（多 `all`），所以**不能**挂到 E03 的落点上——
+ * 登记为 `STRUCT_REGISTRY` 的独立一行，由 `enum-check` 双向核。
+ */
+export const TRIGGER_TARGET_TYPES = [
+  "all",
+  "matter",
+  "risk_matter",
+  "matter_node",
+  "risk_matter_node",
+] as const;
+export type TriggerTargetType = (typeof TRIGGER_TARGET_TYPES)[number];
+/** 中文名与 E03 的 `TARGET_TYPE_LABELS` 逐字相同（同一批概念，不另造叫法） */
+export const TRIGGER_TARGET_TYPE_LABELS: Record<TriggerTargetType, string> = {
+  all: "两类宿主",
+  matter: "案件",
+  risk_matter: "事项",
+  matter_node: "案件节点",
+  risk_matter_node: "事项节点",
+};
+
+/**
+ * `mn_automation_rule.host_type`（修订稿 §2.1 的表 + §2.3 的规则清单）。
+ *
+ * ⚠ **它与 E08/E10 的 `host_type` 不是同一个值域**：多一个 `all`。
+ * `status_config.host_type` / `node_type_config.host_type` 是"这行属于哪条宿主线"，
+ * 必须二选一；而规则的 `host_type` 回答的是"这条规则作用于哪类宿主"，
+ * 而规则 1/2/5/6/8 同时作用于两类 ⇒ 必须有 `all`。
+ *
+ * 不去共用 `HOST_TYPES` 再加个 `all`：那会把"配置行的宿主"与"规则的作用域"合成一套，
+ * 而 E08/E10 的 CHECK 里出现 `all` 是**错的**（状态配置不可能属于"全部宿主"这一档）。
+ * 两套值域各自登记在 `STRUCT_REGISTRY` 里，`enum-check` 双向核。
+ */
+export const RULE_HOST_TYPES = ["all", "matter", "risk_matter"] as const;
+export type RuleHostType = (typeof RULE_HOST_TYPES)[number];
+export const RULE_HOST_TYPE_LABELS: Record<RuleHostType, string> = {
+  all: "全部",
+  matter: "仅案件",
+  risk_matter: "仅事项",
+};
+/** 规则 3/4 的收窄值（IQ-9/Q37）：写出来是为了让"仅案件"这件事在代码里可被断言 */
+export const RULE_HOST_MATTER_ONLY: RuleHostType = "matter";
+
+/**
+ * `trigger_config` 里取 `int()` 的键（§4.4 归一化规则 5）。
+ *
+ * 只有这三个是"天数/偏移量"语义。漏登记一个的后果是**唯一约束可被绕过**：
+ * `{days:3}` 与 `{days:"03"}` 会算出两个 key，于是同域同动作能插两条。
+ */
+export const TRIGGER_CONFIG_NUMERIC_KEYS: readonly string[] = [
+  "days",
+  "offset_days",
+  "cooldown_days",
+];
+
 /** `trigger_config` 的键按 trigger_type 一对一（§4.1）：未知键一律拒绝保存 */
 export const TRIGGER_CONFIG_KEYS: Record<TriggerType, readonly string[]> = {
   status_changed: ["status_code"],
-  time_no_progress: ["days"],
+  // `status_code` 是 IQ-16 给规则 9 加的那一个（枚举表 §4.1 末段）：
+  // `time_no_progress` 原本只认 `days`，于是"结案后 14 天"无法表达
+  time_no_progress: ["days", "status_code"],
   node_before_start: ["days"],
   node_before_end: ["days"],
   event_occurred: ["event"],
+};
+/**
+ * 上表里**可选**的键（缺省即"不限"）。`TRIGGER_CONFIG_KEYS` 是白名单，
+ * 这一份回答"哪些可以不给"——两者分开写是因为"未知键拒绝"与"必填键缺失拒绝"
+ * 是两条不同的校验，合成一条就会把 `{days:14}`（合法的"任意状态"形态）判成缺参。
+ *
+ * ⚠ `status_changed` 的 `status_code` 也是可选的，这一条是**实测撞出来的**：
+ * §4.1 的示例把它写成 `{ "status_code": "closed" }`（看着像必填），
+ * 而 §2.3 的规则 2 就是 `{}`（任意状态变更）——两者只有把"可选"显式登记下来才不打架。
+ * `preset-rules.seed.spec.ts` 有一条断言逐条核这件事。
+ */
+export const TRIGGER_CONFIG_OPTIONAL_KEYS: Partial<Record<TriggerType, readonly string[]>> = {
+  status_changed: ["status_code"],
+  time_no_progress: ["status_code"],
 };
 /** §4.1 校验：`days` 为 1..365 整数 */
 export const TRIGGER_DAYS_RANGE = { min: 1, max: 365 } as const;

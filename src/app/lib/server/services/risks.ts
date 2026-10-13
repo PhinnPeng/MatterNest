@@ -46,7 +46,12 @@ import { hostStatusRows, initialStatusCode } from "./statuses";
 import { logActivity } from "./activity";
 // 通知意图的两个生产点（MATT-41 / T4）：状态变更**同事务**落事件，新评论**只落 outbox**。
 // 两者都不在业务事务里做"投递"这个动作本身 —— 见 services/notifications.ts 文件头。
-import { enqueueCommentIntent, notifyStatusChanged, quoteOf } from "./notifications";
+import {
+  enqueueCommentIntent,
+  notifyStatusChanged,
+  quoteOf,
+  resolveMentionIds,
+} from "./notifications";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -1220,6 +1225,8 @@ export async function addRiskComment(
     .limit(1);
   if (!visible) return null;
   const id = BigInt(nextId());
+  // @提及在事务外解析（候选人是全体在职账号，与这次写入无一致性要求）。与案件侧同一口径
+  const mentionIds = await resolveMentionIds(db, body);
   await db.transaction(async (tx) => {
     await tx.insert(comment).values({
       id,
@@ -1227,6 +1234,8 @@ export async function addRiskComment(
       targetId: BigInt(riskId),
       body,
       parentId: parentId ? BigInt(parentId) : null,
+      // 列注「通知链路将来靠它展开」的落点（基线 0000 就有这一列）
+      mentionIds: mentionIds.map(BigInt),
       authorId: BigInt(actor.userId),
       createdBy: BigInt(actor.userId),
       updatedBy: BigInt(actor.userId),
@@ -1244,6 +1253,7 @@ export async function addRiskComment(
       hostId: BigInt(riskId),
       commentId: id,
       quoted: quoteOf(body),
+      mentionIds,
     });
   });
   return { id: String(id) };

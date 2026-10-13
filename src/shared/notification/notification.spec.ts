@@ -277,3 +277,9 @@ describe("上报人回音（IQ-13-V5：走 receivers 加 creator，不入关注�
  * 而禁令① 不允许 `src/shared/**` 碰 Node API（`node:fs`）。
  * 放在 shared 里会被 eslint 当场拦下（这条注释就是那次拦截留下的）。
  */
+
+/**
+ * **@提及解析的锁也不在这里**：`mention.spec.ts` 单独一个文件。
+ * 理由是实测出来的——并行票改坏 `notification/preset-rules.ts` 时本文件在 import
+ * 阶段就炸，一条断言都跑不到；零依赖的纯函数不该被通知管线的加载失败连坐。
+ */
