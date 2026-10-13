@@ -66,6 +66,17 @@ export async function createSmokeAccount(sql, { roles, isAdmin = false, suffix =
  * 三类，分别对应三种后果：
  *
  * 1. **自己的审计痕迹**（`mn_activity_log`）→ 直接删。删的是这个账号自己写的行。
+ *    同类的还有**两张按用户派生的新表**（迁移 0010 带来的）：
+ *    `mn_notification_delivery`（投递到某人的通知）与 `mn_user_watch`（某人的关注清单）。
+ *    它们不是业务记录，是**这个账号自己的数据**，所以与审计痕迹同一处置。
+ *
+ *    ⚠ 这两条是**后补的**，补的原因值得记：0010 给 `mn_notification_delivery.user_id`
+ *    加了 NOT NULL + RESTRICT 的外键，而本函数当时不认识它 ⇒ **任何触发真实通知的冒烟**
+ *    （转案件触发规则 7、加关注人触发规则 2/8）都会在这个账号名下留一行投递，
+ *    于是账号删不掉、**每轮攒一个孤儿账号**。实测症状出现在**别的**冒烟上
+ *    （`smoke-risk` 报 `mn_notification_delivery_user_id_mn_app_user_id_fk`），
+ *    而根因在通知管线——这正是"新表要有人回头补清场清单"的典型漏点。
+ *    教训：**加一张引用 `mn_app_user` 的表，就要回来看看这份清单**。
  * 2. **可空的归属列**（`mn_matter_node.owner_id`、`mn_risk_matter.owner_id`、
  *    `mn_risk_matter_node.owner_id`）→ 置 NULL。业务行留着，只解除引用。
  * 3. **NOT NULL 的归属列**（`mn_matter.owner_id`、`mn_matter.created_by`、
@@ -84,8 +95,14 @@ export async function createSmokeAccount(sql, { roles, isAdmin = false, suffix =
 export async function dropSmokeAccount(sql, userId) {
   if (userId === undefined || userId === null) return;
 
-  // 1) 自己的审计痕迹
+  // 1) 自己的审计痕迹 + **按用户派生的两张表**（迁移 0010 带来的）
+  //
+  // ⚠ 顺序：投递行先删。`mn_notification_event` 是**事件**（挂在宿主上，不挂人），
+  //   所以不在这里删——删事件要连带它的业务语义，那是业务行，不是"这个账号的数据"。
+  //   只删投递（"通知发给谁"）与关注（"谁关注了什么"）这两张按用户派生的表。
   await sql`delete from mn_activity_log where operator_id = ${userId}`;
+  await sql`delete from mn_notification_delivery where user_id = ${userId}`;
+  await sql`delete from mn_user_watch where user_id = ${userId}`;
 
   // 2) 可空的归属列：只解除引用，不动业务行
   await sql`update mn_matter_node set owner_id = null where owner_id = ${userId}`;
