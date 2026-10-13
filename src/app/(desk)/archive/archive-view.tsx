@@ -79,6 +79,10 @@ export function ArchiveView() {
     // 换宿主回第一页；关键词也不沿用——案件搜的是案号/案由，事项搜的是编号/措施
     params.delete("page");
     params.delete("keyword");
+    // 「缺材料」同样只在案件侧有意义（材料完整要求不对事项成立，见 `archive-readiness.ts`）。
+    // 事项侧那条 schema 不是 strict，所以带过去**不会 400**——它会静默剥离，
+    // 于是参数留在 URL 上、筛选器却不渲染（用户既看不见也清不掉）。静默残留比报错更难查。
+    if (next !== "matter") params.delete("missingMaterials");
     const q = params.toString();
     router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
   }
