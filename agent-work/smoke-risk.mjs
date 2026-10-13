@@ -185,10 +185,57 @@ try {
   // 不按演示用户名去库里捞——那条路径依赖 seed 的演示账号，F1 之后已经不该存在。
   const u = { id: String(smoke2.id) };
   ok("拿到一个与创建人不同的用户作为新经办人", u.id !== String(smoke.id), `创建人=${smoke.id} 新=${u.id}`);
+
+  // ---- 7b. 护栏 1 的失败用例：**越权改归属**（MATT-11 的 AC）----
+  //
+  // 为什么必须有一条真 HTTP 的失败断言：`ownsAttribution` 有单测（`guards.spec.ts` 四条），
+  // 但单测只证明"这个判定函数算得对"——它证明不了**服务层真的调了它**。
+  // 把守卫从 `updateRiskMatter` 里摘掉，单测照样全绿，而任何看得见这条记录的人
+  // （L2/L3 的非经办人）都能把经办人改成自己。这一条就是钉那个的。
+  //
+  // ⚠ 三个前置条件，缺一个这条断言就会测错东西（本轮三个都踩过）：
+  //  1. **操作者得看得见这条记录**，否则拿到的是 404（可见性语义）而不是 403。
+  //     `smoke2` 是 L2、且此刻还没有任何成员行 ⇒ 先把它加成关注人。
+  //  2. **记录得有一个非空的经办人**，否则 `changeRiskMatter` 走的是
+  //     "无主事项谁都可以接手"那条路（IQ-5），会成功而不是被拒。
+  //  3. **操作者不能是经办人本人**，也不能是 L1 —— 所以这里用刚加进来的 L2。
+  const addFollower = await call("POST", `/api/risk-matters/${riskId}/staff/followers`, cookie, {
+    userIds: [String(smoke2.id)],
+  });
+  ok("把 L2 加为关注人（为越权断言造可见性）", addFollower.status === 200, `status=${addFollower.status}`);
+  const l2Sees = await call("GET", `/api/risk-matters/${riskId}`, l2.cookie);
+  ok("L2 现在看得见这条记录（否则下面测的是 404）", l2Sees.status === 200, `status=${l2Sees.status}`);
+  // 前置 2：先把经办人设成 L1 账号（非空）。**这一步是必要的**，因为经办人为空时
+  // 走的是"无主事项谁都可以接手"那条路（IQ-5），L2 的改动会**成功**——本轮实测：
+  // 没设之前 L2 拿到了 200，于是那条断言测的是"认领"而不是"越权"。
+  const seedOwner = await call("PATCH", `/api/risk-matters/${riskId}`, cookie, {
+    ownerId: String(smoke.id),
+  });
+  ok("先把经办人设成 L1 账号（为越权断言造非空归属）", seedOwner.status === 200, `status=${seedOwner.status}`);
+  const stealOwner = await call("PATCH", `/api/risk-matters/${riskId}`, l2.cookie, {
+    // 用**账号对象**的 id（`smoke2.id`），不是登录结果的 id——`l2` 只有 {status, cookie}，
+    // 写成 `l2.id` 会变成字符串 "undefined"，schema 当场 400（本轮踩过）。
+    ownerId: String(smoke2.id),
+  });
+  ok(
+    "**越权改归属 → 403**（看得见 ≠ 能改归属；护栏 1）",
+    stealOwner.status === 403,
+    `status=${stealOwner.status} ${JSON.stringify(stealOwner.body)?.slice(0, 60)}`,
+  );
+  const [ownerAfterSteal] = await sql`
+    select owner_id::text as o from mn_risk_matter where id = ${riskId}`;
+  ok(
+    "**越权改归属没有落库**（拒绝是真的拒绝，不是先写后报错）",
+    ownerAfterSteal.o !== String(smoke2.id),
+    `owner=${ownerAfterSteal.o}（没被 L2 抢走）`,
+  );
+
   const setOwner = await call("PATCH", `/api/risk-matters/${riskId}`, cookie, { ownerId: u.id });
   ok("变更处理人 → 200", setOwner.status === 200, `status=${setOwner.status}`);
   const [ownerAudit] = await sql`select count(*)::int as n from mn_activity_log where action='OWNER_CHANGED' and risk_matter_id = ${riskId}`;
-  ok("变更处理人沿用 OWNER_CHANGED（不新造审计动作）", ownerAudit.n === 1, `n=${ownerAudit.n}`);
+  // 2 条 = 越权断言前那次"造非空归属"的铺垫 + 这一次真正的变更。
+  // 断言写死数字（而不是 >=1）：写死才能发现"某次变更没写审计"这种静默漏记。
+  ok("变更处理人沿用 OWNER_CHANGED（不新造审计动作）", ownerAudit.n === 2, `n=${ownerAudit.n}（1 次铺垫 + 1 次真变更）`);
   const d4 = await call("GET", `/api/risk-matters/${riskId}`, cookie);
   ok("详情能看到新经办人与其姓名", d4.body?.ownerId === u.id && typeof d4.body?.ownerName === "string", `ownerId=${d4.body?.ownerId} name=${d4.body?.ownerName}`);
 
