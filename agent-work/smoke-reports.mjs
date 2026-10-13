@@ -333,8 +333,25 @@ async function cleanup() {
   if (failed.length) console.log(`[clean] ${failed.length} 条清场失败：\n  ${failed.join("\n  ")}`);
 }
 
-const mkMatter = (cookie, name, level, litigationRole) =>
-  call("POST", "/api/matters", cookie, {
+/**
+ * 建案夹具 —— **非 201 时直接抛出，并把响应体带出来**。
+ *
+ * ⚠ 这个护栏是后加的，起因是一次真实的"真信息被淹没"：原先调用点写的是
+ *
+ *     const a = await mkMatter(...);
+ *     ok("建案 A → 201", a.status === 201, `status=${a.status}`);
+ *     matterIds.push(a.body?.id);      // ← 非 201 时这里是 undefined
+ *     ...
+ *     await tagMatter(a.body.id);      // ← 下一行抛 postgres UNDEFINED_VALUE
+ *
+ * 于是脚本以"脚本中断 —— UNDEFINED_VALUE: Undefined values are not allowed"收场，
+ * 而**"服务端 500（响应体 0 字节）"这个真信息被完全淹没** —— 排查时会去查 ORM 用法，
+ * 而真正的原因在服务端。检查子代理本轮实测撞到 3 次（建案 A / C / B 各一次）。
+ *
+ * 现在失败信息里直接带 `status` 与响应体，一眼能看出是"建案没成"而不是"脚本写错了"。
+ */
+const mkMatter = async (cookie, name, level, litigationRole) => {
+  const res = await call("POST", "/api/matters", cookie, {
     name,
     cause: "建设工程施工合同纠纷",
     caseType: "civil_commercial",
@@ -342,6 +359,14 @@ const mkMatter = (cookie, name, level, litigationRole) =>
     litigationRole,
     level,
   });
+  if (res.status !== 201) {
+    throw new Error(
+      `建案失败（${name}）：HTTP ${res.status} —— 响应体 ${JSON.stringify(res.body).slice(0, 300)}\n` +
+        `（这一句比 ORM 的 UNDEFINED_VALUE 有用：它说明问题在服务端，不在脚本的取值方式）`,
+    );
+  }
+  return res;
+};
 
 /**
  * 把夹具行标成**本次运行私有**的状态/等级（直接写库）。
@@ -787,6 +812,25 @@ try {
     "**空数组 `remind_days` 回落 7 天：还剩 9 天 → 更远 +1**（同一条回落口径的另一半）",
     "matter",
     () => insertMatterNode(c.body.id, { days: 9, remind: [] }),
+    "later",
+  );
+  /*
+   * ⚠ 这一条是**后补的**，它把回落值从**上方**钉死。
+   *
+   * 上面那两条原先只钉住了"回落值 > 5"（5 天算临期 ⇒ 回落值必须大于 5），
+   * 而 7 和 30 都满足它 —— 检查子代理实测：把回落值从 7 改成 30（F8-2 原稿那个数），
+   * **"还剩 5 天 → 临期"那条全程保持 GREEN**，只有"还剩 9 天"那条红。
+   * 也就是说实现者自评的"两条新断言都被变异证明过"**有一半是夸大的**。
+   *
+   * 这一条要求 `days=7` 算"更远"：回落=7 时 `7 < 7` 为假 → later ✓；
+   * 回落=8 或更大时 → soon ✗ 红。与"5 天算临期"合起来，回落值被夹在 **5 < v ≤ 7** 里，
+   * 而 v 是整数 ⇒ **唯一解 7**。
+   */
+  await stepNode(
+    s1.cookie,
+    "**空数组 `remind_days` 回落 7 天：还剩 7 天 → 更远 +1**（把回落值从上方钉死，见本处注释）",
+    "matter",
+    () => insertMatterNode(c.body.id, { days: 7, remind: [] }),
     "later",
   );
   // ⑥ 未确认时间：不进任何一档

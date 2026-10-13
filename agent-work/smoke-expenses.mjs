@@ -607,8 +607,44 @@ try {
     `status=${l2Write.status}`,
   );
 
-  /* ── ⑭ 归档态只读（§5.2）：读 200、写 403 ── */
-  await sql`update mn_matter set is_archived = true, archived_at = now() where id = ${matterId}`;
+  /* ── ⑭ 归档态只读（§5.2）：读 200、写 403 ──
+   *
+   * ⚠ 归档**必须走真实路径**（状态流转接口），不能直接 `update mn_matter set is_archived`。
+   *
+   * 原先这里就是直写那一列、**不动 `status`**，于是造出**应用永远不会产生**的状态
+   * （归档位为真、状态仍是"在办"）。后果不是"数据脏"，是**给并行跑的冒烟制造假红**：
+   * `smoke-reports` 的"归档视图里只剩归档行"就被它弄红过一次，被迫把全量不变式
+   * **收窄成只看自己的私有行** —— 一条断言被永久削弱了。
+   *
+   * 根因是"归档位"与"归档态"是两件事：`is_archived` 是应用维护的冗余位，
+   * 而真正的语义在 `status`（`semantics='archived'` 那一档）。直写前者就绕过了后者。
+   *
+   * 现在走接口：`POST /api/matters/{id}/status`，`to` 取配置里 `semantics='archived'` 的那一档，
+   * 强归要带 reason（§5.2）。还原同样走接口回初始态。
+   */
+  const [archivedStatus] = await sql`
+    select code from mn_status_config
+     where host_type = 'matter' and semantics = 'archived' and is_enabled
+     order by sort_order limit 1`;
+  const [initialStatus] = await sql`
+    select code from mn_status_config
+     where host_type = 'matter' and is_initial_status and is_enabled
+     order by sort_order limit 1`;
+  const archTo = await call("POST", `/api/matters/${matterId}/status`, cookie, {
+    to: archivedStatus.code,
+    reason: "冒烟：验归档态只读",
+  });
+  ok(
+    "**走真实路径归档成功**（不是直写 `is_archived` 造一个应用产不出的状态）",
+    archTo.status === 200,
+    `status=${archTo.status} to=${archivedStatus.code}`,
+  );
+  const [afterArch] = await sql`select is_archived, status from mn_matter where id = ${matterId}`;
+  ok(
+    "**归档位与归档态一致**（`is_archived` 真、`status` 也是归档态）",
+    afterArch.is_archived === true && afterArch.status === archivedStatus.code,
+    `is_archived=${afterArch.is_archived} status=${afterArch.status}`,
+  );
   const archRead = await call("GET", `/api/matters/${matterId}/expenses`, cookie);
   const archWrite = await call("POST", `/api/matters/${matterId}/expenses`, cookie, {
     itemId: itemA.id,
@@ -628,7 +664,18 @@ try {
       archDel.status === 403,
     `read=${archRead.status} post=${archWrite.status} patch=${archPatch.status} del=${archDel.status}`,
   );
-  await sql`update mn_matter set is_archived = false, archived_at = null where id = ${matterId}`;
+  // 还原也走接口：先解归档（需 `can_unarchive`），再回初始态
+  await call("POST", `/api/matters/${matterId}/unarchive`, cookie, { reason: "冒烟：还原" });
+  await call("POST", `/api/matters/${matterId}/status`, cookie, {
+    to: initialStatus.code,
+    reason: "冒烟：还原到初始态",
+  });
+  const [afterRestore] = await sql`select is_archived, status from mn_matter where id = ${matterId}`;
+  ok(
+    "还原后回到在办（`is_archived` 假）",
+    afterRestore.is_archived === false,
+    `is_archived=${afterRestore.is_archived} status=${afterRestore.status}`,
+  );
 
   /* ── ⑮ 事项侧同构：建、列、读、导全走一遍 ── */
   const r1 = await call("POST", "/api/risk-matters", cookie, riskBody("主", [partyRow()]));
