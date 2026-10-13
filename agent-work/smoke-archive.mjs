@@ -337,6 +337,52 @@ try {
     `closing_date=${rowB2?.cd} is_archived=${rowB2?.is_archived}`,
   );
 
+  // ── F. 列表的「下一期限」不能恒为 NULL ──
+  //
+  // ⚠ 这条守的是**同一类 drizzle 缺陷的第三例**：`listMatters` 的 `nextDeadline` 关联子查询里
+  //   写的是 `${matter.id}`，在 **select 列表**上下文被渲染成无限定的 `"id"`，
+  //   而子查询自己那张表也有 `id` ⇒ `n.matter_id = "id"` 变成 `n.matter_id = n.id`，**恒假**。
+  //   比另外两例更阴：子查询只有一张表，PG **不报歧义**，`min()` 静默恒 NULL——
+  //   列表的「下一期限」一列永远是空的，而此前**没有任何测试盯着它**（真库实测：
+  //   6 个案件里本该 4 个有期限，实际全空）。
+  //
+  //   夹具用**直接写库**设节点时间：`start_time`/`end_time` 是生成列 `deadline_time` 的两个来源，
+  //   而一期没有"改节点时间"的接口（预设节点建出来时时间是空的）。
+  //   `ck_mn_matter_node_time_shape` 管着这一列的三种合法形状（照抄约束原文）：
+  //     · `range` ⇒ start 与 end 都非空且 `end >= start`
+  //     · `point` ⇒ **end 必须为 NULL**（只有时间点，没有时间段）
+  //     · 两者都空 ⇒ 允许（"时间待定"是一等状态）
+  //   预设节点里 `举证` 是 `range`、其余是 `point`，所以按类型分别给——
+  //   一律写两个值会被约束拦下（我第一次就是这么写的，直接 23514）。
+  //   ⚠ 建案响应只有 `{id, code, nameConflicts}`，**没有 `name`** ——
+  //     所以关键词要用自己传进去的那个串，用 `f.body.name` 会得到字符串 "undefined"，
+  //     列表 0 条，而断言会以"nextDeadline 是 null"的面目红（我第一次就是这么红的）。
+  const fName = `归档冒烟 F 下一期限 ${stamp}`;
+  const f = await mkMatter(fName);
+  matterIds.push(f.body?.id);
+  const detailF = await call("GET", `/api/matters/${f.body.id}`, s.cookie);
+  const nodeF = (detailF.body?.nodes ?? []).find((n) => n.timeType === "range") ?? detailF.body?.nodes?.[0];
+  ok("F 案有预设节点可设时间", !!nodeF?.id, `nodes=${detailF.body?.nodes?.length} type=${nodeF?.timeType}`);
+  await sql`
+    update mn_matter_node
+       set start_time = now() + interval '5 days',
+           end_time = case when time_type = 'range' then now() + interval '7 days' else null end
+     where id = ${nodeF.id}`;
+  const listF = await call("GET", `/api/matters?keyword=${encodeURIComponent(fName)}`, s.cookie);
+  const rowF = (listF.body?.items ?? []).find((r) => r.id === String(f.body.id));
+  const [dbF] = await sql`
+    select count(*)::int as open_nodes,
+           min(n.deadline_time)::text as min_deadline
+      from mn_matter_node n
+     where n.matter_id = ${f.body.id} and not n.is_deleted
+       and n.status in ('not_started','in_progress')`;
+  ok(
+    "**列表的「下一期限」是真的**（不是恒 NULL、也不是 500）",
+    listF.status === 200 && !!rowF?.nextDeadline,
+    `status=${listF.status} 列表条数=${listF.body?.items?.length} 找到行=${!!rowF} ` +
+      `接口值=${rowF?.nextDeadline ?? "null"} · 库内该案未决节点=${dbF?.open_nodes} 最早期限=${dbF?.min_deadline}`,
+  );
+
   // ── C. 事项侧不做这项校验 ──
   const r = await call("POST", "/api/risk-matters", s.cookie, {
     name: `归档冒烟 事项 ${stamp}`,
