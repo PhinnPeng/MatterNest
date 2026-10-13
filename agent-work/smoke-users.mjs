@@ -201,6 +201,66 @@ try {
     stopOwner.status === 403 && stopOwner.body?.error === "system_owner_protected",
     `status=${stopOwner.status} err=${stopOwner.body?.error}`,
   );
+
+  // ---- ⑧ 移交系统所有者（MATT-53 的「移交是唯一出路」）----
+  //
+  // 这一节必须放在**所有依赖 ownerSession 的断言之后**：移交成功后 owner 不再是所有者，
+  // 它的凭据权限随之消失（后面的断言会因此变红，那是因果不是缺陷）。
+  const byMgr2 = await call("POST", `/api/users/${mgr.id}/system-owner`, mgrSession.cookie);
+  ok(
+    "**非所有者发起移交 → 403 system_owner_required**",
+    byMgr2.status === 403 && byMgr2.body?.error === "system_owner_required",
+    `status=${byMgr2.status} err=${byMgr2.body?.error}`,
+  );
+
+  // 受让人必须是"登得进来的人"：停用的账号不能拿生命线
+  const toDisabled = await call("POST", `/api/users/${plain.id}/system-owner`, ownerSession.cookie);
+  // plain 此时是启用的（前面重新启用过）→ 应当成功；先把它停掉再试一次更准确
+  ok("受让人启用时可移交（前置：先确认它能被移交）", toDisabled.status === 200, `status=${toDisabled.status}`);
+  // 把所有者标记先移回来，再测"受让人被停用"这条
+  await sql`update mn_app_user set is_system_owner = false where id = ${plain.id}`;
+  await sql`update mn_app_user set is_system_owner = true where id = ${owner.id}`;
+  await call("PATCH", `/api/users/${plain.id}`, mgrSession.cookie, { enabled: false });
+  const toDisabled2 = await call("POST", `/api/users/${plain.id}/system-owner`, ownerSession.cookie);
+  ok(
+    "**受让人被停用 → 422 target_disabled**（不能把生命线交给登不进来的人）",
+    toDisabled2.status === 422 && toDisabled2.body?.error === "target_disabled",
+    `status=${toDisabled2.status} err=${toDisabled2.body?.error}`,
+  );
+  await call("PATCH", `/api/users/${plain.id}`, mgrSession.cookie, { enabled: true });
+
+  // 正式移交：owner → mgr
+  const handover = await call("POST", `/api/users/${mgr.id}/system-owner`, ownerSession.cookie);
+  ok("所有者移交 → 200", handover.status === 200, `status=${handover.status}`);
+  const owners = await sql`
+    select username from mn_app_user where is_system_owner order by username`;
+  ok(
+    "**全局仍然只有一人持有**（partial unique index 的口径）",
+    owners.length === 1 && owners[0].username === mgr.username,
+    `持有者=${owners.map((o) => o.username).join(",")}`,
+  );
+  const [handoverAudit] = await sql`
+    select payload, target_type, action from mn_activity_log
+    where action='ROLE_CHANGED' and target_id=${mgr.id} and payload ? 'new'
+      and payload->'new' ? 'system_owner_user_id'
+    order by created_at desc limit 1`;
+  ok(
+    "**移交落审计**（target_type=app_user · action=ROLE_CHANGED · 带 old/new）",
+    handoverAudit?.target_type === "app_user" &&
+      handoverAudit?.payload?.old?.system_owner_user_id === owner.id &&
+      handoverAudit?.payload?.new?.system_owner_user_id === mgr.id,
+    JSON.stringify(handoverAudit?.payload),
+  );
+
+  // 权力真的走了：原所有者不能再移交，新所有者可以
+  const oldOwnerAgain = await call("POST", `/api/users/${owner.id}/system-owner`, ownerSession.cookie);
+  ok(
+    "**移交后原所有者失去移交权 → 403**（权力真的转移了，不是复制了一份）",
+    oldOwnerAgain.status === 403 && oldOwnerAgain.body?.error === "system_owner_required",
+    `status=${oldOwnerAgain.status}`,
+  );
+  const newOwnerBack = await call("POST", `/api/users/${owner.id}/system-owner`, mgrSession.cookie);
+  ok("新所有者可以把所有权移交回去 → 200", newOwnerBack.status === 200, `status=${newOwnerBack.status}`);
 } catch (e) {
   fail++;
   console.log(`[FAIL] 脚本中断 —— ${e?.stack ?? e}`);

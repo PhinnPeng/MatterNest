@@ -106,6 +106,19 @@ try {
   // 凭据入口对所有者可见
   ok("**系统所有者能看到「设口令/重置口令」入口**", (await ownerRow.locator("button", { hasText: /口令/ }).count()) > 0, "");
 
+  // 移交入口：只在"我是所有者、且这行不是所有者"时出现（「不可停用」的唯一出路）
+  const mgrRowEarly = asOwner.page.locator(".ant-table-tbody tr", { hasText: mgr.username }).first();
+  ok(
+    "**非所有者那行有「移交所有权」入口**（不可停用那条守卫的出路）",
+    (await mgrRowEarly.locator("button", { hasText: "移交所有权" }).count()) > 0,
+    "",
+  );
+  ok(
+    "**所有者自己那行没有移交入口**（移交给自己的自己 = 无意义动作）",
+    (await ownerRow.locator("button", { hasText: "移交所有权" }).count()) === 0,
+    "",
+  );
+
   // ---- ② 批准待开通（F6-11）----
   await asOwner.page.locator("button", { hasText: "批准并指定角色" }).first().click();
   // ⚠ 作用域必须是**可见**弹窗：两个弹窗的 children 都在 DOM 里（antd 首次打开后保留），
@@ -153,6 +166,11 @@ try {
   ok(
     "**非所有者的界面上没有凭据入口**（F6-9 只对系统所有者开放）",
     (await asMgr.page.locator("button", { hasText: /口令/ }).count()) === 0,
+    "",
+  );
+  ok(
+    "**非所有者的界面上没有移交入口**（移交不是权限操作，是身份转移）",
+    (await asMgr.page.locator("button", { hasText: "移交所有权" }).count()) === 0,
     "",
   );
   // 自己那行：改角色与停用都不可点

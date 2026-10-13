@@ -29,8 +29,18 @@ import { nextId } from "@/shared/ids/snowflake";
  * · **已经软删的账号**：`is_deleted` 是死列，本模块不复活它，也不对软删行做启停。
  */
 
-/** 账号启停的拒绝原因。分开列出来而不是并成一个布尔：前端要能逐条说清"为什么不行" */
-export type EnableBlocker = "system_owner_protected" | "self_disable" | "deleted_account";
+/**
+ * 账号启停 / 所有者移交的拒绝原因。分开列出来而不是并成一个布尔：
+ * 前端要能逐条说清"为什么不行"，而"动的是凭据生命线"与"你动的是自己"是两回事。
+ */
+export type EnableBlocker =
+  | "system_owner_protected"
+  | "self_disable"
+  | "deleted_account"
+  /** 受让人被停用：不能把生命线交给一个登不进来的人 */
+  | "disabled_account"
+  /** 受让人还是"待开通"（E37 pending）：同上 */
+  | "not_activated";
 
 export type UserRow = {
   id: string;
@@ -137,6 +147,8 @@ export type WriteResult =
   | { ok: true }
   | { ok: false; why: "not_found" }
   | { ok: false; why: "self_escalation" }
+  /** 只有系统所有者能做的事（F6-9 凭据、所有者移交） */
+  | { ok: false; why: "not_system_owner" }
   | { ok: false; why: "blocked"; blockers: EnableBlocker[] }
   | { ok: false; why: "role_not_found"; missing: string[] };
 
@@ -408,6 +420,75 @@ export async function setUserCredential(
       // **绝不记口令或摘要**（logging-guidelines 的既有禁令）。
       // mode 区分"首次设置"与"重置"——复盘时这两件事的含义不同。
       payload: { mode: target.hasCredential ? "reset" : "set", self: userId === actor.userId },
+    });
+  });
+  return { ok: true };
+}
+
+/**
+ * 移交系统所有者（MATT-53 移交过来的一条硬要求）。
+ *
+ * ## 为什么必须有这条路
+ *
+ * 「系统所有者不可被停用」只堵住了**出路**，而票面紧接着写的是「**移交是唯一出路**」——
+ * 只堵不移交，结果就是所有者这个位置永远锁在一个人身上：他离职、失联、或就是想换人，
+ * 都没有路可走（直接改库不算路）。
+ *
+ * ## 四条实现口径
+ *
+ * 1. **仅当前所有者可发起**。这不是 `canManageUser` 能做的事：持"管理账号"的人能改角色、
+ *    能启停，但凭据生命线的交接是**身份本身的转移**，不是权限操作。
+ * 2. **同一事务里先清旧、再授新**。`uk_mn_app_user_owner` 是 **partial unique index**
+ *    （全局至多一行为 true），"同时为真"会撞索引——那是**预期行为**，不是 bug，
+ *    也正是它让"全局仅一人"这条硬不变式不依赖应用层。顺序写反（先授新）会当场撞索引，
+ *    而不是悄悄出现两个所有者。
+ * 3. **受让人必须在册且已开通**：软删/停用/待开通的账号不能拿生命线——把恢复能力交给
+ *    一个登不进来的人，等于把系统锁在一个更糟的位置上。
+ * 4. **审计用 `ROLE_CHANGED`**（票面指定用这个已存在的动作）。载荷保留该动作文档口径里的
+ *    `old`/`new` 结构，只把内容换成所有者交接的事实——形状一致，读日志的人不必先分辨
+ *    "这条 ROLE_CHANGED 是哪种"。
+ */
+export async function transferSystemOwnership(
+  actor: Actor,
+  toUserId: string,
+): Promise<WriteResult> {
+  if (!actor.isSystemOwner) return { ok: false, why: "not_system_owner" };
+
+  const db = await getDb();
+  const target = await loadTarget(toUserId);
+  if (!target) return { ok: false, why: "not_found" };
+
+  const blockers: EnableBlocker[] = [];
+  if (target.isDeleted) blockers.push("deleted_account");
+  if (!target.isEnabled) blockers.push("disabled_account");
+  if (target.activationStatus !== "active") blockers.push("not_activated");
+  if (blockers.length) return { ok: false, why: "blocked", blockers };
+
+  // 已经是持有人：幂等成功，不写审计（别把"点了一下"记成一次交接）
+  if (target.isSystemOwner) return { ok: true };
+
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    // ⚠ 顺序不能反：先清旧，再授新（partial unique index 只允许一行 true）
+    await tx
+      .update(appUser)
+      .set({ isSystemOwner: false, updatedBy: BigInt(actor.userId), updatedAt: now })
+      .where(and(eq(appUser.isSystemOwner, true), eq(appUser.id, BigInt(actor.userId))));
+    await tx
+      .update(appUser)
+      .set({ isSystemOwner: true, updatedBy: BigInt(actor.userId), updatedAt: now })
+      .where(eq(appUser.id, BigInt(toUserId)));
+
+    await tx.insert(activityLog).values({
+      id: BigInt(nextId()),
+      operatorId: BigInt(actor.userId),
+      targetType: "app_user",
+      targetId: BigInt(toUserId),
+      action: "ROLE_CHANGED",
+      payload: {
+        old: { system_owner_user_id: actor.userId },
+        new: { system_owner_user_id: toUserId },
+      },
     });
   });
   return { ok: true };

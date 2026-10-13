@@ -11,6 +11,7 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
   Space,
   Tag,
   Tooltip,
@@ -112,6 +113,20 @@ export function UsersView() {
       invalidate();
     },
     onError: (e) => message.error(e instanceof ApiFailure ? e.message : "操作失败"),
+  });
+
+  /**
+   * 移交系统所有者。成功后**必须让会话重取**：`isSystemOwner` 变了，凭据入口与移交入口
+   * 都要跟着消失（`invalidate` 里已经 invalidate 了 `["session"]`）。
+   * 注意移交**不吊销任何会话**——它转移的是身份标记，不是把人踢下线。
+   */
+  const transfer = useMutation({
+    mutationFn: (id: string) => api.post<{ ok: true }>(`/api/users/${id}/system-owner`),
+    onSuccess: () => {
+      message.success("所有权已移交：你现在不再是系统所有者");
+      invalidate();
+    },
+    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "移交失败"),
   });
 
   if (q.isPending) {
@@ -256,6 +271,22 @@ export function UsersView() {
               <Button size="small" onClick={() => setCredTarget(r)}>
                 {r.hasCredential ? "重置口令" : "设口令"}
               </Button>
+            ) : null}
+            {/* 移交所有权：只在"我是当前所有者、且这行不是所有者"时出现。
+                它是「不可停用」那条守卫的**唯一出路**——只堵不移交，所有者这个位置
+                就永远锁在一个人身上（离职/失联/想换人都没路可走，改库不算路）。 */}
+            {iAmOwner && !r.isSystemOwner ? (
+              <Popconfirm
+                title="把「系统所有者」移交给这个账号？"
+                description="移交后你将失去设置本地凭据与再次移交的权限；对方获得。全局始终只有一人持有。"
+                okText="移交"
+                cancelText="取消"
+                onConfirm={() => transfer.mutate(r.id)}
+              >
+                <Button size="small" loading={transfer.isPending && transfer.variables === r.id}>
+                  移交所有权
+                </Button>
+              </Popconfirm>
             ) : null}
           </Space>
         );

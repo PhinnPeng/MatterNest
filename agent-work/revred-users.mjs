@@ -12,6 +12,12 @@
  *    为什么必须红这条：这是 MATT-53 明确移交过来的守卫（当时 /api/users 还不存在，
  *    给不存在的路径写守卫是死代码）。停掉所有者 = 系统再也无法设置凭据 = 无法恢复。
  *
+ *  · `handover-order` —— 把移交的两条 UPDATE 顺序写反（先授新、再清旧）。
+ *    期望红：`受让人启用时可移交 → status=500`（partial unique index 当场拦住），
+ *    以及**同一功能内的因果链**（移交没发生 ⇒ 后面 5 条移交断言跟着红）。
+ *    这里的连带红是**正确信号**而不是噪声：移交坏了，移交这一节就该整片红。
+ *    （对比 `owner-protect` 那次：那里的连带红跨到了凭据功能，所以把断言挪到了末尾。）
+ *
  * ⚠ 还原后别立刻跑冒烟：`next dev` 热更新有窗口（revred-convert 那轮踩过）。
  */
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
@@ -42,6 +48,34 @@ const NEEDLES = {
     needle: '    if (target.isSystemOwner) blockers.push("system_owner_protected");',
     replacement: "    // 反向红：摘掉「系统所有者不可被停用」",
     tag: "no-owner-protect",
+  },
+  /**
+   * 移交的顺序写反（先授新、再清旧）。`uk_mn_app_user_owner` 是 partial unique index
+   * （全局至多一行为 true），所以"同时为真"会撞索引 → 移交请求 500 → 断言红。
+   *
+   * 为什么必须验这一条：这条顺序是**不可见的正确性**——写反了在只有一个人持有标记时
+   * 也"能用"（库里恰好没有第二个 true），只有在真交接时才炸。而真交接恰恰是
+   * "系统已经出问题了、要换人恢复"的那一刻。
+   */
+  "handover-order": {
+    needle: `    await tx
+      .update(appUser)
+      .set({ isSystemOwner: false, updatedBy: BigInt(actor.userId), updatedAt: now })
+      .where(and(eq(appUser.isSystemOwner, true), eq(appUser.id, BigInt(actor.userId))));
+    await tx
+      .update(appUser)
+      .set({ isSystemOwner: true, updatedBy: BigInt(actor.userId), updatedAt: now })
+      .where(eq(appUser.id, BigInt(toUserId)));`,
+    replacement: `    // 反向红：顺序写反（先授新、再清旧）—— partial unique index 会拦住
+    await tx
+      .update(appUser)
+      .set({ isSystemOwner: true, updatedBy: BigInt(actor.userId), updatedAt: now })
+      .where(eq(appUser.id, BigInt(toUserId)));
+    await tx
+      .update(appUser)
+      .set({ isSystemOwner: false, updatedBy: BigInt(actor.userId), updatedAt: now })
+      .where(and(eq(appUser.isSystemOwner, true), eq(appUser.id, BigInt(actor.userId))));`,
+    tag: "handover-order",
   },
 };
 
