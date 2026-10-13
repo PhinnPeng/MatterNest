@@ -5,6 +5,51 @@
 
 ---
 
+## [未发布] — 2026-10-13 · 切片一三票：通知回音 / 报表形态改判 / 案件成本与两档导出
+
+三张施工票（T4 / T8 / T9）并行落地。本节只记"读代码看不出来"的部分。
+
+### Added
+
+- **通知回音（T4 / M5）**：迁移 0010 建四张表（`mn_notification_template` / `_event` / `_delivery` / `mn_user_watch`），
+  外加 `mn_event_outbox` 的 E32 值域 CHECK（此前只在代码里、库里拦不住）。
+  上报人回音改道**预置规则 2/8 的 `receivers` 加 `creator`**（不写 `user_watch` 行——关注保持"主动 star 才算"）。
+  幂等键 `dedupe_key` UNIQUE + `ON CONFLICT DO NOTHING`；同批聚合走 `event_batch_id` + `merge_count`。
+  通知中心页 `/notifications`（未读计数按可见行、不可见降级占位）。
+- **案件成本与两档导出（T9）**：迁移 0011 建 `mn_expense_item_config` + **同构一对**
+  `mn_matter_expense` / `mn_risk_matter_expense`（进 `ISO_PAIRS` 契约测试，第四对）；
+  金额全程字符串（列 `numeric(18,2)`、DTO 正则、SQL 内 `sum()`、出口 `::numeric(18,2)::text`，
+  **一次 `Number()` 都没有**）；整卷导出两档（默认脱敏 / 明文需 `can_read_plain` + 整卷记 `EXPORT`）。
+
+### Changed
+
+- **报表形态按 P0-2 裁定改判（T8）**：上一版把两张卡做成了**独立页 `/reports` + 菜单项**，
+  而 PRD 在五处（含决策表"✅ 已落地"）明文裁定 M8 是"**列表页顶部统计卡，不建报表页、不进菜单**"。
+  本版挪回 P7/P4 列表页顶部（两处是**同一个组件** `report-cards.tsx`）、删页面与菜单项、
+  并补上 F8-1 要求的「**随筛选联动**」（`status`/`ownerEmpty`/`archivedOnly` 进，
+  `keyword`/分页/排序/`missingMaterials` 不进——各自理由写在 `shared/schema/list-query.ts` 的分类表里；
+  `/api/reports` 改 `.strict()`，多传即 400 而不是静默剥掉）。
+
+### 工具与纪律
+
+- **反向红自己也会假绿**：T4 的 `timezone` 模式第一版注入"删掉 `.tz()`"，而本机进程时区恰好是
+  `Asia/Shanghai` ⇒ 输出不变、冒烟全绿。改成 `.utc()` 才红，并补了一条把 `process.env.TZ`
+  临时改成 UTC 的单测——它**自带探针断言**（先证明"直接格式化确实会错"），否则 TZ 没生效时它自己也是空转。
+- **新断言要证明它真的会红**：T8 用两次临时变异补证 `bucketTotals` 与"空数组 `remind_days` 回落 7 天"
+  两条新断言不是死断言（少算一档 → 4 红；回落值 7→30 → 2 红）。
+- **清场清单要跟着新表走**：迁移 0010 给 `mn_notification_delivery.user_id` 加了 NOT NULL + RESTRICT 外键，
+  而清场工具不认识它 ⇒ **任何触发真实通知的冒烟都会留孤儿账号**，症状出现在**别的**冒烟上
+  （`smoke-risk` 报 `mn_notification_delivery_user_id_mn_app_user_id_fk`）。两处清场工具都补了这两张
+  按用户派生的表，并加了"孤儿通知事件"（`host_id` 多态，两头都不会连带删）的清扫。
+- **全局清场会打断并行流**：`_cleanup_smoke_accounts.mjs` 原先删掉**所有** `mn_smoke_%` 账号，
+  实测把另一条流正在跑的反向红打断成 `status=401`，而**归因指向了错误的方向**。
+  改成只清 10 分钟前建的（`--all` 可覆盖）。
+- **假红与假绿是同一个病**：`probe-v6-tails` 报"列宽合计 3301 > 容器 1092"，实际是它的作用域
+  从"页面上唯一那张表"变成了"全文档的表"——报表卡挂上来之后，它把三张表的列宽加在了一起。
+  假红更危险：人会直接把阈值放宽，于是真问题以后也测不出来了。
+
+---
+
 ## [未发布] — 2026-10-13 · 切片一四票：归档完备性 / 对手方档案 / 批量动作 / 报表两卡
 
 四张施工票（T5a / T3 / T7 / T8）在同一轮里并行落地，各自带真 HTTP 冒烟与**反向红**。
