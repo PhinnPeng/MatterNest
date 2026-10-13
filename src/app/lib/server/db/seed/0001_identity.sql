@@ -93,6 +93,26 @@ SELECT 201, u.id, 11
   FROM "mn_app_user" u
  WHERE u.username = 'admin'
 ON CONFLICT ("id") DO UPDATE SET user_id = excluded.user_id, role_id = excluded.role_id;
+
+-- 第二个角色：`sys_admin`（id 10）。**2026-10-13（MATT-10）新增**。
+--
+-- 为什么必须加：`full_admin` 的四个特权里 `can_manage_user = false`，
+-- 而用户与角色页（F6-1/F6-5/F6-11）的读入口一律要求 `can_manage_user`。
+-- 账号收敛到只剩一个 `admin` 之后，不加这一行就等于**谁也进不了用户管理页**——
+-- 唯一的账号自己也不行，"重放一次 seed 就有可用逃生口"这句话当场不成立。
+--
+-- 这不是临时开的口子，正是权限草案 §2 自己举的例子（本文件上面那段注释引的就是它）：
+-- 「既要管系统又要能撤销归档的人，给他 `sys_admin` + `full_admin` 两个角色，靠取最宽并集生效」。
+-- 并集结果：范围取最宽的 `all`（full_admin）；`can_unarchive` / `can_read_plain` 来自 full_admin；
+-- `can_manage_user` / `can_manage_config` 来自 sys_admin。四项特权齐全且范围不受损。
+--
+-- 与上面那条同一套冲突键口径（用行 id 201/202，不用复合键）：改角色时复合键会指到
+-- 另一行上去，于是撞的是主键而不是复合键，报错会指向一条根本没动过的行。
+INSERT INTO "mn_app_user_role" ("id", "user_id", "role_id")
+SELECT 202, u.id, 10
+  FROM "mn_app_user" u
+ WHERE u.username = 'admin'
+ON CONFLICT ("id") DO UPDATE SET user_id = excluded.user_id, role_id = excluded.role_id;
 -- 冲突键用 `id` 而不是 `("user_id","role_id")`：改一个账号的角色时，复合键会指到
 -- **另一行**上去，于是这条 INSERT 撞的是主键而不是复合键——报错会指向一条根本没动过的行。
 -- 冲突键用 `id` 而不是 `("user_id","role_id")`：改一个账号的角色时（本轮把专员从 L3 改成 L2），

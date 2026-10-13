@@ -60,6 +60,20 @@ export const SECURITY_ACTIONS = [
   "STAFF_CHANGED",
   "ROLE_CHANGED",
   "USER_ACTIVATED",
+  /**
+   * 账号启停（F6-1）。**新增于 MATT-10**，与 `USER_ACTIVATED` 分开的理由：
+   * 后者的语义是"待开通 → 已开通并当场指定角色"（E37 `pending → active`），
+   * 而启停改的是 `is_enabled`——方向可逆、且不涉及角色。用 `USER_ACTIVATED` 记一次
+   * **停用**，读起来是"账号开通"，历史一查就误判。
+   * 方向不另开两个值：载荷 `{is_enabled:{from,to}}` 已经写明了，两个值会把同一件事说两遍
+   * （同 `STATUS_CHANGED` 用 field_diffs 记 from/to 的姿态）。
+   */
+  "USER_STATUS_CHANGED",
+  /**
+   * 本地凭据设置/重置（F6-9）。**新增于 MATT-10**。
+   * 载荷只记 `{mode, self}`，**绝不记口令或摘要**——`logging-guidelines` 的既有禁令。
+   */
+  "CREDENTIAL_CHANGED",
   "SENSITIVE_FIELD_READ",
   "ACCESS_DENIED_WRITE",
   "EXPORT",
@@ -125,6 +139,8 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   STAFF_CHANGED: "参与人变更",
   ROLE_CHANGED: "角色变更",
   USER_ACTIVATED: "账号开通",
+  USER_STATUS_CHANGED: "账号启停",
+  CREDENTIAL_CHANGED: "凭据设置",
   /** @deprecated IQ-12 已作废：展示层全明文，不再逐次审计。留在这里只为反查历史行 */
   SENSITIVE_FIELD_READ: "明文查看敏感字段",
   ACCESS_DENIED_WRITE: "写操作被拒",

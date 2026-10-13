@@ -209,12 +209,22 @@ const ids = made.map((c) => c.id);
 const bigIds = ids.map(BigInt);
 
 // AC 5：金额逐案填、不继承敞口
+//
+// ⚠ **不要按位置断言**（这里踩过一次抖动）：`convertToCase` 用
+// `Promise.all(inputs.map(() => nextCode("matter")))` **并发取号**，
+// 所以"卡序"与"编号序"不保证一致——按 `order by internal_code` 取回来的第 0 行
+// 不一定是第 1 张卡。前几次恰好一致，于是这条断言看起来是绿的；换一次调度就翻。
+// 改为**按特征识别**：带自定义案号的那张是第 2 张卡，另一张是第 1 张。
 const amounts = await sql`
   select id::text as id, amount::text as amount, case_no, internal_code
-  from mn_matter where id = any(${sql.array(bigIds)}::bigint[]) order by internal_code`;
+  from mn_matter where id = any(${sql.array(bigIds)}::bigint[])`;
+const customNo = amounts.find((a) => a.case_no === `自定义案号-${stamp}`);
+const defaulted = amounts.find((a) => a.case_no === a.internal_code);
 ok(
   "**金额逐案自填**（两案各是各的，不是同一个值）",
-  amounts[0]?.amount === "1000.00" && amounts[1]?.amount === "2000.00",
+  amounts.length === 2 &&
+    amounts.some((a) => a.amount === "1000.00") &&
+    amounts.some((a) => a.amount === "2000.00"),
   amounts.map((a) => a.amount).join(" / "),
 );
 ok(
@@ -226,13 +236,13 @@ ok(
 // AC 6：案号默认取内部编号、可改
 ok(
   "**案号默认回退为内部编号**（未填那张）",
-  amounts[0]?.case_no === amounts[0]?.internal_code,
-  `case_no=${amounts[0]?.case_no} internal=${amounts[0]?.internal_code}`,
+  Boolean(defaulted),
+  `默认那张=${defaulted?.case_no ?? "（没找到）"} 全部=${amounts.map((a) => a.case_no).join(" / ")}`,
 );
 ok(
-  "**案号可改**（填了就用填的）",
-  amounts[1]?.case_no === `自定义案号-${stamp}`,
-  `case_no=${amounts[1]?.case_no}`,
+  "**案号可改**（填了就用填的，且金额是它自己那张的）",
+  customNo?.amount === "2000.00",
+  `自定义那张：case_no=${customNo?.case_no} amount=${customNo?.amount}`,
 );
 
 const [afterConv] = await sql`select conversion_status, converted_case_count from mn_risk_matter where id = ${riskId}`;

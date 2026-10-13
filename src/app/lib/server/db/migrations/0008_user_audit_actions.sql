@@ -1,0 +1,25 @@
+-- 0008：MATT-10 的两个审计动作——扩 `ck_mn_activity_action`（2026-10-13）
+--
+-- 背景：F6-1（账号启停）与 F6-9（本地凭据设置/重置）都要求落审计，而 §3.3 的动作值域里
+-- 没有能表达这两件事的值。E03 已把落点定为 `target_type='app_user'`（迁移 0006 放开的
+-- 账号维度），本迁移补**动作名**。
+--
+-- 三向同批（本仓纪律「文档 → 注册表 → 迁移 CHECK」，`enum-check` 会逐向验）：
+--   ① 文档：`docs/PRD-phase1-enums-and-schemas.md` §3.3 两行；
+--   ② 注册表：`src/shared/enums/audit.ts` 的 `SECURITY_ACTIONS` + `AUDIT_ACTION_LABELS`；
+--   ③ 本迁移。
+--
+-- 为什么是两个新值而不是复用：
+--   · `USER_STATUS_CHANGED` 不复用 `USER_ACTIVATED`——后者的语义是「待开通 → 已开通并
+--     当场指定角色」（E37 `pending → active`）。用它记一次**停用**，读起来是"账号开通"，
+--     历史一查就误判。方向不另开两个值：载荷 `{is_enabled:{from,to}}` 已写明。
+--   · `CREDENTIAL_CHANGED` 不复用 `ROLE_CHANGED`——后者的文档口径是「唯一允许记录范围类
+--     旧值的 action」，语义是角色/范围，与凭据无关。
+--
+-- 扩而不是换：§5.3 废弃流程禁止从 CHECK 删值（历史行仍需能反查中文名，且删值是破坏性迁移）。
+-- 本文件只做 `DROP CONSTRAINT` + `ADD CONSTRAINT` 的等价替换，把**并集**写进去。
+-- 排序说明：`DROP ... IF EXISTS` 在 ADD 之前，保证重放不因约束缺失而失败。
+--> statement-breakpoint
+ALTER TABLE "mn_activity_log" DROP CONSTRAINT IF EXISTS "ck_mn_activity_action";
+--> statement-breakpoint
+ALTER TABLE "mn_activity_log" ADD CONSTRAINT "ck_mn_activity_action" CHECK (action IN ('MATTER_CREATED','MATTER_UPDATED','MATTER_DELETED','RISK_CREATED','RISK_UPDATED','RISK_DELETED','NODE_CREATED','NODE_UPDATED','NODE_DELETED','PROGRESS_CREATED','PROGRESS_UPDATED','PROGRESS_DELETED','EXPENSE_CREATED','EXPENSE_UPDATED','EXPENSE_DELETED','PARTY_CREATED','PARTY_UPDATED','PARTY_DELETED','COMMENT_CREATED','COMMENT_UPDATED','COMMENT_DELETED','ATTACHMENT_UPLOADED','ATTACHMENT_DELETED','STATUS_CHANGED','ARCHIVED','UNARCHIVED','OWNER_CHANGED','CONVERTED_TO_CASE','UNCONVERT','NODE_COMPLETED','NODE_CANCELLED','STAFF_CHANGED','ROLE_CHANGED','USER_ACTIVATED','USER_STATUS_CHANGED','CREDENTIAL_CHANGED','SENSITIVE_FIELD_READ','ACCESS_DENIED_WRITE','EXPORT','AUTO_RULE_EXECUTED','AUTO_RULE_SKIPPED','AUTO_RULE_FAILED','REMINDER_SENT','REMINDER_FAILED','PARTY_MERGED','BULK_IMPORT'));

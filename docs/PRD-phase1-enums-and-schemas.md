@@ -115,6 +115,8 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 | `STAFF_CHANGED` | `{added:[],removed:[],role}` | 修订稿 §6 / 权限草案 §6 |
 | `ROLE_CHANGED` | `{role_id, old:{}, new:{}}` | **唯一允许记录范围类旧值的 action** |
 | `USER_ACTIVATED` | `{external_id, provider, role_ids:[]}` | 云之家首登自动建号后，管理员批准开通并当场指定角色（E37 `pending → active`）。与 `is_enabled` 变更同批进审计 |
+| `USER_STATUS_CHANGED` | `{is_enabled:{from,to}}` | **新增（2026-10-13，MATT-10 落实 F6-1）**：账号启停。与 `USER_ACTIVATED` 分开——后者的语义是"待开通→已开通并指定角色"，用它记一次**停用**读起来是"账号开通"，历史一查就误判。方向不另开两个值：载荷里的 `from/to` 已经写明了（同 `STATUS_CHANGED` 用 field_diffs 的姿态）。**系统所有者不可被停用**，拒绝时不写本动作（走 403 拒绝路径） |
+| `CREDENTIAL_CHANGED` | `{mode, self}` | **新增（2026-10-13，MATT-10 落实 F6-9）**：本地凭据设置/重置。`mode` 取 `set`/`reset`，`self` 记"是否给自己设的"。**绝不记口令或摘要**（`logging-guidelines` 既有禁令）。仅**系统所有者**可执行（MATT-53 裁定：不另设兜底账号，凭据生命线由系统所有者持有） |
 | `SENSITIVE_FIELD_READ` | `{target_type,target_id,fields:[]}` | **不含值**。权限草案 §7.3。**❌ 作废（IQ-12 / Q46′，2026-10-10）：展示层全明文，"显示明文"按钮与逐次读取审计一并取消——本动作一期不写入、前端不展示；行与编号保留不物理删（`@deprecated`，历史行仍需可反查）。明文「导出」改由 `can_read_plain` 把关（开关不删列、语义收窄为仅明文导出），留痕由下表 `EXPORT` 承接。** |
 | `EXPORT` | `{target_type,scope,rows,count,plain:boolean}` | **新增（2026-10-10，IQ-12 落实）**：列表/清单导出动作留痕；`plain=true` 仅 `can_read_plain` 可为（草案 §7.3 明文导出两档）。**不含行内容**，只记档位与行数。**迁移与 `audit.ts` 注册在后**（与 `PARTY_MERGED`/`BULK_IMPORT` 同一姿态：文档先行，代码同步属后续票）。曾为 §6.1 引用的空指针，本轮补行闭合。 |
 | `ACCESS_DENIED_WRITE` | `{target_type,attempted_action}` | 只记写操作拒绝；读拒绝不记（否则案号枚举探测会反向灌满日志表） |

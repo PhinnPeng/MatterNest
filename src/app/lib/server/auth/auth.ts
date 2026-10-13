@@ -59,6 +59,17 @@ export type Actor = {
    * 它**不是**第五个特权开关 —— 只放开"看得见哪些行"，不给出 `can_unarchive` 之类的不可逆动作。
    */
   isAdmin: boolean;
+  /**
+   * `mn_app_user.is_system_owner`：**凭据生命线的持有者**（MATT-53 / 迁移 0007）。
+   *
+   * 与 `isAdmin` 不是一回事：`isAdmin` 是权限模型的逃生口（只短路数据范围、不给特权）；
+   * 本字段是身份本身，判定的是"谁能启动恢复"——一期唯一用法是 F6-9 本地凭据设置/重置。
+   * 全局至多一人由 `uk_mn_app_user_owner` 这个 partial unique index 兜底。
+   *
+   * 它**不进** `privileges`：那四个是"角色授予的特权"（多角色取并集），
+   * 而本字段是账号上的标记，并集语义对它没有意义。
+   */
+  isSystemOwner: boolean;
   privileges: {
     canUnarchive: boolean;
     canReadPlain: boolean;
@@ -121,6 +132,7 @@ export const readActor = cache(async (): Promise<Actor | null> => {
       displayName: appUser.displayName,
       isEnabled: appUser.isEnabled,
       isAdmin: appUser.isAdmin,
+      isSystemOwner: appUser.isSystemOwner,
       activationStatus: appUser.activationStatus,
       // 软删：会话一旦建立就不会自己作废，所以**每个请求**都得重判一次（审计 F5）
       isDeleted: appUser.isDeleted,
@@ -154,6 +166,7 @@ export const readActor = cache(async (): Promise<Actor | null> => {
     displayName: row.displayName,
     dataScope: widestDataScope(grants.map((g) => g.dataScope as DataScope)),
     isAdmin: row.isAdmin,
+    isSystemOwner: row.isSystemOwner,
     privileges: {
       canUnarchive: grants.some((g) => g.canUnarchive),
       canReadPlain: grants.some((g) => g.canReadPlain),

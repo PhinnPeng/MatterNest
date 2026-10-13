@@ -85,6 +85,8 @@ export type Actor = {
   userId: string;
   displayName: string;
   dataScope: "all" | "participating" | "owned";
+  /** 系统所有者：一期唯一用法是"能不能进凭据设置"（F6-9）。见服务端 `auth.ts` 的注释 */
+  isSystemOwner: boolean;
   privileges: {
     canUnarchive: boolean;
     canReadPlain: boolean;
