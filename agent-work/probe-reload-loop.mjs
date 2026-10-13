@@ -78,7 +78,11 @@ try {
   });
   ok("夹具账号能登录", login.status() === 200, `status=${login.status()}`);
 
-  for (const path of ["/workbench", "/matters", "/risk-matters", "/parties", "/users"]) {
+  // ⚠ 工作台在 `/`（`src/app/(desk)/page.tsx`），**不是** `/workbench`。
+  //   初版写成 `/workbench`：`probe-walkthrough-shots` 拍出一张 h1=404 的图才暴露，
+  //   而本脚本**测着 404 页却通过了**——404 页当然不会重载。
+  //   这是本轮反复在抓的那类"静默测错"：断言绿了，但它测的不是你以为的那个东西。
+  for (const path of ["/", "/matters", "/risk-matters", "/parties", "/users"]) {
     const page = await ctx.newPage();
     let loads = 0;
     page.on("load", () => {
