@@ -222,6 +222,24 @@ export type MatterDetail = {
     operator: string;
   }[];
   statuses: StatusRow[];
+  /**
+   * 「归档就绪」三项（F2-26）。**服务端算好给**，前端不重算——
+   * 判定只实现一次（`services/archive-readiness.ts`），列表筛选是它的另一个出口。
+   *
+   * `unavailable` 是第三种状态：既不是绿也不是红（附件表一期未建，那项没有数据源）。
+   * 界面必须把它画成第三态，不能当绿也不能当红。
+   */
+  archiveReadiness: {
+    checks: {
+      key: "judgment" | "closingDate" | "openNodes";
+      state: "ok" | "missing" | "unavailable";
+      reason?: "attachment_not_built";
+      count?: number;
+    }[];
+    missing: ("judgment" | "closingDate" | "openNodes")[];
+    unavailable: ("judgment" | "closingDate" | "openNodes")[];
+    ready: boolean;
+  } | null;
 };
 
 /**

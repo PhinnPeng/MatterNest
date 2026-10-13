@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { App as AntdApp, Avatar, Dropdown, Layout, Menu, Space, Tag, Typography } from "antd";
 import type { MenuProps } from "antd";
 import {
+  BarChartOutlined,
   DashboardOutlined,
   ExportOutlined,
   FileTextOutlined,
@@ -56,11 +57,16 @@ const NAV: { type: "group"; label: string; children: Item[] }[] = [
         label: "事项",
         icon: <SafetyCertificateOutlined />,
       },
+      // 当事人档案（MATT-40 / T3）：与"案件""事项"并列，因为它是**跨案件的主体视图**
+      // ——同一个人可能卷进 N 个案卷，按案卷找他就永远看不全。
+      { key: "/parties", label: "当事人", icon: <TeamOutlined /> },
       {
         key: "/archive",
         label: "已归档",
         icon: <InboxOutlined />,
       },
+      // 报表（MATT-46 / T8）：运维视角的聚合读数，不是某个案卷的一部分，所以与案卷并列
+      { key: "/reports", label: "报表", icon: <BarChartOutlined /> },
     ],
   },
   {

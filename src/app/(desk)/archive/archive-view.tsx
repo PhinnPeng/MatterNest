@@ -233,6 +233,21 @@ export function ArchiveView() {
             onPressEnter={() => push({ keyword: kw.trim() })}
           />
         </FilterField>
+        {/* 「已结案缺材料」（F2-26 / G4 的运维视角）。**只在案件侧出现**：材料完整要求
+            只对案件成立（事项是台账）。谓词住在 `services/archive-readiness.ts`，
+            与详情页那张「归档就绪」卡是同一条判定的两个出口。 */}
+        {isMatter ? (
+          <FilterField label="材料" width={200}>
+            <Segmented
+              value={state.missingMaterials ? "missing" : "all"}
+              onChange={(v) => push({ missingMaterials: v === "missing" ? "1" : "", page: 1 })}
+              options={[
+                { label: "全部", value: "all" },
+                { label: "缺材料", value: "missing" },
+              ]}
+            />
+          </FilterField>
+        ) : null}
       </QueryFilter>
 
       <DataTable<ArchiveRow>

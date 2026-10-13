@@ -2,10 +2,16 @@
 
 import { BRAND, INK } from "@/app/theme/brand";
 import { useEffect, useState } from "react";
-import { Alert, Form, Input, Modal, Select } from "antd";
+import { useQuery } from "@tanstack/react-query";
+import { Alert, Form, Input, Modal, Select, Space, Typography } from "antd";
 
 import { api, ApiFailure, type StatusRow } from "@/app/lib/client/api";
 import { needsChangeReason } from "@/shared/schema/status-transition";
+import {
+  readinessMissingText,
+  UNAVAILABLE_HINT,
+  type Readiness,
+} from "@/app/lib/client/archive-readiness";
 
 export type StatusTarget = { id: string; code: string; name: string; status: string };
 
@@ -52,6 +58,23 @@ export function StatusDialog({
   });
   const reasonMissing = reasonRequired && reason.trim().length === 0;
   const unchanged = !to || to === target?.status;
+  const archiving = toRow?.semantics === "archived";
+
+  /**
+   * 归档就绪（F2-26）：只在**选到归档**时才拉。三个出口（详情卡 / 列表筛选 / 这里）
+   * 都出自服务端同一条判定，这里不重算。
+   *
+   * 缺项不阻断归档（IQ-16）：它只是把"你将带着什么归档"提前说清，
+   * 并把 reason 从"可选"变成"必填"（`needsChangeReason` 那边已经这么判了）。
+   */
+  const readinessQ = useQuery({
+    queryKey: ["matter", target?.id, "archive-readiness"],
+    queryFn: () =>
+      api.get<{ readiness: Readiness | null }>(`/api/matters/${target?.id}/archive-readiness`),
+    enabled: open && archiving && !!target?.id,
+    staleTime: 0,
+  });
+  const readiness = readinessQ.data?.readiness ?? null;
 
   useEffect(() => {
     if (open) {
@@ -92,6 +115,40 @@ export function StatusDialog({
       <p style={{ fontSize: 12, color: INK.muted, margin: "4px 0 14px" }}>
         <span className="num">{target.code}</span> · {target.name}
       </p>
+      {archiving ? (
+        <Alert
+          type={readiness?.missing.length ? "warning" : "info"}
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={
+            readinessQ.isPending
+              ? "正在核对归档材料…"
+              : readinessQ.isError
+                ? "核对不了归档材料（这不影响归档，但缺项清单这次给不出来）"
+                : readiness?.missing.length
+                  ? `还缺：${readinessMissingText(readiness)}`
+                  : "三项都齐备"
+          }
+          description={
+            readiness?.missing.length ? (
+              <Space direction="vertical" size={2}>
+                <Typography.Text style={{ fontSize: 12 }}>
+                  缺项**不阻断**归档——照样能归，但会记进归档活动，并计入材料完整率。
+                </Typography.Text>
+                {readiness.unavailable.length ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {UNAVAILABLE_HINT.attachment_not_built}
+                  </Typography.Text>
+                ) : null}
+              </Space>
+            ) : readiness?.unavailable.length ? (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {UNAVAILABLE_HINT.attachment_not_built}——所以「齐备」这句话这次只覆盖已判的两项。
+              </Typography.Text>
+            ) : undefined
+          }
+        />
+      ) : null}
       <Form layout="vertical" requiredMark={false}>
         <Form.Item
           label="目标状态"

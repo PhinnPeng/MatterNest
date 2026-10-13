@@ -33,8 +33,25 @@ export type ListState = {
    * 放在共享的 `ListState` 里而不是事项视图的局部 state：筛选条件必须能进 URL，
    * 否则"把这条筛选发给同事"就做不到，而那是筛选器最基本的一条。
    * `undefined` = 不限（后端 `ownerEmptyField` 的第三态）。
+   *
+   * ⚠ 类型是字面量 `"1"` 而不是 `string`：解析器只产 `"1"` 或 `undefined`，
+   * 放开成 `string` 会让 `"0"`、`"yes"` 这类**没有意义的值**在类型层合法，
+   * 而 `toQuery` 的 `if (s.ownerEmpty)` 会把它们当成"开启"发出去（后端只收 1/true ⇒ 400）。
+   * 收窄之后，写错值在编译期就红，不用等运行时。
    */
-  ownerEmpty?: string;
+  ownerEmpty?: "1";
+  /**
+   * 只看**已结案缺材料**的案件（F2-26 / G4 的运维视角出口）。
+   *
+   * 与 `ownerEmpty` 同理由放在这里：筛选必须能进 URL。三态与它一致
+   * （`undefined` / `""` = 不限，`"1"` = 只看缺材料的）。
+   *
+   * ⚠ 只对**已归档**的案件有意义——谓词里带了 `is_archived = true`，
+   * 所以它在归档视图里才有内容，在办列表上恒为空。
+   *
+   * 类型同样是字面量 `"1"`（理由见 `ownerEmpty`）。
+   */
+  missingMaterials?: "1";
 };
 
 export function useListState(defaults?: Partial<ListState>) {
@@ -52,6 +69,12 @@ export function useListState(defaults?: Partial<ListState>) {
       keyword: sp.get("keyword") ?? "",
       status: sp.get("status") ?? "",
       archivedOnly: sp.get("archivedOnly") === "1" || sp.get("archivedOnly") === "true",
+      // 三态与 ownerEmpty 一致：`undefined` = 不限（"0"/空串都不算开了筛选）
+      ownerEmpty: sp.get("ownerEmpty") === "1" || sp.get("ownerEmpty") === "true" ? "1" : undefined,
+      missingMaterials:
+        sp.get("missingMaterials") === "1" || sp.get("missingMaterials") === "true"
+          ? "1"
+          : undefined,
     }),
     [sp, defaults?.pageSize, defaults?.sortBy],
   );
@@ -99,5 +122,12 @@ export function toQuery(s: ListState): string {
   if (s.keyword) p.set("keyword", s.keyword);
   if (s.status) p.set("status", s.status);
   if (s.archivedOnly) p.set("archivedOnly", "1");
+  // ⚠ 下面两个是**筛选开关**，漏掉任何一个都是"界面里点了没反应"：
+  //   `state` 从 URL 读得到、界面也回显了，但请求里没有它 ⇒ 服务端按"不限"处理 ⇒
+  //   用户看到的是"筛选不生效"而不是报错。`ownerEmpty` 就真的这样漏过一次
+  //   （服务端筛选有断言、且是对的；坏的只有这里），所以补了 `use-list-state.spec.ts`
+  //   那条结构性断言：**ListState 里每个筛选键都必须出现在 toQuery 的输出里**。
+  if (s.ownerEmpty) p.set("ownerEmpty", "1");
+  if (s.missingMaterials) p.set("missingMaterials", "1");
   return p.toString();
 }

@@ -25,6 +25,7 @@ import type { PartyLinkInput } from "./parties";
 import type { Actor } from "../auth/auth";
 import { nextCode } from "./numbering";
 import { initialStatusCode, hostStatusRows } from "./statuses";
+import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
 import { NODE_STATUS_LABELS } from "@/shared/enums/business";
 
@@ -75,6 +76,10 @@ export async function listMatters(actor: Actor, q: ListQuery) {
     archivedFilter("matter", Boolean(q.archivedOnly)),
     q.status ? eq(matter.status, q.status) : undefined,
     keywordFilter("matter", q.keyword),
+    // 「已结案缺材料」（F2-26）：谓词住在 archive-readiness.ts，与详情页那张卡同源。
+    // 这里只传开关，不重算判定——两个出口各写一份的漂移不会报错，
+    // 只会让"列表说有缺、详情页说齐备"同时成立。
+    q.missingMaterials ? archiveMissingSql() : undefined,
   );
   // 这里不再有 `?? matter.updatedAt` 兜底：SORTABLE 的键集合由类型保证与白名单相等，
   // 兜底反而会掩盖"新加了一列却忘了配映射"。
@@ -247,6 +252,14 @@ export async function getMatter(actor: Actor, id: string) {
     activity: activity.map((a) => ({ ...a, id: String(a.id) })),
     progress: progress.map((p) => ({ ...p, id: String(p.id) })),
     statuses,
+    /**
+     * 「归档就绪」三项（F2-26）。**详情页那张卡只读这里**，不在前端重算——
+     * 判定只实现一次（`services/archive-readiness.ts`），列表筛选是它的另一个出口。
+     *
+     * 未归档的案件也照样给：那张卡是"平时可见"的（实时红绿），
+     * 不是只在归档那一刻才算。判不出来（案件刚被删）时给 null，前端整块不渲染。
+     */
+    archiveReadiness: await judgeArchiveReadiness(db, id),
   };
 }
 
@@ -384,6 +397,9 @@ export async function changeStatus(
       status: matter.status,
       isArchived: matter.isArchived,
       ownerId: matter.ownerId,
+      // `closing_date` 与当前语义：前者是"进 closed 时要不要写、离开时要不要清"的依据，
+      // 后者要从 statusConfig 查（下面 rows 里取），这里只先带上日期
+      closingDate: matter.closingDate,
     })
     .from(matter)
     .where(scopedWhere("matter", actor, eq(matter.id, BigInt(id))))
@@ -418,23 +434,68 @@ export async function changeStatus(
 
   await db.transaction(async (tx) => {
     const now = new Date().toISOString();
+    const archiving = target.semantics === "archived";
+    /**
+     * `closing_date` 的自动写入（F2-26 第②项的前提，也是 `SEMANTICS_RULES.closed.effect`
+     * 那句"视为结案，closing_date 自动写入"的落地）。
+     *
+     * ⚠ 此前**没有任何路径能写这一列**：建案 schema 里没有它、案件侧也没有字段编辑接口。
+     * 结果是 `closing_date` 恒为 NULL ⇒ 详情页的「已结案」标记永不出现、
+     * 归档完备性的第②项恒判"缺"。这一条属于"声明了效果但没实现"，
+     * 不是"没人用所以先不做"——声明在 `shared/enums/status.ts` 里，是可读的承诺。
+     *
+     * 写入规则：进入 `closed` 语义时若为空则写今天；**离开 `closed` 时清空**
+     * （不结案了，"结案日期"就不该留着——留着会让第②项在办案件上恒绿）。
+     * 已有的日期不覆盖：重复进入 closed 不改第一次的结案日。
+     */
+    const enteringClosed = target.semantics === "closed" && curRow?.semantics !== "closed";
+    const leavingClosed = target.semantics !== "closed" && curRow?.semantics === "closed";
+    const closingDate = enteringClosed
+      ? (cur.closingDate ?? now.slice(0, 10))
+      : leavingClosed
+        ? null
+        : cur.closingDate;
+    /**
+     * 归档完备性（F2-26 / G4）：**判定在事务内跑**，与归档写、审计写同一事务——
+     * 判定结果要随 `ARCHIVED` 落库，分开算会留下"审计里记的缺项与实际归档状态不一致"。
+     *
+     * **缺项不阻断**（IQ-16 明文）：缺材料照样能归档，只是要填 reason（上面已经拦过），
+     * 并把缺项清单记进审计。G4 指标"归档材料完整率"以这份清单为唯一数据源。
+     */
+    const readiness = archiving ? await judgeArchiveReadiness(tx, id) : null;
     await tx
       .update(matter)
       .set({
         status: to,
-        isArchived: target.semantics === "archived",
-        archivedAt: target.semantics === "archived" ? now : null,
+        closingDate,
+        isArchived: archiving,
+        archivedAt: archiving ? now : null,
         updatedBy: BigInt(actor.userId),
         updatedAt: now,
       })
       .where(eq(matter.id, BigInt(id)));
     await logActivity(tx, actor, {
       matterId: BigInt(id),
-      action: target.semantics === "archived" ? "ARCHIVED" : "STATUS_CHANGED",
+      action: archiving ? "ARCHIVED" : "STATUS_CHANGED",
       targetType: "matter",
       targetId: BigInt(id),
       reason: reason ?? null,
-      diffs: { status: { from: cur.status, to } },
+      diffs: {
+        status: { from: cur.status, to },
+        ...(enteringClosed || leavingClosed
+          ? { closing_date: { from: cur.closingDate, to: closingDate } }
+          : {}),
+      },
+      ...(readiness
+        ? {
+            payload: {
+              missing_at_archive: readiness.missing,
+              // ⚠ 单列一份：`missing_at_archive` 为空**不等于齐备**——附件那项没有数据源、
+              //   这次没判。不把这件事写下来，"空数组 = 齐备"会被读成事实。
+              unavailable_at_archive: readiness.unavailable,
+            },
+          }
+        : {}),
     });
   });
   return { ok: true };

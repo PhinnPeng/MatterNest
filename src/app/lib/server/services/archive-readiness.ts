@@ -1,0 +1,139 @@
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { getDb } from "../db/client";
+import { matter, matterNode } from "../db/schema";
+import { NODE_OPEN_STATUSES } from "@/shared/enums/business";
+
+/**
+ * 归档完备性判定（F2-26 / G4 的功能载体，IQ-16）。
+ *
+ * ## 这项判定只实现一次，两个读出口从它取数
+ *
+ * 出口一：案件详情页「归档就绪」卡（`judgeArchiveReadiness`，逐项红绿）。
+ * 出口二：案件列表「已结案缺材料」筛选（`archiveMissingSql`，一条 SQL 谓词）。
+ *
+ * 两个出口各写一份判定是这条 AC 最容易走歪的地方——两份判定的漂移**不会报错**，
+ * 只会让"列表说有缺、详情页说齐备"同时成立，而用户只会信其中一个。
+ * 所以两份都住在本文件里、相邻摆放；`smoke-archive.mjs` 里有一条
+ * **两出口一致性断言**（详情页判为缺的案件，列表筛选必须也能找到它）。
+ *
+ * ## 三项校验
+ *
+ * ① 裁判文书类附件 ≥1（`attachment.category='judgment'`）
+ * ② `closing_date` 已填
+ * ③ 无待定未决节点（`*_node.status ∈ NODE_OPEN_STATUSES`）
+ *
+ * **仅案件侧**：事项没有材料完整要求（与"事项是台账"一致），所以本文件只认 `matter`。
+ *
+ * ## 第①项为什么是 `unavailable` 而不是 `missing`
+ *
+ * `mn_attachment` 是**一期故意不建**的三张表之一（`db/schema/collab.ts` 开篇写明：
+ * MinIO 服务账号未开通，接了没有可写目标）。所以第①项**没有可查的数据源**。
+ *
+ * 它不能算绿（那是假齐备），也不能算红（那会把每一条案件都判成缺材料，而 G4 指标
+ * "归档材料完整率"正是以 `missing_at_archive` 为唯一数据源的——假红直接污染那个指标）。
+ * 所以单列第三种状态 **`unavailable`（暂不可判）**，并写进 `unavailable_at_archive`，
+ * 让"空数组 = 齐备"这句话不会把没判过的项吞掉。
+ *
+ * 槽位在这里就留好了：MATT-15（附件通道）打通后，只需把这一项的 `state` 从
+ * `unavailable` 换成对 `mn_attachment` 的查询——判定结构、落库字段、两个出口都不用动。
+ */
+
+/** 事务句柄：从 `transaction` 的回调参数上取，比自己拼 PgTransaction 泛型稳（仓内既有写法） */
+type Db = Awaited<ReturnType<typeof getDb>>;
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+type Conn = Db | Tx;
+
+export type ReadinessCheckKey = "judgment" | "closingDate" | "openNodes";
+
+/** `unavailable` 是第三种状态：不是"红"也不是"绿"——见文件头注 */
+export type CheckState = "ok" | "missing" | "unavailable";
+
+export type ReadinessCheck = {
+  key: ReadinessCheckKey;
+  state: CheckState;
+  /** `unavailable` 时说明为什么（目前只有附件那一项会用到） */
+  reason?: "attachment_not_built";
+  /** `missing` 时的补充事实（如未决节点数），供界面把话说具体 */
+  count?: number;
+};
+
+export type ArchiveReadiness = {
+  checks: ReadinessCheck[];
+  /** 落库用：判为缺的项。**空数组不等于齐备**——还要看 `unavailable` */
+  missing: ReadinessCheckKey[];
+  /** 落库用：没有数据源、这次没判的项 */
+  unavailable: ReadinessCheckKey[];
+  /** 三项全部 ok 才算就绪（`unavailable` 不算 ok） */
+  ready: boolean;
+};
+
+/** 三项的固定顺序与中文名（界面与落库共用一份，不各写一遍） */
+export const READINESS_CHECKS: readonly { key: ReadinessCheckKey; label: string }[] = [
+  { key: "judgment", label: "裁判文书已归档" },
+  { key: "closingDate", label: "结案日期已填" },
+  { key: "openNodes", label: "无未决工作节点" },
+];
+
+/**
+ * 判定一条案件的归档完备性。传 `tx` 时复用调用方的事务连接
+ * （事务内再向池子要一条连接会互等成死锁，这条在本仓有前例）。
+ *
+ * 查不到这条案件时返回 `null` —— 调用方负责给 404（可见性判定在 `scopedWhere` 那边，
+ * 本函数不做权限判断）。
+ */
+export async function judgeArchiveReadiness(
+  conn: Conn,
+  matterId: string,
+): Promise<ArchiveReadiness | null> {
+  const [row] = await conn
+    .select({
+      closingDate: matter.closingDate,
+      openNodes: sql<number>`(
+        select count(*)::int from ${matterNode} n
+        where n.matter_id = ${matter.id} and not n.is_deleted
+          and ${inArray(sql`n.status`, [...NODE_OPEN_STATUSES])}
+      )`,
+    })
+    .from(matter)
+    .where(eq(matter.id, BigInt(matterId)))
+    .limit(1);
+  if (!row) return null;
+
+  const openNodes = Number(row.openNodes ?? 0);
+  const checks: ReadinessCheck[] = [
+    // ① 附件：见文件头注（表未建 ⇒ 暂不可判，既不算绿也不算红）
+    { key: "judgment", state: "unavailable", reason: "attachment_not_built" },
+    { key: "closingDate", state: row.closingDate ? "ok" : "missing" },
+    { key: "openNodes", state: openNodes === 0 ? "ok" : "missing", count: openNodes },
+  ];
+
+  return {
+    checks,
+    missing: checks.filter((c) => c.state === "missing").map((c) => c.key),
+    unavailable: checks.filter((c) => c.state === "unavailable").map((c) => c.key),
+    ready: checks.every((c) => c.state === "ok"),
+  };
+}
+
+/**
+ * 列表出口：**已结案且缺材料**的案件。
+ *
+ * 与 `judgeArchiveReadiness` 是同一条判定的两种形态（一个是逐项状态、一个是 SQL 谓词），
+ * 所以放在同一个文件里相邻摆放。第①项在两边都不参与判定（表未建）——
+ * 这一点也必须一致：**列表筛选不能悄悄把附件那项算进来**。
+ *
+ * ⚠ 只收"已归档"的案件：未归档的缺材料不是问题，是"还在办"。
+ */
+export function archiveMissingSql(): SQL {
+  return and(
+    eq(matter.isArchived, true),
+    sql`(
+      ${matter.closingDate} is null
+      or exists (
+        select 1 from ${matterNode} n
+        where n.matter_id = ${matter.id} and not n.is_deleted
+          and ${inArray(sql`n.status`, [...NODE_OPEN_STATUSES])}
+      )
+    )`,
+  ) as SQL;
+}

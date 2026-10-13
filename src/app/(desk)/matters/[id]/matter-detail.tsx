@@ -31,6 +31,12 @@ import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
+import {
+  READINESS_LABELS,
+  READINESS_TAB,
+  STATE_COLOR,
+  UNAVAILABLE_HINT,
+} from "@/app/lib/client/archive-readiness";
 import { StaffPicker } from "./staff-picker";
 
 /**
@@ -51,6 +57,8 @@ export function MatterDetail({ id }: { id: string }) {
   const { message } = AntdApp.useApp();
   const { data: meta } = useMeta("matter");
   const [statusOpen, setStatusOpen] = useState(false);
+  // 受控页签：归档就绪卡点一项要跳到对应页签（F2-26）
+  const [tab, setTab] = useState("nodes");
 
   const { data, isPending, isError, error } = useQuery({
     queryKey: ["matter", id],
@@ -206,13 +214,61 @@ export function MatterDetail({ id }: { id: string }) {
 
       <Card size="small" styles={{ body: { padding: "0 12px 12px" } }}>
         <Tabs
-          defaultActiveKey="nodes"
+          activeKey={tab}
+          onChange={setTab}
           items={[
             {
               key: "basic",
               label: "基本信息",
               children: (
                 <>
+                  {/* 「归档就绪」三项（F2-26）。**服务端算好给**（详情 DTO 的
+                      archiveReadiness），前端不重算——判定只实现一次，
+                      列表的「已结案缺材料」筛选是它的另一个出口。
+                      点一项跳到该补录的页签（READINESS_TAB）。 */}
+                  {m.archiveReadiness ? (
+                    <Card
+                      size="small"
+                      title="归档就绪"
+                      style={{ marginBottom: 12 }}
+                      extra={
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {m.archiveReadiness.ready ? "三项齐备" : "缺项不阻断归档，会记进归档活动"}
+                        </Typography.Text>
+                      }
+                    >
+                      <Space size={8} wrap>
+                        {m.archiveReadiness.checks.map((c) => (
+                          <Tag
+                            key={c.key}
+                            color={STATE_COLOR[c.state]}
+                            variant="filled"
+                            style={{ cursor: "pointer", marginInlineEnd: 0 }}
+                            onClick={() => setTab(READINESS_TAB[c.key])}
+                          >
+                            {READINESS_LABELS[c.key]}
+                            {c.state === "ok"
+                              ? " · 已具备"
+                              : c.state === "missing"
+                                ? c.count
+                                  ? ` · 缺（${c.count} 个未决节点）`
+                                  : " · 缺"
+                                : " · 暂不可判"}
+                          </Tag>
+                        ))}
+                      </Space>
+                      {m.archiveReadiness.unavailable.length ? (
+                        <Typography.Text
+                          type="secondary"
+                          style={{ fontSize: 12, display: "block", marginTop: 6 }}
+                        >
+                          {UNAVAILABLE_HINT.attachment_not_built}——所以上面
+                          {m.archiveReadiness.ready ? "「三项齐备」" : "「缺项」"}
+                          这句话只覆盖已判的两项。
+                        </Typography.Text>
+                      ) : null}
+                    </Card>
+                  ) : null}
                   <Descriptions
                     size="small"
                     column={{ xs: 1, sm: 2, lg: 3 }}

@@ -72,6 +72,21 @@ export const ownerEmptyField = z
   .optional()
   .transform((v) => v === "1" || v === "true");
 
+/**
+ * 「已结案缺材料」（F2-26 / G4 的运维视角出口）。
+ *
+ * 与案件详情页的「归档就绪」卡是**同一条判定的两个读出口**——判定本身住在
+ * `services/archive-readiness.ts`（一个逐项状态函数 + 一条 SQL 谓词，相邻摆放），
+ * 这里只负责把开关传下去，不在这里重算一遍。
+ *
+ * ⚠ 只对**已归档**的案件有意义：未归档的缺材料不是问题，是"还在办"。
+ * 谓词里已经带了 `is_archived = true`，所以这个开关天然与「已归档」视图配套。
+ */
+export const missingMaterialsField = z
+  .enum(["1", "true"])
+  .optional()
+  .transform((v) => v === "1" || v === "true");
+
 export const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
@@ -80,6 +95,11 @@ export const listQuerySchema = z.object({
   status: z.enum(FILTERABLE_STATUSES).optional(),
   keyword: z.string().trim().min(1).max(60).optional(),
   archivedOnly: archivedOnlyField,
+  /**
+   * 「已结案缺材料」（F2-26 / G4）。只对**已归档**的案件有意义——谓词里带了
+   * `is_archived = true`，所以它与「已归档」视图天然配套。见 `missingMaterialsField`。
+   */
+  missingMaterials: missingMaterialsField,
 });
 
 export type ListQuery = z.infer<typeof listQuerySchema>;
