@@ -59,13 +59,33 @@ export function money(value: string | null | undefined): string {
   return `${grouped}${frac ? `.${frac}` : ""}`;
 }
 
-/** 紧凑金额：工作台卡片与合计行用，表格里仍给完整值 */
-export function moneyCompact(value: string | number | null | undefined): string {
-  const n = typeof value === "number" ? value : Number(value ?? 0);
-  if (!Number.isFinite(n)) return "0";
-  if (n >= 1_0000_0000) return `${(n / 1_0000_0000).toFixed(2)} 亿`;
-  if (n >= 1_0000) return `${(n / 1_0000).toFixed(1)} 万`;
-  return String(n);
-}
-
+/**
+ * ⚠ 这里原先还有一个 `moneyCompact()`，**已删除**（2026-10-13）。
+ *
+ * 它长这样：
+ *
+ *     export function moneyCompact(value) {
+ *       const n = typeof value === "number" ? value : Number(value ?? 0);   // ← 精度在这里丢
+ *       if (n >= 1_0000_0000) return `${(n / 1_0000_0000).toFixed(2)} 亿`;
+ *       if (n >= 1_0000) return `${(n / 1_0000).toFixed(1)} 万`;
+ *       return String(n);
+ *     }
+ *
+ * 删它的三个理由，任一条都够：
+ *
+ * ① **它是死的**：全仓零调用（工作台上根本没有金额渲染，费用合计行用的是上面的 `money()`）。
+ * ② **它的注释是假的**：原注释写"工作台卡片与合计行用" —— 而这两处都没用它。
+ *    本仓对"声明了但没有实现"很敏感（`SEMANTICS_RULES.closed.effect` 栽过一次）。
+ * ③ **它是「禁 float」的现成地雷**：`Number()` + `toFixed()` 一进来，`numeric(18,2)` 的
+ *    精度就没了（`"12345678901234.86"` → `12345678901234.86` → 科学计数/截断）。
+ *    而它**长得像**一个可以随便用在金额上的函数 —— 下一个做合计卡片的人一定会伸手拿它，
+ *    那一刻起金额就开始静默算错（不报错，这正是本仓最怕的那一类）。
+ *
+ * 处置方式与本仓对死代码的既有裁定一致（`mn_app_user.revoked_at`、`is_deleted` 那两次
+ * 都是"要么补守卫、要么弃用并记一句"）。这里选择**删掉并留档**，因为"补一条守卫"只能防住
+ * 记得去查守卫的人，而删掉之后**没有任何人能误用它**。
+ *
+ * 真要"1.2 万"这种压缩显示时：**在 SQL 里算**（像费用合计那样 `::numeric(18,2)::text` 出来），
+ * 前端仍然只做字符串处理 —— 这条边界不破。
+ */
 export const DATE_COMPACT = DATE_COMPACT_PATTERN;
