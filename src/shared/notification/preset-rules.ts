@@ -1,16 +1,17 @@
 /**
  * 预置规则里**通知这一侧**的收件人口径（修订稿 §2.3 规则表，1–9 条）。
  *
- * ## 为什么这份表住在 shared 而不是某张库里
+ * ## 这份文件现在是**派生视图**，不是第二份取值源
  *
- * 规则表（`mn_automation_rule`）第一期**还没建**：F5-7/F5-10 的规则列表与启停页属 M5 的另一条流。
- * 而"上报人回音"这条兑现机制（IQ-13-V5）不能等它——业务同事报了风险看不到下文，
- * 下次就不报了，这是登记率归零的真正原因。
+ * 它的初版（MATT-41 / T4）是"规则表还没建"时的临时落点，文件头当时就写明了退场条件：
+ * 「等规则表落地时，`action_config.receivers` 从库里读，这份常量退化成 seed 的
+ * **单一取值源**」。规则表随 MATT-43 的迁移 0012 落地，而**取值源搬到了
+ * `shared/automation/preset-rules.ts`**（9 条规则的完整定义，含 seed 的逐字投影）。
  *
- * 所以这里落的是**规则 2/8 的收件人取值本身**，也就是 T0 把 `creator` 加进 E04 值域之后
- * 一直没接上的那根线。等规则表落地时，`action_config.receivers` 从库里读，
- * 这份常量退化成 seed 的**单一取值源**（`rule.receivers` 与它逐字相等由单测钉住），
- * 而不是被删掉——两份各写一遍 `["follower","creator"]` 正是它要防的事。
+ * 所以这里不再手写 `["follower","creator"]`：那是两份各写一遍，正是本文件要防的事。
+ * 留下这一层是因为**消费方读的是"通知这一侧"而不是整条规则**——
+ * `services/notifications.ts` 要的是 `receivers`，`scanDueNodes` 要的是
+ * "节点提醒那条规则是谁"，它们不该各自去 `action_config` 里掏 jsonb。
  *
  * ## `creator` 这条线到底改了什么（别把它读成"顺手多推一个人"）
  *
@@ -21,7 +22,9 @@
  *
  * 规则 5/6（节点开始/截止）**不含 `creator`**：它们是经办人的作业提醒，
  * 而上报人收到"你的事项有个节点 3 天后到期"没有可执行的动作，只会变成噪声（G3 反例）。
+ * 规则 9（结案材料不全）**只给 `owner`**：关注人是被动 star 进来的，推给他们是噪音。
  */
+import { notifyConfigOf, presetRule } from "@/shared/automation/preset-rules";
 import type { NotifyReceiver } from "@/shared/enums/automation";
 
 /** 规则在 §2.3 表里的编号。写成字段是为了排障时能直接把通知对回规则行 */
@@ -36,6 +39,18 @@ export type PresetNotifyRule = {
   receivers: readonly NotifyReceiver[];
 };
 
+/** 从规则目录里取"通知这一侧"的视图。取值只有一处，所以不存在两份漂移的可能 */
+function notifyView(ruleNo: number): PresetNotifyRule {
+  const rule = presetRule(ruleNo);
+  const config = notifyConfigOf(rule);
+  return {
+    ruleNo: rule.ruleNo,
+    name: rule.name,
+    templateCode: config.template_code,
+    receivers: config.receivers as readonly NotifyReceiver[],
+  };
+}
+
 /**
  * 状态变更通知关注人（规则 2）。
  *
@@ -44,12 +59,7 @@ export type PresetNotifyRule = {
  * **归档记录不再产生新通知**（`docs/PRD-phase1-alignment-m4.md`）。那条闸门在服务层，
  * 不在收件人表里——收件人表只回答"推给谁"，不回答"推不推"。
  */
-export const RULE_STATUS_CHANGED_NOTIFY: PresetNotifyRule = {
-  ruleNo: 2,
-  name: "状态变更通知关注人",
-  templateCode: "status_changed",
-  receivers: ["follower", "creator"],
-};
+export const RULE_STATUS_CHANGED_NOTIFY: PresetNotifyRule = notifyView(2);
 
 /**
  * 新评论通知关注人（规则 8）。
@@ -58,30 +68,35 @@ export const RULE_STATUS_CHANGED_NOTIFY: PresetNotifyRule = {
  * 这条是"件件有回音"的**主回路**：Q14 把核查/反馈落到评论之后，
  * 上报人看到的第一条回音通常就是这里发出的。
  */
-export const RULE_COMMENT_ADDED_NOTIFY: PresetNotifyRule = {
-  ruleNo: 8,
-  name: "新评论通知关注人",
-  templateCode: "comment_new",
-  receivers: ["follower", "creator"],
-};
+export const RULE_COMMENT_ADDED_NOTIFY: PresetNotifyRule = notifyView(8);
 
 /** 节点开始提醒（规则 5）。收件人**不含 creator**，理由见文件头 */
-export const RULE_NODE_START_NOTIFY: PresetNotifyRule = {
-  ruleNo: 5,
-  name: "节点开始提醒",
-  templateCode: "node_start",
-  receivers: ["owner", "follower"],
-};
+export const RULE_NODE_START_NOTIFY: PresetNotifyRule = notifyView(5);
 
 /** 节点截止提醒（规则 6）。同上 */
-export const RULE_NODE_END_NOTIFY: PresetNotifyRule = {
-  ruleNo: 6,
-  name: "节点截止提醒",
-  templateCode: "node_end",
-  receivers: ["owner", "follower"],
-};
+export const RULE_NODE_END_NOTIFY: PresetNotifyRule = notifyView(6);
 
-/** 转案件（`risk_converted` 领域事件）的通知口径 */
+/**
+ * 转案件（`risk_converted` 领域事件）的通知口径。
+ *
+ * ⚠ **这一条必须写字面量，不能像上面四条那样从规则目录派生。**
+ *
+ * 起因是一次真实的全局故障：本文件一度写成 `notifyView(7)`，而规则 7
+ * （`preset_07_risk_converted_archive`）的 `actionType` 是 **`archive`**、`actionConfig` 是 **`{}`**
+ * —— 于是 `notifyView` 里的 `notifyConfigOf` 当场抛「规则 7 的动作不是 notify」。
+ * 它是**模块加载期**的抛错，而 `services/notifications.ts` 被 `matters.ts`/`risks.ts` import
+ * ⇒ **通知、评论、状态变更三条链路一起 500**（实测 `GET /api/notifications` → 500）。
+ *
+ * 根因不是"写错了行号"，而是**这条规则的形状与其它四条不同**：
+ * 规则 2/5/6/8 本身就是"通知规则"（动作就是 notify），所以它们的通知口径能从
+ * `action_config` 派生；而**规则 7 是"归档规则"，通知是它的副作用**
+ * （§2.4 既裁：「转案件归档」无独立模板，复用 `case_archived`）。
+ * 一个 archive 规则没有"通知这一侧"可派生——它的 `actionConfig` 里本来就没有那些键。
+ *
+ * 所以：**派生只对"动作就是 notify"的规则成立**。这一条按 §2.4 的字面量写。
+ * 若日后真要把它也收进目录，得先给规则目录加一个"通知副作用"的落点，
+ * 而不是从 `actionConfig` 里抠。
+ */
 export const RULE_RISK_CONVERTED_NOTIFY: PresetNotifyRule = {
   ruleNo: 7,
   name: "转案件后归档",
@@ -90,13 +105,34 @@ export const RULE_RISK_CONVERTED_NOTIFY: PresetNotifyRule = {
   receivers: ["owner", "follower", "creator"],
 };
 
+/**
+ * 结案后材料不全提醒（规则 9，MATT-43 / IQ-16）。
+ *
+ * 它是 `archive_incomplete` 这个事件类型的**唯一生产者**（T4 交付时 E29 的 8 个值里
+ * `mention`/`stale_30d`/`archive_incomplete` 三个还没有生产者，本条补掉第三个）。
+ * 收件人**只有经办人**：补材料的动作只有他能做，而关注人看到只会去问经办人。
+ */
+export const RULE_ARCHIVE_INCOMPLETE_NOTIFY: PresetNotifyRule = notifyView(9);
+
+/**
+ * 长期未更新提醒（规则 4）。
+ *
+ * ⚠ **本票没有给它接生产者**（30 天无进展的扫描不在 MATT-43 范围内）。
+ * 它出现在这里是因为规则表已经落地、它的 `receivers` 有了唯一取值源；
+ * 而 `stale_30d` 事件在 E29 里仍然没有生产者——那件事在 T4 的缺口清单上，
+ * 别把它读成"这条规则已经生效"。
+ */
+export const RULE_STALE_30D_NOTIFY: PresetNotifyRule = notifyView(4);
+
 /** 全部通知类预置规则，按规则号排。单测拿它做覆盖性断言 */
 export const PRESET_NOTIFY_RULES: readonly PresetNotifyRule[] = [
   RULE_STATUS_CHANGED_NOTIFY,
-  RULE_COMMENT_ADDED_NOTIFY,
+  RULE_STALE_30D_NOTIFY,
   RULE_NODE_START_NOTIFY,
   RULE_NODE_END_NOTIFY,
   RULE_RISK_CONVERTED_NOTIFY,
+  RULE_COMMENT_ADDED_NOTIFY,
+  RULE_ARCHIVE_INCOMPLETE_NOTIFY,
 ];
 
 /**
