@@ -1,10 +1,10 @@
 "use client";
 
-import { BRAND, INK } from "@/app/theme/brand";
+import { BRAND, INK, alpha } from "@/app/theme/brand";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo } from "react";
-import { App as AntdApp, Avatar, Dropdown, Layout, Menu, Space, Tag, Typography } from "antd";
+import { App as AntdApp, Avatar, Dropdown, Layout, Menu, Space, Typography } from "antd";
 import type { MenuProps } from "antd";
 import {
   BellOutlined,
@@ -19,7 +19,6 @@ import {
 } from "@ant-design/icons";
 
 import { api, useActor } from "@/app/lib/client/api";
-import { DATA_SCOPE_LABELS, type DataScope } from "@/shared/enums/targets";
 
 /**
  * 应用外壳（antd `Layout` + 深色 `Menu`）。
@@ -124,51 +123,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Sider width={216} theme="dark" breakpoint="lg" collapsedWidth={0}>
-        {/* 字标下面那行"风险事项 · 案件"已撤（2026-10-12）：它是菜单名本身的复述，
-            而菜单就在正下方——同一屏里把「案件/风险事项」说两遍，第二遍不增加任何判断。 */}
-        <div style={{ padding: "14px 16px 10px", lineHeight: 1.35 }}>
-          <Typography.Text strong style={{ color: "#fff", fontSize: 15, letterSpacing: 0.2 }}>
-            MatterNest
-          </Typography.Text>
-        </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          items={items}
-          selectedKeys={[
-            pathname === "/"
-              ? "/"
-              : (NAV.flatMap((g) => g.children).find(
-                  (i) => pathname.startsWith(i.key) && i.key !== "/",
-                )?.key ?? "/"),
-          ]}
-          onClick={({ key }) => router.push(key)}
-          style={{ borderInlineEnd: "none", paddingBottom: 8 }}
-        />
-        {/* 侧栏底部那块"数据范围 · 全公司 / 全公司：每一案件/事项"已撤（2026-10-12）：
-            它是当前身份**已经被 Header 右侧标签说过一遍**的内容，而且那块里的第二行
-            （SCOPE_HINT）把范围谓词写成了散文——同一屏出现两处范围说明，
-            用户要做的判断反而被稀释。范围仍然可见：Header 的标签 + 未授权时的 404 文案。 */}
-      </Sider>
-
-      <Layout>
-        <Header
+      {/* 纵向 flex 的容器是**自己包的这层 div**，不是 `Sider`。
+            踩过的坑：`Sider` 会把 `className`/`style` 落在**外层** `.ant-layout-sider`，
+            而它的子节点被塞进 antd 自己注入的 `.ant-layout-sider-children`（`display:block`）。
+            所以把 `display:flex` 加在 `Sider` 上时，**子节点里那个 `flex:1` 静默失效**——
+            垫片高度 0、身份区贴在菜单下方而不是底缘（实测 y=478 vs 底缘 886）。
+            `SiderProps` 的 `styles` 也只认 `root` / `body`，拿不到那层 children。
+            包一层自己的容器就不再依赖 antd 的内部结构。 */}
+      <Sider
+        width={216}
+        theme="dark"
+        breakpoint="lg"
+        collapsedWidth={0}
+        style={{ height: "100vh", position: "sticky", top: 0 }}
+      >
+        <div
           style={{
             display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            borderBottom: `1px solid ${INK.line}`,
-            background: "#fff",
+            flexDirection: "column",
+            height: "100%",
+            minHeight: 0,
           }}
         >
-          <Space size={10}>
-            <Link href={pathname === "/" ? "/" : pathname}>
-              <Typography.Text style={{ fontSize: 15, fontWeight: 500 }}>
-                {titleOf(pathname)}
-              </Typography.Text>
-            </Link>
-          </Space>
+          {/* 字标下面那行"风险事项 · 案件"已撤（2026-10-12）：它是菜单名本身的复述，
+            而菜单就在正下方——同一屏里把「案件/风险事项」说两遍，第二遍不增加任何判断。 */}
+          <div style={{ padding: "14px 16px 10px", lineHeight: 1.35 }}>
+            <Typography.Text strong style={{ color: "#fff", fontSize: 15, letterSpacing: 0.2 }}>
+              MatterNest
+            </Typography.Text>
+          </div>
+          {/* `flex:1` + `overflow:auto`：入口变多时滚动的是菜单，身份区留在底缘不动 */}
+          <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
+            <Menu
+              theme="dark"
+              mode="inline"
+              items={items}
+              selectedKeys={[
+                pathname === "/"
+                  ? "/"
+                  : (NAV.flatMap((g) => g.children).find(
+                      (i) => pathname.startsWith(i.key) && i.key !== "/",
+                    )?.key ?? "/"),
+              ]}
+              onClick={({ key }) => router.push(key)}
+              style={{ borderInlineEnd: "none" }}
+            />
+          </div>
+          {/* 侧栏底部是身份区，不放数据范围（2026-10-12 → 2026-10-13 两次改动的结果）：
+            先撤掉"数据范围 · 全公司"那块，理由是同一屏两处范围说明会稀释判断；
+            随后 Header 右侧那条范围 `Tag` 也删了（用户反馈"不需要显示全公司字样"），
+            于是范围在界面上**一处都不常驻**——三档定义仍以
+            `shared/enums/targets.ts` 的 `DATA_SCOPE_LABELS` 为准，可见性改由
+            「看不见的记录」时那条 404 文案承担。
+
+            身份区落底靠的是**菜单区那个 `flex:1` 吃掉剩余高度**，不需要额外的弹性垫片——
+            两个 `flex:1` 会各占一半，菜单区被撑高、身份区被顶到视口之外。
+            菜单区包 `overflow:auto`：入口变多时滚动的是菜单，身份区永远留在底缘。 */}
           {actor ? (
             <Dropdown
               menu={{
@@ -177,24 +187,59 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ],
               }}
             >
-              <Space size={8} style={{ cursor: "pointer" }}>
-                <Avatar size={24} style={{ background: BRAND.primary, fontSize: 12 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "10px 16px",
+                  cursor: "pointer",
+                  borderTop: `1px solid ${alpha(BRAND.sider.item, 0.16)}`,
+                  alignSelf: "center",
+                  width: "100%",
+                  justifyContent: "center",
+                }}
+              >
+                <Avatar size={26} style={{ background: BRAND.primary, fontSize: 12, flex: "none" }}>
                   {actor.displayName.slice(0, 1)}
                 </Avatar>
-                <Typography.Text style={{ fontSize: 13 }}>{actor.displayName}</Typography.Text>
-                <Tag variant="filled" style={{ marginInlineEnd: 0, fontSize: 11 }}>
-                  {DATA_SCOPE_LABELS[actor.dataScope as DataScope]?.zh ?? actor.dataScope}
-                </Tag>
-              </Space>
+                <Typography.Text
+                  ellipsis
+                  style={{ color: BRAND.sider.item, fontSize: 13, minWidth: 0 }}
+                  title={actor.displayName}
+                >
+                  {actor.displayName}
+                </Typography.Text>
+              </div>
             </Dropdown>
           ) : (
-            <Typography.Link href="/login">
-              <Space size={4}>
+            <Typography.Link href="/login" style={{ padding: "10px 16px", display: "block" }}>
+              <Space size={6}>
                 <ExportOutlined />
                 去登录
               </Space>
             </Typography.Link>
           )}
+        </div>
+      </Sider>
+
+      <Layout>
+        {/* Header 只剩页面标题一处内容（身份区已于 2026-10-13 移进侧栏底部）。
+            未登录时的「去登录」也只在侧栏出现一次——两处各放一份是同一屏重复同一事实，
+            而重复的那一份还会在登录后变成需要读者自己判断的死区。 */}
+        <Header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            borderBottom: `1px solid ${INK.line}`,
+            background: "#fff",
+          }}
+        >
+          <Link href={pathname === "/" ? "/" : pathname}>
+            <Typography.Text style={{ fontSize: 15, fontWeight: 500 }}>
+              {titleOf(pathname)}
+            </Typography.Text>
+          </Link>
         </Header>
         <Content style={{ padding: 16, overflow: "auto" }}>{children}</Content>
       </Layout>
