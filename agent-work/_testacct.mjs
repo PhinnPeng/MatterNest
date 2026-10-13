@@ -68,11 +68,18 @@ export async function createSmokeAccount(sql, { roles, isAdmin = false, suffix =
  * 1. **自己的审计痕迹**（`mn_activity_log`）→ 直接删。删的是这个账号自己写的行。
  * 2. **可空的归属列**（`mn_matter_node.owner_id`、`mn_risk_matter.owner_id`、
  *    `mn_risk_matter_node.owner_id`）→ 置 NULL。业务行留着，只解除引用。
- * 3. **NOT NULL 的归属列**（`mn_matter.owner_id`、`mn_matter_progress.author_id`、
- *    `mn_matter_staff.user_id`、`mn_risk_matter_staff.user_id`、`mn_comment.author_id`）
+ * 3. **NOT NULL 的归属列**（`mn_matter.owner_id`、`mn_matter.created_by`、
+ *    `mn_matter_progress.author_id`、`mn_matter_staff.user_id`、
+ *    `mn_risk_matter.created_by`、`mn_risk_matter_staff.user_id`、`mn_comment.author_id`）
  *    → **不删**。删业务行不是这个函数的职责：跑到这里还有 NOT NULL 的行指着这个账号，
  *    说明**冒烟脚本自己的清场漏了夹具**，那是脚本的 bug。该报出来，不该替它擦掉。
  *    悄悄删掉生产形状的业务行，比留着残留危险得多。
+ *
+ *    ⚠ `created_by` 两列是**补进来的**（2026-10-13）：原先只查 `owner_id`，于是
+ *    "账号建了事项但没清掉"这种情况会绕过这里的报错，直接撞上 Postgres 的
+ *    `violates foreign key constraint` —— 错误信息里只有约束名，看不出是哪张表哪一列，
+ *    排查得从头翻 schema。检查清单必须覆盖**真正会拦住的列**，不然这份"友好报错"
+ *    只覆盖了它恰好想到的那一半（本轮实测：7 个残留账号里 6 个是 `created_by` 拦的）。
  */
 export async function dropSmokeAccount(sql, userId) {
   if (userId === undefined || userId === null) return;
@@ -95,8 +102,10 @@ export async function dropSmokeAccount(sql, userId) {
     if (rows[0].c > 0) blockers.push(`${table}.${column}（${rows[0].c} 行）`);
   };
   await check("mn_matter", "owner_id");
+  await check("mn_matter", "created_by");
   await check("mn_matter_progress", "author_id");
   await check("mn_matter_staff", "user_id");
+  await check("mn_risk_matter", "created_by");
   await check("mn_risk_matter_staff", "user_id");
   await check("mn_comment", "author_id");
   if (blockers.length) {

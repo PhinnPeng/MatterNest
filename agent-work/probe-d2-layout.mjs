@@ -271,20 +271,38 @@ try {
   console.log(`[FAIL] 探针本身出错：${e?.stack ?? e}`);
 } finally {
   if (browser) await browser.close().catch(() => {});
-  // 逐夹具删干净（含账号写进去的 staff/comment/activity），再删账号。
-  // ⚠ `mn_activity_log` 对事项有**独立外键列** `risk_matter_id`（不只 target_id 多态列），
-  // 诊断时撞过 23503 —— 两个都得删。
+  // 逐夹具删干净（含账号写进去的 staff/comment/node/activity），再删账号。
+  //
+  // ⚠ 三个坑，都是**踩过才知道**的：
+  //  1. 列名是 `risk_matter_id` 不是 `host_id`。原先写 `host_id` ⇒ 每条语句都报
+  //     "column does not exist"，而 `.catch(() => {})` 把错误**吞掉**了 ⇒ 一行都没删，
+  //     接着删事项被 `mn_risk_matter_node` 的外键挡住、又被吞掉 ⇒ 每跑一次漏一条事项。
+  //     静默 catch 让这个 bug 活了很久：探针一直"绿"，残留只在 db:check 的 C14 上现形。
+  //  2. `mn_activity_log` 对事项有**独立外键列** `risk_matter_id`（不只 target_id 多态列），
+  //     两个都得删。
+  //  3. 因此这里**不再静默吞错**：清场失败必须喊出来，否则下次还是"绿着漏数据"。
+  const problems = [];
+  const del = async (label, sqlText) => {
+    try {
+      await sql.unsafe(sqlText);
+    } catch (e) {
+      problems.push(`${label}: ${String(e.message).split("\n")[0]}`);
+    }
+  };
   for (const id of riskIds) {
-    await sql.unsafe(`delete from mn_risk_matter_staff where host_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter_party where host_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter_node where host_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_comment where target_type='risk_matter' and target_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_activity_log where target_type='risk_matter' and target_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_activity_log where risk_matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter_case where risk_matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter where id=${id}`).catch(() => {});
+    await del("staff", `delete from mn_risk_matter_staff where risk_matter_id=${id}`);
+    await del("party", `delete from mn_risk_matter_party where risk_matter_id=${id}`);
+    await del("node", `delete from mn_risk_matter_node where risk_matter_id=${id}`);
+    await del("comment", `delete from mn_comment where target_type='risk_matter' and target_id=${id}`);
+    await del("activity(target)", `delete from mn_activity_log where target_type='risk_matter' and target_id=${id}`);
+    await del("activity(fk)", `delete from mn_activity_log where risk_matter_id=${id}`);
+    await del("case-link", `delete from mn_risk_matter_case where risk_matter_id=${id}`);
+    await del("risk", `delete from mn_risk_matter where id=${id}`);
   }
-  await dropSmokeAccount(sql, acct.id).catch((e) => console.log("清账号失败:", String(e.message).split("\n")[0]));
+  if (problems.length) console.log("清场有问题:", problems.join(" | "));
+  await dropSmokeAccount(sql, acct.id).catch((e) =>
+    console.log("清账号失败:", String(e.message).split("\n")[0]),
+  );
   await sql.end().catch(() => {});
 }
 
