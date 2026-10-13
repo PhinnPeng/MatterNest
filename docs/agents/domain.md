@@ -31,9 +31,9 @@ terms or decisions actually get resolved.
 
 ## Authoritative sources that exist today
 
-`GLOSSARY.md` and `docs/adr/` are both empty of history so far, but this repo
-already has settled decision records under `docs/`. Treat these as binding and
-prefer them over anything you infer from the code:
+`GLOSSARY.md` and `docs/adr/` are both filling up (`docs/adr/` holds 0001–0004 as
+of 2026-10-13), and this repo also has settled decision records under `docs/`.
+Treat these as binding and prefer them over anything you infer from the code:
 
 | Source | Authority for |
 |---|---|

@@ -108,6 +108,39 @@ python ./.trellis/scripts/task.py list [--status in_progress]
 - 按 `statusId` 过滤，把目标区间捞进第一页（找 #5x 时用的就是这条）；
 - 已知 uuid 时直接 `get_task`（**不接受** `MATT-55` / `55` 这类编号，只吃 uuid）。
 
+## 寻址：把 `MATT-n` 换成 uuid
+
+**`list_tasks` 不返回编号。** uuid 与编号的对应只能靠 `Task #N:` 行头按位次对齐 ⇒ **位置错配是结构性的，不是偶发**。
+
+**取 uuid：** 在同一次 `execute` 里用 `get_task_by_number` 取并用正则提，**不要跨消息手抄**：
+
+```js
+const idOf = async (n) => {
+  const t = await tools["paca-matternest"].get_task_by_number({ projectId, taskNumber: n });
+  return (typeof t === "string" ? t : JSON.stringify(t)).match(/\*\*ID:\*\*\s*(\S+)/)[1];
+};
+```
+
+**核对回显：** 每次写操作的响应都带 `Task updated successfully: Task #N: …`。**读那个 N，对不上就当场回退**（`delete_task_comment` + 状态复原 + 留更正评论），不要留到下一轮。这个回显是免费的确定性检查。
+
+**真实翻车记录（2026-10-13，一次会话两次）**：
+
+- MATT-58 的 uuid 被误配到 MATT-36 ⇒ **误关了一张需人裁定的票**，还贴了一条关于 @提及的核对评论。回读响应时 `Task #36` 就在眼前，没看。
+- MATT-35 的 uuid 少打一个字符 ⇒ `add_task_comment` 报 `invalid task id`。这个反而是好事：uuid 写错会被服务端挡下，**编号写错不会**。
+
+## 在 `execute` 里拼长 Markdown
+
+代码是 JS，正文里几乎必有反引号。**用占位符，末尾统一还原**，这是唯一试过就一路没再出错的写法：
+
+```js
+const G = "§";                       // 正文里写 § 代替 `
+const body = [...].join("\n").split(G).join("\u0060");
+```
+
+另外四个坑（每个都真实浪费过一轮）：模板字符串里嵌反引号；双引号字符串里塞真实换行；用 `const` 声明后才在上面的数组里引用它（TDZ）；双引号被提前闭合导致后面的标点跑到字符串外。
+
+**为什么这两条是规程而不是脚本：** REST 兜底路径已被明令废除（一个按标题 upsert 的脚本一次覆盖 32 张卡的描述）。Paca 只经 MCP，所以寻址纪律只能落在文档里，落不成可执行检查。
+
 ## Wayfinding operations
 
 How `/wayfinder` maps onto this tracker (all verified against the live API):
