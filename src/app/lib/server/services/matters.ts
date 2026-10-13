@@ -2,6 +2,7 @@ import { and, asc, count as dcount, desc, eq, inArray, sql, type SQL } from "dri
 import type { z } from "zod";
 import { nextId } from "@/shared/ids/snowflake";
 import { listQuerySchema, SORTABLE_COLUMNS } from "@/shared/schema/list-query";
+import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { getDb } from "../db/client";
 import {
@@ -15,10 +16,12 @@ import {
   matterProgress,
   party,
   statusConfig,
+  tag,
 } from "../db/schema";
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
 import { canManageStaffList, ownsAttribution } from "../scope/guards";
 import { assertAssignable, listSelectableUsers, type UnassignableUser } from "./selectable-users";
+import { decryptField } from "../crypto/field-crypto";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 import { insertNewParties, planPartyLinks } from "./parties";
 import type { PartyLinkInput } from "./parties";
@@ -247,7 +250,9 @@ export async function getMatter(actor: Actor, id: string) {
     ownerId: String(row.ownerId),
     nodes: nodes.map((n) => ({ ...n, id: String(n.id), hostId: String(n.hostId) })),
     staff: staff.map((s) => ({ ...s, id: String(s.id), userId: String(s.userId) })),
-    parties: parties.map((p) => ({ ...p, id: String(p.id) })),
+    // ⚠ 当事人证件号必须解密（MATT-40 之后库里存的是密文信封）——
+    //   直接回原文会把 `v1:<base64url>` 画到案件详情的当事人块上。
+    parties: parties.map((p) => ({ ...p, id: String(p.id), idNumber: decryptField(p.idNumber) })),
     comments: comments.map((c) => ({ ...c, id: String(c.id) })),
     activity: activity.map((a) => ({ ...a, id: String(a.id) })),
     progress: progress.map((p) => ({ ...p, id: String(p.id) })),
@@ -448,13 +453,19 @@ export async function changeStatus(
      * （不结案了，"结案日期"就不该留着——留着会让第②项在办案件上恒绿）。
      * 已有的日期不覆盖：重复进入 closed 不改第一次的结案日。
      */
-    const enteringClosed = target.semantics === "closed" && curRow?.semantics !== "closed";
-    const leavingClosed = target.semantics !== "closed" && curRow?.semantics === "closed";
-    const closingDate = enteringClosed
-      ? (cur.closingDate ?? now.slice(0, 10))
-      : leavingClosed
-        ? null
-        : cur.closingDate;
+    const closingDate =
+      target.semantics === "closed"
+        ? (cur.closingDate ?? now.slice(0, 10))
+        : target.semantics === "archived"
+          ? // ⚠ 归档**保留**结案日期。初版写成"离开 closed 就清空"，而 `closed → archived`
+            //   恰好命中（seed 里 `closed` 的推荐后继就是 `archived`）⇒ 归档时把日期抹掉。
+            //   后果不是一条断言红，而是三件事同时发生：①判定在 `tx.update` **之前**跑，
+            //   读到旧值 ⇒ 审计记 `missing_at_archive: []`（齐备），而列表筛选读归档后的行
+            //   （已被抹成 NULL）⇒ 判它"缺材料"——**两个出口互相打架**，正是本票 AC 第 1 条
+            //   要防的；②G4 指标"归档材料完整率"的唯一数据源变成**假的空数组**；
+            //   ③「已结案缺材料」筛选退化成"全部归档案件"（因为主路径每条都缺）。
+            cur.closingDate
+          : null;
     /**
      * 归档完备性（F2-26 / G4）：**判定在事务内跑**，与归档写、审计写同一事务——
      * 判定结果要随 `ARCHIVED` 落库，分开算会留下"审计里记的缺项与实际归档状态不一致"。
@@ -482,7 +493,10 @@ export async function changeStatus(
       reason: reason ?? null,
       diffs: {
         status: { from: cur.status, to },
-        ...(enteringClosed || leavingClosed
+        // 只在**真的变了**才记：按"目标语义"分三档之后，`closed → archived` 不再改日期，
+        // 记一条 `from: 2026-01-01, to: 2026-01-01` 是噪声（而它曾经记的是 `to: null`——
+        // 那条审计正是"归档抹掉结案日期"的现场证据）。
+        ...(closingDate !== cur.closingDate
           ? { closing_date: { from: cur.closingDate, to: closingDate } }
           : {}),
       },
@@ -832,4 +846,257 @@ export async function removeMatterStaff(
     return rows.length;
   });
   return { ok: true, removed };
+}
+
+/* ─────────────── 批量低风险动作（MATT-45：改状态 / 归档 / 加标签） ─────────────── */
+
+/**
+ * 这一节只**追加**，不动上面任何既有函数——批量改状态逐条复用 `changeStatus`，
+ * 而不是另写一条状态机：两条状态机必然漂，而漂了的形态是"单条改不动、批量改得动"，
+ * 只有把两条路摆在一起对比才看得出来。
+ *
+ * 四条口径（与 `shared/schema/batch.ts` 的文件头是同一份，这里写服务层那一半）：
+ *
+ * 1. **不可见的行静默排除**：`loadBatchRows` 只带回 `scopedWhere` 放行的行，
+ *    其余（不存在 / 已软删 / 超出数据范围）在下面的循环里 `continue` 掉，
+ *    **既不进 `applied` 也不进 `skipped`**。把它们记进 `skipped` 就等于用
+ *    `skipped.length` 回答了"你提交的 id 里有几个存在但你看不见"——那正是元规则 3
+ *    （不可见一律 404，不给可区分信号）要防的案号枚举探测。所以 `BatchSummary`
+ *    里没有"未处理条数"，`applied + skipped.length ≤ ids.length` 是**预期**。
+ * 2. **跳过只算"看得见但没做成"**：护栏 1 拒绝 / 要原因 / 目标与现状相同 /
+ *    撤销归档缺特权 / 归档终态不可写。每一条都能读出一句人话（`BATCH_SKIP_REASON_LABELS`）。
+ * 3. **审计逐条写既有的动作值**（`STATUS_CHANGED` / `ARCHIVED` / `MATTER_UPDATED`），
+ *    不新造批量动作值：新造一个值要文档 §3.3 + `shared/enums/audit.ts` + 迁移 CHECK
+ *    三向同批，而本票零迁移。代价是审计里**分不出"逐条点"与"批量点"**——
+ *    要能区分就得有批量动作值，那是另一张票（已写进交付报告的"未做"）。
+ * 4. **批量上限 50 在 schema 层拦**（`MAX_BATCH_IDS`），这里不重复判——
+ *    服务层再夹一次会让"绕过界面的 POST"变成静默截断，而不是 400。
+ */
+
+/** 批量预读要的那几列：可见性判定 + 逐行护栏要用到的现状 */
+type BatchRow = {
+  id: string;
+  status: string;
+  isArchived: boolean;
+  tagIds: bigint[];
+};
+
+/**
+ * 把请求里的 id 收敛成"看得见的那些行"。
+ *
+ * 一次 `inArray` 查完而不是逐行查：50 行逐行查就是 50 次往返，而这里要的只是
+ * 可见性 + 现状——**写入仍然逐行走 `changeStatus`**（那才是状态机的唯一入口）。
+ *
+ * ⚠ 这张表**不是**安全边界：它是摘要与护栏的输入。真正的边界是
+ * `changeStatus` 自己那次 `scopedWhere`（以及 `batchTagMatters` 里这次读，
+ * 标签动作没有第二道）。所以"摘掉这里的 `scopedWhere`"对改状态/归档是红不出来的
+ * ——见 `revred-batch.mjs` 的 `tag-scope` 模式（那条才是能红的）。
+ */
+async function loadBatchRows(
+  db: Awaited<ReturnType<typeof getDb>>,
+  actor: Actor,
+  ids: readonly string[],
+): Promise<Map<string, BatchRow>> {
+  const uniq = [...new Set(ids)].map((i) => BigInt(i));
+  const rows = await db
+    .select({
+      id: matter.id,
+      status: matter.status,
+      isArchived: matter.isArchived,
+      tagIds: matter.tagIds,
+    })
+    .from(matter)
+    .where(scopedWhere("matter", actor, inArray(matter.id, uniq)));
+  return new Map(rows.map((r) => [String(r.id), { ...r, id: String(r.id) }]));
+}
+
+/** 跳过项的构造：一处拼，免得三个动作各写一遍 `{ id, reason }` 的字段名 */
+function skipRow(id: string, reason: BatchSkipReason): BatchSummary["skipped"][number] {
+  return { id, reason };
+}
+
+/**
+ * 批量改状态。
+ *
+ * 目标状态**先按配置表验一次**：写错一个 code（或那个状态已被停用）不该退化成
+ * "每一行都静默不动"——逐行 `changeStatus` 会回 `not_found`，而按第 1 条口径
+ * `not_found` 是要被吞掉的，于是请求回 200 + `applied: 0`，用户看到的是"点了没反应"。
+ * 参数错就该是 400/422，不是一份看起来成功的空摘要。
+ */
+export async function batchChangeMatterStatus(
+  actor: Actor,
+  ids: readonly string[],
+  to: string,
+  reason?: string | null,
+): Promise<({ ok: true } & BatchSummary) | { ok: false; why: "bad_status" }> {
+  const db = await getDb();
+  const [target] = await db
+    .select({ semantics: statusConfig.semantics })
+    .from(statusConfig)
+    .where(
+      and(
+        eq(statusConfig.hostType, "matter"),
+        eq(statusConfig.code, to),
+        eq(statusConfig.isEnabled, true),
+      ),
+    )
+    .limit(1);
+  if (!target) return { ok: false, why: "bad_status" };
+
+  const byId = await loadBatchRows(db, actor, ids);
+  const skipped: BatchSummary["skipped"] = [];
+  let applied = 0;
+
+  for (const id of [...new Set(ids)]) {
+    const row = byId.get(id);
+    // 不可见 / 已软删 / 不存在：**什么都不说**（三者并进同一条，正是元规则 3 的口径）
+    if (!row) continue;
+
+    /**
+     * 撤销归档要 `can_unarchive`（权限草案 §2.1）——单条路由的同一道门，这里逐行判。
+     *
+     * 判据是"当前已归档 **且** 目标不是归档语义"：那才是"把它从归档里拉出来"。
+     * 把一条已归档的行再改到归档语义的状态是空操作（`changeStatus` 会回 `unchanged`），
+     * 为一次什么都没做的动作报"缺撤销归档权限"会把人引到错误的结论上。
+     */
+    if (row.isArchived && target.semantics !== "archived" && !actor.privileges.canUnarchive) {
+      skipped.push(skipRow(id, "privilege_required"));
+      continue;
+    }
+
+    const r = await changeStatus(actor, id, to, reason);
+    if (r.ok) {
+      applied++;
+      continue;
+    }
+    // 竞态：预读时还看得见、此刻已经不可见或被软删。按第 1 条口径吞掉，
+    // 而不是回一条 `not_found` ——那会让"这一行刚刚被删"与"你本来就不该看见它"在响应里长得一样。
+    if (r.why === "not_found") continue;
+    skipped.push(skipRow(id, r.why));
+  }
+  return { ok: true, applied, skipped };
+}
+
+/**
+ * 批量归档。
+ *
+ * 目标状态**服务端自己查**（`semantics='archived'` 那一行，配置驱动），不收调用方给的 code：
+ * 归档是"到终态"这一个动作，让前端再传一个状态码只是多一个能填错、又只能靠 422 发现的字段。
+ *
+ * 原因由 schema 强制（`batchArchiveSchema.reason` 的 `min(1)`），所以这里不必再判
+ * ——枚举表 §3.2 把 `ARCHIVED` 列为原因必填，schema 是前后端共用的同一道门。
+ */
+export async function batchArchiveMatters(
+  actor: Actor,
+  ids: readonly string[],
+  reason: string,
+): Promise<{ ok: true } & BatchSummary> {
+  const db = await getDb();
+  const statuses = await hostStatusRows("matter");
+  const archived = statuses.find((s) => s.semantics === "archived");
+  /**
+   * 查不到就抛，与 `initialStatusCode` 同一条口径：那是"seed 没跑 / 配置被删"的部署故障。
+   * 兜底成某个字面量只会让一批记录落进一个库里并不认作归档的状态——
+   * 界面上它们还在在办列表里，而 `is_archived` 已经翻了。
+   */
+  if (!archived) {
+    throw new Error("mn_status_config 缺少 host_type=matter 且 semantics='archived' 的启用状态行");
+  }
+
+  const byId = await loadBatchRows(db, actor, ids);
+  const skipped: BatchSummary["skipped"] = [];
+  let applied = 0;
+
+  for (const id of [...new Set(ids)]) {
+    // 不可见：静默排除（`row` 只用来判"看不看得见"，归档不需要它的现状——
+    // 已经归档的行会由 `changeStatus` 回 `unchanged`，那是它该说的话）
+    const row = byId.get(id);
+    if (!row) continue;
+
+    const r = await changeStatus(actor, id, archived.code, reason);
+    if (r.ok) {
+      applied++;
+      continue;
+    }
+    if (r.why === "not_found") continue;
+    skipped.push(skipRow(id, r.why));
+  }
+  return { ok: true, applied, skipped };
+}
+
+/**
+ * 批量加标签。**追加，不是替换**——"加标签"这三个字里没有"清掉原来那些"的意思，
+ * 而一个会顺手覆盖的批量动作，用户在下一次打开详情页之前都不会发现。
+ *
+ * 两道门：标签必须存在且属于这一类记录（`mn_tag.host_type`）；归档行一律拒（§5.2 只读终态）。
+ */
+export async function batchTagMatters(
+  actor: Actor,
+  ids: readonly string[],
+  tagIds: readonly string[],
+): Promise<({ ok: true } & BatchSummary) | { ok: false; why: "bad_tag" }> {
+  const db = await getDb();
+  const wanted = [...new Set(tagIds)].map((t) => BigInt(t));
+  /**
+   * **不额外过滤 `is_enabled`**：`/api/meta` 的标签字典只按 `host_type` 过滤（见那个 handler），
+   * 这里多一道会让下拉里明明能选的标签被 422 拒掉——"界面说行、服务端说不行"
+   * 比两处都不行更难查（用户没有任何办法自己绕过它）。
+   */
+  const found = await db
+    .select({ id: tag.id })
+    .from(tag)
+    .where(and(eq(tag.hostType, "matter"), inArray(tag.id, wanted)));
+  if (found.length !== wanted.length) return { ok: false, why: "bad_tag" };
+
+  const byId = await loadBatchRows(db, actor, ids);
+  const skipped: BatchSummary["skipped"] = [];
+  let applied = 0;
+
+  for (const id of [...new Set(ids)]) {
+    const row = byId.get(id);
+    // 不可见：静默排除
+    if (!row) continue;
+
+    // §5.2：归档是只读终态，标签也是宿主的字段——与评论、节点、字段编辑同一口径
+    if (row.isArchived) {
+      skipped.push(skipRow(id, "archived"));
+      continue;
+    }
+
+    const have = new Set(row.tagIds.map(String));
+    const add = wanted.filter((t) => !have.has(String(t)));
+    // 幂等：标签都已在身上就是"目标与现状相同"，不是失败。重跑一次批量不该报错。
+    if (!add.length) {
+      skipped.push(skipRow(id, "unchanged"));
+      continue;
+    }
+    const next = [...row.tagIds, ...add];
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(matter)
+        .set({ tagIds: next, updatedBy: BigInt(actor.userId), updatedAt: new Date().toISOString() })
+        .where(eq(matter.id, BigInt(id)));
+      await logActivity(tx, actor, {
+        matterId: BigInt(id),
+        targetType: "matter",
+        targetId: BigInt(id),
+        action: "MATTER_UPDATED",
+        /**
+         * 用 `MATTER_UPDATED` 而不是新造一个 `TAG_CHANGED`：标签是宿主表上的业务字段
+         * （`tag_ids`，GIN 索引），而枚举表 §3.2 的硬口径是"`*_UPDATED` 只在业务字段变化时写"
+         * ——`NON_AUDIT_TRIGGERING_COLUMNS` 里也没有 `tag_ids`，所以这次改动**该**写它。
+         * 新造动作值要文档 §3.3 + `audit.ts` + 迁移 CHECK 三向同批，本票零迁移。
+         *
+         * ⚠ `from` / `to` 必须 `.map(String)`：`field_diffs` 是 `jsonb`，而 `JSON.stringify`
+         * 遇到 BigInt 会抛 `Do not know how to serialize a BigInt` —— 那样整批标签
+         * 会在**写审计**这一步 500（业务写与审计同事务，所以业务也会一起回滚）。
+         * `addMatterStaff` 的 `payload.added` 同样 `.map(String)`，是同一条约束的两个落点。
+         */
+        diffs: { tag_ids: { from: row.tagIds.map(String), to: next.map(String) } },
+      });
+    });
+    applied++;
+  }
+  return { ok: true, applied, skipped };
 }

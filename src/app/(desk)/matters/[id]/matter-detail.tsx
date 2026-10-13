@@ -32,9 +32,12 @@ import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import {
+  NOT_READY_TEXT,
   READINESS_LABELS,
   READINESS_TAB,
+  READY_TEXT,
   STATE_COLOR,
+  STATE_LABEL,
   UNAVAILABLE_HINT,
 } from "@/app/lib/client/archive-readiness";
 import { StaffPicker } from "./staff-picker";
@@ -233,38 +236,42 @@ export function MatterDetail({ id }: { id: string }) {
                       style={{ marginBottom: 12 }}
                       extra={
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {m.archiveReadiness.ready ? "三项齐备" : "缺项不阻断归档，会记进归档活动"}
+                          {/* 口径与归档弹窗共用同一对常量：两个显示面各写一句就会出现
+                              "卡片说缺项、弹窗说齐备"（检查子代理抓到过）。 */}
+                          {m.archiveReadiness.missing.length === 0 ? READY_TEXT : NOT_READY_TEXT}
                         </Typography.Text>
                       }
                     >
                       <Space size={8} wrap>
-                        {m.archiveReadiness.checks.map((c) => (
-                          <Tag
-                            key={c.key}
-                            color={STATE_COLOR[c.state]}
-                            variant="filled"
-                            style={{ cursor: "pointer", marginInlineEnd: 0 }}
-                            onClick={() => setTab(READINESS_TAB[c.key])}
-                          >
-                            {READINESS_LABELS[c.key]}
-                            {c.state === "ok"
-                              ? " · 已具备"
-                              : c.state === "missing"
-                                ? c.count
-                                  ? ` · 缺（${c.count} 个未决节点）`
-                                  : " · 缺"
-                                : " · 暂不可判"}
-                          </Tag>
-                        ))}
+                        {m.archiveReadiness.checks.map((c) => {
+                          const tab = READINESS_TAB[c.key];
+                          return (
+                            <Tag
+                              key={c.key}
+                              color={STATE_COLOR[c.state]}
+                              variant="filled"
+                              style={{
+                                marginInlineEnd: 0,
+                                // 没有可补录的页签时不装成可点（`judgment` 就是这种：
+                                // 附件页签不存在，点进去也无处补录）
+                                cursor: tab ? "pointer" : "default",
+                              }}
+                              onClick={tab ? () => setTab(tab) : undefined}
+                            >
+                              {READINESS_LABELS[c.key]}
+                              {" · "}
+                              {STATE_LABEL[c.state]}
+                              {c.state === "missing" && c.count ? `（${c.count} 个未决节点）` : ""}
+                            </Tag>
+                          );
+                        })}
                       </Space>
                       {m.archiveReadiness.unavailable.length ? (
                         <Typography.Text
                           type="secondary"
                           style={{ fontSize: 12, display: "block", marginTop: 6 }}
                         >
-                          {UNAVAILABLE_HINT.attachment_not_built}——所以上面
-                          {m.archiveReadiness.ready ? "「三项齐备」" : "「缺项」"}
-                          这句话只覆盖已判的两项。
+                          {UNAVAILABLE_HINT.attachment_not_built}——所以上面那句话只覆盖已判的两项。
                         </Typography.Text>
                       ) : null}
                     </Card>

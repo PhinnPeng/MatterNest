@@ -27,6 +27,7 @@ import {
   useMeta,
   usePartySearch,
   type PartyHit,
+  type PartySearchResult,
 } from "@/app/lib/client/api";
 import { matterCreateSchema, pruneEmpty, type MatterCreateInput } from "@/shared/schema/hosts";
 import { rulesFor, setFieldErrors, validateAndFocusFirst } from "@/app/components/form/zod-rules";
@@ -47,6 +48,12 @@ import {
  * 只在**同名唯一命中**时才落 `partyId`。库里本来就有两家同名公司时（`select` 按名字回填无法
  * 区分是哪一家），宁可不引用：让服务层按 §7.2 的口径新建一行并回 `name_conflicts` 提示，
  * 也比"把 A 公司的案子挂到 B 公司身上"好 —— 后者没有任何一处会报错，而它恰恰是最贵的错。
+ *
+ * 两种提示都挂在**输入框正下方**（落点②「字段说明」，规则类的话搬到动作发生处）：
+ *   · 输入的是**本企业名** → 当场说清我方不入当事人表（IQ-7）。服务层在写路径上也会拒
+ *     （`planPartyLinks` 抛 `OwnCompanyPartyError`），这里只是让用户不必先撞一次 400；
+ *   · 库里已有**同名** → 说明提交会另建一行，并给出下一步（建案后到当事人页合并）。
+ *     自动合并会稀释对手画像（US-M3-2），所以这里不能"顺手并掉"。
  */
 function PartyNameInput({
   value,
@@ -60,27 +67,54 @@ function PartyNameInput({
   const [kw, setKw] = useState("");
   const { data } = usePartySearch(kw);
   const hits = data?.items ?? [];
+  /**
+   * `ownCompany` 是 `/api/parties?q=` 这次新增的字段（判定在服务端一处实现），
+   * 而 `usePartySearch` 的返回类型住在 `api.ts`（本票写范围外），所以这里做一次
+   * **窄化读取**而不是去改那个类型。等父代理把 `PartySearchResult` 补上这个字段，
+   * 这一段就能退化成 `data?.ownCompany`。
+   */
+  const ownCompany =
+    (data as (PartySearchResult & { ownCompany?: boolean }) | undefined)?.ownCompany === true;
+  const typed = (value ?? "").trim();
+  const sameName = typed ? hits.filter((p) => p.name === typed) : [];
+
   return (
-    <AutoComplete
-      value={value ?? ""}
-      options={hits.map((p) => ({
-        value: p.name,
-        label: `${p.name}${p.idNumberTail ? ` · 尾号 ${p.idNumberTail}` : ""}`,
-      }))}
-      filterOption={false}
-      onSearch={setKw}
-      // 打字一律先清引用（否则改了名字还带着上一次的 partyId，等于悄悄指向另一个人）；
-      // antd 在选中项时是 `onChange` 后紧接 `onSelect`，所以这里清、那里再落，顺序是稳的
-      onChange={(v) => {
-        onPick(null);
-        onChange?.(typeof v === "string" ? v : "");
-      }}
-      onSelect={(v) => {
-        const same = hits.filter((p) => p.name === v);
-        if (same.length === 1) onPick(same[0]!);
-      }}
-      placeholder="名称（输入可引用已登记的当事人）"
-    />
+    <div>
+      <AutoComplete
+        value={value ?? ""}
+        options={hits.map((p) => ({
+          value: p.name,
+          label: `${p.name}${p.idNumberTail ? ` · 尾号 ${p.idNumberTail}` : ""}`,
+        }))}
+        filterOption={false}
+        onSearch={setKw}
+        // 打字一律先清引用（否则改了名字还带着上一次的 partyId，等于悄悄指向另一个人）；
+        // antd 在选中项时是 `onChange` 后紧接 `onSelect`，所以这里清、那里再落，顺序是稳的
+        onChange={(v) => {
+          onPick(null);
+          onChange?.(typeof v === "string" ? v : "");
+        }}
+        onSelect={(v) => {
+          const same = hits.filter((p) => p.name === v);
+          if (same.length === 1) onPick(same[0]!);
+        }}
+        placeholder="名称（输入可引用已登记的当事人）"
+      />
+      {ownCompany ? (
+        <div style={{ fontSize: 12, marginTop: 2 }}>
+          <Typography.Text type="danger">
+            这是本企业名称：我方不入当事人表，这一行请填对方当事人或第三人
+          </Typography.Text>
+        </div>
+      ) : sameName.length > 0 ? (
+        <div style={{ fontSize: 12, marginTop: 2 }}>
+          <Typography.Text type="secondary">
+            库里已有同名档案 {sameName.length}{" "}
+            份：提交会新建一行；确认是同一家，建案后到当事人页合并
+          </Typography.Text>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

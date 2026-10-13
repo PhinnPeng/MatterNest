@@ -236,9 +236,9 @@ try {
     JSON.stringify(rB?.checks?.map((c) => `${c.key}:${c.state}`)),
   );
   ok(
-    "`ready` 仍是 false（附件那项 unavailable 不算 ok——不假装齐备）",
-    rB?.ready === false && rB?.missing?.length === 0,
-    `ready=${rB?.ready} missing=${JSON.stringify(rB?.missing)}`,
+    "`ready` = 已判项齐备（**不是**三项齐备——附件那项没有数据源）",
+    rB?.ready === true && rB?.missing?.length === 0 && rB?.unavailable?.length === 1,
+    `ready=${rB?.ready} missing=${JSON.stringify(rB?.missing)} unavailable=${JSON.stringify(rB?.unavailable)}`,
   );
 
   const archB = await call("POST", `/api/matters/${b.body.id}/status`, s.cookie, {
@@ -261,11 +261,80 @@ try {
     "/api/matters?page=1&pageSize=100&archivedOnly=1&missingMaterials=1",
     s.cookie,
   );
+  // ⚠ 负向断言必须先钉住状态码：请求失败时 `items` 是 undefined ⇒ `missingIds2` 是 `[]`
+  //   ⇒ `!includes(...)` **恒真**，这条负向断言会空过（检查子代理指出的）。
+  ok("第二次列表调用也必须是 200（否则下面的负向断言会空过）", listMissing2.status === 200, `status=${listMissing2.status}`);
   const missingIds2 = (listMissing2.body?.items ?? []).map((r) => r.id);
   ok(
     "**两出口一致：详情判齐备的案件，列表筛选找不到它**",
     !missingIds2.includes(b.body.id),
     `命中 ${missingIds2.length} 条`,
+  );
+
+  // ── D. 正交夹具：只缺一项，用来钉住**子句级**漂移 ──
+  //
+  // 为什么需要它：A 案（两项都缺）与 B 案（两项都齐）只能证明"整体是否生效"。
+  // 把 `archiveMissingSql` 里的 `closing_date is null` 或 `exists(未决节点)` 任删一条，
+  // A 找得到、B 找不到**都仍然成立** ⇒ 子句级漂移无感。C/D 各只缺一项，才能分别钉住。
+  const c = await mkMatter(`归档冒烟 C 只缺未决节点 ${stamp}`);
+  matterIds.push(c.body?.id);
+  // C：先结案（拿到 closing_date），节点保持未决
+  await call("POST", `/api/matters/${c.body.id}/status`, s.cookie, {
+    to: closed.code,
+    reason: "冒烟 C：先结案",
+  });
+  const detailC = await call("GET", `/api/matters/${c.body.id}`, s.cookie);
+  const rC = detailC.body?.archiveReadiness;
+  ok(
+    "**C 案只缺「无未决节点」**（结案日期已填、节点未做完）",
+    rC?.missing?.length === 1 && rC.missing[0] === "openNodes",
+    `missing=${JSON.stringify(rC?.missing)}`,
+  );
+
+  const d = await mkMatter(`归档冒烟 D 只缺结案日期 ${stamp}`);
+  matterIds.push(d.body?.id);
+  // D：把节点全做完，但**不结案**（closing_date 保持 NULL）
+  const detailD0 = await call("GET", `/api/matters/${d.body.id}`, s.cookie);
+  for (const n of detailD0.body?.nodes ?? []) {
+    await call("POST", `/api/matters/${d.body.id}/nodes/${n.id}`, s.cookie, {
+      status: "completed",
+    });
+  }
+  const detailD = await call("GET", `/api/matters/${d.body.id}`, s.cookie);
+  const rD = detailD.body?.archiveReadiness;
+  ok(
+    "**D 案只缺「结案日期」**（节点全做完、没结案）",
+    rD?.missing?.length === 1 && rD.missing[0] === "closingDate",
+    `missing=${JSON.stringify(rD?.missing)}`,
+  );
+
+  for (const [label, m, code] of [
+    ["C", c, archived.code],
+    ["D", d, archived.code],
+  ]) {
+    await call("POST", `/api/matters/${m.body.id}/status`, s.cookie, {
+      to: code,
+      reason: `冒烟 ${label}：归档`,
+    });
+    const list = await call(
+      "GET",
+      "/api/matters?page=1&pageSize=100&archivedOnly=1&missingMaterials=1",
+      s.cookie,
+    );
+    ok(
+      `**${label} 案（只缺一项）在列表筛选里找得到**——钉住那一条子句没被删掉`,
+      (list.body?.items ?? []).some((r) => r.id === m.body.id),
+      `status=${list.status}`,
+    );
+  }
+
+  // ── E. 归档**不清空**结案日期（`closed → archived` 是 seed 的推荐后继）──
+  const [rowB2] = await sql`
+    select closing_date::text as cd, is_archived from mn_matter where id=${b.body.id}`;
+  ok(
+    "**归档后结案日期仍在**（`closed → archived` 保留日期，不抹掉）",
+    !!rowB2?.cd && rowB2?.is_archived === true,
+    `closing_date=${rowB2?.cd} is_archived=${rowB2?.is_archived}`,
   );
 
   // ── C. 事项侧不做这项校验 ──

@@ -18,7 +18,16 @@ import { toQuery, type ListState } from "./use-list-state";
  * 都必须出现在 `toQuery` 的输出里。将来再加一个筛选开关而忘了在这里输出，它会红。
  */
 
-/** 与 `ListState` 的筛选类键一一对应。加键时这里也要加——两处一起改，才是"决定了" */
+/**
+ * 与 `ListState` 的筛选类键一一对应。
+ *
+ * ⚠ **这里曾经是一份手维护清单**，而检查子代理用一次变异证明了它拦不住它声称要拦的事：
+ * 给 `ListState` 加一个新筛选键（不写 `toQuery`、也不加进本数组）→ **12 条全绿**。
+ * 那正是 `ownerEmpty` 真实出过的 bug 形态（新增键时漏输出），所以"结构性断言"名不副实。
+ *
+ * 现在下面那条 `_exhaustive` 把它变成**编译期**约束：`ListState` 里凡不是分页/排序的键，
+ * 都必须出现在 `FILTER_KEYS` 里，否则 `MissingFilterKey` 不是 `never` ⇒ 编译错。
+ */
 const FILTER_KEYS = [
   "keyword",
   "status",
@@ -26,6 +35,23 @@ const FILTER_KEYS = [
   "ownerEmpty",
   "missingMaterials",
 ] as const;
+
+/** 分页与排序不属于"筛选开关"——它们由 `toQuery` 无条件带上，不参与这条断言 */
+type NonFilterKey = "page" | "pageSize" | "sortBy" | "sortDir";
+/**
+ * ⚠ `Exclude<…, undefined>` 是必需的：`ownerEmpty` / `missingMaterials` 是**可选**键，
+ * 索引它们会带出 `undefined`，而 `undefined` 不在 `FILTER_KEYS` 里 ⇒ 这条穷尽性检查
+ * 会对着 `undefined` 报错（第一次跑就是这么红的——说明它真的会咬人，不是装饰）。
+ */
+type FilterKeyOf<S> = Exclude<
+  { [K in keyof S]: K extends NonFilterKey ? never : K }[keyof S],
+  undefined
+>;
+type MissingFilterKey = Exclude<FilterKeyOf<ListState>, (typeof FILTER_KEYS)[number]>;
+
+// 编译期穷尽性检查：新增筛选键而忘了登记 ⇒ **这一行报错**（不用等到运行时）
+const _exhaustive: MissingFilterKey extends never ? true : never = true;
+void _exhaustive;
 
 const ALL_ON: ListState = {
   page: 2,

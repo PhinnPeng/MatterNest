@@ -63,7 +63,15 @@ export type ArchiveReadiness = {
   missing: ReadinessCheckKey[];
   /** 落库用：没有数据源、这次没判的项 */
   unavailable: ReadinessCheckKey[];
-  /** 三项全部 ok 才算就绪（`unavailable` 不算 ok） */
+  /**
+   * **已判项**是否全部齐备（即 `missing` 为空）。
+   *
+   * ⚠ 它**不**等于"三项齐备"——附件那项没有数据源（`unavailable`），所以界面必须说
+   * "已判的两项齐备"，不能说"三项齐备"。这个字段曾经写成 `checks.every(ok)`，
+   * 而第①项恒为 `unavailable` ⇒ **它恒为 false**，于是详情卡永远说"缺项"、
+   * 归档弹窗对同一条案件说"三项都齐备"——同一个判定的两个显示面互相矛盾（检查子代理抓到的）。
+   * 现在两边都用同一个口径：`missing.length === 0` ⇒ 已判项齐备。
+   */
   ready: boolean;
 };
 
@@ -86,20 +94,35 @@ export async function judgeArchiveReadiness(
   matterId: string,
 ): Promise<ArchiveReadiness | null> {
   const [row] = await conn
-    .select({
-      closingDate: matter.closingDate,
-      openNodes: sql<number>`(
-        select count(*)::int from ${matterNode} n
-        where n.matter_id = ${matter.id} and not n.is_deleted
-          and ${inArray(sql`n.status`, [...NODE_OPEN_STATUSES])}
-      )`,
-    })
+    .select({ closingDate: matter.closingDate })
     .from(matter)
     .where(eq(matter.id, BigInt(matterId)))
     .limit(1);
   if (!row) return null;
 
-  const openNodes = Number(row.openNodes ?? 0);
+  /**
+   * 未决节点数**单独一条查询**，不写成关联子查询。
+   *
+   * ⚠ 这里踩过一个只有真库能现形的坑：关联子查询写在 **select 列表**里时，drizzle 把
+   * `${matter.id}` 渲染成**无限定**的 `"id"`（它假定单表 select 不必带表名前缀），
+   * 而子查询自己就有一张带 `id` 的表 ⇒ `n.matter_id = "id"` 被解析成 `n.matter_id = n.id`，
+   * **恒假**，计数恒为 0。类型检查、代码审阅、静态分析全都看不出来。
+   * 同一个 `${matter.id}` 写在 **where 上下文**里却会渲染成 `"mn_matter"."id"`（正确）——
+   * 所以 `archiveMissingSql` 那条是好的，坏的只有这一处。
+   * 教训：**跨表关联不要靠模板里的列引用**，用类型化列引用另起一条查询。
+   */
+  const [nodeRow] = await conn
+    .select({ n: sql<number>`count(*)::int` })
+    .from(matterNode)
+    .where(
+      and(
+        eq(matterNode.hostId, BigInt(matterId)),
+        sql`not ${matterNode.isDeleted}`,
+        inArray(matterNode.status, [...NODE_OPEN_STATUSES]),
+      ),
+    );
+  const openNodes = Number(nodeRow?.n ?? 0);
+
   const checks: ReadinessCheck[] = [
     // ① 附件：见文件头注（表未建 ⇒ 暂不可判，既不算绿也不算红）
     { key: "judgment", state: "unavailable", reason: "attachment_not_built" },
@@ -107,11 +130,13 @@ export async function judgeArchiveReadiness(
     { key: "openNodes", state: openNodes === 0 ? "ok" : "missing", count: openNodes },
   ];
 
+  const missing = checks.filter((c) => c.state === "missing").map((c) => c.key);
   return {
     checks,
-    missing: checks.filter((c) => c.state === "missing").map((c) => c.key),
+    missing,
     unavailable: checks.filter((c) => c.state === "unavailable").map((c) => c.key),
-    ready: checks.every((c) => c.state === "ok"),
+    // 见类型上的注释：`ready` 的口径是"已判项齐备"，不是"三项齐备"
+    ready: missing.length === 0,
   };
 }
 

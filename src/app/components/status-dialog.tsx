@@ -8,7 +8,10 @@ import { Alert, Form, Input, Modal, Select, Space, Typography } from "antd";
 import { api, ApiFailure, type StatusRow } from "@/app/lib/client/api";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import {
+  READINESS_UNREADABLE,
+  READINESS_MISSING_PREFIX,
   readinessMissingText,
+  READY_TEXT,
   UNAVAILABLE_HINT,
   type Readiness,
 } from "@/app/lib/client/archive-readiness";
@@ -123,17 +126,21 @@ export function StatusDialog({
           message={
             readinessQ.isPending
               ? "正在核对归档材料…"
-              : readinessQ.isError
-                ? "核对不了归档材料（这不影响归档，但缺项清单这次给不出来）"
-                : readiness?.missing.length
-                  ? `还缺：${readinessMissingText(readiness)}`
-                  : "三项都齐备"
+              : readinessQ.isError || !readiness
+                ? // ⚠ `isError` 与 `readiness === null` 必须走**同一句**：后者是服务端
+                  //   自己承认的竞态（详情查到了、再算就绪时案件已删）。初版把 `null`
+                  //   落进 else ⇒ 显示"三项都齐备"——把"没有数据"说成"齐备"，
+                  //   正是本票反复强调不能做的事。
+                  READINESS_UNREADABLE
+                : readiness.missing.length
+                  ? `${READINESS_MISSING_PREFIX}${readinessMissingText(readiness)}`
+                  : READY_TEXT
           }
           description={
             readiness?.missing.length ? (
               <Space direction="vertical" size={2}>
                 <Typography.Text style={{ fontSize: 12 }}>
-                  缺项**不阻断**归档——照样能归，但会记进归档活动，并计入材料完整率。
+                  缺项不阻断归档——照样能归，但会记进归档活动，并计入材料完整率。
                 </Typography.Text>
                 {readiness.unavailable.length ? (
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>

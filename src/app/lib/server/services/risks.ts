@@ -22,6 +22,7 @@ import {
   eventOutbox,
   nodeTypeConfig,
   statusConfig,
+  tag,
 } from "../db/schema";
 import { party } from "../db/schema";
 import {
@@ -33,10 +34,11 @@ import {
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
 import { canManageStaffList, ownsAttribution } from "../scope/guards";
 import { needsChangeReason } from "@/shared/schema/status-transition";
+import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 import type { Actor } from "../auth/auth";
 import { nextCode } from "./numbering";
-import { initialStatusCode } from "./statuses";
+import { hostStatusRows, initialStatusCode } from "./statuses";
 import { logActivity } from "./activity";
 import { randomUUID } from "node:crypto";
 
@@ -1624,4 +1626,200 @@ export async function removeRiskFollower(
     });
   });
   return { ok: true };
+}
+
+/* ─────────────── 批量低风险动作（MATT-45：改状态 / 归档 / 加标签） ─────────────── */
+
+/**
+ * 事项侧的三个批量动作，与案件侧（`services/matters.ts` 同名段落）**逐条同构**。
+ *
+ * 为什么要两份而不是抽一个泛型：两侧的宿主表、状态机（`changeStatus` /
+ * `changeRiskStatus`）、审计外键列（`matter_id` / `risk_matter_id`）都不同，
+ * 而共用一段"参数化的 SQL"会让每次改一侧都要重新证明另一侧没被改动。
+ * 同构表对在本仓的既有姿态也是各写一份（`services/matters.ts` 与 `services/risks.ts`
+ * 本来就是两份），所以这里保持同形，差异点只在注释里点出来。
+ *
+ * 口径四条（不可见静默排除 / 跳过只算看得见但没做成 / 审计逐条用既有动作值 /
+ * 上限 50 在 schema 层拦）与案件侧完全一致，逐字理由见 `shared/schema/batch.ts` 文件头。
+ *
+ * ⚠ 事项侧有一处**刻意的不对称**：`mn_risk_matter.owner_id` 可空（IQ-5），
+ * 无主事项**谁都能推它的状态**（`changeRiskStatus` 里那条 `ownerId !== null` 判断）。
+ * 批量改状态沿用同一个判定——这里不另判一次归属，否则"单条能推、批量推不动"就出现了。
+ */
+
+/** 批量预读要的那几列（与案件侧同名同形） */
+type RiskBatchRow = {
+  id: string;
+  status: string;
+  isArchived: boolean;
+  tagIds: bigint[];
+};
+
+/**
+ * 可见行收敛。**这张表不是安全边界**，真正的边界是 `changeRiskStatus` 自己那次
+ * `scopedWhere`（标签动作没有第二道，所以那里这次读就是边界——见 `revred-batch.mjs`
+ * 的 `tag-scope-risk`）。
+ */
+async function loadRiskBatchRows(
+  db: Awaited<ReturnType<typeof getDb>>,
+  actor: Actor,
+  ids: readonly string[],
+): Promise<Map<string, RiskBatchRow>> {
+  const uniq = [...new Set(ids)].map((i) => BigInt(i));
+  const rows = await db
+    .select({
+      id: riskMatter.id,
+      status: riskMatter.status,
+      isArchived: riskMatter.isArchived,
+      tagIds: riskMatter.tagIds,
+    })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, inArray(riskMatter.id, uniq)));
+  return new Map(rows.map((r) => [String(r.id), { ...r, id: String(r.id) }]));
+}
+
+function skipRiskRow(id: string, reason: BatchSkipReason): BatchSummary["skipped"][number] {
+  return { id, reason };
+}
+
+/** 批量改事项状态。目标状态先按配置表验一次（理由同案件侧：参数错不该退化成空摘要）。 */
+export async function batchChangeRiskStatus(
+  actor: Actor,
+  ids: readonly string[],
+  to: string,
+  reason?: string | null,
+): Promise<({ ok: true } & BatchSummary) | { ok: false; why: "bad_status" }> {
+  const db = await getDb();
+  const [target] = await db
+    .select({ semantics: statusConfig.semantics })
+    .from(statusConfig)
+    .where(
+      and(
+        eq(statusConfig.hostType, "risk_matter"),
+        eq(statusConfig.code, to),
+        eq(statusConfig.isEnabled, true),
+      ),
+    )
+    .limit(1);
+  if (!target) return { ok: false, why: "bad_status" };
+
+  const byId = await loadRiskBatchRows(db, actor, ids);
+  const skipped: BatchSummary["skipped"] = [];
+  let applied = 0;
+
+  for (const id of [...new Set(ids)]) {
+    const row = byId.get(id);
+    // 不可见 / 已软删 / 不存在：**什么都不说**
+    if (!row) continue;
+
+    // 撤销归档要 can_unarchive；判据与案件侧同（已归档 **且** 目标不是归档语义）
+    if (row.isArchived && target.semantics !== "archived" && !actor.privileges.canUnarchive) {
+      skipped.push(skipRiskRow(id, "privilege_required"));
+      continue;
+    }
+
+    const r = await changeRiskStatus(actor, id, to, reason);
+    if (r.ok) {
+      applied++;
+      continue;
+    }
+    if (r.why === "not_found") continue; // 竞态：按同一条口径吞掉
+    skipped.push(skipRiskRow(id, r.why));
+  }
+  return { ok: true, applied, skipped };
+}
+
+/** 批量归档事项。归档态 code 服务端查（配置驱动），原因由 schema 强制。 */
+export async function batchArchiveRiskMatters(
+  actor: Actor,
+  ids: readonly string[],
+  reason: string,
+): Promise<{ ok: true } & BatchSummary> {
+  const db = await getDb();
+  const statuses = await hostStatusRows("risk_matter");
+  const archived = statuses.find((s) => s.semantics === "archived");
+  if (!archived) {
+    throw new Error(
+      "mn_status_config 缺少 host_type=risk_matter 且 semantics='archived' 的启用状态行",
+    );
+  }
+
+  const byId = await loadRiskBatchRows(db, actor, ids);
+  const skipped: BatchSummary["skipped"] = [];
+  let applied = 0;
+
+  for (const id of [...new Set(ids)]) {
+    const row = byId.get(id);
+    if (!row) continue;
+
+    const r = await changeRiskStatus(actor, id, archived.code, reason);
+    if (r.ok) {
+      applied++;
+      continue;
+    }
+    if (r.why === "not_found") continue;
+    skipped.push(skipRiskRow(id, r.why));
+  }
+  return { ok: true, applied, skipped };
+}
+
+/**
+ * 批量加事项标签。**追加不替换**；归档行一律拒（§5.2）。
+ *
+ * 审计用 `RISK_UPDATED`（事项侧的字段编辑动作值）而不是新造 `TAG_CHANGED`——
+ * 理由与案件侧逐字相同，见 `matters.ts` 里 `batchTagMatters` 的那段注释。
+ */
+export async function batchTagRiskMatters(
+  actor: Actor,
+  ids: readonly string[],
+  tagIds: readonly string[],
+): Promise<({ ok: true } & BatchSummary) | { ok: false; why: "bad_tag" }> {
+  const db = await getDb();
+  const wanted = [...new Set(tagIds)].map((t) => BigInt(t));
+  // 不过滤 is_enabled：与 `/api/meta` 的标签字典同口径（理由见案件侧同名注释）
+  const found = await db
+    .select({ id: tag.id })
+    .from(tag)
+    .where(and(eq(tag.hostType, "risk_matter"), inArray(tag.id, wanted)));
+  if (found.length !== wanted.length) return { ok: false, why: "bad_tag" };
+
+  const byId = await loadRiskBatchRows(db, actor, ids);
+  const skipped: BatchSummary["skipped"] = [];
+  let applied = 0;
+
+  for (const id of [...new Set(ids)]) {
+    const row = byId.get(id);
+    // 不可见：静默排除
+    if (!row) continue;
+
+    if (row.isArchived) {
+      skipped.push(skipRiskRow(id, "archived"));
+      continue;
+    }
+
+    const have = new Set(row.tagIds.map(String));
+    const add = wanted.filter((t) => !have.has(String(t)));
+    if (!add.length) {
+      skipped.push(skipRiskRow(id, "unchanged"));
+      continue;
+    }
+    const next = [...row.tagIds, ...add];
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(riskMatter)
+        .set({ tagIds: next, updatedBy: BigInt(actor.userId), updatedAt: new Date().toISOString() })
+        .where(eq(riskMatter.id, BigInt(id)));
+      await logActivity(tx, actor, {
+        riskMatterId: BigInt(id),
+        targetType: "risk_matter",
+        targetId: BigInt(id),
+        action: "RISK_UPDATED",
+        // `.map(String)`：`field_diffs` 是 jsonb，BigInt 进不了 JSON.stringify（见案件侧注释）
+        diffs: { tag_ids: { from: row.tagIds.map(String), to: next.map(String) } },
+      });
+    });
+    applied++;
+  }
+  return { ok: true, applied, skipped };
 }

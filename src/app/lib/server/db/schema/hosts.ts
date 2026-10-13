@@ -22,6 +22,7 @@ import {
   timestamp,
   uniqueIndex,
   varchar,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import {
   CASE_TYPES,
@@ -335,7 +336,13 @@ export const matterProgress = pgTable(
   ],
 );
 
-/** 当事人库（基线 模块八）：与宿主多对多，角色挂在关联行上 */
+/**
+ * 当事人库（基线 模块八）：与宿主多对多，角色挂在关联行上。
+ *
+ * MATT-40 把这张表从"案件里的一个字段"升格为**对手方档案**（IQ-7 / Q24=B：
+ * 表里只有对方当事人与第三人，我方=本企业永不入表，以案件的 `litigation_role` 表达）。
+ * 因此这一块比基线多了三样东西：加密列、盲索引、合并列。三样的理由都写在列上。
+ */
 export const party = pgTable(
   "mn_party",
   {
@@ -344,17 +351,70 @@ export const party = pgTable(
     /** E17：决定 E18 与 `id_number` 的校验规则 */
     type: varchar("type", { length: 24 }).notNull(),
     idType: varchar("id_type", { length: 28 }),
-    idNumber: varchar("id_number", { length: 64 }),
-    contact: varchar("contact", { length: 100 }),
+    /**
+     * 证件号**密文**（`v1:` 信封，AES-256-GCM；见 `lib/server/crypto/field-crypto.ts`）。
+     *
+     * 列类型从 `varchar(64)` 放宽到 `text`：信封比明文长（12 IV + 16 tag + 密文，
+     * 再 base64url 膨胀 4/3），64 装不下一个 18 位的统一社会信用代码密文。
+     * 迁移 0009 里那条 `ALTER COLUMN … TYPE text` 就是为它和 `contact` 写的。
+     */
+    idNumber: text("id_number"),
+    /**
+     * 查重用的**盲索引**（带密钥的 HMAC-SHA256，hex 64 位）。
+     *
+     * 为什么必须有这一列：加密带随机 IV ⇒ 同一个证件号每次密文都不同，
+     * 明文上的唯一索引/等值查询全部失效；而"同一个人不能建两份档案"是这张表的骨架。
+     *
+     * 为什么是带密钥的 HMAC 而不是裸 sha256：证件号空间可枚举（身份证号有校验位、
+     * 统一社会信用代码有固定形状），裸哈希能被彩虹表反推 —— 密钥在 env、不在库里，
+     * "拿到了库"与"拿到了明文"因此是两件事。查重口径（`type` + 完整证件号、trim 后比较）
+     * 与迁移前**逐字不变**，变的只是比较的是哈希。
+     */
+    idNumberHash: varchar("id_number_hash", { length: 64 }),
+    /** 手机号/联系方式，同样密文（列放宽到 text 的理由同上） */
+    contact: text("contact"),
     remark: text("remark"),
+    /**
+     * 合并（F3-9，MATT-40）：**被并方**指向主记录，主记录恒为 NULL。
+     *
+     * 为什么在行上留这一列而不是靠"软删了就是被合并"推断：软删的理由不止一种
+     * （F3-7 的删除也是软删），"这条为什么不见了"必须能分辨 —— 合并要能顺着它
+     * 找到主记录并跳过去，删除不能。
+     *
+     * 自引用外键用 `AnyPgColumn` 标注返回类型：不标的话 TS 会因为
+     * "`party` 在自己的初始化里被引用"而把整张表的类型推成 any。
+     */
+    mergedIntoId: fk("merged_into_id").references((): AnyPgColumn => party.id, {
+      onDelete: "restrict",
+    }),
+    mergedAt: timestamp("merged_at", { withTimezone: true, mode: "string" }),
     ...auditColumns,
   },
   (t) => [
-    uniqueIndex("uk_mn_party_identity").on(t.type, t.idNumber),
+    /**
+     * 唯一性从明文列改挂盲索引：`(type, id_number_hash)` 与迁移前的 `(type, id_number)` 同口径
+     * —— NULL（未填证件号）在 PG 里互不相等，所以"两家没填证件号的公司"照旧可以并存。
+     */
+    uniqueIndex("uk_mn_party_identity").on(t.type, t.idNumberHash),
     index("ix_mn_party_name").on(t.name),
+    /** 详情页要反查"哪些档案并进了我"；partial 因为绝大多数行是 NULL */
+    index("ix_mn_party_merged_into")
+      .on(t.mergedIntoId)
+      .where(sql`merged_into_id IS NOT NULL`),
     check("ck_mn_party_type", sqlInList("type", PARTY_TYPES)),
     // `id_type` 选填，故放过 NULL（与 risk_matter.source 同一写法）
     check("ck_mn_party_id_type", sql`id_type IS NULL OR ${sqlInList("id_type", ID_TYPES)}`),
+    /**
+     * 合并的**形状**：被并方一定同时是"指向别人"和"已软删"的。
+     *
+     * 三条都挡真错：`merged_into_id = id`（自己并进自己）、指向别人却没软删
+     * （详情页会显示一条"已并入 X"却仍出现在列表里的档案）、软删了但没说并入谁
+     * （那就与 F3-7 的删除混成一种，正是上面那一列要防的）。
+     */
+    check(
+      "ck_mn_party_merged_shape",
+      sql`merged_into_id IS NULL OR (merged_into_id <> id AND is_deleted)`,
+    ),
   ],
 );
 
