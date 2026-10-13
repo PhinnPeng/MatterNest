@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@paca-ai/paca-mcp": "0.19.0",
     "@stinsky/xray": "^0.4.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.20.4",
