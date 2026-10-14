@@ -91,6 +91,22 @@ export async function createSmokeAccount(sql, { roles, isAdmin = false, suffix =
  *    `violates foreign key constraint` —— 错误信息里只有约束名，看不出是哪张表哪一列，
  *    排查得从头翻 schema。检查清单必须覆盖**真正会拦住的列**，不然这份"友好报错"
  *    只覆盖了它恰好想到的那一半（本轮实测：7 个残留账号里 6 个是 `created_by` 拦的）。
+ *
+ * ⚠ **清场不许连坐**（2026-10-14 实测补上）。17 个冒烟脚本的 `finally` 都是这样：
+ *
+ *      } finally {
+ *        try { await cleanup() } catch (e) { console.log(...) }
+ *        await dropSmokeAccount(sql, smoke.id);   ← 本函数在 try 之外
+ *        await dropSmokeAccount(sql, smoke2.id);  ← 上一行抛错 ⇒ 这一行永不执行
+ *      }
+ *
+ *    本函数在**有业务行指着账号时故意抛错**（上面那段注释说的理由），而它一旦抛出，
+ *    整个 `finally` 块就中断 ⇒ **后面的账号一个都删不掉**，而脚本已经打完收工。
+ *    后果实测：一次全组冒烟留下 4 个 `is_admin` 残留账号，`db:check` C14 直接红
+ *    （「持有者 5 人，草案 §3：仅 1–2 人」），且报错完全指不到「是冒烟留下的」。
+ *
+ *    所以清理工具自己必须是**逐个独立、互不影响**的：抛错只影响它自己那一个账号。
+ *    清理代码成为故障源，会把「某个夹具没清干净」放大成「整场冒烟污染共享库」。
  */
 export async function dropSmokeAccount(sql, userId) {
   if (userId === undefined || userId === null) return;
@@ -145,6 +161,46 @@ export async function dropSmokeAccount(sql, userId) {
   await sql`delete from mn_auth_session where user_id = ${userId}`;
   await sql`delete from mn_app_user_role where user_id = ${userId}`;
   await sql`delete from mn_app_user where id = ${userId}`;
+}
+
+/**
+ * **不连坐**的批量清理：一个账号删不掉，不影响其余账号。
+ *
+ * 存在的理由见本文件 `dropSmokeAccount` 上方那段 ⚠ —— 17 个冒烟脚本的 `finally`
+ * 里 `dropSmokeAccount` 是在 try 之外顺序调用的，第一个抛错就中断了整个块，
+ * 于是一次全组冒烟能把带 `is_admin` 的临时账号永久留在共享库里，
+ * 并让 `db:check` C14 报出一句完全指不到来源的红。
+ *
+ * 这个函数把每个账号的失败收进返回值而不是抛出，所以：
+ *   · 每个账号都被尝试过一次（能删的删掉）
+ *   · 删不掉的**逐个报出来**，连同它的原因
+ *   · 返回值让调用方能决定是否把这件事升级成失败
+ *
+ * @param {unknown} sql
+ * @param {Array<bigint|number|string>} userIds
+ * @returns {Promise<{dropped: string[], failed: {id: string, reason: string}[]}>}
+ */
+export async function dropSmokeAccountsSafely(sql, userIds) {
+  const dropped = [];
+  const failed = [];
+  for (const id of userIds) {
+    if (id === undefined || id === null) continue;
+    try {
+      await dropSmokeAccount(sql, id);
+      dropped.push(String(id));
+    } catch (e) {
+      failed.push({ id: String(id), reason: e?.message ?? String(e) });
+    }
+  }
+  if (failed.length) {
+    console.log(
+      `[clean] ⚠ ${failed.length} 个临时账号删不掉（其余已删净）：\n` +
+        failed.map((f) => `         · ${f.id} —— ${f.reason}`).join("\n") +
+        `\n         这些是冒烟脚本漏清的夹具。库是共享 dev 机，残留会让 db:check 的\n` +
+        `         「持有者 N 人」类断言变红，且报错指不到来源——记得手工清。`,
+    );
+  }
+  return { dropped, failed };
 }
 
 export const ROLE_CODES = {

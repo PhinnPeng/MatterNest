@@ -453,7 +453,37 @@ const addF = await call("POST", `/api/risk-matters/${riskId}/staff/followers`, a
   userIds: [String(follower.id)],
 });
 ok("把 follower 加进关注人 200", addF.status === 200, `status=${addF.status} ${JSON.stringify(addF.body)}`);
-await call("POST", `/api/risk-matters/${riskId}/status`, adminC, { to: "closed" });
+
+// ⚠ 关注人档位与「转案件」无关，所以它必须用**自己的一条事项**，不能复用 §②
+// 那个——§② 刚把它转成了 2 个案件，而 2026-10-14 裁定「转过案件的事项冻结」，
+// 于是往它推状态会返 422 frozen、不产生通知，关注人那一档自然测不到。
+//
+// 原本这里是 `await call(...)` 丢弃返回值，于是那一步静默失败、往下四条全塌成
+// items=0，报出来的是「通知链路坏了」—— 真因却是裁定生效、脚本没跟上。
+// 那种塌法比直接红更糟：根因被藏在后面四条无关的红里。
+//
+// 现在：单独建一条**从未转案件**的事项来测关注人档位，并把状态码断言写出来。
+const fRiskRes = await call("POST", "/api/risk-matters", reporterC, {
+  name: `冒烟关注人档位-${stamp}`,
+  type: "contract",
+  level: "mid",
+  description: "只用于验证规则 2 的 follower 那一档，不参与 §② 的转案件",
+  // 与上面那条夹具同形：状态流转要过归属护栏（`ownsAttribution`），所以经办人必填
+  ownerId: String(admin.id),
+});
+ok("夹具：为关注人档位单独建一条事项 201", fRiskRes.status === 201, `status=${fRiskRes.status}`);
+const fRiskId = fRiskRes.body?.id;
+if (fRiskId) riskIds.push(fRiskId);
+
+await call("POST", `/api/risk-matters/${fRiskId}/staff/followers`, adminC, {
+  userIds: [String(follower.id)],
+});
+const fSt = await call("POST", `/api/risk-matters/${fRiskId}/status`, adminC, { to: "in_progress" });
+ok(
+  "关注人档位：推状态 200（这条事项**未转案件**，不该被冻结拦）",
+  fSt.status === 200,
+  `status=${fSt.status} ${JSON.stringify(fSt.body)}`,
+);
 
 const fList1 = await call("GET", "/api/notifications", followerC);
 const fItem = fList1.body?.items?.find((i) => i.visible && i.eventType === "status_changed");
@@ -462,7 +492,7 @@ ok("关注人此刻未读 ≥ 1", (fList1.body?.unread ?? 0) >= 1, `unread=${fLi
 
 const delF = await call(
   "DELETE",
-  `/api/risk-matters/${riskId}/staff/followers/${follower.id}`,
+  `/api/risk-matters/${fRiskId}/staff/followers/${follower.id}`,
   adminC,
 );
 ok("把 follower 移出关注人 200", delF.status === 200, `status=${delF.status}`);

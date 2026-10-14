@@ -2,7 +2,7 @@ import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mj
 /**
  * 真实冒烟（一期改进批次，2026-10-03）。跑在**已启动的 dev server + 已迁移已 seed 的库**上：
  *
- *   node agent-work/smoke-improvements.mjs            # 默认 http://127.0.0.1:3000
+ *   node agent-work/smoke-improvements.mjs            # 默认 http://127.0.0.1:3777
  *   BASE=http://127.0.0.1:3123 node agent-work/smoke-improvements.mjs
  *
  * 七条断言，全部是"离线单测证不了、只有真登录 + 真 HTTP 才看得到"的那类：
@@ -17,7 +17,10 @@ import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mj
  * 只读断言之外确实会写库：S4/S5/S6/S7 会留下案件与活动日志。这是 dev 演示库，
  * 且演示数据本身就是 `0003_demo.sql` 可重放的 —— 不在生产/他人库上跑。
  */
-const BASE = process.env.BASE ?? "http://127.0.0.1:3000";
+// ⚠ 原来读 `process.env.BASE` 且默认 3000 —— 与其余 17 个脚本的 `SMOKE_BASE`
+// / 3777 都不一致，于是「起在非默认端口」时本脚本是全组唯一连不上的那个。
+// 现在与其余脚本同口径。
+const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3777";
 
 // 自建临时账号（账号收敛为单个 admin 之后，不再依赖 seed 里的演示账号）。
 // admin 不参与本脚本：它是 is_admin=true，会短路范围谓词，拿它当 L1 测不出差异。

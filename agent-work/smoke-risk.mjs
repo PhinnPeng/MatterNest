@@ -1,4 +1,4 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import { createSmokeAccount, dropSmokeAccountsSafely, ROLE_CODES } from "./_testacct.mjs";
 /**
  * 事项侧成链的真 HTTP 冒烟（T1）：详情 · 状态 · 处置记录 · 手动节点 · 归档 · 软删。
  *
@@ -113,14 +113,23 @@ try {
   );
   // 分叉是**数据侧**的事实，不只是接口的映射：查库把两侧那一行并排钉住。
   // 只查接口的话，将来有人改坏了 seed 而接口那层另有兜底，这条会跟着一起绿。
-  const [closedNames] = await sql`
+  //
+  // ⚠ 原本这里写的是 `const [closedNames] = await sql\`…\``——**解构把整个结果集
+  // 换成了第一行**（postgres.js 返回的是行数组），于是 `closedNames.length` 读的
+  // 是 `undefined`，`=== 2` 恒假。这条断言从写下来起就没有验证过任何东西。
+  // 它直到 2026-10-14 才暴露，原因是那天库里第一次真的**同时**有两行可查。
+  //
+  // 教训与 `enum-check` 那批一样：**恒假的断言比没有断言更坏**，它给读它的人一个
+  // 虚假的「已验证」信号。下面保留 `Array.isArray` 这一道就是为了让解构再写错时变红。
+  const closedNames = await sql`
     select host_type, name from mn_status_config where code = 'closed' order by host_type`;
   ok(
     "**两侧 closed 显示名分叉**：案件=已结案 / 事项=已处理（查库核对）",
-    closedNames.length === 2 &&
+    Array.isArray(closedNames) &&
+      closedNames.length === 2 &&
       closedNames.find((r) => r.host_type === "matter")?.name === "已结案" &&
       closedNames.find((r) => r.host_type === "risk_matter")?.name === "已处理",
-    JSON.stringify(closedNames),
+    `isArray=${Array.isArray(closedNames)} rows=${JSON.stringify(closedNames)}`,
   );
   ok("**经办人为空**（owner 可空）", d.ownerId === null, `ownerId=${d.ownerId}`);
   ok("已转案件反查为空", d.convertedCases?.length === 0, `n=${d.convertedCases?.length}`);
@@ -432,8 +441,9 @@ try {
   } catch (e) {
     console.log(`[clean] 清场失败（需手工查）—— ${e?.message ?? e}`);
   }
-  await dropSmokeAccount(sql, smoke.id);
-  await dropSmokeAccount(sql, smoke2.id);
+  // 两个账号用「不连坐」的批量清理：第一个删不掉不该让第二个也删不掉
+  // （单账号脚本没这个问题，所以只有这里需要改——见 _testacct.mjs 的 ⚠ 段）
+  await dropSmokeAccountsSafely(sql, [smoke.id, smoke2.id]);
   await sql.end();
 }
 
