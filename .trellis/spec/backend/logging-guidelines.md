@@ -17,7 +17,7 @@
 |---|---|---|
 | §3.1 实体 CRUD | `field_diffs` | `MATTER_CREATED/UPDATED/DELETED`、`NODE_*`、`PROGRESS_*`、`EXPENSE_*`、`PARTY_*`、`COMMENT_*`、`ATTACHMENT_UPLOADED/DELETED` |
 | §3.2 状态与归属 | `field_diffs` + `reason` | `STATUS_CHANGED`、`ARCHIVED`、`UNARCHIVED`、`OWNER_CHANGED`、`CONVERTED_TO_CASE`、`UNCONVERT`、`NODE_COMPLETED`、`NODE_CANCELLED` |
-| §3.3 授权与安全 | 结构化 | `STAFF_CHANGED`、`ROLE_CHANGED`、`USER_ACTIVATED`、`SENSITIVE_FIELD_READ`、`ACCESS_DENIED_WRITE` |
+| §3.3 授权与安全 | 结构化 | `STAFF_CHANGED`、`ROLE_CHANGED`、`USER_ACTIVATED`、`SENSITIVE_FIELD_READ` |
 | §3.4 自动化与提醒 | 结构化 | `AUTO_RULE_EXECUTED/SKIPPED/FAILED`、`REMINDER_*` |
 
 四条容易写错的口径，逐条来自枚举表：
@@ -26,7 +26,7 @@
 2. `reason` 必填位：`ARCHIVED`、`UNARCHIVED`、`UNCONVERT`、`NODE_CANCELLED` 一律必填；`STATUS_CHANGED` 在**偏离推荐路径**时必填（修订稿 §3.3 第 3 条）。必填由服务层校验，不靠调用方自觉。
 3. `UNCONVERT` 是后补的——原清单漏登而映射矩阵 §5.1 已在用它写审计。**新增动作必须先回枚举表**，不得在代码里造新值。
 4. `SENSITIVE_FIELD_READ` 的载荷是 `{target_type,target_id,fields:[]}`，**不含值**——审计表本身不能变成明文存放处。
-5. `ACCESS_DENIED_WRITE` 只记写操作被拒；**读拒绝不记**，否则案号枚举探测会反向灌满日志表。
+5. **拒绝一律不记日志**（2026-10-14 裁定）。读拒绝的理由没变：案号枚举探测会反向灌满日志表。写拒绝曾规划的 `ACCESS_DENIED_WRITE` **已退役**，取值清单与 `ck_mn_activity_action` 都不再有它（枚举表 §3.3 那一行 + 迁移 0014）——**它不是"等一张票"，是被裁定不做**：`mn_activity_log.target_id` 是 `NOT NULL`、`target_type` 只有 7 个取值，"没有权限的人要建账号"这类拒绝**根本没有可记录的落点**。别把它加回来；要重新启用，先改 `activity_log` 自己的表结构，再谈动作值。
 
 ### 结构与事务
 

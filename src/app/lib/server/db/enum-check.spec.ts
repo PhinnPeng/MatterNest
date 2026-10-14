@@ -609,6 +609,11 @@ describe("同构表对：列集合 diff 为空（W1-3 / MATT-8）", () => {
  *   · 新增一个没人写的动作 → 立刻红（要么补上写入点，要么把理由写进白名单）；
  *   · 某个动作已经写出来了、白名单条目却忘了删 → 也立刻红（那条理由会变成过期承诺）。
  *
+ * ⚠ 2026-10-14 起是 **45 个动作 / 29 有写入点 / 16 没有**：`ACCESS_DENIED_WRITE` 被
+ * **退役**（从 `AUDIT_ACTIONS` 与 DB CHECK 里物理删掉），不是被"注掉"。理由与裁定见下面
+ * `AUDIT_WITHOUT_WRITESITE` 上方那段 ⚠ —— 它是这个文件里唯一一个**从清单里消失**的动作，
+ * 所以留了一枚钉子在那儿，防止下一个人照着调查报告把它"补"回来。
+ *
  * ⚠ 演示数据不算写入点：`db/seed/0003_demo.sql` 里躺着一行 `'PROGRESS_CREATED'`，
  * 那是 seed 造的，不是任何用户操作产生的。所以本门禁**只读 `.ts`**，不读 SQL。
  */
@@ -854,6 +859,24 @@ const filesProducing = (action: string): string[] =>
  *     但关掉它**不会**顺带给出写入点。把票号当落点承诺，是这份白名单最容易犯的错。
  *
  * 顺序与 `AUDIT_ACTIONS` 一致，方便逐行 diff。
+ *
+ * ## ⚠ 这份白名单不是「待补清单」：从清单里消失的动作去了哪里
+ *
+ * 2026-10-14，`ACCESS_DENIED_WRITE` 从这里**删掉了一条**，同时也从 `AUDIT_ACTIONS`、
+ * `AUDIT_ACTION_LABELS` 与 `ck_mn_activity_action` 里删掉了这个值（迁移 0014）。
+ * 两半必须同批，缺一半就是本文件开头写的那种"三方一致地写着没人写得出的值"。
+ *
+ * 为什么是删除而不是本文件里 `SENSITIVE_FIELD_READ` 那种「保留 + @deprecated」：
+ * §5.3 那条禁令的前提是**历史行存在**，而这一条从来没落进过一行——本文件扫了
+ * `src/**` 的全部写入点（零命中），`db/seed/*.sql` 也零命中。更硬的理由是它**记不进去**：
+ * `mn_activity_log.target_id` 是 `NOT NULL`、`target_type` 只有 E03 那 7 个取值，
+ * "没有权限的人要建账号"这类拒绝既没有 `target_id` 也没有合法 `target_type`。
+ *
+ * ⚠ **要把 `ACCESS_DENIED_WRITE` 加回来的人，先读这一段**：它不是一个"还没排期的缺口"，
+ *   而是**被裁掉的**。`docs/survey-missing-seams.md` §5.2 把它列成"先退役（路 B）"，
+ *   同一节也写明了路 A 的前置是"一次 `activity_log` 表结构迁移 + 一条 spec 修订"。
+ *   那笔迁移（`target_id` 可空 / `target_type` 扩域）落地之前，加回来只会得到
+ *   第二条"声明了、但谁也写不出来"的动作 —— 正是本门禁要抓的那种洞。
  */
 const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
   MATTER_DELETED:
@@ -875,9 +898,13 @@ const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
   UNARCHIVED:
     '等 **MATT-60**。现状值得记一笔：撤销归档**是被走到的**——`can_unarchive` 列与 `requirePrivilege` 都在，只是它复用了通用状态迁移入口，而那个入口只写 `action: archiving ? "ARCHIVED" : "STATUS_CHANGED"`（`matters.ts` / `risks.ts`），于是「撤销归档」这件事在审计里被记成了 `STATUS_CHANGED`。MATT-60 拆出独立出口。',
   SENSITIVE_FIELD_READ:
-    "**已作废，不是缺口** —— 本组 17 条里唯一一条「白名单本来就是对的」而非「欠一张票」的。裁定：IQ-12 / Q46′（2026-10-10）取消「显示明文」按钮与逐次读取审计，展示层改为全明文；明文外流改由 `EXPORT` 承接、并由 `can_read_plain` 把关。裁定原文写在 `src/shared/enums/audit.ts:13` 的文件头与枚举表 §3.3。本值按 §5.3 废弃流程**保留**在清单、CHECK 与中文名表里，**只为让历史行仍能反查**，不得再写入。它全仓仅有的两处出现都是**反面教材**：`crypto/field-crypto.ts:9` 与 `parties.spec.ts:361` 的注释都在说「别把这东西重新发明一遍」。⚠ 将来若有人正式推翻 IQ-12 恢复逐次审计，先删本条再写代码；在裁定被推翻之前，本条**不该**被当成待补缺口报出来。",
-  ACCESS_DENIED_WRITE:
-    "**没有承载点，也没票** —— 本组里唯一一条「不是等票、也不是已作废」的真缺口。写拒绝目前由 `http.ts` 的 `notFound()` / `attributionRequired()` / `requirePrivilege()` 直接返回 `NextResponse`：那些位置**手上没有事务也没有 actor**，压根调不动 `logActivity`。要记它得先补一个统一的拒绝留痕钩子（并想清楚拒绝时该记谁当 operator），那是设计工作不是补一行 `action:`。枚举表 §3.3 已把口径写死（只记写拒绝、读拒绝不记）。",
+    "**已作废，不是缺口** —— 本组 16 条里唯一一条「白名单本来就是对的」而非「欠一张票」的。裁定：IQ-12 / Q46′（2026-10-10）取消「显示明文」按钮与逐次读取审计，展示层改为全明文；明文外流改由 `EXPORT` 承接、并由 `can_read_plain` 把关。裁定原文写在 `src/shared/enums/audit.ts:14` 的文件头与枚举表 §3.3。本值按 §5.3 废弃流程**保留**在清单、CHECK 与中文名表里，**只为让历史行仍能反查**，不得再写入。它全仓仅有的两处出现都是**反面教材**：`crypto/field-crypto.ts:9` 与 `parties.spec.ts:361` 的注释都在说「别把这东西重新发明一遍」。⚠ 将来若有人正式推翻 IQ-12 恢复逐次审计，先删本条再写代码；在裁定被推翻之前，本条**不该**被当成待补缺口报出来。",
+  // ⚠⚠ 原先这里有一条 `ACCESS_DENIED_WRITE`，2026-10-14 已**整条删除**，不再登记。
+  //    它不是"补上写入点就行"的那种缺口，是**被裁定退役**的：§5.3 那条"禁止从 CHECK 删值"
+  //    的前提（历史行存在）不成立——它从没有过写入点（见本文件上方那段 ⚠），
+  //    而 `mn_activity_log.target_id NOT NULL` + 7 值 `target_type` 让它根本写不进去。
+  //    要它回来：先做 `activity_log` 的表结构迁移（迁移 0014 的头注与
+  //    `docs/survey-missing-seams.md` §5.2「路 A」都写了这件事的前置），再谈动作值。
   AUTO_RULE_EXECUTED:
     "等 **MATT-61**（自动化规则执行器）。规则表与预置种子已进库，执行器尚未落地。`_SKIPPED` 载荷比 `EXECUTED` 多一个 `skip_reason`（冲突唯一键 / 冷却期 / 收件人不可见），去重语义已经写进 `db/schema/outbox.ts:10` 的文件头与迁移 0003 的注释 —— 但**注释不算写入点**，这正是本门禁存在的理由。⚠ 与 `SENSITIVE_FIELD_READ` 区分开：那一类是**已作废**，这一类是**未实现**（意图已写下、执行器还没有），所以它该跟着 MATT-61 变成有写入点，而不是永远挂着。",
   AUTO_RULE_SKIPPED:
@@ -890,7 +917,7 @@ const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
     "等 **MATT-73/74**（提醒调度与投递）。提醒侧的 `mn_notification_delivery.status` 值域已进库，但调度器还没跑起来。",
 };
 
-describe("审计动作 ↔ 写入点：清单里每个值都得有代码真写得出来（白名单那 17 条除外）", () => {
+describe("审计动作 ↔ 写入点：清单里每个值都得有代码真写得出来（白名单那 16 条除外）", () => {
   it("扫描器不是空转：扫到的文件、写入点、已产出动作都在预期量级（2026-10-13 实测 179 / 37 / 29）", () => {
     // 校验类脚本最典型的空转形态是"什么都没扫到 ⇒ 零命中 ⇒ 看起来和全部一致一样绿"
     // （本文件上面三处记着同一个教训）。所以先证明它真读到了东西。
@@ -903,7 +930,8 @@ describe("审计动作 ↔ 写入点：清单里每个值都得有代码真写�
       "产出动作的文件太少",
     ).toBeGreaterThanOrEqual(8);
     // 清单本身也不能被截断：它是本门禁的输入，输入短了是"核得少"而不是"核得对"
-    expect(ALL_ACTIONS.length, "AUDIT_ACTIONS 被截短了？").toBeGreaterThanOrEqual(46);
+    // （45 = 2026-10-14 退役 `ACCESS_DENIED_WRITE` 之后的现值数；下调这个下限等于放宽"被截短"）
+    expect(ALL_ACTIONS.length, "AUDIT_ACTIONS 被截短了？").toBeGreaterThanOrEqual(45);
   });
 
   it("范围与判定规则各有反例钉住：迁移目录被排除、读形态不算写入点、注释里的值不算", () => {

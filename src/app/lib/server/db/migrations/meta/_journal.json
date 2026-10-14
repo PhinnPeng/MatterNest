@@ -99,6 +99,13 @@
       "when": 1792569600000,
       "tag": "0013_bulk_import",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792656000000,
+      "tag": "0014_retire_access_denied_write",
+      "breakpoints": true
     }
   ]
 }

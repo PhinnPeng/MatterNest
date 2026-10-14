@@ -93,6 +93,7 @@ index("uk_rule_scope").unique()
 - 建表时要抄的值域与约束名都在注册表的 `usedBy` / `constraint` 字段里，**不要在迁移里现编约束名**：
   命名规范是 `ck_<表名去下划线>_<列名>`，反向检查与命名断言都依赖它。
 - 加值 / 废值规则（枚举表 §5.3）：新增值＝改常量 + 迁移 `DROP`/`ADD CONSTRAINT`（全表扫，一期数据量可接受）；**禁止从 CHECK 里删值**（历史行会违反约束），废弃值常量保留标 `@deprecated`；需要运营自助加值＝判断错了，按枚举表 §6 升格为配置表，**不要**放宽成无约束 `varchar`。
+  - **上面那条禁令有前提**（2026-10-14 裁定补）：它的理由是"历史行会违反约束"，所以只在**该值曾经落过行**时成立。一个**从未写入过**的取值可以物理删值（常量 + 中文名 + CHECK 三处同批），先例 `ACCESS_DENIED_WRITE`／迁移 0014；三个条件见枚举表 §5.3 新增的那一行。判据要两条一起看：`enum-check.spec.ts` 的 `AUDIT_WITHOUT_WRITESITE` 有它（扫 `.ts` 零命中）**且** `db/seed/` 也零命中——只扫 `.ts` 会漏掉演示数据。
 - 三条 CHECK 模板见枚举表 §5.2，其中节点时间的 `ck_node_time_shape`（range 必须有起止、point 禁填 `end_time`、双 NULL＝待定时间）必须逐条落地。
 
 ---
@@ -171,7 +172,7 @@ index("uk_rule_scope").unique()
 1. 用 `drizzle-kit push` 建开发库 → 禁令④。
 2. `.where(eq(...))` 写 partial index → 禁令②，生成非法 SQL。
 3. 把枚举值抄进第二个文件（前端另写一份、测试里再硬编码一份）→ 破坏 §5.1 单一事实源。
-4. 从 CHECK 里删掉废弃取值 → 历史行违反约束。
+4. 从 CHECK 里删掉**写过行的**废弃取值 → 历史行违反约束。（**从未写入过**的取值可以删，见上面"枚举与 CHECK"那节的例外与三个条件；先例 0014。）
 5. 用 `timestamptz` 存日历日期，或业务层 `new Date()` 算期限 → 期限算错。
 6. 用 `current_date` 或 `now()::date` 当 `day_key` → 会话钉 UTC 后，上海 0–8 点的立案会被归到**前一天**（实测：同一时刻 PRC 会话 09-27 / UTC 会话 09-26）。`day_key` 只能是显式 `AT TIME ZONE 'Asia/Shanghai'` 形式。
 7. 给业务表配 `ON DELETE CASCADE` → 抹掉审计链（§12.4）。

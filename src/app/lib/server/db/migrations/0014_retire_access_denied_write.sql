@@ -1,0 +1,45 @@
+-- 0014：退役 `ACCESS_DENIED_WRITE`——从 `ck_mn_activity_action` 的值域里删掉它（2026-10-14）
+--
+-- 权威出处：`docs/PRD-phase1-enums-and-schemas.md` §3.3（该行改判为"退役"）、
+-- `src/shared/enums/audit.ts` 的文件头裁定、`docs/survey-missing-seams.md` §5.2（路 B）。
+--
+-- ## 这是 §5.3 的例外，必须先说清凭什么
+--
+-- 枚举表 §5.3：「废弃一个取值 | 常量保留并标 `@deprecated`……**禁止**从 CHECK 里删值
+-- （会让历史行违反约束）」。本文件做的事正是它禁止的那件。两点区别：
+--
+--  ① **那句禁令的前提是"历史行存在"**，本条的前提不成立。`ACCESS_DENIED_WRITE`
+--     从未落进过任何一行：① `enum-check.spec.ts` 的写入点门禁把它列在
+--     "有声明、无写入点"里（扫 `src/**` 的 `logActivity(` / `.insert(activityLog).values(`
+--     实参，零命中）；② `db/seed/*.sql` 零命中（演示数据也没写过）。
+--     ⇒ 收窄 CHECK 不可能拒掉任何现存行。实测行数见下方"已核"段。
+--  ② 更硬的理由是**它记不进去**：`mn_activity_log.target_id` 是 `NOT NULL`、
+--     `target_type` 只有 E03 那 7 个取值。"没有 `canManageUser` 的人要建账号"
+--     这类拒绝既没有 `target_id`（对象还不存在）也没有合法 `target_type`。
+--     把它留在 CHECK 里等于让约束长期宣称一种表结构**表达不出来**的行。
+--
+-- ⚠ **与 `SENSITIVE_FIELD_READ` 的先例不是同一回事，别拿它来比**：
+--   IQ-12 / Q46′（2026-10-10）那一票选了"保留 + @deprecated"，注释给的理由是历史行要能反查。
+--   本条走的是另一条路，理由如上①②；两条裁定各自独立，本文件不动 `SENSITIVE_FIELD_READ`。
+--
+-- 三向同批（本仓纪律「文档 → 注册表 → 迁移 CHECK」，`enum-check` 会逐向验）：
+--   ① 文档：`docs/PRD-phase1-enums-and-schemas.md` §3.3（该行保留原行并标注退役，见 v5 注记的同款做法）；
+--   ② 注册表：`src/shared/enums/audit.ts` 的 `SECURITY_ACTIONS` + `AUDIT_ACTION_LABELS`；
+--   ③ 本文件。
+--
+-- 写法与 0008 同款：`DROP ... IF EXISTS` 在 `ADD` 之前，保证重放不因约束缺失而失败。
+--
+-- 已核（2026-10-14，dev 库）：`select count(*) from mn_activity_log where action='ACCESS_DENIED_WRITE'`
+-- 返回 0；本文件的两条 DDL 在回滚事务里实跑通过，库未被改动。
+--
+-- DOWN（前滚优先，但人要看得懂丢了什么）：
+--   ALTER TABLE "mn_activity_log" ADD CONSTRAINT "ck_mn_activity_action" CHECK (action IN (
+--     … 45 个现取值 … , 'ACCESS_DENIED_WRITE'));
+--   ⇒ **加回来只是把一条没人写的值重新挂上**：它仍然写不进去（见上 ②），
+--      而 §5.3 一旦被这样破例，以后每次"物理删值"都会援引本条。
+--      真的要重新做写拒绝留痕，先做 `activity_log` 的表结构迁移（`target_id` 可空 +
+--      `target_type` 扩域），再谈动作值；顺序反了就是又一次"声明了没人写"。
+--> statement-breakpoint
+ALTER TABLE "mn_activity_log" DROP CONSTRAINT IF EXISTS "ck_mn_activity_action";
+--> statement-breakpoint
+ALTER TABLE "mn_activity_log" ADD CONSTRAINT "ck_mn_activity_action" CHECK (action IN ('MATTER_CREATED','MATTER_UPDATED','MATTER_DELETED','RISK_CREATED','RISK_UPDATED','RISK_DELETED','NODE_CREATED','NODE_UPDATED','NODE_DELETED','PROGRESS_CREATED','PROGRESS_UPDATED','PROGRESS_DELETED','EXPENSE_CREATED','EXPENSE_UPDATED','EXPENSE_DELETED','PARTY_CREATED','PARTY_UPDATED','PARTY_DELETED','COMMENT_CREATED','COMMENT_UPDATED','COMMENT_DELETED','ATTACHMENT_UPLOADED','ATTACHMENT_DELETED','STATUS_CHANGED','ARCHIVED','UNARCHIVED','OWNER_CHANGED','CONVERTED_TO_CASE','UNCONVERT','NODE_COMPLETED','NODE_CANCELLED','STAFF_CHANGED','ROLE_CHANGED','USER_ACTIVATED','USER_STATUS_CHANGED','CREDENTIAL_CHANGED','SENSITIVE_FIELD_READ','EXPORT','AUTO_RULE_EXECUTED','AUTO_RULE_SKIPPED','AUTO_RULE_FAILED','REMINDER_SENT','REMINDER_FAILED','PARTY_MERGED','BULK_IMPORT'));

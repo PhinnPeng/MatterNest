@@ -5,6 +5,7 @@
 > **v2 变更**：补登 E29–E33（通知与 outbox 三个枚举此前只在修订稿散落，权威源反而缺记）；§3.2 补 `UNCONVERT`；E09 的默认值口径与修订稿 §3.1 统一；§4.2 白名单按宿主分列并回改了修订稿 §2.5。
 > **v3 变更**（同日）：认证双通道 + 待开通态裁定后补登 **E34–E37**（provider / auth_via / sync_status / activation_status），§3.3 补 `USER_ACTIVATED`，§5.1 新增 `auth.ts`。全表现共 37 行、34 项为真实取值登记。
 > **v4 变更**（2026-10-10，意图对齐回写 IQ-1…14 / master §7.4）：**只改取值与注记，表结构、字段矩阵、生成规则一字未动**——E13 删"非诉"、E06/E07/E12 钉企业当事方视角、E16 值名待改 `external_dispute`、E25 `email` 撤出一期、status_config 显示名（已登记/了结/已结案）、§3 追加 `PARTY_MERGED`/`BULK_IMPORT` 与 `SENSITIVE_FIELD_READ` 作废、§0 配置后台改"每类独立功能页"、`AL` 前缀注为一期不实现。作废值与作废行**保留原行并加标注**，不物理删除；代码 `src/shared/enums/` 同步在后。
+> **v6 变更**（2026-10-14，退役裁定）：§3.3 的 `ACCESS_DENIED_WRITE` **退役**——与上面两种"作废保留"不同，它**从取值清单与 DB CHECK 里物理删掉**（迁移 `0014_retire_access_denied_write.sql`）。§5.3「废弃一个取值」表同步补了**前提条件**：那句"禁止从 CHECK 删值"只在**该值曾经落过行**时成立。本文件仍是取值权威源，登记口径见 §5.3 新增行。
 
 ---
 
@@ -119,7 +120,7 @@ ATTACHMENT_UPLOADED     ATTACHMENT_DELETED
 | `CREDENTIAL_CHANGED` | `{mode, self}` | **新增（2026-10-13，MATT-10 落实 F6-9）**：本地凭据设置/重置。`mode` 取 `set`/`reset`，`self` 记"是否给自己设的"。**绝不记口令或摘要**（`logging-guidelines` 既有禁令）。仅**系统所有者**可执行（MATT-53 裁定：不另设兜底账号，凭据生命线由系统所有者持有） |
 | `SENSITIVE_FIELD_READ` | `{target_type,target_id,fields:[]}` | **不含值**。权限草案 §7.3。**❌ 作废（IQ-12 / Q46′，2026-10-10）：展示层全明文，"显示明文"按钮与逐次读取审计一并取消——本动作一期不写入、前端不展示；行与编号保留不物理删（`@deprecated`，历史行仍需可反查）。明文「导出」改由 `can_read_plain` 把关（开关不删列、语义收窄为仅明文导出），留痕由下表 `EXPORT` 承接。** |
 | `EXPORT` | `{target_type,scope,rows,count,plain:boolean}` | **新增（2026-10-10，IQ-12 落实）**：列表/清单导出动作留痕；`plain=true` 仅 `can_read_plain` 可为（草案 §7.3 明文导出两档）。**不含行内容**，只记档位与行数。**迁移与 `audit.ts` 注册在后**（与 `PARTY_MERGED`/`BULK_IMPORT` 同一姿态：文档先行，代码同步属后续票）。曾为 §6.1 引用的空指针，本轮补行闭合。 |
-| `ACCESS_DENIED_WRITE` | `{target_type,attempted_action}` | 只记写操作拒绝；读拒绝不记（否则案号枚举探测会反向灌满日志表） |
+| `ACCESS_DENIED_WRITE` ~~`{target_type,attempted_action}`~~ | ❌ **退役（2026-10-14）——本行不再是取值，清单与 `ck_mn_activity_action` 里都已删掉它**（迁移 0014）。原口径"只记写操作拒绝；读拒绝不记"随之作废：现在是**拒绝一律不记**。退役理由两条：① 它**从未被任何代码写入过一行**（`enum-check.spec.ts` 的写入点门禁扫 `src/**` 零命中，`db/seed/*.sql` 也零命中），所以 §5.3 那句"禁止从 CHECK 删值"所保护的历史行**不存在**，删值不会拒掉任何现存行；② 更硬的一条是它**记不进去**——`mn_activity_log.target_id` 为 `NOT NULL`、`target_type` 只有 E03 那 7 个取值，"没有 `canManageUser` 的人要建账号"这类拒绝既没有 `target_id` 也没有合法 `target_type`，落这条审计得先改 `activity_log` 自己的表结构。**要重新启用**：先做那次表结构迁移（`target_id` 可空 / `target_type` 扩域）+ 一条 spec 修订，顺序反了就会得到第二条"声明了没人写"的动作。调查与两条路径见 `docs/survey-missing-seams.md` §5.2 |
 
 ### 3.4 自动化与提醒
 
@@ -308,6 +309,7 @@ ALTER TABLE matter_node ADD CONSTRAINT ck_node_time_shape CHECK (
 | 新增一个取值 | 改常量 + 迁移 `DROP`/`ADD CONSTRAINT`。PG 的 `ALTER TABLE ... ADD CHECK` 会全表扫，第一期数据量下可接受 |
 | 需要运营自助加值 | 说明该项判断错了，按 §6 升格为配置表，**不要**放宽成 `varchar` 无约束 |
 | 废弃一个取值 | 常量保留并标 `@deprecated`，前端不再展示；历史数据仍要能反查中文名。**禁止**从 CHECK 里删值（会让历史行违反约束） |
+| **退役一个从未写入过的取值** | **前置条件：该值从来没有落过任何一行**——门禁上表现为 `enum-check.spec.ts` 的 `AUDIT_WITHOUT_WRITESITE` 有它、且 `db/seed/` 零命中。三个条件同时成立才允许**物理删值**（常量 + 中文名 + CHECK 三处同批删）：① 无历史行 ⇒ §5.3 上一行那句禁令所保护的东西不存在；② 该值在现行表结构下**写不进去**（否则"删掉"只是把一张等票从纸上拿走）；③ 有替代承接，或裁定明确"不做"。**先例：`ACCESS_DENIED_WRITE`，2026-10-14，迁移 0014**——条件②是它与 `SENSITIVE_FIELD_READ`（IQ-12，作废保留）的真正分野：后者的行在现行表结构下**写得进去**，保留它零成本；前者的 `target_id NOT NULL` + 7 值 `target_type` 让它根本落不了地。⚠ 删值前把 `db:seed/` 也扫一遍，只扫 `.ts` 会漏掉演示数据 |
 
 ### 5.4 顺带要求：`activity_log` 补一列
 

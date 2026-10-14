@@ -3,17 +3,26 @@
  * 权威源：`docs/PRD-phase1-enums-and-schemas.md` §3 —— **这是唯一一份允许写 `payload` 载荷的枚举**。
  *
  * 三件事必须钉在一起，所以放在同一个文件里而不是拆成字符串数组：
- *   1. 值集合（闭合：`action varchar(40)`，`ACCESS_DENIED_WRITE` 已是 21 字符，加长取值时要复看长度）；
+ *   1. 值集合（闭合：`action varchar(40)`，`SENSITIVE_FIELD_READ` 已是 20 字符，加长取值时要复看长度）；
  *   2. `reason` 是否必填（§3.2 表；`UNCONVERT` 与 `NODE_CANCELLED` 必填，`STATUS_CHANGED` 仅偏离推荐路径时必填）；
  *   3. 载荷形态（`field_diffs` / `payload`，§5.4 新增 `payload jsonb` 后 `field_diffs` 回归"字段差异"本义）。
  *
- * 两条禁令级口径：**读拒绝不记日志**（否则案号枚举探测会反向灌满日志表），
- * 且 `SENSITIVE_FIELD_READ` 的载荷**不含字段值**（权限草案 §7.3）。
+ * **拒绝一律不记日志**：读拒绝因为案号枚举探测会反向灌满日志表，写拒绝曾规划的
+ * `ACCESS_DENIED_WRITE` 已于 2026-10-14 退役（见下方裁定）；且 `SENSITIVE_FIELD_READ`
+ * 的载荷**不含字段值**（权限草案 §7.3）。
  *
  * ⚠ `SENSITIVE_FIELD_READ` 已于 IQ-12 / Q46′（2026-10-10）**作废**：展示层全明文，
  * "显示明文"按钮与逐次读取审计一并取消。按 §5.3 废弃流程，它**留在本清单与 DB CHECK 里**
  * （历史行仍需可反查），但**一期不写入、前端不展示**。明文与脱敏两档导出改由
  * `EXPORT` 统一留痕（payload 记 `plain` 布尔与行数，不含内容）。别在别处再写它。
+ *
+ * ⚠ `ACCESS_DENIED_WRITE` 已于 2026-10-14 **退役，且是从本清单与 DB CHECK 里物理删掉**
+ * （不是上面那种"保留 + @deprecated"）。§5.3 那句"禁止从 CHECK 删值"的**前提是历史行存在**，
+ * 而这一条从未被任何代码或 seed 写进过一行——`enum-check` 的写入点门禁与 `db/seed/*.sql` 双向为零，
+ * 所以不存在会被新约束拒掉的历史行。另有一个更强的理由：它**记不进去**。
+ * `mn_activity_log.target_id` 是 `NOT NULL`、`target_type` 只有 7 个取值（E03），
+ * "没有 `canManageUser` 的人要建账号"这类拒绝**既没有 target_id 也没有合法 target_type**，
+ * 要落这条审计得先改 `activity_log` 自己的表结构。别再把它加回来，除非那笔迁移已经做了。
  */
 
 /** §3.1 实体 CRUD：载荷 `field_diffs` */
@@ -75,7 +84,6 @@ export const SECURITY_ACTIONS = [
    */
   "CREDENTIAL_CHANGED",
   "SENSITIVE_FIELD_READ",
-  "ACCESS_DENIED_WRITE",
   /**
    * 两档导出的统一留痕（IQ-12 / Q46′）。载荷 = `{target_type, scope, rows, count, plain}`，
    * **不含行内容**。
@@ -157,7 +165,6 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   CREDENTIAL_CHANGED: "凭据设置",
   /** @deprecated IQ-12 已作废：展示层全明文，不再逐次审计。留在这里只为反查历史行 */
   SENSITIVE_FIELD_READ: "明文查看敏感字段",
-  ACCESS_DENIED_WRITE: "写操作被拒",
   EXPORT: "导出",
   AUTO_RULE_EXECUTED: "规则执行",
   AUTO_RULE_SKIPPED: "规则跳过",
