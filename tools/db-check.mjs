@@ -28,6 +28,14 @@
  *   C14 `mn_app_user.is_admin` 已建列且持有者 1–2 人（草案 §3 的逃生口，人手都有等于没有）
  *   C15 规则 seed 9 条系统规则 + 触发域唯一索引在且是 partial（MATT-43；表未建时**只回报**，见该处注释）
  *   C16 批量导入两张表 + 幂等键 `uk_mn_import_row_content` 在且**真的是 partial**（MATT-44；同上，表未建只回报）
+ *   C18 定时器心跳（MATT-83）：单行钉 + 三种状态，**两种红分开报**
+ *       ——「从未运行」（空时间戳 ⇒ 查 instrumentation.ts 有没有起）
+ *       与「已停摆」（超 3 个周期 ⇒ 查日志与进程存活）排障方向不同，合并会送人去错的那半。
+ *       （编号落在 C18：`schema/timer-heartbeat.ts` 的注释已按 C18 登记这条探针，两处一致；
+ *       C17 保持空白不占用，免得与在途的另一条探针撞号。）
+ *       ⚠ 写入方 `src/instrumentation.ts` 还不存在时**只回报**：那时 created_at 恒为 NULL
+ *       是「MATT-74 还没落地」，与「定时器坏了」在库里同形 —— 探针分辨不出，所以不能断言
+ *       （否则从 0015 应用那一刻起它永远红，而永远红的门禁等于没有门禁）
  */
 
 const MIN_MAJOR = 15;
@@ -85,6 +93,10 @@ try {
   console.error("缺依赖 postgres（postgres.js）：pnpm add postgres");
   process.exit(1);
 }
+
+// C18 用它判断「心跳的写入方落地了没有」—— 文件在不在是**这一侧唯一能拿到**的
+// 「MATT-74 交付了没有」的证据（库里分辨不出「还没建」与「坏了」）。
+const { existsSync } = await import("node:fs");
 
 /** C8 的哨兵异常：抛出来让 sql.begin 自动回滚，好与真失败区分 */
 class Rollback extends Error {}
@@ -399,6 +411,106 @@ try {
           ? `缺 CHECK：${missingChecks.join("、")}`
           : `三条值域 CHECK 齐（${wantChecks.length}/${wantChecks.length}）`),
     );
+  }
+
+  // ---- C18 定时器心跳（MATT-83 / T4e 前置件）----
+  // 「应用内定时器还活着吗」**在进程内无解**：croner@10.0.1 的状态全是内存字段，
+  // 进程一死归零；`previousRun()` 抛异常照样前进（它记「跑完了」不记「跑成了」）。
+  // 所以判据只能落在库里这一行 —— 详见 `docs/research-croner-status-heartbeat.md` §8。
+  //
+  // 这条探针的价值全在**两种红的说法不同**：
+  //   · 从未运行（行在、`created_at IS NULL`）⇒ 定时器**没起来** ⇒ 看 `src/instrumentation.ts`
+  //   · 已停摆（有戳但超 3 个周期）        ⇒ 定时器**起过后不动了** ⇒ 看日志与进程存活
+  // 合并成一句「心跳异常」会把人送去错的那一半排查 —— 那正是这行存在的意义。
+  //
+  // 表不存在时只回报不断言（与 C15/C16 同款：0015 是后续迁移，跳过必须留痕）。
+  //
+  // ⚠ **写入方没落地之前，这条只能回报不能断言**（2026-10-14）。
+  //   表与探针是 MATT-83 交付的，而往表里写心跳的是 MATT-74 的
+  //   `src/instrumentation.ts`。两者之间那段窗口里，`created_at` 必然为 NULL ——
+  //   那是**「还没建」而不是「坏了」**，而探针在库里分辨不出这两者。
+  //   所以判据是「写入方在不在文件系统里」而不是「戳新不新」：
+  //   文件不在 ⇒ info（与 C15/C16 的表未建同款），文件在 ⇒ 转硬断言。
+  //   不这么做的话，`pnpm db:check` 从 0015 应用那一刻起永远红，
+  //   直到 MATT-74 落地 —— 一条永远红的门禁等于没有门禁。
+  const hbTable = (await sql`select to_regclass('public.mn_timer_heartbeat') as r`)[0]?.r;
+  const hbWriter = existsSync("src/instrumentation.ts");
+  if (hbTable === null || hbTable === undefined) {
+    record(
+      "info",
+      "C18",
+      "mn_timer_heartbeat 未建（迁移 0015 未应用）—— 定时器心跳这项跳过；" +
+        "跑 MN_DB_CONFIRM=<库名> pnpm db:migrate",
+    );
+  } else if (!hbWriter) {
+    record(
+      "info",
+      "C18",
+      "表已建、但写入方 `src/instrumentation.ts` 还不存在（MATT-74 未落地）—— " +
+        "此刻 created_at 恒为 NULL 是**预期**，不是「从未运行」。MATT-74 交付后" +
+        "这条自动转为硬断言（从未运行 / 已停摆两种红）",
+    );
+  } else {
+    // 泵每 5 分钟一次（MATT-74）；3 个周期 = 15 分钟（票面阈值）
+    const HB_CYCLE_S = 5 * 60;
+    const HB_MAX_AGE_S = 3 * HB_CYCLE_S;
+    const hbRows = await sql`
+      select id, created_at, pump_count,
+             extract(epoch from (now() - created_at))::int as age_s
+        from mn_timer_heartbeat
+       order by id`;
+    const [hbCk] = await sql`
+      select pg_get_constraintdef(c.oid) as def from pg_constraint c
+       where c.conrelid = 'mn_timer_heartbeat'::regclass
+         and c.conname = 'ck_mn_timer_heartbeat_id'`;
+    // 单行钉是"读到较新那行、掩盖停摆那条"的唯一屏障，所以连**定义**一起查：
+    // 「约束在」不等于「约束是 id = 1」（改名/换表达式都不会报错，只会静默失去钉力）。
+    const pinned = typeof hbCk?.def === "string" && /id\s*=\s*1/i.test(hbCk.def);
+    const shape =
+      `行数 ${hbRows.length} · 单行钉 ` +
+      (pinned ? "在且是 id = 1" : `**不在或不是 id = 1**（${hbCk?.def ?? "查不到该约束"}）`);
+    const row = hbRows[0];
+
+    if (!pinned || hbRows.length !== 1) {
+      // 三种破坏各自的处置不同，所以提示不能只有一句 —— 尤其"单行钉没了但此刻恰好只有一行"
+      // 那种：**它是绿的假象**，下一次心跳就能写进第二行。
+      const why =
+        hbRows.length === 0
+          ? "表在但没有任何行：seed 0007 没跑过、或那行被删了。此时探针答不出定时器的状态"
+          : hbRows.length > 1
+            ? "表里有多行 = 多心跳 = 探针读到较新那行，会掩盖真正停摆的那条"
+            : "单行钉被摘掉/改掉了，而此刻恰好只有一行是**巧合** —— 下一条心跳就能写进第二行";
+      record(
+        "fail",
+        "C18",
+        `心跳表**结构**坏了：${shape} ← ${why}。跑 MN_DB_CONFIRM=<库名> pnpm db:seed / 人审迁移 0015`,
+      );
+    } else if (row.created_at === null || row.created_at === undefined) {
+      record(
+        "fail",
+        "C18",
+        `定时器**从未运行**：行的 created_at IS NULL（${shape}）` +
+          " ⇒ 看 src/instrumentation.ts：它有没有被打包/加载、register() 里那个定时器有没有起来。" +
+          "（起 register() 外层 try/catch 会把「配置写错」降级成一行日志 + 定时器压根没起，" +
+          "与「没人该收」在库里同形。⚠ 这一态**不是**停摆，别去查日志与进程存活）",
+      );
+    } else if (row.age_s >= HB_MAX_AGE_S) {
+      record(
+        "fail",
+        "C18",
+        `定时器**已停摆**：上次成功 pump 距今 ${row.age_s}s（≈ ${Math.floor(row.age_s / HB_CYCLE_S)} 个周期，` +
+          `阈值 ${HB_MAX_AGE_S}s = 3 个周期；累计成功 ${row.pump_count} 次）` +
+          " ⇒ 它**起过、后来不动了**：看进程日志与进程存活（崩溃循环 / 被 kill / 事件循环被堵）。" +
+          "⚠ 这一态**不是**「没起来」，别去查 instrumentation.ts 的加载",
+      );
+    } else {
+      record(
+        "ok",
+        "C18",
+        `定时器心跳新鲜：上次成功 pump 距今 ${row.age_s}s（< ${HB_MAX_AGE_S}s = 3 个周期）· ` +
+          `累计成功 ${row.pump_count} 次 · ${shape}`,
+      );
+    }
   }
 
   // ---- 环境概况（不判定）----

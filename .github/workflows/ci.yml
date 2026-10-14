@@ -70,7 +70,7 @@ jobs:
           pnpm db:migrate
           pnpm db:seed
 
-      - name: db:check（17 项）
+      - name: db:check
         run: pnpm db:check
 
       - name: 起 dev server（后台）
