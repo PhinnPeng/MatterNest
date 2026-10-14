@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 
 /**
  * 报表两卡真 HTTP 冒烟（MATT-46 / F8-1 + F8-2）。
@@ -293,12 +299,13 @@ async function cleanup() {
    * 夹具整批留在库里（本轮真发生过一次：隧道抖了一下，三条案件 + 一条事项 + 三个账号全留下，
    * 而屏幕上只有一句"清场完成"）。现在每条都独立成败，失败的原样打出来。
    */
-  const failed = [];
   const run = async (q, tag) => {
     try {
       await sql.unsafe(q);
     } catch (e) {
-      failed.push(`${tag} —— ${String(e.message).split("\n")[0]}`);
+      // 记进清场账本 ⇒ finishSmoke 决定退出码。静默 collect 过去只留一句滚动日志，
+      // 而"夹具没删干净"的症状出现在**下一轮**别的脚本上。
+      noteCleanupFailure(`夹具行 ${tag}`, e);
     }
   };
 
@@ -327,10 +334,9 @@ async function cleanup() {
     try {
       await dropSmokeAccount(sql, acct.id);
     } catch (e) {
-      failed.push(`账号 ${acct.username} —— ${String(e.message).split("\n")[0]}`);
+      noteCleanupFailure(`临时账号 ${acct.username}（${acct.id}）`, e);
     }
   }
-  if (failed.length) console.log(`[clean] ${failed.length} 条清场失败：\n  ${failed.join("\n  ")}`);
 }
 
 /**
@@ -1026,10 +1032,10 @@ try {
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败 —— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
   await sql.end();
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

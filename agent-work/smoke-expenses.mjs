@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 
 /**
  * 费用（US-41）+ 整卷两档导出（US-42）的**真 HTTP 冒烟**（MATT-47 / T9）。
@@ -140,8 +146,8 @@ const partyRow = () => ({
  * 删临时账号（**不吞失败**）。
  *
  * 重试一次是因为这台库的隧道**分钟级会抖**：一次瞬断会让"业务行已清干净、
- * 账号却删不掉"留下一个孤儿账号（本轮实测撞到过一次）。重试仍失败就**计一条失败**
- * 并打印 —— 孤儿账号必须被人看见，静默吞掉正是上一轮留下 17 个的原因。
+ * 账号却删不掉"留下一个孤儿账号（本轮实测撞到过一次）。重试仍失败就**记一笔**——
+ * 孤儿账号必须影响退出码（由 finishSmoke 落成 2），静默吞掉正是上一轮留下 17 个的原因。
  */
 async function dropWithRetry(acct, label) {
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -150,8 +156,7 @@ async function dropWithRetry(acct, label) {
       return;
     } catch (e) {
       if (attempt === 2) {
-        console.log(`[clean] ${label} 删不掉（重试 1 次仍失败）—— ${e.message}`);
-        fail++;
+        noteCleanupFailure(`${label}（${acct.username} / ${acct.id}）`, e);
         return;
       }
       await new Promise((r) => setTimeout(r, 2000));
@@ -835,7 +840,7 @@ try {
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败（需手工查）—— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
   await dropWithRetry(smoke, "临时账号 L1");
   await dropWithRetry(smoke2, "临时账号 L2");
@@ -843,4 +848,4 @@ try {
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

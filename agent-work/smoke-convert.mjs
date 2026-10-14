@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 /**
  * 转案件 + 撤销关联 的真 HTTP 冒烟（切片一 T2）。
  *
@@ -486,11 +492,18 @@ ok(
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败（需手工查）—— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
-  await dropSmokeAccount(sql, smoke.id);
+  // ⚠ 这一句必须在 try 里：`dropSmokeAccount` 是**故意**抛错的（还有 NOT NULL 的
+  //   业务行指着账号），裸调时它一抛就中断整个 finally —— 后面的 `sql.end()` 都不跑，
+  //   而且失败只留在 unhandledRejection 里，退出码看不出"库脏了"。
+  try {
+    await dropSmokeAccount(sql, smoke.id);
+  } catch (e) {
+    noteCleanupFailure(`临时账号 ${smoke.username}（${smoke.id}）`, e);
+  }
   await sql.end();
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 /**
  * 归档完备性真 HTTP 冒烟（MATT-42 / F2-26 / G4 / IQ-16）。
  *
@@ -73,17 +79,29 @@ const matterIds = [];
 const riskIds = [];
 
 async function cleanup() {
+  // 顺序按外键：活动日志与从属明细先走，宿主最后（全是 RESTRICT，顺序错会直接报约束名）。
+  // ⚠ 每条都记进清场账本，**不许 `.catch(() => {})`**：删不掉的夹具行就是残留在共享库里的
+  //   业务行，而它的症状出现在**下一轮**（撞案件号 / 撞证件号 / db:check 红），归因却指不到
+  //   本脚本。记账之后 `finishSmoke` 才会把它变成退出码 2。
   for (const id of matterIds) {
-    await sql.unsafe(`delete from mn_activity_log where matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_matter_staff where matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_matter_node where matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_matter_party where matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_matter where id=${id}`).catch(() => {});
+    for (const q of [
+      `delete from mn_activity_log where matter_id=${id}`,
+      `delete from mn_matter_staff where matter_id=${id}`,
+      `delete from mn_matter_node where matter_id=${id}`,
+      `delete from mn_matter_party where matter_id=${id}`,
+      `delete from mn_matter where id=${id}`,
+    ]) {
+      await sql.unsafe(q).catch((e) => noteCleanupFailure(`夹具行 ${q}`, e));
+    }
   }
   for (const id of riskIds) {
-    await sql.unsafe(`delete from mn_activity_log where risk_matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter_staff where risk_matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter where id=${id}`).catch(() => {});
+    for (const q of [
+      `delete from mn_activity_log where risk_matter_id=${id}`,
+      `delete from mn_risk_matter_staff where risk_matter_id=${id}`,
+      `delete from mn_risk_matter where id=${id}`,
+    ]) {
+      await sql.unsafe(q).catch((e) => noteCleanupFailure(`夹具行 ${q}`, e));
+    }
   }
   await sql`delete from mn_activity_log where operator_id = ${boss.id}`;
   await sql`delete from mn_auth_session where user_id = ${boss.id}`;
@@ -91,7 +109,7 @@ async function cleanup() {
   try {
     await dropSmokeAccount(sql, boss.id);
   } catch (e) {
-    console.log(`[clean] 删不掉 ${boss.username} —— ${String(e.message).split("\n")[0]}`);
+    noteCleanupFailure(`临时账号 ${boss.username}（${boss.id}）`, e);
   }
 }
 
@@ -440,10 +458,10 @@ try {
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败 —— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
   await sql.end();
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

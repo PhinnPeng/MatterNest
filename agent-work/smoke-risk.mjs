@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccountsSafely, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccountsSafely,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 /**
  * 事项侧成链的真 HTTP 冒烟（T1）：详情 · 状态 · 处置记录 · 手动节点 · 归档 · 软删。
  *
@@ -444,13 +450,14 @@ try {
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败（需手工查）—— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
   // 两个账号用「不连坐」的批量清理：第一个删不掉不该让第二个也删不掉
-  // （单账号脚本没这个问题，所以只有这里需要改——见 _testacct.mjs 的 ⚠ 段）
+  // （单账号脚本没这个问题，所以只有这里需要改——见 _testacct.mjs 的 ⚠ 段）。
+  // 失败不再只打一句：dropSmokeAccountsSafely 会记账，finishSmoke 据此给退出码 2。
   await dropSmokeAccountsSafely(sql, [smoke.id, smoke2.id]);
   await sql.end();
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

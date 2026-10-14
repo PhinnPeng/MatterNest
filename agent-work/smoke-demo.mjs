@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 /**
  * Demo 冒烟：SSR 壳 + 真实 HTTP 读链路 + 三档范围对比。
  *
@@ -99,7 +105,12 @@ const acctPending = await (async () => {
 })();
 const dropAccts = async () => {
   const step = async (label, fn) => {
-    try { await fn(); } catch (e) { console.log(`  · 清场「${label}」未完成：${String(e.message).split("\n")[0]}`); }
+    try {
+      await fn();
+    } catch (e) {
+      // 不只打一句：记账之后由 finishSmoke 决定退出码（2 = 断言没红但库脏了）
+      noteCleanupFailure(label, e);
+    }
   };
   for (const a of [acctL1, acctL2, acctL3, acctPending]) {
     await step(`删临时账号 ${a.username}`, () => dropSmokeAccount(sql, a.id));
@@ -521,4 +532,4 @@ if (process.env.SMOKE_KEEP !== "1") {
 // 本轮实测：定义了 dropAccts 却忘了调用，跑一轮就漏四个。
 if (process.env.SMOKE_KEEP !== "1") await dropAccts();
 
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

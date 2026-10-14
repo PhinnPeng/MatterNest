@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 
 /**
  * **规则 9「结案后材料不全提醒」的真 HTTP 冒烟**（MATT-43 / T5b）。
@@ -96,7 +102,8 @@ try {
     `数据库连不上（${e?.message ?? e}）—— 隧道可能正在抖。\n` +
       `这不是断言失败：等一会儿重跑。`,
   );
-  process.exit(2);
+  // 3 = 环境不对；此时还没建任何夹具，所以不可能是「清场失败」（那个码是 2）
+  process.exit(3);
 }
 
 /** 上海业务日（`YYYY-MM-DD`）。所有日期夹具与断言都按它算，不用本机时区 */
@@ -623,10 +630,18 @@ const swept = await sql`
   returning id`;
 if (swept.length) console.log(`顺带清掉 ${swept.length} 条孤儿通知事件（宿主已不存在）`);
 
-for (const u of [outsider, follower, owner, admin]) await dropSmokeAccount(sql, u.id);
+// 逐个独立记：一个账号删不掉不该挡住其余账号。裸调 + 连坐是本轮清场污染的根因形态
+// （见 _testacct.mjs 的 ⚠ 段），而且失败只留在滚动日志里、退出码看不出来。
+for (const u of [outsider, follower, owner, admin]) {
+  try {
+    await dropSmokeAccount(sql, u.id);
+  } catch (e) {
+    noteCleanupFailure(`临时账号 ${u.username}（${u.id}）`, e);
+  }
+}
 console.log("清场完成");
 
 await sql.end();
 console.log(`\n${fail === 0 ? "✅ 全绿" : "❌ 有红"}：${pass} 通过 / ${fail} 失败`);
 if (fail > 0) console.log(`红的断言：\n  - ${failedNames.join("\n  - ")}`);
-process.exit(fail === 0 ? 0 : 1);
+finishSmoke(fail);

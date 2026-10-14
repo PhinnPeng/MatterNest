@@ -21,6 +21,93 @@ import { randomBytes, scryptSync } from "node:crypto";
 
 const SALT_PREFIX = "mn-demo-salt-";
 
+/**
+ * 清场失败记账（2026-10-14，retro 候选 ② 的后半段）。
+ *
+ * ## 为什么要有它
+ *
+ * 冒烟脚本过去只把清场失败 `console.log` 一句，**退出码仍然按断言数走**。
+ * 于是「跑过了」与「跑干净了」在退出码上完全同形 —— 而两者对共享 dev 库的后果
+ * 截然不同：脏库会把下一轮的 `db:check` C14 弄红（那句「持有者 N 人」完全指不到
+ * 是冒烟留下的），本轮实测一次全组冒烟留下 22 个残留账号、其中 4 个 `is_admin`。
+ *
+ * 更麻烦的是**清场失败不只发生在删账号那一处**：业务夹具行删不掉、规则行还原失败、
+ * `sql.end()` 断不开，凡是 `catch` 里只打一句的地方都算。所以记账点在**两处**：
+ *   · `dropSmokeAccount` 抛错前（覆盖全部 17 个脚本，不需要每个调用点记得写）
+ *   · 各脚本清场里其它 catch 分支改调 `noteCleanupFailure`
+ *
+ * ## 记账之后为什么还照旧抛出
+ *
+ * `dropSmokeAccount` 的抛出语义（"还有 NOT NULL 的业务行指着它"）是**刻意**的，
+ * 17 个脚本里有的靠它跳过后续清场语句。记一笔不改变控制流，只把"被人看见"这件事
+ * 从滚屏里捞出来接到退出码上。
+ */
+const cleanupFailures = [];
+
+function recordCleanupFailure(what, reason) {
+  const entry = { what: String(what), reason: String(reason) };
+  // ⚠ 按 **reason** 去重，不是按 what：同一个失败会被记两次 ——
+  //   `dropSmokeAccount` 抛错前记一笔（what = 账号 id），
+  //   调用方的 catch 里 `noteCleanupFailure`（what = 账号名 + id）又记一笔。
+  //   两笔的 what 不同、按 what 去重挡不住，汇报里同一件事会列两遍，
+  //   读者会以为是两次独立故障。
+  //   reason 里**带着账号 id**（`临时账号 123 删不掉：…`），所以按 reason 去重
+  //   不会误伤两个真的各自被拦的账号 —— 它们的 reason 文本不同。
+  if (cleanupFailures.some((f) => f.reason === entry.reason)) return;
+  cleanupFailures.push(entry);
+}
+
+/**
+ * 记一笔清场失败并当场打印一句。
+ *
+ * 用在**不是删账号**的清场分支上（业务夹具行、规则行还原、断连接…）。
+ * 删账号那条路径不需要调用方写这个 —— `dropSmokeAccount` 自己会记。
+ *
+ * @param {string} what 出处：哪个账号 / 哪批夹具
+ * @param {unknown} e 抛出的东西
+ */
+export function noteCleanupFailure(what, e) {
+  const reason = e?.message ?? String(e);
+  recordCleanupFailure(what, reason);
+  // 只打首行：`dropSmokeAccount` 的报错正文有三行解释，全打会在长脚本里糊屏，
+  // 而完整正文由 `finishSmoke` 在收尾时原样列出来。
+  console.log(`[clean] 清场失败 —— ${what}：${String(reason).split("\n")[0]}`);
+}
+
+/**
+ * 冒烟的**统一收尾**：先报残留，再定退出码。
+ *
+ * ## 退出码约定
+ *
+ *   0  断言全过**且**清场干净 —— 共享库回到跑之前的样子
+ *   1  断言有红（含脚本崩溃/超时）
+ *   2  断言全过，但**清场有失败** —— 库是脏的
+ *
+ * （还有 3 = 环境不对：库连不上、缺加密密钥之类。那几条路径发生在**建任何夹具之前**，
+ *   过去用的是 2；清场失败要占用 2，所以它们改成 3 —— 两个含义挤一个码就等于
+ *   把其中之一藏回笼统的失败里。）
+ *
+ * 为什么 2 要单独一个码而不是并进 1：两种红的**处置完全不同**。
+ * 1 是代码问题，去改代码；2 是环境被自己污染了，先清库再复跑。
+ * 并成一个码就等于把"库脏了"降格成一条要往上翻滚屏才看得见的备注 ——
+ * 那正是本条要消灭的现状。
+ *
+ * 同时断言红与清场红时取 **1**：断言红更要紧，而且那一次的结论本来就不能用。
+ *
+ * @param {number|boolean} assertFailed 断言失败计数（>0 视为红）
+ */
+export function finishSmoke(assertFailed) {
+  if (cleanupFailures.length) {
+    console.log(
+      `\n[clean] 清场失败 ${cleanupFailures.length} 项 —— 断言可能全绿，但**共享库是脏的**：\n` +
+        cleanupFailures.map((f) => `  · ${f.what} —— ${f.reason}`).join("\n") +
+        `\n  这些是冒烟脚本漏清的夹具。库是共享 dev 机，残留会让 db:check 的` +
+        `\n  「持有者 N 人」类断言变红，而报错指不到来源 —— 记得手工清。`,
+    );
+  }
+  process.exit(assertFailed ? 1 : cleanupFailures.length ? 2 : 0);
+}
+
 function hashLike(password, username) {
   return scryptSync(password, `${SALT_PREFIX}${username}`, 64).toString("hex");
 }
@@ -107,10 +194,24 @@ export async function createSmokeAccount(sql, { roles, isAdmin = false, suffix =
  *
  *    所以清理工具自己必须是**逐个独立、互不影响**的：抛错只影响它自己那一个账号。
  *    清理代码成为故障源，会把「某个夹具没清干净」放大成「整场冒烟污染共享库」。
+ *
+ * ## 它还会记账（2026-10-14）
+ *
+ * 抛出**之前**先 `recordCleanupFailure`，这样无论 17 个脚本里哪一个调用点、
+ * 用哪种写法（裸调 / try-catch / `.catch()`），失败都会流到 `finishSmoke` 的退出码上。
+ * 记账不改变这里的抛出语义 —— 抛错仍然是有意的（见上面那段"不该替它擦掉"）。
  */
 export async function dropSmokeAccount(sql, userId) {
   if (userId === undefined || userId === null) return;
+  try {
+    await dropSmokeAccountStrict(sql, userId);
+  } catch (e) {
+    recordCleanupFailure(`临时账号 ${userId}`, e?.message ?? String(e));
+    throw e;
+  }
+}
 
+async function dropSmokeAccountStrict(sql, userId) {
   // 1) 自己的审计痕迹 + **按用户派生的两张表**（迁移 0010 带来的）
   //
   // ⚠ 顺序：投递行先删。`mn_notification_event` 是**事件**（挂在宿主上，不挂人），
@@ -176,6 +277,10 @@ export async function dropSmokeAccount(sql, userId) {
  *   · 删不掉的**逐个报出来**，连同它的原因
  *   · 返回值让调用方能决定是否把这件事升级成失败
  *
+ * ⚠ 失败已由 `dropSmokeAccount` 记进账本，所以这里**不再单独打印**：
+ * 滚动输出会被人翻过去，而 `finishSmoke` 的收尾报告一定在最后一行、一定被编排器收进
+ * 详情块。重复打一遍只会让人以为出了两次事。
+ *
  * @param {unknown} sql
  * @param {Array<bigint|number|string>} userIds
  * @returns {Promise<{dropped: string[], failed: {id: string, reason: string}[]}>}
@@ -191,14 +296,6 @@ export async function dropSmokeAccountsSafely(sql, userIds) {
     } catch (e) {
       failed.push({ id: String(id), reason: e?.message ?? String(e) });
     }
-  }
-  if (failed.length) {
-    console.log(
-      `[clean] ⚠ ${failed.length} 个临时账号删不掉（其余已删净）：\n` +
-        failed.map((f) => `         · ${f.id} —— ${f.reason}`).join("\n") +
-        `\n         这些是冒烟脚本漏清的夹具。库是共享 dev 机，残留会让 db:check 的\n` +
-        `         「持有者 N 人」类断言变红，且报错指不到来源——记得手工清。`,
-    );
   }
   return { dropped, failed };
 }

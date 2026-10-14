@@ -28,7 +28,8 @@
  * 用法：`node --env-file=.env agent-work/smoke-numbering.mjs`
  */
 const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3777";
-const { createSmokeAccount, dropSmokeAccount, ROLE_CODES } = await import("./_testacct.mjs");
+const { createSmokeAccount, dropSmokeAccount, finishSmoke, noteCleanupFailure, ROLE_CODES } =
+  await import("./_testacct.mjs");
 const { default: postgres } = await import("postgres");
 
 let pass = 0;
@@ -150,12 +151,18 @@ try {
       `delete from mn_matter_party where matter_id=${id}`,
       `delete from mn_matter where id=${id}`,
     ]) {
-      await sql.unsafe(q).catch(() => {});
+      // 不许 `.catch(() => {})`：删不掉的夹具会让下一轮撞号/撞证件号假红，而症状出现在
+      // 别的脚本上。记进清场账本 ⇒ finishSmoke 会把它变成退出码 2。
+      await sql.unsafe(q).catch((e) => noteCleanupFailure(`夹具行 ${q}`, e));
     }
   }
-  await dropSmokeAccount(sql, acc.id).catch((e) => console.log("清场:", e.message));
+  try {
+    await dropSmokeAccount(sql, acc.id);
+  } catch (e) {
+    noteCleanupFailure(`临时账号 ${acc.username}（${acc.id}）`, e);
+  }
   await sql.end();
 }
 
 console.log(`\n${fail === 0 ? "PASS" : "FAIL"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail === 0 ? 0 : 1);
+finishSmoke(fail);

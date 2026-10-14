@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 /**
  * 关注组（MATT-56 / ADR-0003）的端点级冒烟——只走 HTTP，不碰库写。
  *
@@ -206,13 +212,18 @@ try {
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败（需手工查）—— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
-  await dropSmokeAccount(sql, smoke.id).catch((e) => console.log("drop smoke:", e.message));
-  await dropSmokeAccount(sql, smoke2.id).catch((e) => console.log("drop smoke2:", e.message));
-  await dropSmokeAccount(sql, smoke3.id).catch((e) => console.log("drop smoke3:", e.message));
+  // 逐个独立记：一个账号删不掉不该挡住其余账号（连坐会把整场冒烟变成污染源）
+  for (const a of [smoke, smoke2, smoke3]) {
+    try {
+      await dropSmokeAccount(sql, a.id);
+    } catch (e) {
+      noteCleanupFailure(`临时账号 ${a.username}（${a.id}）`, e);
+    }
+  }
   await sql.end();
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 /**
  * 账号与角色的真 HTTP 冒烟（MATT-10 / F6-1、F6-5、F6-9、F6-11）。
  *
@@ -92,7 +98,13 @@ async function cleanup() {
   //   表现为"清场失败"而不是断言失败，很容易被当成无关噪音）。
   await sql`update mn_app_user set is_system_owner = false where username like 'mn_smoke_%'`;
   await sql`update mn_app_user set is_system_owner = true where username = 'admin'`;
-  for (const u of [owner, mgr, plain]) await dropSmokeAccount(sql, u.id).catch((e) => console.log("drop:", e.message));
+  for (const u of [owner, mgr, plain]) {
+    try {
+      await dropSmokeAccount(sql, u.id);
+    } catch (e) {
+      noteCleanupFailure(`临时账号 ${u.username}（${u.id}）`, e);
+    }
+  }
 }
 
 try {
@@ -275,10 +287,10 @@ try {
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败 —— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
   await sql.end();
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

@@ -37,6 +37,20 @@
  * 是本工具存在的理由：一个"没跑却安静退 0"的脚本正是本轮要消灭的东西，
  * 让它靠沉默通过等于把工具自己变成下一个假覆盖。
  *
+ * ## 「清场失败」是**第三种**结果，不是失败的一种
+ *
+ * 17 个脚本的退出码约定见 `agent-work/_testacct.mjs` 的 `finishSmoke`：
+ * 0 断言全过且库干净 / 1 断言有红 / 2 断言全过但**库被自己弄脏了** / 3 环境不对。
+ *
+ * 2 必须单独一类，不能并进「失败」也不能当成「通过」：
+ *   · 当成「通过」= 本工具直接变成它要消灭的那个假覆盖（库里 22 个残留账号那一轮）；
+ *   · 并进「失败」= 把"环境被污染，先清库再复跑"和"代码红了，去改代码"混成一件事，
+ *     而这两件事的处置完全不同。
+ *
+ * ⚠ 判定 2 时**还要求输出里出现 `[clean] 清场失败` 标记**：脚本在预检阶段也可能退 2
+ *   （早期版本用它表示"环境不对"，现已改成 3，但那类路径仍可能存在），
+ *   只看退出码会把"没跑起来"误报成"跑过了但没跑干净"。
+ *
  * ## 超时之后**继续**跑剩下的，不中止全组
  *
  * 一个脚本挂死（典型形态：库的隧道中途断了，查询永不返回）已经足以让本轮判红，
@@ -52,7 +66,9 @@
  *   SMOKE_READY_TIMEOUT_MS=60000 pnpm smoke     # 探活总预算，默认 120000
  *   SMOKE_WAIT_FOR_SERVER=1 pnpm smoke           # 探不通不立刻退，而是等到预算耗尽
  *
- * 退出码：0 全部通过；1 有失败/超时/起不来/探活不通；2 用法错误。
+ * 退出码：0 全部通过；1 有失败/超时/未见汇总/起不来；
+ *        2 **没有硬失败、但有脚本没清干净**（断言全绿，共享库是脏的）；
+ *        64 用法错误（sysexits 的 EX_USAGE —— 2 已经留给「清场失败」，两码不能重叠）。
  */
 
 import { spawn } from "node:child_process";
@@ -131,7 +147,9 @@ function usage(msg) {
       "  SMOKE_WAIT_FOR_SERVER=1  探不通时等待而不是立刻退出",
     ].join("\n"),
   );
-  process.exit(2);
+  // 64 = EX_USAGE。**刻意不是 2**：2 已经专指「断言全过但共享库被弄脏」，
+  // 两个含义挤同一个码就等于把其中之一藏回笼统的失败里。
+  process.exit(64);
 }
 
 function parseArgs(argv) {
@@ -410,6 +428,13 @@ function runSmoke(file, { base, timeoutMs, envFile }) {
     const head = [];
     const tail = [];
     const fails = [];
+    /**
+     * 清场收尾报告整块。`fails` 只收得住**含「清场失败」字样**的行，而报告里
+     * 逐条列出的「`· 临时账号 xxx —— 原因`」不含那四个字 —— 只靠 fails 的话，
+     * 详情块会只剩一行标题，看不出到底是哪个账号没删掉。所以从标题行起整块收。
+     */
+    const cleanup = [];
+    let inCleanupReport = false;
     let remainder = "";
 
     const push = (line) => {
@@ -421,6 +446,8 @@ function runSmoke(file, { base, timeoutMs, envFile }) {
       if (/^\s*\[FAIL\]|❌|冒烟中断|脚本中断|清场失败|冒烟脚本自身出错/.test(s)) {
         if (fails.length < CAP_FAIL) fails.push(s);
       }
+      if (/清场失败 \d+ 项/.test(s)) inCleanupReport = true;
+      if (inCleanupReport && cleanup.length < CAP_FAIL) cleanup.push(s);
     };
 
     let child;
@@ -441,6 +468,7 @@ function runSmoke(file, { base, timeoutMs, envFile }) {
         head: [],
         tail: [],
         fails: [],
+        cleanup: [],
         spawnError: e?.message ?? String(e),
       });
       return;
@@ -484,6 +512,7 @@ function runSmoke(file, { base, timeoutMs, envFile }) {
         head,
         tail,
         fails,
+        cleanup,
         spawnError: e?.message ?? String(e),
       });
     });
@@ -500,7 +529,11 @@ function runSmoke(file, { base, timeoutMs, envFile }) {
       const summary = parseSummary(text);
 
       let status;
+      // 「清场失败」要**两个信号同时**成立：退出码 2，且输出里有 `[clean] 清场失败`。
+      // 只看退出码会把预检阶段退 2 的脚本（= 环境不对、什么都没跑）误报成"跑过了但没跑干净"。
+      const cleanupMarked = fails.some((l) => l.includes("清场失败"));
       if (timedOut) status = "timeout";
+      else if (code === 2 && summary && cleanupMarked) status = "clean-failed";
       else if (code !== 0)
         status = "fail"; // 退出码是硬事实：崩了/断言红了都走这里
       else if (!summary)
@@ -517,6 +550,7 @@ function runSmoke(file, { base, timeoutMs, envFile }) {
         head,
         tail,
         fails,
+        cleanup,
         spawnError: null,
       });
     });
@@ -531,6 +565,7 @@ const STATUS_TEXT = {
   timeout: "超时",
   "no-summary": "未见汇总",
   "launch-failed": "起不来",
+  "clean-failed": "清场失败",
 };
 
 function printFailureDetail(r) {
@@ -542,8 +577,21 @@ function printFailureDetail(r) {
   if (r.status === "timeout") why.push(`超过 ${timeoutLabel()} 未结束，已强杀`);
   if (r.status === "fail")
     why.push(`退出码 ${r.exitCode}${r.signal ? `（信号 ${r.signal}）` : ""}`);
+  if (r.status === "clean-failed")
+    why.push(
+      `退出码 ${r.exitCode}：断言全过，但清场有失败 —— **共享库是脏的**。` +
+        `下面列出的就是没删掉的账号/夹具，先手工清再复跑，否则下一轮会因为撞号假红。`,
+    );
   if (r.status === "no-summary") why.push("退出码 0，但输出里没有任何汇总行");
   if (why.length) console.log(why.join("；"));
+
+  // 清场失败：先把「哪些账号没删掉、为什么」整块打出来，再谈断言。
+  // 这一支的断言多半是全绿的，只打 [FAIL] 行会得到一句"没有 [FAIL] 行"，
+  // 读者会以为工具误判——实际上红在库上，不在断言上。
+  if (r.cleanup.length) {
+    console.log("  ── 清场收尾报告 ──");
+    for (const l of r.cleanup) console.log(`  ${l}`);
+  }
 
   if (r.fails.length) {
     const shown = r.fails.slice(0, SHOW_FAIL_LINES);
@@ -579,7 +627,14 @@ function printTable(results) {
   console.log(w.map((n) => "─".repeat(n)).join("  "));
   for (const r of rows) console.log(line(r));
 
-  const tally = { pass: 0, fail: 0, timeout: 0, "no-summary": 0, "launch-failed": 0 };
+  const tally = {
+    pass: 0,
+    fail: 0,
+    timeout: 0,
+    "no-summary": 0,
+    "launch-failed": 0,
+    "clean-failed": 0,
+  };
   let passAssertions = 0;
   let failAssertions = 0;
   for (const r of results) {
@@ -594,7 +649,8 @@ function printTable(results) {
   console.log("─".repeat(w.reduce((a, b) => a + b, 0) + 8));
   console.log(
     `合计 ${results.length} 个脚本 · 通过 ${tally.pass} · 失败 ${tally.fail} · ` +
-      `超时 ${tally.timeout} · 未见汇总 ${tally["no-summary"]} · 起不来 ${tally["launch-failed"]}`,
+      `超时 ${tally.timeout} · 未见汇总 ${tally["no-summary"]} · 起不来 ${tally["launch-failed"]}` +
+      ` · 清场失败 ${tally["clean-failed"]}`,
   );
   const asserts =
     failAssertions > 0
@@ -622,6 +678,21 @@ function printTable(results) {
       `⚠ 有 ${tally.timeout} 个脚本是被强杀的。它们很可能没跑到 finally 的清场，` +
         `库里会留下临时账号与业务行 —— 先清干净再跑下一轮，否则后面几轮会因为撞号/撞证件号假红。`,
     );
+  }
+
+  // 清场失败单列一段：它不是"代码红了"，而是"这一次运行污染了共享库"。
+  // 混进「失败」里，处置（清库 + 复跑）就会被当成改代码的理由。
+  if (tally["clean-failed"] > 0) {
+    console.log("");
+    console.log(
+      `⚠ 有 ${tally["clean-failed"]} 个脚本**断言全过但没清干净**（退出码 2）。` +
+        `这不是代码红了，是共享库被这一轮弄脏了：`,
+    );
+    for (const r of results.filter((x) => x.status === "clean-failed")) {
+      const items = r.cleanup.length ? r.cleanup.join(" / ") : "（报告未捕获，见上面的详情块）";
+      console.log(`  · ${r.file} —— ${items}`);
+    }
+    console.log("  先把这些账号与夹具行手工清掉再跑下一轮，否则 db:check 会报出指不到来源的红。");
   }
 }
 
@@ -689,5 +760,10 @@ for (const [i, file] of scripts.entries()) {
 
 printTable(results);
 
-// 退出码是这个工具的全部价值所在：任何一支没绿，进程就不能是 0
-process.exit(results.some((r) => r.status !== "pass") ? 1 : 0);
+// 退出码是这个工具的全部价值所在：任何一支没绿，进程就不能是 0。
+// 2 单独留给"断言全绿、但共享库被弄脏"——它必须能一路传到 `pnpm smoke` 的调用方，
+// 否则最外层又把它压回一个笼统的 1，"跑过了"与"跑干净了"在顶层又同形了。
+// 用法错误另给 64（EX_USAGE），否则它和 2 在外面看是同一件事。
+const hardBroken = results.some((r) => r.status !== "pass" && r.status !== "clean-failed");
+const cleanupBroken = results.some((r) => r.status === "clean-failed");
+process.exit(hardBroken ? 1 : cleanupBroken ? 2 : 0);

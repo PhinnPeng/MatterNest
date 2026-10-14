@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 
 /**
  * 通知回音（MATT-41 / T4）的**真 HTTP 冒烟**。
@@ -101,7 +107,8 @@ try {
     `数据库连不上（${e?.message ?? e}）—— 隧道可能正在抖。\n` +
       `这不是断言失败：等一会儿重跑 \`node --env-file=.env agent-work/_tables.mjs\` 探活成功再来。`,
   );
-  process.exit(2);
+  // 3 = 环境不对；此时还没建任何夹具，所以不可能是「清场失败」（那个码是 2）
+  process.exit(3);
 }
 
 const stamp = Date.now();
@@ -185,10 +192,10 @@ async function cleanup() {
     try {
       await dropSmokeAccount(sql, u.id);
     } catch (e) {
-      // 大声报错**并且让它影响退出码**：删不掉的账号就是下一轮 db:check C14 的红
-      fail++;
-      failedNames.push(`清场：账号 ${u.username} 删不掉`);
-      console.error(`清场：账号 ${u.username}（${u.id}）删不掉 —— ${e?.message ?? e}`);
+      // 大声报错**并且让它影响退出码**：删不掉的账号就是下一轮 db:check C14 的红。
+      // 记进清场账本 ⇒ 断言没红时 finishSmoke 给 2（"跑过了但没跑干净"），
+      // 而不是混进断言失败数里让人以为业务代码红了。
+      noteCleanupFailure(`临时账号 ${u.username}（${u.id}）`, e);
     }
   }
   console.log("清场完成");
@@ -206,7 +213,7 @@ for (const ev of ["unhandledRejection", "uncaughtException"]) {
     try {
       await cleanup();
     } catch (err) {
-      console.error(`清场也失败了 —— 库里会留下残留：${err?.message ?? err}`);
+      noteCleanupFailure("崩溃路径的清场", err);
     }
     await sql.end({ timeout: 5 }).catch(() => {});
     process.exit(1);
@@ -1058,4 +1065,4 @@ ok(
 await sql.end();
 console.log(`\n${fail === 0 ? "✅ 全绿" : "❌ 有红"}：${pass} 通过 / ${fail} 失败`);
 if (fail > 0) console.log(`红的断言：\n  - ${failedNames.join("\n  - ")}`);
-process.exit(fail === 0 ? 0 : 1);
+finishSmoke(fail > 0);

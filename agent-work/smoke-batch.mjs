@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 /**
  * 批量低风险动作的真 HTTP 冒烟（MATT-45：改状态 / 归档 / 加标签）。
  *
@@ -207,25 +213,34 @@ const accountIds = [l1.id, l2.id, l3.id];
 const tagIds = [t1, t2, t3, t4, riskTag, riskTag2];
 
 async function cleanup() {
-  // 顺序按外键：活动日志与从属明细先走，宿主最后（全是 RESTRICT，顺序错会直接报约束名）
+  // 顺序按外键：活动日志与从属明细先走，宿主最后（全是 RESTRICT，顺序错会直接报约束名）。
+  // ⚠ 每条都记进清场账本，**不许 `.catch(() => {})`**：删不掉的夹具行就是残留在共享库里的
+  //   业务行，而它的症状出现在**下一轮**（撞案件号 / 撞证件号 / db:check 红），归因却指不到
+  //   本脚本。记账之后 `finishSmoke` 才会把它变成退出码 2。
   for (const id of matterIds) {
-    await sql.unsafe(`delete from mn_activity_log where matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_matter_staff where matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_matter_node where matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_matter_party where matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_matter_progress where matter_id=${id}`).catch(() => {});
-    await sql
-      .unsafe(`delete from mn_comment where target_type='matter' and target_id=${id}`)
-      .catch(() => {});
-    await sql.unsafe(`delete from mn_matter where id=${id}`).catch(() => {});
+    for (const q of [
+      `delete from mn_activity_log where matter_id=${id}`,
+      `delete from mn_matter_staff where matter_id=${id}`,
+      `delete from mn_matter_node where matter_id=${id}`,
+      `delete from mn_matter_party where matter_id=${id}`,
+      `delete from mn_matter_progress where matter_id=${id}`,
+      `delete from mn_comment where target_type='matter' and target_id=${id}`,
+      `delete from mn_matter where id=${id}`,
+    ]) {
+      await sql.unsafe(q).catch((e) => noteCleanupFailure(`夹具行 ${q}`, e));
+    }
   }
   for (const id of riskIds) {
-    await sql.unsafe(`delete from mn_activity_log where risk_matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter_staff where risk_matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter_node where risk_matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter_party where risk_matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter_case where risk_matter_id=${id}`).catch(() => {});
-    await sql.unsafe(`delete from mn_risk_matter where id=${id}`).catch(() => {});
+    for (const q of [
+      `delete from mn_activity_log where risk_matter_id=${id}`,
+      `delete from mn_risk_matter_staff where risk_matter_id=${id}`,
+      `delete from mn_risk_matter_node where risk_matter_id=${id}`,
+      `delete from mn_risk_matter_party where risk_matter_id=${id}`,
+      `delete from mn_risk_matter_case where risk_matter_id=${id}`,
+      `delete from mn_risk_matter where id=${id}`,
+    ]) {
+      await sql.unsafe(q).catch((e) => noteCleanupFailure(`夹具行 ${q}`, e));
+    }
   }
   await sql`delete from mn_activity_log where operator_id = any(${sql.array(accountIds)}::bigint[])`;
   // `.map(BigInt)`：`sql.array` 的元素类型是从 JS 值推的，字符串会推成 text[]，
@@ -238,7 +253,7 @@ async function cleanup() {
       await dropSmokeAccount(sql, u.id);
     } catch (e) {
       // 不许吞：删不掉通常意味着脚本自己的清场漏了夹具（见 _testacct.mjs 的三类处置）
-      console.log(`[clean] 删不掉 ${u.username} —— ${String(e.message).split("\n")[0]}`);
+      noteCleanupFailure(`临时账号 ${u.username}（${u.id}）`, e);
     }
   }
 }
@@ -683,10 +698,10 @@ try {
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败 —— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
   await sql.end({ timeout: 5 }).catch(() => {});
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

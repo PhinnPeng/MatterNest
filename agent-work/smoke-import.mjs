@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 
 /**
  * 批量导入（MATT-44 / T6 / F7-4）的**真 HTTP 冒烟**。
@@ -95,7 +101,8 @@ try {
     `数据库连不上（${e?.message ?? e}）—— 隧道可能正在抖。\n` +
       `这不是断言失败：等一会儿重跑 \`node --env-file=.env agent-work/_tables.mjs\` 探活成功再来。`,
   );
-  process.exit(2);
+  // 3 = 环境不对；此时还没建任何夹具，所以不可能是「清场失败」（那个码是 2）
+  process.exit(3);
 }
 
 const stamp = Date.now();
@@ -177,7 +184,8 @@ async function cleanup() {
     try {
       await dropSmokeAccount(sql, u.id);
     } catch (e) {
-      console.error(`清场：账号 ${u.username} 删不掉（${e.message}）`);
+      // 记账而不是只打一句：否则这次「跑过了」在退出码上与「跑干净了」同形
+      noteCleanupFailure(`临时账号 ${u.username}（${u.id}）`, e);
     }
   }
 }
@@ -840,4 +848,4 @@ ok(
 console.log(`\n通过 ${pass} · 失败 ${fail}`);
 if (fail > 0) console.log(`失败项：\n  - ${failedNames.join("\n  - ")}`);
 await sql.end();
-process.exit(fail > 0 ? 1 : 0);
+finishSmoke(fail > 0);

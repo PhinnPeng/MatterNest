@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 
 /**
  * 对手方档案（MATT-40）的**真 HTTP 冒烟**：加密存储 / 盲索引查重 / 独立档案页 / 合并 / 防呆 / 导出两档。
@@ -61,14 +67,14 @@ if (!process.env.MN_AES_KEY || !process.env.MN_HMAC_KEY) {
     "缺 MN_AES_KEY / MN_HMAC_KEY：字段加密的密钥不许有默认值（见 src/app/lib/server/crypto/field-crypto.ts）。\n" +
       '生成：node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64url\'))"',
   );
-  process.exit(2);
+  process.exit(3); // 3 = 环境不对（2 已经专留给「清场失败」，见 _testacct.mjs）
 }
 if (ownNames.length === 0) {
   console.error(
     "缺 MN_OWN_COMPANY_NAMES：本企业名防呆（IQ-7）要知道本企业叫什么，猜不出来。\n" +
       "在 .env 里写：MN_OWN_COMPANY_NAMES=某某集团有限公司（多个别名用逗号分隔）",
   );
-  process.exit(2);
+  process.exit(3); // 同上：环境不对，不是清场失败
 }
 
 async function login(username, password) {
@@ -541,12 +547,17 @@ try {
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败（需手工查）—— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
-  await dropSmokeAccount(sql, smoke.id).catch((e) => console.log("drop smoke:", e.message));
-  await dropSmokeAccount(sql, smoke2.id).catch((e) => console.log("drop smoke2:", e.message));
+  for (const a of [smoke, smoke2]) {
+    try {
+      await dropSmokeAccount(sql, a.id);
+    } catch (e) {
+      noteCleanupFailure(`临时账号 ${a.username}（${a.id}）`, e);
+    }
+  }
   await sql.end();
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

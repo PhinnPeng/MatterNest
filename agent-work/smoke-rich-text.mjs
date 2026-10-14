@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 /**
  * 富文本描述（MATT-57 / ADR-0002）的真 HTTP 冒烟。
  *
@@ -168,11 +174,15 @@ try {
     await cleanup();
     console.log("[clean] 清场完成");
   } catch (e) {
-    console.log(`[clean] 清场失败 —— ${e?.message ?? e}`);
+    noteCleanupFailure("夹具清场", e);
   }
-  await dropSmokeAccount(sql, acct.id).catch((e) => console.log("drop:", e.message));
+  try {
+    await dropSmokeAccount(sql, acct.id);
+  } catch (e) {
+    noteCleanupFailure(`临时账号 ${acct.username}（${acct.id}）`, e);
+  }
   await sql.end();
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+finishSmoke(fail);

@@ -1,4 +1,10 @@
-import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
+import {
+  createSmokeAccount,
+  dropSmokeAccount,
+  finishSmoke,
+  noteCleanupFailure,
+  ROLE_CODES,
+} from "./_testacct.mjs";
 /**
  * 真实冒烟（一期改进批次，2026-10-03）。跑在**已启动的 dev server + 已迁移已 seed 的库**上：
  *
@@ -44,7 +50,12 @@ let createdMatterId = null;
 let staffFxId = `${Date.now()}999`;
 const dropAccts = async () => {
   const step = async (label, fn) => {
-    try { await fn(); } catch (e) { console.log(`  · 清场「${label}」未完成：${String(e.message).split("\n")[0]}`); }
+    try {
+      await fn();
+    } catch (e) {
+      // 记账：任一步没清干净都要反映到退出码上（本脚本过去只有一句滚动日志）
+      noteCleanupFailure(label, e);
+    }
   };
 
   /**
@@ -292,10 +303,11 @@ async function main() {
       (failed.length ? `，失败 ${failed.map((f) => f.id).join(" ")}` : ""),
   );
   await dropAccts();
-process.exit(failed.length ? 1 : 0);
+  finishSmoke(failed.length);
 }
 
 main().catch((e) => {
   console.error("冒烟脚本自身出错（多半是 dev server 没起或库还没迁移）：", e);
-  process.exit(2);
+  // 3 = 环境不对（见 _testacct.mjs 的退出码约定：2 已经专留给「清场失败」）
+  process.exit(3);
 });
