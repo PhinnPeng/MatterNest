@@ -220,14 +220,20 @@ try {
   // 把所有者标记先移回来，再测"受让人被停用"这条
   await sql`update mn_app_user set is_system_owner = false where id = ${plain.id}`;
   await sql`update mn_app_user set is_system_owner = true where id = ${owner.id}`;
-  await call("PATCH", `/api/users/${plain.id}`, mgrSession.cookie, { enabled: false });
+  // 这一发只为把 plain 停掉，好让下一发能验 target_disabled；
+  // 它有没有真停掉，由下面那条「受让人被停用 → 422」说了算（停不掉就是 200，那条会红）。
+  await call("PATCH", `/api/users/${plain.id}`, mgrSession.cookie, { enabled: false }); // discard: 停用是否生效由下一条 422 target_disabled 断言
   const toDisabled2 = await call("POST", `/api/users/${plain.id}/system-owner`, ownerSession.cookie);
   ok(
     "**受让人被停用 → 422 target_disabled**（不能把生命线交给登不进来的人）",
     toDisabled2.status === 422 && toDisabled2.body?.error === "target_disabled",
     `status=${toDisabled2.status} err=${toDisabled2.body?.error}`,
   );
-  await call("PATCH", `/api/users/${plain.id}`, mgrSession.cookie, { enabled: true });
+  // 重新启用 plain 走的是**同一发 PATCH 的反向**，但它没有下游断言兜着：往后
+  // 移交的目标是 mgr，没人再看 plain 的 enabled —— 静默失败就等于给库里留一个
+  // 停用账号（与本脚本开头「停用会吊销会话 ⇒ 后面全 401」的顾虑同源），所以自己钉。
+  const reEnable = await call("PATCH", `/api/users/${plain.id}`, mgrSession.cookie, { enabled: true });
+  ok("把 plain 重新启用 → 200（不留停用账号给后面的用例）", reEnable.status === 200, `status=${reEnable.status}`);
 
   // 正式移交：owner → mgr
   const handover = await call("POST", `/api/users/${mgr.id}/system-owner`, ownerSession.cookie);

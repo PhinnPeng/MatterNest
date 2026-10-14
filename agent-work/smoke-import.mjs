@@ -319,15 +319,18 @@ ok(
   "is_admin 逃生口：数据范围不是 L1 但 is_admin=true 可导（与护栏 1 同一口径）",
   (await call("GET", "/api/import/templates?hostType=party", escapeeC)).status === 200,
 );
+// 原来这段是把 `await call(...)` 直接塞进 `ok()` 的第一个参数里：结果**用**了
+// （`.status === 400`），但门禁只认"整行就是一个裸 await"与"接住"，于是它算违规。
+// 拆成先接住再断言，形状与本文件其余断言一致。
+const unknownKey = await call("POST", "/api/import", adminC, {
+  hostType: "party",
+  fileName: "x.csv",
+  content: "a,b",
+});
 ok(
   "请求体带未知键（把 csv 写成 content）→ 400，不静默丢弃",
-  (
-    await call("POST", "/api/import", adminC, {
-      hostType: "party",
-      fileName: "x.csv",
-      content: "a,b",
-    })
-  ).status === 400,
+  unknownKey.status === 400,
+  `status=${unknownKey.status}`,
 );
 
 /* ───────────────────────── ③ 当事人模板：建档 + 查重 ───────────────────────── */

@@ -408,7 +408,7 @@ ok("上报人的通知中心里也只有 1 条转案件通知", convItems.length
 /* ── ⑥b 至少一次语义下的去重（重放同一条 outbox 行） ────────────────────── */
 console.log(`\n══ ⑥b 至少一次：重放不产生第二条 ══`);
 await sql`update mn_event_outbox set published_at = null where payload->>'comment_id' = ${commentId}`;
-await call("GET", "/api/notifications", reporterC);
+await call("GET", "/api/notifications", reporterC); // discard: 仅为触发消费，重放是否被吸收由下一条 SQL 的事件数断言
 const [replayEvents] = await sql`
   select count(*)::int as n from mn_notification_event
   where event_type = 'new_comment' and host_id = ${riskId}`;
@@ -440,7 +440,14 @@ ok("重放的行重新打上投递时间戳", replayPub?.published_at !== null);
 
 /* ── ③ 通知中心：跨宿主倒序 / 占位 / 未读按可见行 / 标记已读 ────────────── */
 console.log(`\n══ ③ 通知中心 ══`);
-await call("POST", `/api/matters/${matterId}/status`, adminC, { to: "in_progress" });
+// ⚠ 这一发原本是裸的 `await call(...)`。它一失败（403/422），下面"跨宿主"那条只会报
+// `hostKinds=risk_matter` —— 看上去像"通知链路坏了"，真因却是这一步压根没推成。
+const mSt = await call("POST", `/api/matters/${matterId}/status`, adminC, { to: "in_progress" });
+ok(
+  "案件推一把（给通知中心添一条 matter 侧事件）→ 200",
+  mSt.status === 200,
+  `status=${mSt.status} ${JSON.stringify(mSt.body)?.slice(0, 80)}`,
+);
 const adminList = await call("GET", "/api/notifications", adminC);
 const adminItems = adminList.body?.items ?? [];
 ok("跨宿主混在一条时间轴上（同时有 matter 与 risk_matter）", new Set(adminItems.map((i) => i.hostKind)).size >= 2, `hostKinds=${[...new Set(adminItems.map((i) => i.hostKind))].join(",")}`);
@@ -475,9 +482,17 @@ ok("夹具：为关注人档位单独建一条事项 201", fRiskRes.status === 2
 const fRiskId = fRiskRes.body?.id;
 if (fRiskId) riskIds.push(fRiskId);
 
-await call("POST", `/api/risk-matters/${fRiskId}/staff/followers`, adminC, {
+// ⚠ 与上面那段 `addF` 是同一条路径、第二个夹具，却**没跟着写状态码断言**。
+// 这一发静默失败时，下面 `fSt` 照样 200、关注人一条通知也收不到，
+// 于是塌成 `items=0` —— 与本轮那次 422 是同一副面孔，只是这次连触发它的人都看不见。
+const addF2 = await call("POST", `/api/risk-matters/${fRiskId}/staff/followers`, adminC, {
   userIds: [String(follower.id)],
 });
+ok(
+  "关注人档位的夹具：把 follower 加进关注人 200",
+  addF2.status === 200,
+  `status=${addF2.status} ${JSON.stringify(addF2.body)?.slice(0, 80)}`,
+);
 const fSt = await call("POST", `/api/risk-matters/${fRiskId}/status`, adminC, { to: "in_progress" });
 ok(
   "关注人档位：推状态 200（这条事项**未转案件**，不该被冻结拦）",
@@ -586,7 +601,7 @@ ok(
 );
 
 // 幂等：同一天重扫不该出第二条（scheduled key = 事件:节点:业务日）
-await call("GET", "/api/notifications", adminC);
+await call("GET", "/api/notifications", adminC); // discard: 仅为触发幂等重扫，是否出第二条由下一条 count(*) 断言
 const [dueEvents2] = await sql`
   select count(*)::int as n from mn_notification_event
   where event_type in ('node_due_start','node_due_end') and target_id in ${sql([idOf("filing"), idOf("evidence"), idOf("hearing"), completedNodeId])}`;
@@ -650,7 +665,7 @@ ok("归档后仍可新增评论（基线 1.7）", cmArch.status === 201, `status
 const [archOb] = await sql`
   select count(*)::int as n from mn_event_outbox where payload->>'comment_id' = ${cmArch.body?.id}`;
 ok("**归档记录不写 outbox**（评论照写、通知不发）", archOb.n === 0, `outbox 行=${archOb.n}`);
-await call("GET", "/api/notifications", adminC);
+await call("GET", "/api/notifications", adminC); // discard: 仅为消费归档后评论的 outbox 行，事件数不变由下一条 SQL 断言
 const [afterArchComment] = await sql`
   select count(*)::int as n from mn_notification_event where host_id = ${matterId}`;
 ok("归档后评论不产生新通知", afterArchComment.n === beforeArchive.n, `n=${afterArchComment.n}`);
@@ -809,7 +824,7 @@ ok(
   (cmBRow?.mention_ids ?? []).map(String).join(",") === `${reporter.id},${outsider.id}`,
   `mention_ids=${JSON.stringify((cmBRow?.mention_ids ?? []).map(String))}`,
 );
-await call("GET", "/api/notifications", adminC);
+await call("GET", "/api/notifications", adminC); // discard: 仅为触发 ⑧-2 的消费，同批合成 1 条由下面的事件条数断言
 const evB = await mentionEventsOf();
 ok(
   "**同一批（同一条评论）的多个 @ 合成 1 条事件**，不是一人一条",
@@ -875,12 +890,12 @@ ok(
   Array.isArray(obC?.payload?.mention_ids) && obC.payload.mention_ids.length === 0,
   `mention_ids=${JSON.stringify(obC?.payload?.mention_ids)}`,
 );
-await call("GET", "/api/notifications", adminC);
+await call("GET", "/api/notifications", adminC); // discard: 仅为触发 ⑧-3 的消费，"普通评论不产生 mention" 由下一条断言
 ok("普通评论**不产生** mention 事件", (await mentionEventsOf()).length === 2);
 
 /* ⑧-4 至少一次语义：重放同一条 outbox 行不产生第二条 mention */
 await sql`update mn_event_outbox set published_at = null where payload->>'comment_id' = ${cmBId ?? null}`;
-await call("GET", "/api/notifications", adminC);
+await call("GET", "/api/notifications", adminC); // discard: 仅为触发 ⑧-4 的重放消费，条数不变由下一条断言
 const evReplay = await mentionEventsOf();
 ok("**重放后 mention 事件数不变**（dedupe_key 唯一键吸收）", evReplay.length === 2, `n=${evReplay.length}`);
 /**
@@ -958,7 +973,7 @@ const cmD = await call("POST", `/api/risk-matters/${riskId}/comments`, adminC, {
 });
 ok("⑧-5 发一条 @ 了关注人的评论 201", cmD.status === 201, `status=${cmD.status}`);
 const cmDId = cmD.body?.id;
-await call("GET", "/api/notifications", adminC);
+await call("GET", "/api/notifications", adminC); // discard: 仅为触发 ⑧-5 的消费，合并规则 1 由下面的投递行数断言
 
 const batchD = await batchRowsOf(cmDId);
 const followerBatch = batchD.filter((r) => String(r.user_id) === String(follower.id));
@@ -988,7 +1003,7 @@ const cmE = await call("POST", `/api/risk-matters/${riskId}/comments`, adminC, {
 });
 ok("⑧-5b 发一条 @ 了创建人的评论 201", cmE.status === 201, `status=${cmE.status}`);
 const cmEId = cmE.body?.id;
-await call("GET", "/api/notifications", adminC);
+await call("GET", "/api/notifications", adminC); // discard: 仅为触发 ⑧-5b 的消费，合并规则 1 的镜像由下面的投递行数断言
 
 const batchE = await batchRowsOf(cmEId);
 const reporterBatchE = batchE.filter((r) => String(r.user_id) === String(reporter.id));

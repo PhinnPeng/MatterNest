@@ -288,9 +288,14 @@ try {
 
   // ---- 9. 归档事项不能再转案件 ----
   const arch2 = await call("POST", `/api/risk-matters/${riskId}/status`, cookie, { to: "archived", reason: "再归档" });
+  ok("重新归档 → 200（下面那条 422 断言的前提是**它真的归档了**）", arch2.status === 200, `status=${arch2.status}`);
   const conv = await call("POST", `/api/risk-matters/${riskId}/convert`, cookie, { cases: [{ name: `不该建成 ${stamp}`, cause: "合同纠纷", caseType: "civil_commercial", procedure: "first_instance", litigationRole: "defendant", level: "mid" }] });
   ok("归档事项转案件 → 422 archived", conv.status === 422 && conv.body?.error === "archived", `status=${conv.status} err=${conv.body?.error}`);
-  await call("POST", `/api/risk-matters/${riskId}/status`, cookie, { to: "in_progress", reason: "撤归档" });
+  // ⚠ 原来是裸的 `await call(...)`。这一步是 §12 那条列表断言的前置（默认列表不含归档行）：
+  // 它一失败，`allIds.includes(riskId)` 为假，报出来的是「两种结果集确实不同」——
+  // 而 §12 要钉的是 `ownerEmpty` 筛选，跟归档一点关系都没有。
+  const reOpen = await call("POST", `/api/risk-matters/${riskId}/status`, cookie, { to: "in_progress", reason: "撤归档" });
+  ok("撤归档回在办 → 200（§12 的默认列表要能看见它）", reOpen.status === 200, `status=${reOpen.status}`);
 
   // ---- 9b. 冻结：事项一旦转过案件，业务内容不可再改（2026-10-14 裁定）----
   //

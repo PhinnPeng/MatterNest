@@ -521,12 +521,17 @@ try {
   );
 
   const listForL1 = await call("GET", `/api/parties?keyword=${encodeURIComponent(A.name)}`, cookie);
+  // 原来这里是 `(await call(...)).body?.items?.some(...)` 直接当 `ok()` 的参数：
+  // 结果**用**了，但门禁认不出"用在哪"，于是算违规。先接住，与上面 listForL1 同形。
+  const listByIdNo = await call(
+    "GET",
+    `/api/parties?keyword=${encodeURIComponent(A.idNumber)}`,
+    cookie,
+  );
   ok(
     "L1 用**完整证件号**也能搜到（盲索引的正当用法）",
-    (
-      await call("GET", `/api/parties?keyword=${encodeURIComponent(A.idNumber)}`, cookie)
-    ).body?.items?.some((x) => x.id === String(rowA.id)) === true,
-    `byName=${listForL1.body?.items?.length}`,
+    (listByIdNo.body?.items ?? []).some((x) => x.id === String(rowA.id)) === true,
+    `byName=${listForL1.body?.items?.length} byIdNo=${listByIdNo.body?.items?.length}`,
   );
 } catch (e) {
   fail++;

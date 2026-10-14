@@ -664,17 +664,25 @@ try {
       archDel.status === 403,
     `read=${archRead.status} post=${archWrite.status} patch=${archPatch.status} del=${archDel.status}`,
   );
-  // 还原也走接口：先解归档（需 `can_unarchive`），再回初始态
-  await call("POST", `/api/matters/${matterId}/unarchive`, cookie, { reason: "冒烟：还原" });
-  await call("POST", `/api/matters/${matterId}/status`, cookie, {
+  // 还原也走接口。⚠ **没有 `/unarchive` 这条路由**：撤销归档与归档共用
+  // `POST /api/matters/{id}/status` —— 特权在路由层判 `can_unarchive`，
+  // 写入在服务层（`isArchived: archiving`，`matters.ts`）。
+  // 原来这里先打了一发 `POST …/unarchive`：那个路径不存在、恒 404，而返回值被丢弃，
+  // 于是"每次跑都白打一发必然失败的请求"这件事没有任何人会知道。
+  const restore = await call("POST", `/api/matters/${matterId}/status`, cookie, {
     to: initialStatus.code,
-    reason: "冒烟：还原到初始态",
+    reason: "冒烟：撤归档并还原到初始态",
   });
+  ok(
+    "撤归档并回到初始态 → 200（这条路由就是撤销归档的唯一出口）",
+    restore.status === 200,
+    `status=${restore.status} to=${initialStatus.code} ${JSON.stringify(restore.body)?.slice(0, 60)}`,
+  );
   const [afterRestore] = await sql`select is_archived, status from mn_matter where id = ${matterId}`;
   ok(
-    "还原后回到在办（`is_archived` 假）",
-    afterRestore.is_archived === false,
-    `is_archived=${afterRestore.is_archived} status=${afterRestore.status}`,
+    "还原后归档位与状态**都**回到初始态（原来只查了 `is_archived`，`status` 没查）",
+    afterRestore.is_archived === false && afterRestore.status === initialStatus.code,
+    `is_archived=${afterRestore.is_archived} status=${afterRestore.status}（期望 ${initialStatus.code}）`,
   );
 
   /* ── ⑮ 事项侧同构：建、列、读、导全走一遍 ── */

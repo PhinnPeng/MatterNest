@@ -218,15 +218,25 @@ try {
   const detailB = await call("GET", `/api/matters/${b.body.id}`, s.cookie);
   const nodes = detailB.body?.nodes ?? [];
   ok("齐备案件有预设节点可做", nodes.length > 0, `节点=${nodes.length}`);
+  /** 每个节点那条 POST 的 `id:status`，循环外合成一条断言 —— 挂了要能一眼看出是哪个节点 */
+  const nodeDone = [];
   for (const n of nodes) {
     // ⚠ 契约：**POST** `/api/matters/{id}/nodes/{nodeId}`（nodeId 在**路径**里），
     //   不是 `PATCH …/nodes?nodeId=` —— 事项侧才是查询串形状，两侧不同形。
     //   本轮靠读路由源码才发现（库断着，跑不出来）：写错会 404，于是节点全留在
     //   未决状态，"齐备案件"那一节会以一条看不懂的信息全红。
-    await call("POST", `/api/matters/${b.body.id}/nodes/${n.id}`, s.cookie, {
+    //   原来这里是裸的 `await call(...)`：404 被丢掉，只剩下面 `openNodes` 那条
+    //   断言报"第②③项不是绿"——指向的是判齐备逻辑，不是"这个动词写错了"。
+    const doneN = await call("POST", `/api/matters/${b.body.id}/nodes/${n.id}`, s.cookie, {
       status: "completed",
     });
+    nodeDone.push(`${n.id}:${doneN.status}`);
   }
+  ok(
+    "**每个节点都置成 completed → 200**（动词错/路径错就是 404，不看状态码只会看到「没判齐备」）",
+    nodeDone.every((x) => x.endsWith(":200")),
+    nodeDone.join(" "),
+  );
   const detailB2 = await call("GET", `/api/matters/${b.body.id}`, s.cookie);
   const rB = detailB2.body?.archiveReadiness;
   ok(
@@ -279,10 +289,14 @@ try {
   const c = await mkMatter(`归档冒烟 C 只缺未决节点 ${stamp}`);
   matterIds.push(c.body?.id);
   // C：先结案（拿到 closing_date），节点保持未决
-  await call("POST", `/api/matters/${c.body.id}/status`, s.cookie, {
+  // ⚠ 原来是裸的 `await call(...)`。这一发被拒（archived 是终态、缺 can_unarchive…）
+  //   时，下面只会报 `missing=["closingDate","openNodes"]` —— 读起来像判齐备的逻辑坏了，
+  //   而真因是"结案这一步压根没成"。B 案的同一发是有状态码断言的（见上面 closeB）。
+  const closeC = await call("POST", `/api/matters/${c.body.id}/status`, s.cookie, {
     to: closed.code,
     reason: "冒烟 C：先结案",
   });
+  ok("C 案结案 → 200（`closing_date` 得先落下来）", closeC.status === 200, `status=${closeC.status}`);
   const detailC = await call("GET", `/api/matters/${c.body.id}`, s.cookie);
   const rC = detailC.body?.archiveReadiness;
   ok(
@@ -295,11 +309,20 @@ try {
   matterIds.push(d.body?.id);
   // D：把节点全做完，但**不结案**（closing_date 保持 NULL）
   const detailD0 = await call("GET", `/api/matters/${d.body.id}`, s.cookie);
+  const nodeDoneD = [];
   for (const n of detailD0.body?.nodes ?? []) {
-    await call("POST", `/api/matters/${d.body.id}/nodes/${n.id}`, s.cookie, {
+    const doneN = await call("POST", `/api/matters/${d.body.id}/nodes/${n.id}`, s.cookie, {
       status: "completed",
     });
+    nodeDoneD.push(`${n.id}:${doneN.status}`);
   }
+  // 与 B 案同一条路、同一道门，所以也钉状态码：失败时下面那条只会说
+  // `missing=["closingDate","openNodes"]`，看不出是"动词写错 404"还是"判齐备逻辑漂了"。
+  ok(
+    "D 案每个节点都置成 completed → 200",
+    nodeDoneD.every((x) => x.endsWith(":200")),
+    nodeDoneD.join(" ") || "（D 案没有预设节点）",
+  );
   const detailD = await call("GET", `/api/matters/${d.body.id}`, s.cookie);
   const rD = detailD.body?.archiveReadiness;
   ok(
@@ -312,10 +335,13 @@ try {
     ["C", c, archived.code],
     ["D", d, archived.code],
   ]) {
-    await call("POST", `/api/matters/${m.body.id}/status`, s.cookie, {
+    // ⚠ 原来是裸的 `await call(...)`：归档没成功时，下面那条只会报"列表里找不到它"，
+    //   读起来像筛选子句漂了（而那正是本节要钉的东西），真因却是这一步没归档成。
+    const archCD = await call("POST", `/api/matters/${m.body.id}/status`, s.cookie, {
       to: code,
       reason: `冒烟 ${label}：归档`,
     });
+    ok(`${label} 案归档 → 200`, archCD.status === 200, `status=${archCD.status}`);
     const list = await call(
       "GET",
       "/api/matters?page=1&pageSize=100&archivedOnly=1&missingMaterials=1",
