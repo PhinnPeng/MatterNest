@@ -252,7 +252,7 @@ CREATE UNIQUE INDEX ux_status_code     ON status_config (host_type, code);
 | matter | archived | 已归档 | archived | ✅ | |
 | risk_matter | pending | 已登记 | open | ✅ | is_initial；显示名随企业口径重命名（原"待受理"，IQ-5/6） |
 | risk_matter | in_progress | 进行中 | in_progress | ✅ | |
-| risk_matter | closed | 了结 | closed | ✅ | 显示名随企业口径重命名（原"已结案"，去流程暗示，IQ-5/6）；code 不变——code 不可改是既有契约 |
+| risk_matter | closed | **已处理** | closed | ✅ | 显示名随企业口径重命名（原"已结案" →「了结」→ **「已处理」**，去流程暗示，IQ-5/6 + **2026-10-14 裁定**）；code 不变——code 不可改是既有契约。⚠ seed 的改名守卫要同时收「已结案」与「了结」两个旧值，见 `0000_mn_status_config.sql` 与枚举表 E09 |
 | risk_matter | archived | 已归档 | archived | ✅ | |
 
 **A2 的根因与解法（本轮已定）**：规则 7 引用了不存在的「已转案件」。曾考虑把它补成事项第 5 态，但**状态位是互斥的**——"已转案件"与"已结案"是两个正交事实（转案件后事项可能仍在进行中，也可能结案后才补记转过案件），挤在同一条 status 链上会让「转案件 → 已结案」这类正常流转被状态推荐路径挡掉。故改为事项表上一个独立小整型（§3.4），状态集保持与案件**同构 4 态**，规则 7 改由领域事件触发。

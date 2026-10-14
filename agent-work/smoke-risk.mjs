@@ -106,7 +106,22 @@ try {
   const d = detail.body ?? {};
   ok("详情含全部块", ["nodes", "staff", "parties", "comments", "activity", "statuses", "convertedCases"].every((k) => Array.isArray(d[k])), Object.keys(d).join(","));
   ok("**新建事项节点数为 0**（IQ-5 无预设节点）", d.nodes?.length === 0, `nodes=${d.nodes?.length}`);
-  ok("状态取事项侧那一套（了结而非已结案）", (d.statuses ?? []).some((s) => s.code === "closed" && s.name === "了结"), (d.statuses ?? []).map((s) => s.code + "=" + s.name).join(" "));
+  ok(
+    "状态取事项侧那一套（**已处理**而非已结案；2026-10-14 裁定取代旧叫法)",
+    (d.statuses ?? []).some((s) => s.code === "closed" && s.name === "已处理"),
+    (d.statuses ?? []).map((s) => s.code + "=" + s.name).join(" "),
+  );
+  // 分叉是**数据侧**的事实，不只是接口的映射：查库把两侧那一行并排钉住。
+  // 只查接口的话，将来有人改坏了 seed 而接口那层另有兜底，这条会跟着一起绿。
+  const [closedNames] = await sql`
+    select host_type, name from mn_status_config where code = 'closed' order by host_type`;
+  ok(
+    "**两侧 closed 显示名分叉**：案件=已结案 / 事项=已处理（查库核对）",
+    closedNames.length === 2 &&
+      closedNames.find((r) => r.host_type === "matter")?.name === "已结案" &&
+      closedNames.find((r) => r.host_type === "risk_matter")?.name === "已处理",
+    JSON.stringify(closedNames),
+  );
   ok("**经办人为空**（owner 可空）", d.ownerId === null, `ownerId=${d.ownerId}`);
   ok("已转案件反查为空", d.convertedCases?.length === 0, `n=${d.convertedCases?.length}`);
 
@@ -267,6 +282,101 @@ try {
   const conv = await call("POST", `/api/risk-matters/${riskId}/convert`, cookie, { cases: [{ name: `不该建成 ${stamp}`, cause: "合同纠纷", caseType: "civil_commercial", procedure: "first_instance", litigationRole: "defendant", level: "mid" }] });
   ok("归档事项转案件 → 422 archived", conv.status === 422 && conv.body?.error === "archived", `status=${conv.status} err=${conv.body?.error}`);
   await call("POST", `/api/risk-matters/${riskId}/status`, cookie, { to: "in_progress", reason: "撤归档" });
+
+  // ---- 9b. 冻结：事项一旦转过案件，业务内容不可再改（2026-10-14 裁定）----
+  //
+  // 独立建一条**没被归档过**的事项，因为冻结与归档是两条不同的只读路径，混在一起测不出来。
+  // 三条断言各钉一个入口：状态流转、字段编辑、撤销转案件。
+  const frozen = await call("POST", "/api/risk-matters", cookie, {
+    name: `T1 冻结用例 ${stamp}`,
+    type: "contract",
+    level: "high",
+    description: "冒烟：转过案件之后应当冻结",
+    // 转案件要求至少一个当事人（§6.2），所以这里一并带上
+    parties: [{ name: `冻结对手方 ${stamp}`, type: "legal_person", partyRole: "defendant" }],
+  });
+  createdRiskIds.add(frozen.body?.id);
+  const frozenId = frozen.body?.id;
+  const fConv = await call("POST", `/api/risk-matters/${frozenId}/convert`, cookie, {
+    cases: [
+      {
+        name: `冻结用例案 ${stamp}`,
+        cause: "合同纠纷",
+        caseType: "civil_commercial",
+        procedure: "first_instance",
+        litigationRole: "defendant",
+        level: "mid",
+      },
+    ],
+  });
+  ok("冻结用例：转案件 → 201（转案件本身不受冻结影响）", fConv.status === 201, `status=${fConv.status}`);
+  createdMatterIds.add(String(fConv.body?.cases?.[0]?.id));
+
+  const fStatus = await call("POST", `/api/risk-matters/${frozenId}/status`, cookie, {
+    to: "in_progress",
+    reason: "冒烟：转过之后还想推状态",
+  });
+  ok(
+    "**已转案件的事项推状态 → 422 frozen**（不是 unchanged / reason_required）",
+    fStatus.status === 422 && fStatus.body?.error === "frozen",
+    `status=${fStatus.status} err=${fStatus.body?.error}`,
+  );
+
+  const fPatch = await call("PATCH", `/api/risk-matters/${frozenId}`, cookie, {
+    name: `T1 冻结用例改名 ${stamp}`,
+  });
+  ok(
+    "**已转案件的事项改字段 → 422 frozen**（含变更处理人这条路径）",
+    fPatch.status === 422 && fPatch.body?.error === "frozen",
+    `status=${fPatch.status} err=${fPatch.body?.error}`,
+  );
+
+  const fUnconv = await call("POST", `/api/risk-matters/${frozenId}/unconvert`, cookie, {
+    caseId: String(fConv.body?.cases?.[0]?.id),
+    reason: "冒烟：转错了",
+  });
+  ok(
+    "**已转案件的事项撤销转案件 → 422 frozen**",
+    fUnconv.status === 422 && fUnconv.body?.error === "frozen",
+    `status=${fUnconv.status} err=${fUnconv.body?.error}`,
+  );
+
+  // 三次被拒之后库必须原样：status 未动、关联仍在、字段没被改。
+  // 「拒了 = 什么都没发生」这条要是没验，被拒后仍写库的情况就会一路绿灯。
+  const [fRow] = await sql`
+    select status, name, conversion_status, converted_case_count::int as n
+    from mn_risk_matter where id = ${frozenId}`;
+  const [fLink] = await sql`
+    select count(*)::int as n from mn_risk_matter_case where risk_matter_id = ${frozenId}`;
+  ok(
+    "**三次被拒之后库原样**：status 未动、名称未改、关联仍在、计数不减",
+    fRow.status === "pending" &&
+      fRow.name === `T1 冻结用例 ${stamp}` &&
+      fRow.conversion_status === 1 &&
+      fRow.n === 1 &&
+      fLink.n === 1,
+    JSON.stringify(fRow) + ` links=${fLink.n}`,
+  );
+
+  // 附一条：二次转案件**仍然允许**（映射矩阵 §1「可以二次转案件」）。
+  // 若冻结门被误加到 convertToCase 上，这条会红——而那种红是必要的：
+  // 一条已转过的事项就再也追加不了案件了，与裁定相反。
+  const fConv2 = await call("POST", `/api/risk-matters/${frozenId}/convert`, cookie, {
+    cases: [
+      {
+        name: `冻结用例案二 ${stamp}`,
+        cause: "合同纠纷",
+        caseType: "civil_commercial",
+        procedure: "first_instance",
+        litigationRole: "defendant",
+        level: "mid",
+      },
+    ],
+  });
+  ok("**已转案件的事项仍可二次转**（冻结不拦转案件）", fConv2.status === 201, `status=${fConv2.status}`);
+  createdMatterIds.add(String(fConv2.body?.cases?.[0]?.id));
+  const [fCount] = await sql`select converted_case_count::int as n from mn_risk_matter where id = ${frozenId}`;
+  ok("二次转后计数到 2（converted_case_count 仍按 COUNT(*) 口径）", fCount.n === 2, `count=${fCount.n}`);
 
   // ---- 10. 软删：没有回收站界面 ----
   const del = await call("DELETE", `/api/risk-matters/${other.body?.id}`, cookie);

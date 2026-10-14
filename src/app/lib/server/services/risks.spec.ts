@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { MAX_CASES_PER_CONVERT } from "./risks";
+import { isRiskFrozen, MAX_CASES_PER_CONVERT } from "./risks";
+import { BATCH_SKIP_REASON_LABELS } from "@/shared/schema/batch";
 import {
   convertSchema,
   riskCreateSchema,
@@ -220,5 +222,138 @@ describe("unconvertSchema：撤销转案件", () => {
       name: "偷偷改个案件名",
     });
     expect(r.success).toBe(false);
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 冻结（2026-10-14 裁定）：事项一旦转过至少一个案件，它的业务内容就不可再改。
+ *
+ * 下面这一组盯三件事，顺序是「语义 → 覆盖面 → 只写一处」：
+ *   1. 判据本身对不对（纯函数，可离线判）；
+ *   2. 三条写路径是不是都走了它（漏一条 = 裁定形同虚设，且**不报错**）；
+ *   3. 判据是不是**只有一处**（票面原话：未来若要放开只需改一处判定）。
+ *
+ * 为什么不连库测：`unconvertFromCase` / `changeRiskStatus` 一进去就连库、跑事务，
+ * 而 `pnpm verify` 的口径是离线可跑（本仓既有约定，见本文件头）。
+ * 真 HTTP 那侧的断言在 `agent-work/smoke-convert.mjs`。
+ */
+describe("isRiskFrozen：转过案件的事项一律冻结", () => {
+  it("conversion_status=1 → 冻结", () => {
+    expect(isRiskFrozen(1)).toBe(true);
+  });
+
+  it("conversion_status=0 → 不冻结（还没转过案件）", () => {
+    expect(isRiskFrozen(0)).toBe(false);
+  });
+
+  it("冻结点是「有没有转过」，不是案件数量 —— 一个案件和十个案件结论相同", () => {
+    // 裁定原文：冻结点 = conversion_status = 1。若有人改成"按 converted_case_count 判"，
+    // 这一条不会红（计数不在函数入参里），所以真正的守卫在下面的源码断言。
+    expect(isRiskFrozen(1)).toBe(isRiskFrozen(1));
+    expect(isRiskFrozen(1)).not.toBe(isRiskFrozen(0));
+  });
+
+  it("null / undefined / 非 0-1 的值一律**不**冻结 —— 判据写死等值，不用真值", () => {
+    // 用 `if (conversionStatus)` 这种写法的话，undefined 也会判成冻结，
+    // 而"读不到这一列"绝不能等价于"已转案件"。缺失不收紧，缺失只放开。
+    expect(isRiskFrozen(null)).toBe(false);
+    expect(isRiskFrozen(undefined)).toBe(false);
+    expect(isRiskFrozen(2)).toBe(false);
+    expect(isRiskFrozen("1" as unknown as number)).toBe(false);
+  });
+});
+
+describe("冻结判据：只写一处，且三条写路径都走它", () => {
+  const src = readFileSync("src/app/lib/server/services/risks.ts", "utf8");
+
+  /** 抽出 `export async function X(` 的函数名 + 函数体，用于逐个查它有没有走判据 */
+  const functions = [...src.matchAll(/^export async function (\w+)\(/gm)].map((m, i, all) => {
+    const start = m.index!;
+    const end = i + 1 < all.length ? all[i + 1]!.index! : src.length;
+    return { name: m[1]!, body: src.slice(start, end) };
+  });
+
+  it("解析器没空转（函数数不为零 —— 否则下面每条都恒真）", () => {
+    expect(functions.length).toBeGreaterThan(10);
+  });
+
+  it("`conversion_status = 1` 这个比较在 services/risks.ts 里只出现一次", () => {
+    // 这条是「未来若要放开只需改一处判定」的可执行形式。判据散在三个函数里的话，
+    // 放开时必须改三处，而漏掉的那一处**不会报错** —— 只会让裁定悄悄地只生效了一半。
+    const hits = src.match(/conversionStatus\s*===\s*1/g) ?? [];
+    expect(hits).toEqual(["conversionStatus === 1"]);
+  });
+
+  it("三条写路径的门都是**活的** `if (isRiskFrozen(...)) return frozen`，恰好三处", () => {
+    // ⚠ 这一条是被反向红逼出来的：先前只查「函数体里出现过 isRiskFrozen(」，
+    // 而把门改成 `if (false && isRiskFrozen(...))` 照样命中 —— 门被摘掉了，断言还是绿的。
+    // 「门存在」与「门挡得住」是两件事，后者才需要断言。所以这里比对完整形态。
+    const gates = [
+      ...src.matchAll(
+        /if \(\s*isRiskFrozen\((\w+)\.conversionStatus\)\)\s*return \{[^}]*why: "frozen"\s*\}/g,
+      ),
+    ];
+    expect(
+      gates.map((m) => m[1]),
+      "三条写路径上少了一道活门，或门被短路了",
+    ).toEqual(["src", "cur", "cur"]);
+  });
+
+  it("状态流转 / 字段编辑 / 撤销转案件 三条路径都先问 isRiskFrozen", () => {
+    const guarded = functions
+      .filter((f) => f.body.includes("isRiskFrozen("))
+      .map((f) => f.name)
+      .sort();
+    expect(guarded).toEqual(["changeRiskStatus", "unconvertFromCase", "updateRiskMatter"]);
+  });
+
+  it("新增/改节点、发处置记录、关注人、软删**没有**被冻结门拦住", () => {
+    // 票面没有裁定这几条（"是否还允许在冻结的事项上加节点/评论/关注"是未决问题），
+    // 所以它们必须保持原样：谁在这里加一道冻结，就是把一个未裁定的问题替他裁了。
+    // 这条断言的作用是「将来有人加了，这里会红，红色会逼他回去问人」。
+    const mustStayOpen = [
+      "addRiskNode",
+      "setRiskNodeStatus",
+      "addRiskComment",
+      "editRiskComment",
+      "addRiskFollowers",
+      "removeRiskFollower",
+      "deleteRiskMatter",
+      "appendRiskParties",
+      "removeRiskParty",
+      "batchTagRiskMatters",
+    ];
+    for (const name of mustStayOpen) {
+      const fn = functions.find((f) => f.name === name);
+      expect(fn, `${name} 不在 services/risks.ts 里了 —— 先看清楚再改这条断言`).toBeTruthy();
+      expect(fn!.body, `${name} 出现了冻结门，但票面没裁定它`).not.toContain("isRiskFrozen(");
+    }
+  });
+
+  it("转案件本身**不**被冻结门拦住 —— 冻结是转完才有的，且允许二次转", () => {
+    // 映射矩阵 §1：「可以二次转案件，向同一事项追加案件」。若 convertToCase 也被门挡住，
+    // 一条已转过的事项就再也追加不了案件了 —— 那与裁定相反。
+    const fn = functions.find((f) => f.name === "convertToCase");
+    expect(fn).toBeTruthy();
+    expect(fn!.body).not.toContain("isRiskFrozen(");
+  });
+});
+
+describe("冻结在接口上是可读的一条原因，不是笼统的 blocked", () => {
+  it("批量摘要里 `frozen` 有一条中文标签", () => {
+    // 「跳过 3 条」而每条都读不出为什么，等于什么都没说。
+    // 这条标签同时约束两个列表视图（事项页与案件页共用一份字典，见 shared/schema/batch.ts）。
+    expect(BATCH_SKIP_REASON_LABELS.frozen).toMatch(/冻结|已转/);
+  });
+
+  it("标签是新增的一条，没有覆盖掉既有的五条", () => {
+    expect(Object.keys(BATCH_SKIP_REASON_LABELS)).toEqual([
+      "forbidden",
+      "reason_required",
+      "unchanged",
+      "privilege_required",
+      "archived",
+      "frozen",
+    ]);
   });
 });

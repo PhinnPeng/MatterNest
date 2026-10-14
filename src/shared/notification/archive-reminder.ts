@@ -19,7 +19,7 @@
  * ## 时钟为什么锚在"结案日期"而不是 `last_progress_at`
  *
  * `time_no_progress` 的文档基准是 `last_progress_at`（修订稿 §6.4），而本规则多带一个
- * `status_code:"closed"` —— 它把时钟的**原点**钉在了结案那一刻。两种基准在正常路径下
+ * `status_code:"closed"` —— 它把时钟的**原点**锚定在结案那一刻。两种基准在正常路径下
  * 是同一个时刻（`changeStatus` 写 `closing_date` 与刷 `last_progress_at` 是同一次事务），
  * 差别只在两处边角，而两处都指向同一个选择：
  *   · 结案后有人评论 ⇒ `last_progress_at` 被刷新。若时钟跟着走，"材料没补齐"这件事

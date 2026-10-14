@@ -38,7 +38,7 @@
 | E06 | `*_party.party_role` | 见 E12 | — | 复用诉讼地位取值。**语义钉（IQ-7/Q24）：指「对方」在该案中的地位，相对我方（本企业）视角——本企业永不入 party 表，我方地位是案件单值 `litigation_role`（见 E12）** |
 | E07 | `*_party.represented` | `true` `false` | — | **❌ 软作废（IQ-15，2026-10-10）**：企业口径下我方永不入 party 表，"是否我方代理"语义消失（该判断的旧参照系是律所）。**列保留在库**（不作破坏性迁移，守"迁移唯一事实"），**DTO/服务层/前端不再读写，转案件预填规则同步删除**；历史行不回填。行与编号保留不物理删（`@deprecated`）。若将来确有"同阵营共同诉讼人"诉求，用 `party_role`（第三人/共同被告）表达，不复活本列 |
 | E08 | `status_config.host_type` | `matter` `risk_matter` | — | |
-| E09 | `status_config.semantics` | `open` `in_progress` `closed` `archived` `custom` | `custom`（**仅 DDL 兜底**） | 修订稿 §3.1。**新建状态只能选 `custom`**，四个内置语义由 seed 持有且不可授予。API 层该字段**保存时必填**，DB 默认值不构成"可以不给 semantics"——两处口径以此为准。**显示名口径（IQ-5/6，2026-10-10 回写；`code` 与 semantics 全部不变，改的只是 `name` 列）**：`pending`→「已登记」（原"待受理"作废，去流程暗示，双宿主同）；事项 `closed`→「了结」，案件 `closed`→保留「已结案」（"结案"是诉讼词，事项侧不用）。seed 八行见修订稿 §3.2 |
+| E09 | `status_config.semantics` | `open` `in_progress` `closed` `archived` `custom` | `custom`（**仅 DDL 兜底**） | 修订稿 §3.1。**新建状态只能选 `custom`**，四个内置语义由 seed 持有且不可授予。API 层该字段**保存时必填**，DB 默认值不构成"可以不给 semantics"——两处口径以此为准。**显示名口径（IQ-5/6，2026-10-10 回写；**事项 `closed` 于 2026-10-14 由「了结」再改为「已处理」**；`code` 与 semantics 全部不变，改的只是 `name` 列）**：`pending`→「已登记」（原"待受理"作废，去流程暗示，双宿主同）；事项 `closed`→**「已处理」**（曾作废"已结案"→「了结」→「已处理」，"结案"是诉讼词，事项侧不用；「已处理」读起来也不像"这件事有个了断"，事项侧实际只表示"已处理完、不再跟进"），案件 `closed`→保留「已结案」。⚠ seed 的改名 UPDATE 只在"当前值还是旧名"时才动手，而这一格改过两次名，所以守卫的旧值列表要**同时收「已结案」与「了结」**，否则跑过上一轮的库永远停在旧词且不报错。seed 八行见修订稿 §3.2 |
 | E10 | `node_type_config.host_type` | `matter` `risk_matter` | — | 取代原 `applicable_type` 三值 |
 | E11 | `node_type_config.time_type` | `point` `range` | `point` | 时间点 / 时间段 |
 

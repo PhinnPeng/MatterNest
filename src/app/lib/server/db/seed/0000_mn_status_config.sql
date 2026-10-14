@@ -17,7 +17,7 @@ VALUES
   (4, 'archived', '已归档', 'gray', 'matter', 'archived', true, false, 4),
   (5, 'pending', '已登记', 'slate', 'risk_matter', 'open', true, true, 1),
   (6, 'in_progress', '进行中', 'blue', 'risk_matter', 'in_progress', true, false, 2),
-  (7, 'closed', '了结', 'green', 'risk_matter', 'closed', true, false, 3),
+  (7, 'closed', '已处理', 'green', 'risk_matter', 'closed', true, false, 3),
   (8, 'archived', '已归档', 'gray', 'risk_matter', 'archived', true, false, 4)
 ON CONFLICT ("host_type", "code") DO NOTHING;
 
@@ -43,19 +43,29 @@ WHERE "is_system" AND "next_status_codes" = '{}';
 -- 改的只是给人看的那一列（枚举表 §5.1「code 不可改是既有契约」）。
 --   · `pending` 双宿主 → **已登记**：原名"待受理"带流程暗示，而事项登记后没有任何受理闸门；
 --     案件侧同理（收案未指派经办前的暂存态，实际很少停留）。
---   · `closed` 事项侧 → **了结**："结案"是诉讼词，事项尚未进入法律程序，不用。
+--   · `closed` 事项侧 → **已处理**（2026-10-14 裁定）："结案"是诉讼词，事项尚未进入法律程序。
 --     案件侧**保留**"已结案"——分叉是刻意的，对应"事项是台账，案件是战场"。
+--     「了结」是这一轮之前的临时叫法，已被"已处理"取代：它同样绕开了"结案"，
+--     但读起来像"这件事有个了断"，而事项侧实际只表示"已处理完、不再跟进"。
 -- 同样用 UPDATE：上面 INSERT 的 `ON CONFLICT DO NOTHING` 对老库的八行不生效。
 -- WHERE 带上**旧显示名**：改名是幂等的，但不能无条件覆写——将来配置页允许管理员改显示名之后，
 -- 这条语句不该把人家的定制冲回默认值（与上面 `next_status_codes` 只补空值同一种克制）。
+--
+-- ⚠ **旧值必须列全**。`closed` 事项侧这一格先后经过"已结案 → 了结 → 已处理"两次改名，
+-- 而守卫只认**当前值还是旧名**才动手。所以漏掉中间那个「了结」的后果是：
+-- 跑过上一轮 seed 的库永远停在「了结」，新库却是对的 —— **两侧不一致且没有任何报错**
+-- （`name` 不参与任何判定）。这一格每多改一次名，下面 IN 列表就要多收一个旧值。
 UPDATE "mn_status_config"
 SET "name" = CASE
   WHEN "host_type" = 'matter'      AND "code" = 'pending' THEN '已登记'
   WHEN "host_type" = 'risk_matter' AND "code" = 'pending' THEN '已登记'
-  WHEN "host_type" = 'risk_matter' AND "code" = 'closed'  THEN '了结'
+  WHEN "host_type" = 'risk_matter' AND "code" = 'closed'  THEN '已处理'
   ELSE "name"
 END
 WHERE "is_system" AND (
   (("code" = 'pending')  AND "name" = '待受理')
-  OR ("host_type" = 'risk_matter' AND "code" = 'closed' AND "name" = '已结案')
+  OR (
+    "host_type" = 'risk_matter' AND "code" = 'closed'
+    AND "name" IN ('已结案', '了结')
+  )
 );

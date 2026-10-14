@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { pruneEmpty } from "@/shared/schema/hosts";
-import { deleteRiskMatter, getRiskMatter, updateRiskMatter } from "@/app/lib/server/services/risks";
+import {
+  deleteRiskMatter,
+  getRiskMatter,
+  RISK_FROZEN_MESSAGE,
+  updateRiskMatter,
+} from "@/app/lib/server/services/risks";
 import {
   attributionRequired,
   body,
@@ -32,6 +37,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
  *
  * `ownerId: null` 是**合法值**：事项的经办人可空（IQ-5），
  * 它表示把事项退回未指派，让持 L1 的人去变更处理人。所以这里用 `nullable` 而不是 `.optional()`。
+ *
+ * **冻结**（2026-10-14 裁定）：事项转过案件之后字段不可再改，**含变更处理人**。
+ * 回 422 而不是复用下面的 403 `readonly` —— 那句提示是写给"归档 / 你不是经办人"的，
+ * 让它顺带解释冻结，用户会去找经办人代劳，而代劳之后拿到的是同一句话。
  */
 const patchSchema = z
   .object({
@@ -62,6 +71,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     );
     if (r.ok) return json({ ok: true });
     if (r.why === "not_found") return notFound();
+    if (r.why === "frozen") return fail(422, "frozen", RISK_FROZEN_MESSAGE);
     // 可见但不是经办人：403 是诚实的答复。归档态也走这里——它是只读终态
     if (r.why === "forbidden")
       return fail(403, "readonly", "这条事项是只读的（已归档，或你不是它的经办人）");

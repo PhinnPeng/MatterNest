@@ -781,15 +781,20 @@ try {
   });
   ok("给转出来的案件登记一笔费用 → 201", cExp.status === 201, `status=${cExp.status}`);
 
+  // ⚠ 2026-10-14 冻结裁定之后，这三条断言表达的是**新的规则**，不是"费用前置还能挡住撤销"。
+  // 事项转过案件即冻结，而撤销要求存在关联行、关联行必然意味着 conversion_status=1，
+  // 于是 UNCONVERT 恒返回 422 `frozen`，费用前置（连同进展、节点两条）在它后面，永远轮不到。
+  // 费用那三条前置谓词仍由 `revred-expenses.mjs` 的源码锚点守着
+  // （`node agent-work/verify-anchors.mjs` → `unconvert-expense-blocker`）。
   const blocked = await call("POST", `/api/risk-matters/${r2.body.id}/unconvert`, cookie, {
     caseId,
     reason: "费用冒烟：验证撤销前置",
   });
   ok(
-    "**案件有费用 → 撤销被拒（422 blocked，且点名「费用」）**（映射矩阵 §5.1）",
+    "**有费用 → 撤销被拒，但答复是 422 frozen 而不是 blocked**（冻结优先于费用前置）",
     blocked.status === 422 &&
-      blocked.body?.error === "blocked" &&
-      String(blocked.body?.message ?? "").includes("费用"),
+      blocked.body?.error === "frozen" &&
+      !String(blocked.body?.message ?? "").includes("费用"),
     `status=${blocked.status} err=${blocked.body?.error} msg=${blocked.body?.message}`,
   );
   const [stillLinked] = await sql`
@@ -800,18 +805,18 @@ try {
   ok("软删掉那笔费用 → 200", delExp.status === 200, `status=${delExp.status}`);
   const unblocked = await call("POST", `/api/risk-matters/${r2.body.id}/unconvert`, cookie, {
     caseId,
-    reason: "费用冒烟：软删后撤销应当放行",
+    reason: "费用冒烟：软删后撤销仍应被冻结门挡住",
   });
   ok(
-    "**软删的费用不再挡撤销 → 200**（与节点那条 `NOT is_deleted` 同口径）",
-    unblocked.status === 200,
+    "**软删费用之后仍然是 422 frozen**（答复与费用软删与否无关）",
+    unblocked.status === 422 && unblocked.body?.error === "frozen",
     `status=${unblocked.status} body=${JSON.stringify(unblocked.body)}`,
   );
   const [countAfter] = await sql`
     select conversion_status, converted_case_count from mn_risk_matter where id = ${r2.body.id}`;
   ok(
-    "撤销后计数归零（converted_case_count 重算，不是累减）",
-    countAfter?.converted_case_count === 0 && countAfter?.conversion_status === 0,
+    "**计数未被改动**（converted_case_count 仍按 COUNT(*) 重算；冻结后没有撤销可归零）",
+    countAfter?.converted_case_count === 1 && countAfter?.conversion_status === 1,
     JSON.stringify(countAfter),
   );
 } catch (e) {

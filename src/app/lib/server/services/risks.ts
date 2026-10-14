@@ -67,6 +67,38 @@ import { randomUUID } from "node:crypto";
  */
 
 /**
+ * **冻结判定 —— 全仓唯一的一处**（2026-10-14 裁定）。
+ *
+ * 事项一旦转过**至少一个**案件，它的业务内容就不能再改：状态流转、字段编辑、撤销转案件
+ * 一律拒。冻结点是 `conversion_status = 1`（"有没有转过"），**不是** `converted_case_count`
+ * ——一个案件和十个案件得到的结论完全一样。
+ *
+ * ## 为什么必须是"一个纯函数、一个比较"
+ *
+ * 票面原话是「未来若要放开只需改一处判定」。如果这个判定散在三处写路径里，放开时就要改
+ * 三处，而**漏掉的那一处不会报错** —— 它只会让裁定悄悄地只生效了三分之二：用户看到
+ * "状态推不动、字段也改不了，唯独那一项还能改"，而没有任何日志说这里本该也锁上。
+ * 反过来，多写一处同样糟：多一个 `=== 1` 就是第二个事实源，两处迟早会漂。
+ * `risks.spec.ts` 里那两条源码断言（只出现一次 / 三条路径都走它）就是这份契约的看守。
+ *
+ * ## 为什么用等值而不是真值
+ *
+ * `if (conversionStatus)` 在 `undefined` 上也成立，而"这一列没读到"绝不等于"已转案件"。
+ * 缺失只放开、不收紧 —— 收紧的那一侧会变成一条静默的 500。
+ *
+ * ⚠ **入参是 `conversion_status` 那一列，不是案件条数。** 想改成"按案件数判"的人请先回去
+ * 读裁定：裁定点名的是 `conversion_status`。
+ */
+export function isRiskFrozen(conversionStatus: number | null | undefined): boolean {
+  return conversionStatus === 1;
+}
+
+/** 冻结对外的一句话（三个路由共用，别各抄一份 —— 抄一份的代价是三处说法慢慢不一样） */
+export const RISK_FROZEN_MESSAGE =
+  "这条事项已经转过案件，业务内容已冻结：状态、字段与转案件关联都不能再改。" +
+  "要继续推进请在案件上做，或另建一条事项。";
+
+/**
  * 排序键 → 列，与案件侧共用同一套白名单（`shared/schema/list-query` 的 `SORTABLE_COLUMNS`）。
  *
  * 写成 `Record<白名单, SQL>` 而不是 `Record<string, SQL>`：少一个键编译期就报缺属性，
@@ -613,7 +645,7 @@ export type UnconvertBlocker = "progress" | "nodes" | "expenses";
 
 export type UnconvertResult =
   | { ok: true; caseId: string; remaining: number }
-  | { ok: false; why: "not_found" | "not_linked" | "reason_required" }
+  | { ok: false; why: "not_found" | "not_linked" | "reason_required" | "frozen" }
   | { ok: false; why: "blocked"; blockers: UnconvertBlocker[] };
 
 /**
@@ -638,6 +670,10 @@ export type UnconvertResult =
  * 状态变更，审计链会断。已归档的案件保持归档，需人工持 `can_unarchive` 撤销。
  * 同理**不写 outbox**：§5.1 只要求 `activity_log(UNCONVERT)`，且规则 7 只监听
  * `0 → 1` 这一次变更，撤销方向没有已定义的消费者。
+ *
+ * ⚠ **冻结（2026-10-14 裁定）使这个函数整体不可达** —— 下面第一节就把这件事写明了。
+ * 端点与三条前置都按票面要求留着（用户在「保留端点并给出理由」与「删掉端点」之间选了前者），
+ * 三条前置因此退成第二道防线，而不是唯一一道。
  */
 export async function unconvertFromCase(
   actor: Actor,
@@ -657,6 +693,25 @@ export async function unconvertFromCase(
     .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
     .limit(1);
   if (!src) return { ok: false, why: "not_found" };
+
+  /**
+   * **冻结门（2026-10-14 裁定）—— 本函数的第一道，也是实际上唯一一道会命中的门。**
+   *
+   * 判据只有一个：这条事项转过案件没有（`isRiskFrozen`）。已转 ⇒ 冻结 ⇒ 不可撤销。
+   * 返回的 `why` 是 **`frozen` 而不是 `blocked`**：`blocked` 后面跟的是"案件上已经登记了
+   * 进展/节点/费用"，那些理由会**把人引向案件那边去补救**；而 `frozen` 说的是"这件事本身
+   * 就不能撤"，两者要做的下一步完全不同。合成一条笼统的 422 就把这两件事说成了一件。
+   *
+   * **放在 `not_linked` 之前**：冻结是这条事项的属性，与请求里带的是哪个 `caseId` 无关。
+   * 顺序若反过来，同一条冻结的事项会因为 `caseId` 写得对不对而给出两种答复 ——
+   * 用户会以为"换个 id 就能撤"。
+   *
+   * ⚠ **这条门使下面整段（含三条前置与那个事务）不可达**：能走到事务里就意味着
+   * "有 `risk_matter_case` 关联行"与"`conversion_status !== 1`"同时成立，而这两件事
+   * 在业务上互斥（转案件同一个事务里写关联行与 `conversion_status=1`）。
+   * 保留这段是票面裁定的要求；它的注释已按"不可达但不许静默错"重写，见下面事务里那几行。
+   */
+  if (isRiskFrozen(src.conversionStatus)) return { ok: false, why: "frozen" };
 
   // 关联行必须存在：本函数只管"走转案件链路生成"的案件。
   // 直接新建的案件没有关联行，它的删除走 F2-5 软删，不受本函数约束（§5.1 末段）。
@@ -716,25 +771,55 @@ export async function unconvertFromCase(
 
   if (blockers.length > 0) return { ok: false, why: "blocked", blockers };
 
+  /**
+   * ⚠ 冻结之后**整段不可达**（见上面冻结门那段注释）。票面要求保留端点与三条前置，
+   * 所以这段留着；但它已经不是活代码，下面每个"看似还要判断"的地方都按不可达重写了。
+   */
   const remaining = await db.transaction(async (tx) => {
     await tx.delete(riskMatterCase).where(eq(riskMatterCase.id, link.id));
 
     // 计数同样用 COUNT(*) 重算。与 convertToCase 同一口径——这正是它当初被改掉的原因：
     // 累加在撤销之后会永久偏移，而它是"已转 N 个案件"徽标的唯一数据源。
+    // **这一列的口径不变**（裁定明写 `converted_case_count` 仍按 COUNT(*) 重算）。
     const [cnt] = await tx
       .select({ n: dcount() })
       .from(riskMatterCase)
       .where(eq(riskMatterCase.riskMatterId, BigInt(riskId)));
     const rest = Number(cnt?.n ?? 0);
 
-    // 归零才回 0 + 清时间戳。事项若还挂着别的案件，徽标就该继续显示"已转 N 个"，
-    // 清成 0 会让用户以为"转过但没了"，而关联其实还在。
+    /**
+     * `rest === 0` 在冻结之后不可达：`not_linked` 已证明这条关联行存在，删掉它之后
+     * 同一条 `risk_matter_case` 上必然还剩至少 0 条 —— 而 0 只在"别的并发请求刚把最后
+     * 一条也撤了"时成立，那件事与本事务无关。
+     *
+     * 所以这里**抛错而不是回 0**。原写法 `rest > 0 ? 1 : 0` 的 `: 0` 分支会把两列不一致
+     * （`conversion_status` 还挂着 0、关联行却刚被删掉）默默抹平成一个看着正常的值，
+     * 而那种数据的失败形态是"徽标说没转过、案件确实存在" —— 没人报错，永远查不出来。
+     * `batchArchiveRiskMatters` 对"配置表少一行归档态"也是这个处理，两处同一种取向：
+     * **不可达的不变量破了要响，不要顺手填一个数。**
+     */
+    if (rest === 0) {
+      throw new Error(
+        `撤销转案件时关联计数归零（risk_matter.id=${riskId}）：` +
+          `mn_risk_matter_case 与 mn_risk_matter.conversion_status 不一致，需要人工核对`,
+      );
+    }
+
+    /**
+     * `conversion_status` **不再由关联条数推导**（原写法 `rest > 0 ? 1 : 0`）。
+     *
+     * 冻结之后它只有一个合法值 1：唯一写过 0 的就是本函数，而本函数已被 `isRiskFrozen`
+     * 挡在门外；裁定也明说 `conversion_status` 再也不会回落到 0。
+     * 同一段里的 `convertedAt` / `convertedBy` 原先也带 `rest > 0 ?` —— 那个三元同样
+     * 归零才清时间戳，而"归零"现在抛错，所以它们也一并去掉：不是"变成恒真"，是**恒真的
+     * 那一支已经不存在了**，留着只会让人以为还有一个归零分支要维护。
+     */
     await tx
       .update(riskMatter)
       .set({
-        conversionStatus: rest > 0 ? 1 : 0,
-        convertedAt: rest > 0 ? src.convertedAt : null,
-        convertedBy: rest > 0 ? src.convertedBy : null,
+        conversionStatus: 1,
+        convertedAt: src.convertedAt,
+        convertedBy: src.convertedBy,
         convertedCaseCount: rest,
         updatedBy: BigInt(actor.userId),
         updatedAt: new Date().toISOString(),
@@ -960,6 +1045,11 @@ export async function getRiskMatter(actor: Actor, id: string) {
  *
  * 置为归档语义的状态要同时翻 `is_archived`，否则列表的 partial index 与"终态不可逆"
  * 判定都会指错地方。撤销归档另需 `can_unarchive`（路由层判，那里才拿得到特权）。
+ *
+ * **冻结（2026-10-14 裁定）**：事项转过案件之后状态不可再推 —— 判据是 `isRiskFrozen`，
+ * 全仓唯一的一处（见它的注释）。这一条必须排在 `unchanged` 之前：目标与现状相同的请求
+ * 在冻结的事项上**确实可以早退**，但回给用户的答案要是"因为已冻结"，而不是"你推了个
+ * 一模一样的状态" —— 后者会让人以为换个目标状态就能改。
  */
 export async function changeRiskStatus(
   actor: Actor,
@@ -967,18 +1057,27 @@ export async function changeRiskStatus(
   to: string,
   reason?: string | null,
 ): Promise<
-  { ok: true } | { ok: false; why: "not_found" | "reason_required" | "unchanged" | "forbidden" }
+  | { ok: true }
+  | {
+      ok: false;
+      why: "not_found" | "reason_required" | "unchanged" | "forbidden" | "frozen";
+    }
 > {
   const db = await getDb();
   const [cur] = await db
     .select({
       status: riskMatter.status,
       ownerId: riskMatter.ownerId,
+      conversionStatus: riskMatter.conversionStatus,
     })
     .from(riskMatter)
     .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(id))))
     .limit(1);
   if (!cur) return { ok: false, why: "not_found" };
+  // 冻结在归属判定**之前**：冻结是这条记录的属性，与"你是不是它的经办人"无关。
+  // 放在后面的话，L2 账号推一条冻结事项的状态会得到 403「你不是经办人」——
+  // 那句提示把用户引向"去找经办人"，而他就算找到了也推不动。
+  if (isRiskFrozen(cur.conversionStatus)) return { ok: false, why: "frozen" };
   // 归属是护栏（权限草案 §2.2）：改状态要经办人本人、L1 或 is_admin。
   // 事项的经办人**可空**：无主事项谁都可以推它——否则它会永久卡在初始态无人能动。
   if (cur.ownerId !== null && !ownsAttribution(actor, cur.ownerId))
@@ -988,7 +1087,7 @@ export async function changeRiskStatus(
   const rows = await db
     .select({
       code: statusConfig.code,
-      // 通知文案的 `{from} → {to}` 用显示名（已登记/进行中/了结），见 notifyStatusChanged 的注释
+      // 通知文案的 `{from} → {to}` 用显示名（已登记/进行中/已处理），见 notifyStatusChanged 的注释
       name: statusConfig.name,
       semantics: statusConfig.semantics,
       nextStatusCodes: statusConfig.nextStatusCodes,
@@ -1056,6 +1155,12 @@ export async function changeRiskStatus(
  *
  * ⚠ 经办人可空是事项侧的刻意设计（IQ-5），所以 `ownerId: null` 是**合法输入**，
  * 不是"没填"——它表示把事项退回未指派，让持 L1 的人去 `变更处理人`。
+ *
+ * **冻结（2026-10-14 裁定）**：事项转过案件之后业务字段不可再改，**含变更处理人**——
+ * 判据是 `isRiskFrozen`，全仓唯一的一处（见它的注释）。
+ * 排在归档判定之前：一条既已转案件又已归档的事项，答复要给出"为什么"。
+ * 归档只读（§5.2）说的是"归档之后不能改"，冻结说的是"转过之后这件事不再由事项侧承载"，
+ * 两者指向的下一步不同（前者是找持特权的人撤销归档，后者是去案件上做）。
  */
 export async function updateRiskMatter(
   actor: Actor,
@@ -1069,7 +1174,11 @@ export async function updateRiskMatter(
     ownerId?: string | null;
   },
 ): Promise<
-  { ok: true } | { ok: false; why: "not_found" | "forbidden" | "empty" | "owner_not_selectable" }
+  | { ok: true }
+  | {
+      ok: false;
+      why: "not_found" | "forbidden" | "empty" | "owner_not_selectable" | "frozen";
+    }
 > {
   const db = await getDb();
   const [cur] = await db
@@ -1081,11 +1190,13 @@ export async function updateRiskMatter(
       amount: riskMatter.amount,
       ownerId: riskMatter.ownerId,
       isArchived: riskMatter.isArchived,
+      conversionStatus: riskMatter.conversionStatus,
     })
     .from(riskMatter)
     .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(id))))
     .limit(1);
   if (!cur) return { ok: false, why: "not_found" };
+  if (isRiskFrozen(cur.conversionStatus)) return { ok: false, why: "frozen" };
   // 归档是只读终态（§5.2）：要改先撤销归档，而撤销需要 can_unarchive
   if (cur.isArchived) return { ok: false, why: "forbidden" };
   const changingOwner = patch.ownerId !== undefined;

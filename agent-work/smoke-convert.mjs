@@ -285,7 +285,21 @@ ok("可二次转：status 保持 1、计数到 3", conv2.status === 201 && after
 const all3 = [...bigIds, BigInt(conv2.body.cases[0].id)];
 for (const id of all3) createdCaseIds.add(String(id));
 
-// ---- 6. 撤销：前置校验 ----
+// ---- 6. 撤销：冻结门（2026-10-14 裁定）—— 本节整体改写 ----
+//
+// ⚠ **这一节改的是断言所表达的那条规则，不是把它们删掉。**
+// 事项一旦转过案件就被冻结，而 `unconvertFromCase` 要求存在 `mn_risk_matter_case` 关联行；
+// 关联行必然意味着 `conversion_status = 1`，两者在业务上互斥。
+// 于是 UNCONVERT 对任何已转案件的事项都恒返回 422 `frozen`
+//（用户当时在「保留端点并给出理由」与「删掉端点」之间选了前者）。
+//
+// 原先本节证明的是「三条前置（进展 / 非预设节点 / 费用）能挡住撤销、预设节点不挡」，
+// 那个结论**现在无法通过本端点观测**（门在三条前置之前就返回了）。
+// 因此：造数与控制断言**全部保留**，每一条改为证明新的那一条规则
+// （冻结恒拒 / 冻结优先于前置 / 被拒后库一个字节都不动）；
+// 三条前置的谓词本身由 `revred-unconvert.mjs` 的源码锚点继续守着
+// （`node agent-work/verify-anchors.mjs` 盯 `sourceKind} <> 'preset'` 那条 needle）。
+
 const noReason = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie, {
   caseId: ids[0],
   reason: "   ",
@@ -296,22 +310,35 @@ const notLinked = await call("POST", `/api/risk-matters/${riskId}/unconvert`, co
   caseId: "1234567890",
   reason: "没关联",
 });
-ok("无关联行 → 404", notLinked.status === 404, `status=${notLinked.status}`);
+ok(
+  "**冻结门排在关联行判定之前**：带一个不存在的 caseId 也回 422 frozen（不是 404）",
+  notLinked.status === 422 && notLinked.body?.error === "frozen",
+  `status=${notLinked.status} err=${notLinked.body?.error}`,
+);
 
-// ---- 7. 撤一张：未归零，不回 0 ----
+// ---- 7. 撤一张：恒被拒，且库一个字节都不动 ----
 const un1 = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie, {
   caseId: ids[0],
   reason: "转错了，撤销第一张",
 });
-ok("撤销第一张成功，remaining=2", un1.status === 200 && un1.body?.remaining === 2, `status=${un1.status} remaining=${un1.body?.remaining}`);
+ok("撤销 → 422 frozen", un1.status === 422 && un1.body?.error === "frozen", `status=${un1.status} err=${un1.body?.error}`);
+ok(
+  "**答复点名「冻结」**（不是笼统的 blocked —— 两者的下一步完全不同）",
+  String(un1.body?.message ?? "").includes("冻结"),
+  String(un1.body?.message ?? "").slice(0, 70),
+);
 
 const [mid] = await sql`select conversion_status, converted_case_count, converted_at from mn_risk_matter where id = ${riskId}`;
-ok("未归零：status 仍=1、计数=2、首次时间戳保留", mid.conversion_status === 1 && mid.converted_case_count === 2 && mid.converted_at !== null, `status=${mid.conversion_status} count=${mid.converted_case_count}`);
+ok(
+  "被拒后 status 仍=1、计数仍=3、首次时间戳仍在（没有先改再报）",
+  mid.conversion_status === 1 && mid.converted_case_count === 3 && mid.converted_at !== null,
+  `status=${mid.conversion_status} count=${mid.converted_case_count}`,
+);
 
-const [auditOk] = await sql`select count(*)::int as n from mn_activity_log where action='UNCONVERT' and coalesce(reason,'') <> '' and target_id = ${riskId}`;
-ok("写了 UNCONVERT 审计且 reason 非空", auditOk.n === 1, `n=${auditOk.n}`);
+const [auditNone] = await sql`select count(*)::int as n from mn_activity_log where action='UNCONVERT' and target_id = ${riskId}`;
+ok("**被拒之后没有写 UNCONVERT 审计**（拒了就是没发生）", auditNone.n === 0, `n=${auditNone.n}`);
 
-// ---- 8. 前置不满足：有进展则不可撤 ----
+// ---- 8. 三条前置：造数保留，答复恒为 frozen（证明的是**优先级**）----
 const thirdId = String(conv2.body.cases[0].id);
 // author_id 是指向 mn_app_user 的真外键，取库里真实存在的那个而不是猜 id=1
 const [author] = await sql`select id from mn_app_user where is_enabled and not is_deleted order by id limit 1`;
@@ -324,61 +351,103 @@ const blocked = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cook
   caseId: thirdId,
   reason: "试着撤",
 });
-ok("有进展 → 422 blocked", blocked.status === 422 && blocked.body?.error === "blocked", `status=${blocked.status} err=${blocked.body?.error}`);
-ok("阻断理由点名「进展」", String(blocked.body?.message ?? "").includes("进展"), String(blocked.body?.message ?? "").slice(0, 70));
+ok(
+  "**冻结优先于三条前置**：案件上有进展，答复仍是 frozen 而不是 blocked",
+  blocked.status === 422 && blocked.body?.error === "frozen",
+  `status=${blocked.status} err=${blocked.body?.error}`,
+);
+ok(
+  "答复里**不提「进展」**（把它并进 blocked 会让人跑去案件上清进展，而清完也撤不掉）",
+  !String(blocked.body?.message ?? "").includes("进展"),
+  String(blocked.body?.message ?? "").slice(0, 70),
+);
 
 const [stillLinked] = await sql`select count(*)::int as n from mn_risk_matter_case where risk_matter_id = ${riskId}`;
-ok("被拒后关联行仍在（没先删再报）", stillLinked.n === 2, `n=${stillLinked.n}`);
+ok("被拒后关联行仍在（没先删再报）", stillLinked.n === 3, `n=${stillLinked.n}`);
 const [midCount] = await sql`select converted_case_count from mn_risk_matter where id = ${riskId}`;
-ok("被拒后计数未被改动", midCount.converted_case_count === 2, `count=${midCount.converted_case_count}`);
+ok("被拒后计数未被改动", midCount.converted_case_count === 3, `count=${midCount.converted_case_count}`);
+await sql`delete from mn_matter_progress where id = ${prog.id}`;
 
-// ---- 9. 预设节点不算投入 ----
+// ---- 9. 预设节点：降级为**纯数据侧控制断言** ----
+//
+// ⚠ 原断言是 HTTP 200「只剩 preset 就能撤」，它是「排除系统生成的预设节点」的唯一行为证明。
+// 冻结门在它前面就返回了，那条结论**再也无法从本端点观测**——所以这里只留下
+// "前提确实成立"的数据侧控制，而谓词本身继续由源码锚点（`verify-anchors.mjs`）守着。
+// 承认观测能力变窄，比把断言改成恒真要诚实。
 const [preset] = await sql`select count(*)::int as n from mn_matter_node where matter_id = ${thirdId} and source_kind = 'preset'`;
 const [withPreset] = await sql`
   select count(*)::int as n from mn_matter_node where matter_id = ${thirdId} and source_kind <> 'preset'`;
-ok("预设节点存在且不阻断（只加 preset 不该挡住撤销）", preset.n >= 0 && withPreset.n === 0, `preset=${preset.n} manual=${withPreset.n}`);
-await sql`delete from mn_matter_progress where id = ${prog.id}`;
+ok(
+  "**控制**：thirdId 上 progress 已清、非预设节点为 0（只剩系统生成的）",
+  preset.n >= 0 && withPreset.n === 0,
+  `preset=${preset.n} manual=${withPreset.n}`,
+);
 
-// ---- 10. 预设节点不阻断：此时 thirdId 上只剩 3 个 preset 节点，进展已删 ----
-// 这条断言是「排除系统生成的预设节点」的唯一证明：若 `<> 'preset'` 那个条件被去掉，
-// 这一步会返回 422 blocked。progress 已删，所以挡它的只可能是 preset。
+// ---- 10. 三条前置全部"满足"时，撤销依然恒拒（挡住它的不是前置）----
 const unThird = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie, {
   caseId: thirdId,
   reason: "进展已清，只剩系统预设节点",
 });
-ok("只剩 preset 节点时**可撤**（预设不算用户投入）", unThird.status === 200, `status=${unThird.status} ${String(unThird.body?.message ?? "").slice(0, 60)}`);
-ok("撤后 remaining=1（ids[1] 仍挂着）", unThird.body?.remaining === 1, `remaining=${unThird.body?.remaining}`);
+ok(
+  "**即使只差前置也撤不掉**：答复恒为 frozen",
+  unThird.status === 422 && unThird.body?.error === "frozen",
+  `status=${unThird.status} err=${unThird.body?.error}`,
+);
 
-// ---- 11. 撤到最后一张才归零 ----
+// ---- 11. 归零分支已不存在：conversion_status 永不回 0 ----
+//
+// 原断言是「撤最后一张 → remaining=0，status 回 0、时间戳与操作人清空」。
+// 裁定明写 `conversion_status` 再也不会回落到 0，而写 0 的那个分支就在本函数里。
+// 所以这里断言的是新规则本身：撤不掉 ⇒ 计数不减、时间戳与操作人都在。
 const unLast = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie, {
   caseId: ids[1],
   reason: "撤销最后一张",
 });
-ok("撤最后一张 → remaining=0", unLast.status === 200 && unLast.body?.remaining === 0, `status=${unLast.status} remaining=${unLast.body?.remaining}`);
+ok(
+  "撤最后一张 → 422 frozen（不再是 remaining=0）",
+  unLast.status === 422 && unLast.body?.error === "frozen",
+  `status=${unLast.status} remaining=${unLast.body?.remaining}`,
+);
 
 const [zero] = await sql`select conversion_status, converted_case_count, converted_at, converted_by from mn_risk_matter where id = ${riskId}`;
-ok("归零：status 回 0、计数=0、时间戳与操作人清空", zero.conversion_status === 0 && zero.converted_case_count === 0 && zero.converted_at === null && zero.converted_by === null, `status=${zero.conversion_status} count=${zero.converted_case_count} at=${zero.converted_at}`);
+ok(
+  "**冻结之后不存在归零**：status 仍=1、计数仍=3、时间戳与操作人都还在",
+  zero.conversion_status === 1 &&
+    zero.converted_case_count === 3 &&
+    zero.converted_at !== null &&
+    zero.converted_by !== null,
+  `status=${zero.conversion_status} count=${zero.converted_case_count} at=${zero.converted_at}`,
+);
 
-// ---- 11. 撤销不删案件（修订稿 §3.4：只能删关联行）----
+// ---- 11b. 案件本身全部保留（修订稿 §3.4：只能删关联行）----
+// 冻结之后这一条不再有"撤销会删案件吗"的作用，保留它是作为**清场前的对照**：
+// 这一整节什么都没删，所以三个案件都还在。若哪天撤销又被放开，这条会立刻失效。
 const [caseLeft] = await sql`select count(*)::int as n from mn_matter where id = any(${sql.array(all3)}::bigint[])`;
 ok("案件本身全部保留", caseLeft.n === all3.length, `n=${caseLeft.n}/${all3.length}`);
 
-// ---- 12. 重复撤同一张 → 404 ----
+// ---- 12. 重复撤同一张：不再是 404，恒为 422 frozen ----
+// 冻结门排在关联行判定之前，所以"换个 id 再试"这条探测拿到的是**同一个答案**——
+// 这正是要达到的效果：不让调用方以为"只是这个 id 不行，换一个也许能撤"。
 const again = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie, {
   caseId: ids[0],
   reason: "再撤一次",
 });
-ok("重复撤销 → 404（幂等，不是 500）", again.status === 404, `status=${again.status}`);
+ok(
+  "重复撤销 → 422 frozen（不是 404、不是 500）",
+  again.status === 422 && again.body?.error === "frozen",
+  `status=${again.status}`,
+);
 
-// ---- 12b. 软删的进展**不再**挡撤销（三条前置同口径）----
+// ---- 12b. 软删口径：三条前置的同口径已无法从本端点观测，改为证明答复稳定 ----
 //
 // 三条前置（进展/节点/费用）必须**同口径**：`NOT is_deleted`。原先只有进展那条漏了，
 // 于是"列表里已经看不到这条进展了，撤销却还被它挡着"，而提示语会说"案件上已经登记了进展"。
 // 光读注释看不出来（注释把三条写成了统一口径），是检查子代理逐条对照谓词才发现的。
-// 与费用那条（`smoke-expenses.mjs` 的"软删的费用不再挡撤销"）对称。
+// 与费用那条（`smoke-expenses.mjs`）对称。
 //
-// ⚠ 放在最末、且**自己新转一张案件**：这条断言会真的把关联撤掉（200），
-// 挂在前面几步上会把它们的前提弄没（第一版就是这么红的）。
+// ⚠ 冻结之后，这一对断言证明的不再是"软删放行"，而是"**答复与进展软删与否无关**"。
+// 它守的是冻结门的稳定性（同一条事项、同一个端点，答复不随库里的其他变化漂移）。
+// 软删谓词本身的守卫仍是 `revred-unconvert.mjs` + `revred-expenses.mjs` 的源码锚点。
 const convSoft = await call("POST", `/api/risk-matters/${riskId}/convert`, cookie, {
   cases: [card(4, { caseNo: `软删进展用例-${stamp}` })],
 });
@@ -391,17 +460,21 @@ const [progSoft] = await sql`
   returning id`;
 const softBlocked = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie, {
   caseId: softCaseId,
-  reason: "冒烟：先确认它挡得住",
+  reason: "冒烟：先看未软删时的答复",
 });
-ok("未软删时它挡得住（前提成立，否则下一条是空过）", softBlocked.status === 422, `status=${softBlocked.status}`);
+ok(
+  "未软删时 → 422 frozen（控制项在，前提成立）",
+  softBlocked.status === 422 && softBlocked.body?.error === "frozen",
+  `status=${softBlocked.status}`,
+);
 await sql`update mn_matter_progress set is_deleted = true, deleted_at = now() where id = ${progSoft.id}`;
 const softPass = await call("POST", `/api/risk-matters/${riskId}/unconvert`, cookie, {
   caseId: softCaseId,
-  reason: "冒烟：进展已软删，撤销应放行",
+  reason: "冒烟：进展已软删，撤销仍应被冻结门挡住",
 });
 ok(
-  "**软删的进展不再挡撤销 → 200**（三条前置同口径）",
-  softPass.status === 200,
+  "**软删之后仍然是 422 frozen**（不是 200：答复与软删口径无关）",
+  softPass.status === 422 && softPass.body?.error === "frozen",
   `status=${softPass.status} err=${softPass.body?.error}`,
 );
 // ---- 清场在 finally 里，见上方 cleanup ----

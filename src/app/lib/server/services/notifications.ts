@@ -497,7 +497,8 @@ export async function notifyStatusChanged(
      *
      * 通知是给人读的：`{from} → {to}` 渲染成 `已登记 → 进行中`，
      * 而 code（`pending`/`in_progress`）是配置页与规则引用的写法。
-     * IQ-5/6 专门把显示名改成"已登记/了结/已结案"就是为了去掉流程暗示——
+     * IQ-5/6 专门把显示名改成"已登记/已处理/已结案"就是为了去掉流程暗示
+     * （事项侧那一格 2026-10-14 又改过一次名，旧值与新值见 `0000_mn_status_config.sql`）——
      * 通知文案里退回 code 等于把那次改名在用户可见处抹掉。
      */
     fromName: string;

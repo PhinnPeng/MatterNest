@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { statusChangeSchema } from "@/shared/schema/hosts";
-import { changeRiskStatus } from "@/app/lib/server/services/risks";
+import { changeRiskStatus, RISK_FROZEN_MESSAGE } from "@/app/lib/server/services/risks";
 import { getDb } from "@/app/lib/server/db/client";
 import { riskMatter } from "@/app/lib/server/db/schema";
 import { scopedWhere } from "@/app/lib/server/scope/visibility";
@@ -26,6 +26,10 @@ import {
  *
  * 归档的两个条件不合并：`can_unarchive` 是特权（"影响别人或不可逆"），
  * 归属判定在服务层。合起来会让"经办人归档自己的事项"变复杂。
+ *
+ * **冻结**（2026-10-14 裁定）走 422 而非 403：403 说的是"你不被允许"，而冻结说的是
+ * "这件事本身不再由事项侧承载" —— 后者对谁都成立，返 403 会让用户去找经办人，代劳一次，
+ * 然后被服务层用同一句话再拒一次。
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const parsed = await body(req, statusChangeSchema);
@@ -48,6 +52,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const r = await changeRiskStatus(actor, id, parsed.data.to, parsed.data.reason ?? null);
     if (r.ok) return json({ ok: true });
     if (r.why === "not_found") return notFound();
+    if (r.why === "frozen") return fail(422, "frozen", RISK_FROZEN_MESSAGE);
     if (r.why === "reason_required") return reasonRequired();
     // 可见但不是经办人：403 是诚实的答复（这条你看得见，只是轮不到你推状态）
     if (r.why === "forbidden") return attributionRequired();
