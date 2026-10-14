@@ -1,0 +1,42 @@
+#!/bin/sh
+#
+# pre-commit：提交前跑全套门禁。
+#
+# 为什么需要它（2026-10-14，retro 候选 4①）：
+#
+# `pnpm verify` 已经覆盖 format / lint / typecheck / test / lint-guard /
+# anchors / deploy:check 七道，但**只能靠人记得跑**。本轮我自己就在
+# 「seed 改完没跑 db:check 就准备提交」上栽过一次 —— db:check 的 C14 是红的，
+# 而 `pnpm verify` 是绿的，两件事在同一个提交里看起来都对。
+#
+# 这个 hook 把「提交前必须绿」从记忆变成机制。它**不替代** verify，
+# 只是保证 verify 在提交那一刻一定跑过。
+#
+# 安装：`pnpm install` 时由 package.json 的 `prepare` 脚本复制进 .git/hooks/
+#       （husky 的零依赖替代 —— 本仓没有也不需要那个依赖）。
+#       已装过的机器跑一次 `pnpm prepare` 即可。
+#
+# 跳过：`git commit --no-verify`（保留这个逃生口 —— 门禁卡住时
+#       要有办法绕，但绕的动作本身要留下痕迹）。
+
+cd "$(dirname "$0")/../.." || exit 1
+
+echo "pre-commit: 跑 pnpm verify …"
+if pnpm verify; then
+  exit 0
+fi
+
+cat <<'EOF'
+
+pre-commit 拒绝提交：pnpm verify 未通过。
+
+  · 先看输出里是哪一道红了，按提示修
+  · 修完重跑 pnpm verify 确认全绿，再提交
+  · 确实要绕过：git commit --no-verify（动作会留在 reflog 里）
+
+注意：verify 不含 db:check 与全组冒烟 —— 它们要库。
+      改了 seed / 迁移之后，额外跑一次：
+        MN_DB_CONFIRM=dev_matternest pnpm db:check
+
+EOF
+exit 1
