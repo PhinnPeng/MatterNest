@@ -250,6 +250,11 @@ await assertRichTextWhitelist();
 const { assertSmokeHygiene } = await import("./smoke-hygiene.mjs");
 await assertSmokeHygiene(failures);
 
+// 禁令⑨ 业务日不许写成 UTC 日切片（2026-10-15，MATT-79）
+// 与冒烟卫生同款：理由、误伤面、抓不到什么有几十行，放独立文件里。
+const { assertNoUtcDaySlice } = await import("./business-day.mjs");
+await assertNoUtcDaySlice(failures);
+
 if (loaded === 0) failures.push("A 一个 fixture 都没读到，整套断言都是假通过");
 
 if (failures.length > 0) {
@@ -260,5 +265,5 @@ if (failures.length > 0) {
 
 console.log(
   `lint-guard 通过：${SCOPES.length} 条禁令 × (违规按数被拦 / 合法不误伤 / 挂载点正确 / 覆盖不被顶掉 / 不溢出)，共 ${loaded} 个 fixture；` +
-    `另：源码断言「页头无第二行插槽」0 处 · 「富文本白名单」0 处越界 · 冒烟脚本卫生 0 处裸调用`,
+    `另：源码断言「页头无第二行插槽」0 处 · 「富文本白名单」0 处越界 · 冒烟脚本卫生 0 处裸调用 · 业务日 UTC 切片 0 处`,
 );

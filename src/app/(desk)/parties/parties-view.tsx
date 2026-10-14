@@ -31,6 +31,7 @@ import {
 } from "@/app/lib/client/api-parties";
 import { useListState } from "@/app/lib/client/use-list-state";
 import { fromNow } from "@/app/lib/client/format";
+import { businessDateKey } from "@/shared/time/zh-cn";
 import { FilterField, QueryFilter } from "@/app/components/query-filter";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { StateBlock } from "@/app/components/ui/state-block";
@@ -73,7 +74,8 @@ export function PartiesView() {
         }`,
       ),
     onSuccess: (r) => {
-      const stamp = new Date().toISOString().slice(0, 10);
+      // 文件名里的日期戳：**业务日**（上海），不是 UTC 日 —— 与导出按钮同一条纪律
+      const stamp = businessDateKey(new Date());
       downloadCsv(`当事人档案-${r.plain ? "明文" : "脱敏"}-${stamp}.csv`, r.csv);
       message.success(
         `已导出 ${r.count} 条${r.plain ? "（含明文证件号，已记 EXPORT 审计）" : "（证件号/手机号只留尾四位）"}${

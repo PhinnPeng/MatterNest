@@ -42,6 +42,7 @@ import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 import { hasMatterExpenses } from "./expenses";
 import type { Actor } from "../auth/auth";
 import { nextCode } from "./numbering";
+import { businessDateKey } from "@/shared/time/zh-cn";
 import { hostStatusRows, initialStatusCode } from "./statuses";
 import { logActivity } from "./activity";
 // 通知意图的两个生产点（MATT-41 / T4）：状态变更**同事务**落事件，新评论**只落 outbox**。
@@ -257,7 +258,22 @@ export async function createRiskMatter(
       description: input.description,
       measure: input.measure ?? null,
       amount: input.amount ?? "0",
-      discoverDate: input.discoverDate ?? new Date().toISOString().slice(0, 10),
+      /**
+       * 发现日期：留空按「今天」记。
+       *
+       * ⚠ **「今天」必须是上海日**（2026-10-15，MATT-79）。原写法是
+       * `new Date().toISOString().slice(0, 10)` —— 那是 **UTC 日**，于是上海时间
+       * 00:00–08:00 之间登记的事项会被记成**前一天**，而用户无从发现（他确实是
+       * 在那天登记的）。
+       *
+       * 这与案件侧的 `closing_date` 是**同一个错**（MATT-69，提交 `2c4806d`），
+       * 两处同形、同因、同一个 helper。`businessDateKey` 的注释里早已写明为什么
+       * 必须是上海日：「否则上海时间 0–8 点之间的那一批扫描会归到前一天，
+       * 而前一天的 key 已经被用过 ⇒ 那一批提醒被静默吞掉」。
+       *
+       * 界面行为不变：表单仍提示「留空按今天记」—— 变的是**「今天」怎么算**。
+       */
+      discoverDate: input.discoverDate ?? businessDateKey(new Date().toISOString()),
       status: initial,
       ownerId: owner,
       createdBy: BigInt(actor.userId),

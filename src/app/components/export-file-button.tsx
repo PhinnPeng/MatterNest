@@ -5,6 +5,7 @@ import { DownloadOutlined } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
 
 import { api, ApiFailure, downloadCsv, useActor, type HostFileExport } from "@/app/lib/client/api";
+import { businessDateKey } from "@/shared/time/zh-cn";
 
 /**
  * 整卷导出（US-42 两档）。
@@ -38,7 +39,10 @@ export function ExportFileButton({
     mutationFn: (plain: boolean) =>
       api.get<HostFileExport>(`/api/${base}/${hostId}/export${plain ? "?plain=1" : ""}`),
     onSuccess: (r) => {
-      const stamp = new Date().toISOString().slice(0, 10);
+      // 文件名里的日期戳：**业务日**（上海），不是 UTC 日。
+      // 上海时间 00:00–08:00 导出时，UTC 切片会写成前一天 ——
+      // 与 `closing_date` / `discover_date` 是同一个错（MATT-69 / MATT-79）。
+      const stamp = businessDateKey(new Date());
       downloadCsv(`${code}-整卷-${r.plain ? "明文" : "脱敏"}-${stamp}.csv`, r.csv);
       message.success(
         `已导出 ${r.rows} 行${r.truncated ? "（有区段超过 1000 行，只导出了前 1000 行）" : ""}`,
