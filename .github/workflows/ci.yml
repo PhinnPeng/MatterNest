@@ -70,9 +70,6 @@ jobs:
           pnpm db:migrate
           pnpm db:seed
 
-      - name: db:check
-        run: pnpm db:check
-
       - name: 起 dev server（后台）
         run: |
           pnpm dev > /tmp/next-dev.log 2>&1 &
@@ -88,6 +85,26 @@ jobs:
           echo "dev server 未能在 30s 内就绪"
           cat /tmp/next-dev.log
           exit 1
+
+      # ⚠ 顺序：**(起 server) → 等首轮心跳 → db:check → 冒烟**。
+      #
+      # 为什么 db:check 必须在 dev server **之后**：`src/instrumentation.ts`（MATT-74）落地后，
+      # C18 从 `info` 变成**硬断言**（要求心跳行有 15 分钟内的成功 pump）。把它放在 server
+      # 之前，那一刻 `created_at` 必然是 NULL ⇒ 它报「定时器从未运行」——**那个红是顺序错了，
+      # 不是缺陷**，而一条永远红的门禁等于没有门禁。
+      #
+      # 为什么用「等」而不是把 db:check 挪到冒烟之后：挪到之后等于让 C18 在 CI 里
+      # **不成立地绿**（没有任何东西保证定时器在那之前跑过）；而把 C18 降回 info 等于
+      # 把门禁关掉。显式地等一次，换来的是**这一步本身就是「定时器在 CI 里真的起来了」的断言**
+      # ——比 C18 更强：C18 只读一行数据，判不出那行是谁写的。
+      #
+      # 预算 180s 只覆盖「dev server 起来 + 首次编译」：定时器首轮是**立即执行**的
+      # （MATT-74 的 `job.trigger()`），不等第一个 5 分钟槽位。
+      - name: 等定时器的第一次心跳（MATT-74 前置件）
+        run: node tools/wait-heartbeat.mjs 180
+
+      - name: db:check（C18：从未运行 vs 已停摆，两种红分开报）
+        run: pnpm db:check
 
       - name: 全组冒烟（17 脚本 / 串行）
         run: pnpm smoke

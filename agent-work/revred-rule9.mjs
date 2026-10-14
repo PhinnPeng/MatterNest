@@ -45,7 +45,7 @@ import { spawnSync } from "node:child_process";
 const F_SHARED = "src/shared/notification/archive-reminder.ts";
 const F_SVC = "src/app/lib/server/services/archive-reminder.ts";
 const F_TEMPLATE = "src/shared/notification/template.ts";
-const F_ROUTE = "src/app/api/notifications/route.ts";
+const F_GATE = "src/app/lib/server/services/pump-gate.ts";
 const F_SEED = "src/app/lib/server/db/seed/0006_automation_rules.sql";
 const F_MIGRATION = "src/app/lib/server/db/migrations/0012_automation_rule.sql";
 
@@ -68,13 +68,21 @@ const MODES = {
     gate: "smoke",
     why: "扫描器没被轮询点调用（最危险的形态：代码都在、就是没人跑）",
     expectRed: ["满 14 天 → 落了一条"],
+    /**
+     * ⚠ 锚点 2026-10-14 从 `route.ts` **搬到** `pump-gate.ts`（MATT-74 前置件 4）：
+     * 读驱动原来那两行 `await pumpNotifications(); await scanArchiveIncomplete();`
+     * 收进了 `pumpAll()`，好让定时器与读驱动共用同一次进程内单飞。
+     * 摘掉规则 9 的调用这一招照样成立——只是落点从路由换到了那个合流处。
+     */
     anchors: [
       {
-        file: F_ROUTE,
+        file: F_GATE,
         tag: "no-wiring",
-        needle: `    await pumpNotifications();
-    await scanArchiveIncomplete();`,
-        replacement: `    await pumpNotifications();`,
+        needle: `  const { outbox, scan } = await pumpNotifications();
+  const archive = await scanArchiveIncomplete();
+  return { outbox, scan, archive };`,
+        replacement: `  // 反向红（no-wiring）：摘掉规则 9 的调用；cast 只为让注入版能编译
+  return (await pumpNotifications()) as PumpResult;`,
       },
     ],
   },

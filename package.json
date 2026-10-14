@@ -57,6 +57,7 @@
     "@mantine/hooks": "^9.7.2",
     "@tanstack/react-query": "^5.104.0",
     "antd": "^6.6.5",
+    "croner": "10.0.1",
     "dayjs": "^1.11.23",
     "drizzle-orm": "0.45.3",
     "next": "^16.3.6",
