@@ -526,11 +526,42 @@ try {
     JSON.stringify(unarchiveNoPriv.body),
   );
   ok("被跳过时它还是归档态", (await statusOf(idA)).is_archived === true);
-  const unarchivePriv = await batch(l1s.cookie, { action: "status", ids: [idA], to: "in_progress" });
+  /**
+   * ⚠ **2026-10-15（MATT-60）起这里必须带 reason**：撤销归档进了
+   * `REASON_REQUIRED_ACTIONS`（`audit.ts:179-184`），而那条恒必填在 MATT-60 之前
+   * **从未生效过**（写入侧不写 `UNARCHIVED`，且只按"偏离推荐路径"判）。
+   * 本脚本原来是不带 reason 调这一条的 —— 那正说明它一直在验证一个
+   * "恒必填其实没生效"的世界。修法不是把断言放宽，而是把动作补完整：
+   * 批量入口与单条入口走同一条 `changeStatus`，理由该有就得有。
+   */
+  const unarchivePriv = await batch(l1s.cookie, {
+    action: "status",
+    ids: [idA],
+    to: "in_progress",
+    reason: "冒烟：L1 持 can_unarchive 撤销归档",
+  });
   ok(
     "L1（持 can_unarchive）同一条请求 → 成功 1",
     summaryIs(unarchivePriv, 1, 0),
     JSON.stringify(unarchivePriv.body),
+  );
+  /**
+   * MATT-60 顺带钉住的新判据：**批量入口的撤销归档也要原因**。
+   *
+   * 为什么值得单独一条：本文件上面那条 `unarchiveNoPriv`（L3）断言的是
+   * `privilege_required` —— 而 L3 那一跳在**判定原因之前**就被特权挡下了
+   * （`can_unarchive` 在路由层判），所以它证明不了"恒必填在批量入口生效"。
+   * 只有"有特权、但没填原因"这一跳才撞得到那道判定。
+   */
+  const unarchiveNoReason = await batch(l1s.cookie, {
+    action: "status",
+    ids: [idB],
+    to: "in_progress",
+  });
+  ok(
+    "**批量撤销归档不填原因 → 跳过 reason_required**（恒必填在批量入口同样生效）",
+    summaryIs(unarchiveNoReason, 0, 1) && unarchiveNoReason.body.skipped[0].reason === "reason_required",
+    JSON.stringify(unarchiveNoReason.body),
   );
   const backA = await statusOf(idA);
   ok(

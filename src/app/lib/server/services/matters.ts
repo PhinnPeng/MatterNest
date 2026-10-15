@@ -496,20 +496,35 @@ export async function changeStatus(
   const target = rows.find((r) => r.code === to);
   if (!target) return { ok: false, why: "not_found" };
 
+  /**
+   * 两个"要不要填原因"的口径必须**分开判**（MATT-60）。
+   *
+   * · `needsChangeReason` 是**偏离推荐路径**那一条（修订稿 §3.3 第 3 条）：顺着
+   *   `next_status_codes` 走不要原因，跳过去才要。
+   * · `unarchiving`（撤销归档）是 `REASON_REQUIRED_ACTIONS` 里**恒必填**的四条之一
+   *   （`audit.ts:179-184`）。它在枚举里挂了名、有中文标签，**却从未生效过** ——
+   *   因为写入侧过去根本不写 `UNARCHIVED`（落的是 `STATUS_CHANGED`），
+   *   而这里又只按偏离判定 ⇒ 撤销归档若恰好顺着推荐路径走，就一个原因都不要。
+   *   一个需要特权、几乎不可逆的动作，审计里却查不出"谁撤的、为什么撤"，
+   *   这正是本票要补的空洞。
+   */
+  const archiving = target.semantics === "archived";
+  /** 撤销归档：当前**是**归档态、而目标不是归档语义 */
+  const unarchiving = cur.isArchived && !archiving;
   if (
-    needsChangeReason({
-      from: cur.status,
-      fromNextCodes: curRow?.nextStatusCodes ?? [],
-      to,
-      toSemantics: target.semantics,
-    }) &&
+    (unarchiving ||
+      needsChangeReason({
+        from: cur.status,
+        fromNextCodes: curRow?.nextStatusCodes ?? [],
+        to,
+        toSemantics: target.semantics,
+      })) &&
     !reason?.trim()
   )
     return { ok: false, why: "reason_required" };
 
   await db.transaction(async (tx) => {
     const now = new Date().toISOString();
-    const archiving = target.semantics === "archived";
     /**
      * `closing_date` 的自动写入。规则与它踩过的坑都写在 `resolveClosingDate` 的注释里——
      * 抽出去不是为了好看，是为了能拿一个具体的瞬时把它测住。
@@ -536,7 +551,14 @@ export async function changeStatus(
       .where(eq(matter.id, BigInt(id)));
     await logActivity(tx, actor, {
       matterId: BigInt(id),
-      action: archiving ? "ARCHIVED" : "STATUS_CHANGED",
+      /**
+       * MATT-60：撤销归档落 `UNARCHIVED`，不再是 `STATUS_CHANGED`。
+       *
+       * 三种动作名对应三种**不同后果**：`ARCHIVED` / `UNARCHIVED` 恒要原因且不可逆/需特权，
+       * `STATUS_CHANGED` 只是普通流转。混成两个的时候，审计链里"谁撤了归档"这个问题
+       * 是**不可回答**的 —— 按动作名筛不出来，只能对着 `diffs.status` 人工推断。
+       */
+      action: archiving ? "ARCHIVED" : unarchiving ? "UNARCHIVED" : "STATUS_CHANGED",
       targetType: "matter",
       targetId: BigInt(id),
       reason: reason ?? null,

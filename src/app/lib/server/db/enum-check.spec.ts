@@ -895,8 +895,15 @@ const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
     "等 **MATT-15**（MinIO 附件通道）。附件表与对象存储都还没接，上传动作产生前不可能有写入点；该票当前被外部凭据阻塞。",
   ATTACHMENT_DELETED:
     "同 `ATTACHMENT_UPLOADED`，等 **MATT-15**（MinIO 附件通道，外部凭据阻塞中）。",
-  UNARCHIVED:
-    '等 **MATT-60**。现状值得记一笔：撤销归档**是被走到的**——`can_unarchive` 列与 `requirePrivilege` 都在，只是它复用了通用状态迁移入口，而那个入口只写 `action: archiving ? "ARCHIVED" : "STATUS_CHANGED"`（`matters.ts` / `risks.ts`），于是「撤销归档」这件事在审计里被记成了 `STATUS_CHANGED`。MATT-60 拆出独立出口。',
+  // ⚠ `UNARCHIVED` 原在这里登记"等 MATT-60"，2026-10-15 随该票交付**整条删除**
+  //   （本门禁的规矩：已经有写入点的条目不许留着 —— 留着会让下一轮读者以为它还是缺口）。
+  //   写入点是 `changeStatus` 的三档动作名：
+  //   `archiving ? "ARCHIVED" : unarchiving ? "UNARCHIVED" : "STATUS_CHANGED"`，
+  //   `unarchiving = cur.isArchived && target.semantics !== "archived"`
+  //   （`matters.ts` / `risks.ts` 两处同改）。
+  //   顺带第一次让 `REASON_REQUIRED_ACTIONS` 里"原因恒必填"那条真的生效
+  //   （原先只按"偏离推荐路径"判，顺着推荐路径撤归档一个原因都不要）。
+  //   判据：`agent-work/smoke-unarchive.mjs` + `agent-work/revred-unarchive.mjs`。
   SENSITIVE_FIELD_READ:
     "**已作废，不是缺口** —— 本组 16 条里唯一一条「白名单本来就是对的」而非「欠一张票」的。裁定：IQ-12 / Q46′（2026-10-10）取消「显示明文」按钮与逐次读取审计，展示层改为全明文；明文外流改由 `EXPORT` 承接、并由 `can_read_plain` 把关。裁定原文写在 `src/shared/enums/audit.ts:14` 的文件头与枚举表 §3.3。本值按 §5.3 废弃流程**保留**在清单、CHECK 与中文名表里，**只为让历史行仍能反查**，不得再写入。它全仓仅有的两处出现都是**反面教材**：`crypto/field-crypto.ts:9` 与 `parties.spec.ts:361` 的注释都在说「别把这东西重新发明一遍」。⚠ 将来若有人正式推翻 IQ-12 恢复逐次审计，先删本条再写代码；在裁定被推翻之前，本条**不该**被当成待补缺口报出来。",
   // ⚠⚠ 原先这里有一条 `ACCESS_DENIED_WRITE`，2026-10-14 已**整条删除**，不再登记。

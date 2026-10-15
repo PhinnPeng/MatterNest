@@ -1083,6 +1083,9 @@ export async function changeRiskStatus(
   const [cur] = await db
     .select({
       status: riskMatter.status,
+      // MATT-60：`isArchived` 也读出来。`unarchiving` 的判定要看"当前是不是归档态"，
+      // 而它是**这条记录的属性**，不是目标状态能推断的（目标语义只能告诉你"要去哪"）。
+      isArchived: riskMatter.isArchived,
       ownerId: riskMatter.ownerId,
       conversionStatus: riskMatter.conversionStatus,
     })
@@ -1116,19 +1119,34 @@ export async function changeRiskStatus(
   const target = rows.find((r) => r.code === to);
   if (!target) return { ok: false, why: "not_found" };
 
+  /**
+   * MATT-60：两个"要不要填原因"的口径分开判（与 `services/matters.ts` 同形）。
+   *
+   * · `needsChangeReason` = 偏离推荐路径（§3.3 第 3 条）；
+   * · `unarchiving` = `REASON_REQUIRED_ACTIONS` 里**恒必填**的四条之一（`audit.ts:179-184`）。
+   *   它过去从未生效：写入侧不写 `UNARCHIVED`，这里又只按偏离判定 ⇒ 顺着推荐路径
+   *   撤归档（比如 `archived` 的 next 里就有目标）时一个原因都不要。
+   *
+   * ⚠ 括号是判据的一部分：`(A || B) && !reason`。写成 `A || B && !reason` 会因
+   *   `&&` 优先而变成"撤归档时**恒**报 reason_required"（给了原因也拒）——
+   *   那个形态在手工点一遍时看得见，在自动化里却像"撤销归档被禁用了"。
+   */
+  const archiving = target.semantics === "archived";
+  /** 撤销归档：当前**是**归档态、而目标不是归档语义 */
+  const unarchiving = cur.isArchived && !archiving;
   if (
-    needsChangeReason({
-      from: cur.status,
-      fromNextCodes: curRow?.nextStatusCodes ?? [],
-      to,
-      toSemantics: target.semantics,
-    }) &&
+    (unarchiving ||
+      needsChangeReason({
+        from: cur.status,
+        fromNextCodes: curRow?.nextStatusCodes ?? [],
+        to,
+        toSemantics: target.semantics,
+      })) &&
     !reason?.trim()
   )
     return { ok: false, why: "reason_required" };
 
   const now = new Date().toISOString();
-  const archiving = target.semantics === "archived";
   await db.transaction(async (tx) => {
     await tx
       .update(riskMatter)
@@ -1144,7 +1162,9 @@ export async function changeRiskStatus(
       riskMatterId: BigInt(id),
       targetType: "risk_matter",
       targetId: BigInt(id),
-      action: archiving ? "ARCHIVED" : "STATUS_CHANGED",
+      // MATT-60：撤销归档落 `UNARCHIVED`（原先落 `STATUS_CHANGED`，
+      // 于是"谁撤了归档"在审计链里按动作名根本筛不出来）
+      action: archiving ? "ARCHIVED" : unarchiving ? "UNARCHIVED" : "STATUS_CHANGED",
       reason: reason ?? null,
       diffs: { status: { from: cur.status, to } },
     });
