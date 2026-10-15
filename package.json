@@ -22,6 +22,7 @@
     "deploy:check": "node deploy/verify-deploy.mjs",
     "keys:gen": "node tools/keys.mjs gen",
     "keys:check": "node tools/keys.mjs check",
+    "board:drift": "node tools/board-drift.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node tools/migrate.mjs --migrate-only",
     "db:seed": "node tools/migrate.mjs --seed-only",
