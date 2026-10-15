@@ -91,8 +91,10 @@ export function provisionSql({ database, role, password, roleExists = false }) {
   //    （这条只有在真库上跑才暴露 —— 16 条离线判据全绿，因为它们只看 SQL 文本。）
   const stmt = (verb) => ({
     text:
+      // ⚠ `$1::text` / `$2::text` 不能省：format 是 VARIADIC "any"，
+      //   PG 无法为无类型标注的占位符推断 any 类型（报「无法确定参数类型 $1」）。
       `select format('${verb} role %I login password %L ` +
-      "nosuperuser nocreatedb nocreaterole', $1, $2) as stmt",
+      "nosuperuser nocreatedb nocreaterole', $1::text, $2::text) as stmt",
     params: [role, password],
     // true = 返回的 stmt 字段要**再执行一遍**（它才是真正的那条 DDL）
     exec: true,
@@ -193,7 +195,7 @@ if (isEntry) {
         );
       }
       const [{ n: existing }] = await boot.unsafe(
-        "select count(*)::int as n from pg_roles where rolname = $1",
+        "select count(*)::int as n from pg_roles where rolname = $1::text",
         [role],
       );
       for (const s of provisionSql({

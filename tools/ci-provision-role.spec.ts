@@ -110,6 +110,34 @@ describe("provisionSql：交出去的角色必须是非超级用户", () => {
    * 16 条离线判据当时全绿，因为它们只看 SQL 文本。**这正是「文本断言盖不住真库才暴露的
    * 语义错误」的一个实例**，所以现在加一条结构断言把形态钉住。
    */
+  /**
+   * 这是**同一个坑的第二半**，而两次的离线判据都是全绿的。
+   *
+   * · 第一半：`do $ … $1 … $` —— DO 块的体是函数体，$1 被 PL/pgSQL 当成**函数参数**，
+   *   而那个函数没有参数 ⇒ `could not determine data type of parameter $1`。
+   * · 第二半（本条）：`format('…', $1, $2)` —— `format` 的签名是
+   *   `format(text, VARIADIC "any")`，变长参数类型是 `any`，
+   *   而 PG **无法**为无类型标注的占位符推断 `any` ⇒ **同一个报错**。
+   *
+   * 两次都是：文本断言全绿、CI 真库上直接报错。所以这里断言的不只是「文本里有 ::text」，
+   * 而是**「每一条会发出去的 SQL 里，不存在没有类型标注的占位符」**。
+   */
+  it("**每条 SQL 里的占位符都带类型标注**（format 是 VARIADIC any，无标注必报「无法确定参数类型」）", () => {
+    const sts = provisionSql(args);
+    const bad = [];
+    for (const s of sts) {
+      // 去掉注释里的 $n 之后再找真正会发出去的占位符
+      const code = s.text.replace(/\$1|\$2/g, (m) => m);
+      for (const m of code.matchAll(/\$(\d+)(?!::)/g)) {
+        // 允许 $n 紧跟 ) 或 , 之外的一切 —— 这里只报「后面没跟 ::」的
+        bad.push(`${s.text.slice(0, 60)}… 的 ${m[1]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+    // 且至少要真的用到占位符 —— 否则这条断言会像「扫到 0 处 ⇒ 假绿」那样空转
+    expect(sts.some((s) => /\$\d+::text/.test(s.text))).toBe(true);
+  });
+
   it("**不得**再出现 DO 块（它的 $1 是函数参数引用，在真库上必报「无法确定参数类型」）", () => {
     expect(all()).not.toMatch(/\bdo\s+\$\$/i);
   });
