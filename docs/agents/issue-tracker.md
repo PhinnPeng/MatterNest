@@ -128,6 +128,27 @@ const idOf = async (n) => {
 - MATT-58 的 uuid 被误配到 MATT-36 ⇒ **误关了一张需人裁定的票**，还贴了一条关于 @提及的核对评论。回读响应时 `Task #36` 就在眼前，没看。
 - MATT-35 的 uuid 少打一个字符 ⇒ `add_task_comment` 报 `invalid task id`。这个反而是好事：uuid 写错会被服务端挡下，**编号写错不会**。
 
+## ⚠ 改状态用 `update_task({ statusId })`，**不要**用 `update_task_status`
+
+2026-10-15 实测（一次关 9 张票，全部没关成）：
+
+| 工具 | 回显 | 实际 |
+| --- | --- | --- |
+| `update_task_status({ projectId, taskId, statusId })` | `Task status updated successfully` + 完整状态块 | **状态没变** |
+| `update_task({ projectId, taskId, statusId })` | `Task updated successfully: Task #N: …` | 真的改了 |
+
+两边的回显都是「成功」，但只有后者落库。发现方式是**复取全量快照**（`list_tasks` 分状态翻页）时发现 `Backlog 29 / Todo 15 / Done 41` 与写入前逐字相同 —— 当时 `add_task_comment` 已经落了，只有状态没动。
+
+⇒ 这条比上面「核对回显里的 `Task #N`」更强：**回显里的 `Task #N` 只证明它找到了哪张票，不证明它改了任何东西**。凡是「批量写操作 + 回显成功」的组合，写完都要**重新读一次**：
+
+```js
+// 写完立刻回读，不信回显
+const t2 = await tools["paca-matternest"].get_task_by_number({ projectId, taskNumber: n });
+(/^\*\*Status:\*\*\s*(.+)$/m.exec(String(t2))?.[1] ?? "?").trim();   // 断言它真的是 Done
+```
+
+`delete_task_comment` 需要 `taskId` **和** `commentId` 两个参数，只给 `commentId` 会被服务端挡下。
+
 ## 在 `execute` 里拼长 Markdown
 
 代码是 JS，正文里几乎必有反引号。**用占位符，末尾统一还原**，这是唯一试过就一路没再出错的写法：
