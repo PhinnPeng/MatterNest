@@ -606,6 +606,68 @@ export async function changeStatus(
 }
 
 /**
+ * 软删案件（MATT-62 / F2-5）。
+ *
+ * ## 与事项侧的关系：**同一形状**，不是两套写法
+ *
+ * 规格件在 `services/risks.ts` 的 `deleteRiskMatter`（F1-5，早已结案）。本票补的是
+ * 案件侧那一半 —— 同一条链只做了一个方向，与 MATT-65 是同一类问题。
+ * 所以：软删（`is_deleted` + `deleted_at`）、不硬删（修订稿 §12.4：业务表只软删、
+ * FK 一律 RESTRICT）、**没有回收站界面**、`MATTER_DELETED` 审计与 `RISK_DELETED` 同形。
+ *
+ * ## 已归档的案件**允许**删除（票面第 5 条的裁定，写在这里而不是只写在票里）
+ *
+ * 归档是只读**终态**（§5.2），但它不是"不许删"：`ARCHIVED` 审计里那句"写明原因"
+ * 结清的是**材料缺项**，不是"这条记录从此不许动"。
+ * 若要求先撤归档再删，用户为了删一条陈年旧案得先去动它的归档态，于是留下一条
+ * `UNARCHIVED` 审计 + 一条 `MATTER_DELETED` —— **两件事合成一件噪音**，
+ * 而后者才是他真正想做的。撤销归档要 `can_unarchive`（权限草案 §2.1），
+ * 删除要的是归属（护栏 1），两件事的门也不该被绑在一起。
+ * 反向的理由也成立：归档态没有任何"删了会丢"的东西（材料缺项已记进
+ * `missing_at_archive`，撤销才需要它）。
+ *
+ * ## 不可见与不存在给同一个 404（元规则 3）
+ *
+ * `scopedWhere` 在这一步就查不到行 ⇒ `not_found`。**不给 403**：
+ * 403 等于告诉对方"这个 id 存在但轮不到你删"，那是案号枚举的确认信号。
+ */
+export async function deleteMatter(
+  actor: Actor,
+  id: string,
+): Promise<{ ok: true } | { ok: false; why: "not_found" | "forbidden" }> {
+  const db = await getDb();
+  const [cur] = await db
+    .select({ ownerId: matter.ownerId, isDeleted: matter.isDeleted })
+    .from(matter)
+    .where(scopedWhere("matter", actor, eq(matter.id, BigInt(id))))
+    .limit(1);
+  // 已软删的行也走这里：`scopedWhere` 不排已删行（列表排），所以二次删除会拿到行。
+  // 结论与"不存在"同形（404），不另给一个"已经删了"—— 那同样是探测面。
+  if (!cur) return { ok: false, why: "not_found" };
+  if (!ownsAttribution(actor, cur.ownerId)) return { ok: false, why: "forbidden" };
+
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(matter)
+      .set({
+        isDeleted: true,
+        deletedAt: now,
+        updatedBy: BigInt(actor.userId),
+        updatedAt: now,
+      })
+      .where(eq(matter.id, BigInt(id)));
+    await logActivity(tx, actor, {
+      matterId: BigInt(id),
+      targetType: "matter",
+      targetId: BigInt(id),
+      action: "MATTER_DELETED",
+    });
+  });
+  return { ok: true };
+}
+
+/**
  * 写一条案件进展（MATT-59）。
  *
  * ## 它修的是什么

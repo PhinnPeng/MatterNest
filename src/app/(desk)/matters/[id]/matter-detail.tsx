@@ -86,6 +86,25 @@ export function MatterDetail({ id }: { id: string }) {
     onError: (e) => message.error(e instanceof ApiFailure ? e.message : "移出失败"),
   });
 
+  /**
+   * 软删案件（MATT-62 / F2-5）。与事项详情页那颗按钮**同形**：
+   * 确认弹窗 + 同一句文案 + 归档态也给（服务层允许删已归档案件，
+   * 裁定写在 `deleteMatter` 的注释里：材料缺项已由 `ARCHIVED` 审计结清，
+   * 删除要的是归属，不该与 `can_unarchive` 绑在一起）。
+   *
+   * ⚠ 删除的是**案件主档**，它的节点/参与人/当事人/进展都还指向这一行
+   *   （FK 一律 RESTRICT，见修订稿 §12.4）⇒ 界面上这一行从列表消失、
+   *   详情页随之 404，而库里的关联行原样留着，与事项侧逐字同形。
+   */
+  const softDelete = useMutation({
+    mutationFn: () => api.del<{ ok: true }>(`/api/matters/${id}`),
+    onSuccess: () => {
+      message.success("已删除。库里仍保留，但界面上没有回收站。");
+      invalidate();
+    },
+    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "删除失败"),
+  });
+
   if (isPending) {
     return <Card size="small" loading style={{ maxWidth: 1180, margin: "0 auto" }} />;
   }
@@ -218,6 +237,20 @@ export function MatterDetail({ id }: { id: string }) {
           <Space size={8}>
             <ExportFileButton host="matter" hostId={m.id} code={m.internalCode} />
             <Button onClick={() => setStatusOpen(true)}>变更状态</Button>
+            {/* 删除（MATT-62 / F2-5）：文案与事项详情页逐字相同。
+                归档态**也摆** —— 与「转案件 / 变更经办人」那几个按钮不同，
+                删除不要求先撤归档（裁定见 deleteMatter 的注释）。 */}
+            <Popconfirm
+              title="删除这条案件？"
+              description="删除后不再出现在列表里；库里仍保留，但没有回收站。"
+              okText="删除"
+              cancelText="取消"
+              onConfirm={() => softDelete.mutate()}
+            >
+              <Button danger loading={softDelete.isPending}>
+                删除
+              </Button>
+            </Popconfirm>
           </Space>
         }
       />

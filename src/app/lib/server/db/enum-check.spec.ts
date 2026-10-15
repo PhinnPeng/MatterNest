@@ -879,8 +879,12 @@ const filesProducing = (action: string): string[] =>
  *   第二条"声明了、但谁也写不出来"的动作 —— 正是本门禁要抓的那种洞。
  */
 const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
-  MATTER_DELETED:
-    "等 **MATT-62**（删除案件端点）。不是「忘了留痕」：`src/app/api/matters/[id]/route.ts` 只有 `GET`，整条路径上**没有 DELETE handler**，所以那个动作还不存在。对照 `RISK_DELETED` 就有写入点（`risk-matters/[id]/route.ts` 的 DELETE 走通了）。",
+  // ⚠ `MATTER_DELETED` 原在这里登记"等 MATT-62"，2026-10-15 随该票交付**整条删除**
+  //   （规矩同上：有写入点的条目不许留着）。
+  //   写入点：`services/matters.ts` 的 `deleteMatter`（软删 `is_deleted` + `deleted_at`，
+  //   不硬删 —— 修订稿 §12.4，FK 一律 RESTRICT），审计与 `RISK_DELETED` 同形。
+  //   裁定：**已归档案件允许删除**（材料缺项已由 `ARCHIVED` 审计结清；
+  //   删除要的是归属，不该与 `can_unarchive` 绑在一起）。判据：`agent-work/smoke-delete.mjs`。
   NODE_DELETED:
     "节点只有新增与状态变更，`matters/[id]/nodes/[nodeId]/route.ts` 仅导出 `POST`。节点是归档判定（`pending_nodes`）与到期卡的输入，现行口径是取消而非删除，**暂无票**。⚠ MATT-62 的描述里确实提到了它，但在「顺带核对（只报告、不改）」那一节 —— 关掉那票**不会**给它写入点，所以不能拿 MATT-62 当它的落点承诺。",
   PROGRESS_UPDATED:
