@@ -883,10 +883,10 @@ const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
     "等 **MATT-62**（删除案件端点）。不是「忘了留痕」：`src/app/api/matters/[id]/route.ts` 只有 `GET`，整条路径上**没有 DELETE handler**，所以那个动作还不存在。对照 `RISK_DELETED` 就有写入点（`risk-matters/[id]/route.ts` 的 DELETE 走通了）。",
   NODE_DELETED:
     "节点只有新增与状态变更，`matters/[id]/nodes/[nodeId]/route.ts` 仅导出 `POST`。节点是归档判定（`pending_nodes`）与到期卡的输入，现行口径是取消而非删除，**暂无票**。⚠ MATT-62 的描述里确实提到了它，但在「顺带核对（只报告、不改）」那一节 —— 关掉那票**不会**给它写入点，所以不能拿 MATT-62 当它的落点承诺。",
-  PROGRESS_CREATED:
-    "等 **MATT-59**（进展端点）。⚠ 注意演示库里**已经有**一行 `'PROGRESS_CREATED'`（`db/seed/0003_demo.sql`）—— 那正是本门禁坚持只读 `.ts` 的理由：演示数据写进去过，不等于任何用户操作产生过它。",
-  PROGRESS_UPDATED: "同 `PROGRESS_CREATED`，等 **MATT-59** 的进展端点。",
-  PROGRESS_DELETED: "同 `PROGRESS_CREATED`，等 **MATT-59** 的进展端点。",
+  PROGRESS_UPDATED:
+    "**MATT-59 只交付了创建路径**（`services/matters.ts` 的 `addProgress`），进展的编辑与删除没有端点。⚠ 演示库里已经有 `PROGRESS_CREATED` 一行（`db/seed/0003_demo.sql`）—— 那正是本门禁坚持只读 `.ts` 的理由：演示数据写进去过，不等于任何用户操作产生过它。",
+  PROGRESS_DELETED:
+    "同 `PROGRESS_UPDATED`：MATT-59 给了创建，删除仍无端点。判定口径已定：**软删不算投入**（不刷新 `last_progress_at`），否则删一条进展就能让规则 4 以为有人刚处理过。",
   PARTY_DELETED:
     "`parties/[id]/route.ts` 只有 `GET` 与 `PATCH`。**删除当事人走合并**：同一条留痕是 `PARTY_MERGED`（`party-merge.ts`，载荷含「谁活下来、谁被并走」）。当事人是费用/进展的引用源，硬删与 FK RESTRICT 冲突，这条大概率**永远不会单独出现** —— 若将来真要物理删除，先在这里写明理由再删本条。⚠ 同上：MATT-62 只在「顺带核对（只报告、不改）」那节提到它，不构成落点承诺。",
   COMMENT_DELETED:

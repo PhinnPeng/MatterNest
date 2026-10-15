@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROGRESS_TYPES } from "@/shared/enums/business";
 import {
   CASE_TYPES,
   ID_TYPES,
@@ -311,9 +312,44 @@ export const loginSchema = z.object({
 export type LoginInput = z.input<typeof loginSchema>;
 
 /** 空串 → undefined：让"未填"与"填了空"在服务层走同一条路，避免两处各判一次 */
+
 export function pruneEmpty<T extends Record<string, unknown>>(o: T): T {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(o))
     out[k] = typeof v === "string" && v === "" ? undefined : v;
   return out as T;
 }
+
+/**
+ * 写一条案件进展（MATT-59）。
+ *
+ * ## 为什么这个文件里只补一个 schema
+ *
+ * 查证：`PROGRESS_TYPES` / `PROGRESS_TYPE_LABELS` 早在 `@/shared/enums/business`（E19），
+ * `matterProgress` 的 drizzle model 早在 `db/schema/hosts.ts:372`，`AUDIT_ACTIONS` 里有
+ * `PROGRESS_CREATED/UPDATED/DELETED`，`TARGET_TYPES` 里有 `matter_progress`，
+ * 库里 CHECK 与两个索引也齐 —— **五处都就位，只差一条能写进去的路**。
+ *
+ * 本文件一度又造了一份 `PROGRESS_TYPES`，那是纯重复（两份会漂），已删。
+ * 这里只留**载荷校验**：
+ *
+ * · `progressType` 直接用 E19 的值域（库里的 CHECK 是权威源，`progress.spec.ts`
+ *   把两边逐字比对，加值或改名漏了任何一处都当场红）
+ *
+ * · `progressDate` 收 ISO 日期串（`YYYY-MM-DD`）而不是瞬时 —— 它是 `date` 列，
+ *   传瞬时会被 Postgres 按会话时区截断，而这条日期是「进展发生在哪一天」的事实。
+ *   `2026/10/15` 这类格式也被拒：date 列会静默收下它，事后没人知道是哪一天。
+ *
+ * · `content` 不许为空 —— 空进展会让 `last_progress_at` 说谎：它前进了，
+ *   而「30 天无更新」（规则 4）的基准就是那一列。
+ */
+export const progressSchema = z.object({
+  progressType: z.enum(PROGRESS_TYPES),
+  content: z.string().trim().min(1, "进展内容不能为空").max(4000),
+  progressDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "进展日期必须是 YYYY-MM-DD"),
+  nextPlan: z.string().trim().max(2000).optional().or(z.literal("")),
+  nodeId: idField("节点").optional().or(z.literal("")),
+});
+
+/** 表单侧一律用 `z.input`（见本文件顶部约定） */
+export type ProgressInput = z.input<typeof progressSchema>;

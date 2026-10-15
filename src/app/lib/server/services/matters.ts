@@ -4,6 +4,7 @@ import { nextId } from "@/shared/ids/snowflake";
 import { listQuerySchema, SORTABLE_COLUMNS } from "@/shared/schema/list-query";
 import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
 import { needsChangeReason } from "@/shared/schema/status-transition";
+import { type ProgressInput } from "@/shared/schema/hosts";
 import { getDb } from "../db/client";
 import {
   activityLog,
@@ -580,6 +581,78 @@ export async function changeStatus(
     });
   });
   return { ok: true };
+}
+
+/**
+ * 写一条案件进展（MATT-59）。
+ *
+ * ## 它修的是什么
+ *
+ * `mn_matter_progress` 表、E19 值域、审计动作、`TARGET_TYPES` 全都齐，
+ * `getMatter` 也早就在读它 —— **只有写侧不存在**。于是 `last_progress_at`
+ * 只在 `createMatter` 落过一次初值（本文件 :347），之后永不再前进。
+ * 而修订稿 §6.4 的规则 4 判定是 `now - last_progress_at > 30d`，
+ * 基准不动 ⇒ 这条提醒永远按「建案那天」算。
+ *
+ * ## 为什么 `last_progress_at` 必须与进展**同一事务**
+ *
+ * 分开提交会留下一个可被观察到的中间态：进展在、基准没走。
+ * 这一列是规则 4 的全部基准，所以它一分为二，提醒就有两套真相。
+ *
+ * ## 软删不算投入
+ *
+ * 本函数不提供删除路径（进展的删除另有归属），但**判定口径**在这里定死：
+ * 软删不刷新 `last_progress_at`。否则删一条进展就能让规则 4 以为有人刚处理过，
+ * 「30 天无更新」会被一条删除动作无限期推迟。与撤销归档那三条同口径。
+ */
+export async function addProgress(actor: Actor, matterId: string, input: ProgressInput) {
+  const db = await getDb();
+  // 与全仓同一个口径：先按范围谓词确认可见，不可见一律 null（路由层翻成 404）。
+  // 注意这是**读**，不是写 —— 真正的写在下面的事务里，事务内只认上面已确认的 id。
+  const [visible] = await db
+    .select({ id: matter.id })
+    .from(matter)
+    .where(scopedWhere("matter", actor, eq(matter.id, BigInt(matterId))))
+    .limit(1);
+  if (!visible) return null;
+
+  const id = BigInt(nextId());
+  await db.transaction(async (tx) => {
+    await tx.insert(matterProgress).values({
+      id,
+      matterId: BigInt(matterId),
+      nodeId: input.nodeId ? BigInt(input.nodeId) : null,
+      progressType: input.progressType,
+      content: input.content,
+      // `date` 列：进展发生日。用**业务日**解释 —— 与全仓同一个口径，
+      // 否则「上海凌晨 0–8 点记的进展」会被算到前一天去。
+      progressDate: businessDateKey(new Date(`${input.progressDate}T00:00:00+08:00`)),
+      nextPlan: input.nextPlan ? input.nextPlan : null,
+      authorId: BigInt(actor.userId),
+      createdBy: BigInt(actor.userId),
+      updatedBy: BigInt(actor.userId),
+    });
+    await logActivity(tx, actor, {
+      matterId: BigInt(matterId),
+      action: "PROGRESS_CREATED",
+      targetType: "matter_progress",
+      targetId: id,
+    });
+    /**
+     * 规则 4 的基准：与进展**同一事务**刷新（见函数头）。
+     *
+     * `updatedBy` 一起更新 —— 这一列是「谁最后动过这条记录」，
+     * 而进展改变了它。少了它，详情页会显示一个没碰过此案的人。
+     */
+    await tx
+      .update(matter)
+      .set({
+        lastProgressAt: new Date().toISOString(),
+        updatedBy: BigInt(actor.userId),
+      })
+      .where(eq(matter.id, BigInt(matterId)));
+  });
+  return { id: String(id) };
 }
 
 export async function addComment(
