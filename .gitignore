@@ -42,6 +42,9 @@ agent-work/*
 !agent-work/probe-*.mjs
 !agent-work/verify-*.mjs
 !agent-work/_testacct.mjs
+# 冒烟脚本的**进程契约**测试（2026-10-15，MATT-88）。与 revred-*.mjs 同一类：
+# 都是「靠人记记不住」的证据，而 agent-work 是白名单制入库，所以要显式放行。
+!agent-work/*.spec.ts
 .mcp.json
 opencode.json
 .opencode/

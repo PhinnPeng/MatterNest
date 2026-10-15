@@ -39,8 +39,35 @@ import {
  * 抄错的那一份会让两边**看起来都对**。
  */
 const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3777";
+
+/**
+ * 本企业名（IQ-7 防呆）：从 env 读，不写死 —— 部署事实，脚本里写死会在别的环境变成假断言。
+ *
+ * ⚠ 这里**不许** `?? ""`（2026-10-15，MATT-88）。原先那么写，于是变量缺失时
+ * `OWN_COMPANY` 是空串 —— 而它下面第 481 行的夹具 `{ 对方当事人: OWN_COMPANY }`
+ * 正是 IQ-7「我方永不入当事人表」那条防呆用例的输入。
+ * 结果那条断言变成在测「对方当事人为空」，红或绿取决于数据，而不取决于配置对不对。
+ *
+ * 2026-10-15 CI 上就是这么红的：`17 脚本 · 失败 8 · 断言 443 通过 / 21 失败`，
+ * 而根因只是少注入一个环境变量 —— **一个部署事实的缺失，伪装成了一堆断言失败**。
+ *
+ * 缺了就当场停，且**一条断言都不许先跑出来**（见 `smoke-import.spec.ts`）。
+ * 守卫写在读变量的地方、探库之前 —— 与 `smoke-parties.mjs` 同一形状，
+ * 且这样它在没有库的环境里也照样生效（本仓的单测从不依赖一个活着的数据库）。
+ */
+const ownNames = (process.env.MN_OWN_COMPANY_NAMES ?? "")
+  .split(/[,，]/)
+  .map((s) => s.trim())
+  .filter(Boolean);
+if (ownNames.length === 0) {
+  console.error(
+    "缺 MN_OWN_COMPANY_NAMES：本企业名防呆（IQ-7）要知道本企业叫什么，猜不出来。\n" +
+      "在 .env 里写：MN_OWN_COMPANY_NAMES=某某集团有限公司（多个别名用逗号分隔）",
+  );
+  process.exit(3); // 3 = 环境不对（2 已专留给「清场失败」，见 _testacct.mjs）
+}
 /** 本企业名（IQ-7 防呆）：从 env 读，不写死 —— 部署事实，脚本里写死会在别的环境变成假断言 */
-const OWN_COMPANY = (process.env.MN_OWN_COMPANY_NAMES ?? "").split(",")[0]?.trim() ?? "";
+const OWN_COMPANY = ownNames[0];
 
 let pass = 0;
 let fail = 0;
