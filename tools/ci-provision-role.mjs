@@ -124,27 +124,34 @@ export const APP_ROLE_MUST = {
   canCreateInPublic: true,
 };
 
-const checkSql = `
+/**
+ * 复核查询。
+ *
+ * ⚠ 别名**必须**与 APP_ROLE_MUST 的键**逐字一致** —— 曾经写成 `owns_db` / `can_create_public`，
+ *   而常量里是 `ownsDatabase` / `canCreateInPublic`，于是查出来全是 `undefined`。
+ *   分权**其实成功了**（日志里自有库=true public 可建=true），却因为这层命名不一致报红。
+ *
+ *   这就是这一层存在的理由：它宁可红，也不肯在「查出来的不是它要验的东西」时放行。
+ *   而代价是别名必须与常量对齐 —— 所以下面那条测试就是钉这个。
+ */
+export const checkSql = `
   select current_user as usr,
          current_database() as db,
          (select rolsuper from pg_roles where rolname = current_user) as rolsuper,
          (select rolcreatedb from pg_roles where rolname = current_user) as rolcreatedb,
          (select rolcreaterole from pg_roles where rolname = current_user) as rolcreaterole,
          (select pg_get_userbyid(datdba) = current_user from pg_database
-           where datname = current_database()) as owns_db,
-         has_schema_privilege(current_user, 'public', 'CREATE') as can_create_public`;
+           where datname = current_database()) as "ownsDatabase",
+         has_schema_privilege(current_user, 'public', 'CREATE') as "canCreateInPublic"`;
 
-function report(actual) {
-  const bad = Object.entries(APP_ROLE_MUST)
-    .filter(([k, want]) => {
-      const got = k === "ownsDatabase" ? actual.owns_db : actual[k];
-      return got !== want;
-    })
-    .map(([k, want]) => {
-      const got = k === "ownsDatabase" ? actual.owns_db : actual[k];
-      return `  ${k}: 期望 ${want}，实到 ${got}`;
-    });
-  return bad;
+export function report(actual) {
+  return Object.entries(APP_ROLE_MUST)
+    .filter(([k, want]) => actual[k] !== want)
+    .map(
+      ([k, want]) =>
+        // 显式说清「查到了吗」：undefined 与 false 是两回事，前者是查错了列
+        `  ${k}: 期望 ${want}，实到 ${actual[k] ?? "(查不到这一列)"}`,
+    );
 }
 
 /* ── 入口 ──────────────────────────────────────────────────────────────── */
@@ -228,7 +235,7 @@ if (isEntry) {
     console.log(
       `复核（以 ${actual.usr} 连接）：rolsuper=${actual.rolsuper} ` +
         `rolcreatedb=${actual.rolcreatedb} rolcreaterole=${actual.rolcreaterole} ` +
-        `自有库=${actual.owns_db} public 可建=${actual.can_create_public}`,
+        `自有库=${actual.ownsDatabase} public 可建=${actual.canCreateInPublic}`,
     );
     if (bad.length) {
       console.error("[FAIL] 应用角色的性质不符合要求：");

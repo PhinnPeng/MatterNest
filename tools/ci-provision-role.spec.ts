@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { APP_ROLE_MUST, DEFAULT_ROLE, provisionSql, quoteIdent } from "./ci-provision-role.mjs";
+import {
+  APP_ROLE_MUST,
+  DEFAULT_ROLE,
+  checkSql,
+  provisionSql,
+  quoteIdent,
+  report,
+} from "./ci-provision-role.mjs";
 
 /**
  * CI 角色分权（MATT-87）的离线判据。
@@ -151,6 +158,59 @@ describe("provisionSql：交出去的角色必须是非超级用户", () => {
     for (const s of sts.filter((x) => /alter (database|schema)/.test(x.text))) {
       expect(s.exec).toBeUndefined();
     }
+  });
+});
+
+/** 一次完全合规的复核结果 —— 三条用例共用它，避免各写一遍又写歪。 */
+const ok = {
+  usr: "mn_app",
+  db: "dev_matternest",
+  rolsuper: false,
+  rolcreatedb: false,
+  rolcreaterole: false,
+  ownsDatabase: true,
+  canCreateInPublic: true,
+};
+
+describe("复核那一层：别名必须与 APP_ROLE_MUST 逐字对齐", () => {
+  /**
+   * 这层复核在 CI 上真的救过一次场，但**红的原因不是分权失败** ——
+   * 分权成功了（日志：自有库=true public 可建=true），红在
+   * `APP_ROLE_MUST` 的键是 `canCreateInPublic` 而 SQL 别名是 `can_create_public`，
+   * 于是查出来是 `undefined`，与 `true` 不等 ⇒ 报红。
+   *
+   * 也就是说：**分权对的，被一层命名不一致判成失败。**
+   * 好的一面是它没有放行 ——「查到的不是我要验的东西」时红，比绿安全。
+   * 这一组用例钉的就是那层命名。
+   */
+  it("checkSql 的每个别名都出现在 APP_ROLE_MUST 里（不多不少）", () => {
+    const aliases = [...checkSql.matchAll(/\bas\s+"?([A-Za-z_][A-Za-z0-9_]*)"?/g)].map((m) => m[1]);
+    // usr / db 是给人看的，不参与判定
+    const judged = aliases.filter((a) => a !== "usr" && a !== "db");
+    expect([...judged].sort()).toEqual(Object.keys(APP_ROLE_MUST).sort());
+  });
+
+  it("全部性质都满足 ⇒ report 返回空（不许因为「查不到列」而报红）", () => {
+    expect(report(ok)).toEqual([]);
+    // 且 ok 的每个键都必须真的被 APP_ROLE_MUST 要求着 —— 否则这条是空转
+    for (const k of Object.keys(ok)) {
+      if (k === "usr" || k === "db") continue;
+      expect(Object.keys(APP_ROLE_MUST)).toContain(k);
+    }
+  });
+
+  /** 真的不满足 ⇒ 必须点名，且**区分「false」与「查不到这一列」** */
+  it("性质不符 ⇒ 点名该项；查不到的列**不许**被读成 false", () => {
+    expect(report({ ...ok, rolsuper: true }).join()).toContain("rolsuper");
+    expect(report({ ...ok, canCreateInPublic: false }).join()).toContain("canCreateInPublic");
+
+    // 这一条是刚踩过的坑：别名对不上 ⇒ 查出来是 undefined
+    const misnamed = { ...ok };
+    delete misnamed.canCreateInPublic;
+    const msgs = report(misnamed).join();
+    expect(msgs).toContain("canCreateInPublic");
+    expect(msgs).toContain("查不到这一列");
+    expect(msgs).not.toContain("实到 false");
   });
 });
 
