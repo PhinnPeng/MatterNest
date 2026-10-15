@@ -16,6 +16,10 @@ import {
   matterParty,
   matterProgress,
   party,
+  // 事项侧的表（MATT-65：案件反查来源事项）。此前本文件不碰它们 ——
+  // 那是因为案件侧根本没有"来源"这个概念，见 `sourcesOfMatter` 的注释。
+  riskMatter,
+  riskMatterCase,
   statusConfig,
   tag,
 } from "../db/schema";
@@ -156,6 +160,18 @@ function appUserName() {
 
 export async function getMatter(actor: Actor, id: string) {
   const db = await getDb();
+  /**
+   * 来源事项：**一次取完可见集与总数**（MATT-65）。
+   *
+   * 在函数头部而不是详情 DTO 里取：DTO 那个对象已经很大，而这两个数必须
+   * 成对出现（`sourceRisksHidden = 总数 - 可见数`）—— 分两处算的话，
+   * "只看一个"的调用方迟早出现，而它拿到的那个数单独没有任何意义。
+   */
+  const sourceRisks = await (async () => {
+    const visible = await sourcesOfMatter(actor, id);
+    const total = await sourceRiskCount(id);
+    return { sourceRisks: visible, sourceRisksHidden: total - visible.length };
+  })();
   const [row] = await db
     .select()
     .from(matter)
@@ -283,7 +299,122 @@ export async function getMatter(actor: Actor, id: string) {
      * 不是只在归档那一刻才算。判不出来（案件刚被删）时给 null，前端整块不渲染。
      */
     archiveReadiness: await judgeArchiveReadiness(db, id),
+    /**
+     * 来源事项（MATT-65 / F2-22）：这个案件是从哪些事项转来的。
+     *
+     * 与事项详情页那张「已转案件」卡**互为镜像**（`risks.ts:996-1009`）。
+     * 不可见的来源**不进来**（`sourcesOfMatter` 带范围谓词）⇒ 前端据此区分
+     * "没有来源"与"有来源但你看不见"，后者渲染占位而不是空块。
+     */
+    ...sourceRisks,
   };
+}
+
+/**
+ * 关联行的**总数**（不带范围谓词）—— 只用于算 `sourceRisksHidden`：
+ * 被谓词挡掉几条。它自己不是给界面看的数据。
+ *
+ * 单独一个函数而不是在 `sourcesOfMatter` 里返第二个值：那个函数已经被
+ * "逐条过谓词"占满，再把两个语义塞进一个返回值里，调用方迟早只用一个。
+ */
+async function sourceRiskCount(matterId: string): Promise<number> {
+  const db = await getDb();
+  const [row] = await db
+    .select({ n: dcount() })
+    .from(riskMatterCase)
+    .where(eq(riskMatterCase.matterId, BigInt(matterId)));
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * 案件侧反查来源事项（MATT-65 / F2-22）。
+ *
+ * ## 它补的是「同一条链只做了一个方向」
+ *
+ * `riskMatterCase`（关联表）全仓只被 `services/risks.ts` 用，四处：写关联、撤销、计数、
+ * 事项侧反查（`risks.ts:996-1009`，详情页那张「已转案件」卡）。于是 **F1-19**
+ * （事项侧看关联案件）早已实现，而 **F2-22**（案件侧看来源事项）的反查根本不存在 ——
+ * 案件详情页没有来源卡片，`spec-slice1` Problem Statement 第 2 条说的事
+ * （「关联一断，案件就找不到源头」）在案件这一侧原样成立。
+ *
+ * ## 与事项侧那一份的关系：**互为镜像**，不是两套写法
+ *
+ * 形状逐字照 `risks.ts:996-1009`：`risk_matter_case` inner join `mn_risk_matter`，
+ * 按 `matter_id` 反查。**但补上了一处事项侧没有的东西**（见下一段）。
+ *
+ * ## ⚠ 本函数带范围谓词，事项侧那一份没有（这是**修缺口**，不是抄错）
+ *
+ * 事项侧反查是 `join … where riskMatterId = id`，**不带** `scopedWhere` ⇒
+ * 「事项看得见、关联的案件有一条你其实看不见」时，那条案件仍然会被列出来。
+ * 本函数不继承这个缺陷：来源事项逐个过 `scopedWhere("risk_matter", …)`，
+ * 不可见的**整条不返回**，由调用方渲染成占位（用户故事 24 的原话：
+ * 「占位文档要说清『那里还有东西只是你看不到』」）。
+ *
+ * 为什么值得在这里修而不是另开一票：占位（AC 第 3、5 条）与"不泄露任何字段"
+ * （AC 第 5 条）是**同一处代码的两面** —— 少了谓词，占位就永远渲染不出来
+ * （因为那条事项已经被列出来了），而"卡上带跳转链接、点进去 404"那条
+ * 更会变成一句空话。详见 `smoke-sources.mjs` 的两条成对断言。
+ *
+ * ## 软删的来源事项
+ *
+ * `scopedWhere` 不排软删行（列表排，见 `visibility.ts`），而这里**刻意不额外排**：
+ * 关联行还在，说明这条案件确实从那个事项转来 —— 那是**事实**，不是"还在办的活"。
+ * 事项侧反查对软删的已转案件也是这个口径（它同样不排 `is_deleted`），两侧一致。
+ */
+export async function sourcesOfMatter(actor: Actor, matterId: string) {
+  const db = await getDb();
+  // 关联行：这个案件是从哪些事项转来的（转换时 `convertToCase` 逐条写）
+  const links = await db
+    .select({ riskMatterId: riskMatterCase.riskMatterId })
+    .from(riskMatterCase)
+    .where(eq(riskMatterCase.matterId, BigInt(matterId)))
+    .orderBy(asc(riskMatterCase.id));
+  if (links.length === 0) return [];
+
+  // 逐个过范围谓词：**不可见的来源事项不返回**（由前端渲染占位）。
+  // 逐条查而不是 `inArray` 一次查完：`scopedWhere` 是多态谓词（按宿主走不同的
+  // 可见性规则），塞进 `inArray` 会让它退化成一个 `id IN (…)`，可见性就没了。
+  const rows: {
+    id: string;
+    code: string;
+    name: string;
+    type: string;
+    level: string;
+    status: string;
+    isArchived: boolean;
+  }[] = [];
+  for (const l of links) {
+    const [row] = await db
+      .select({
+        id: riskMatter.id,
+        code: riskMatter.code,
+        name: riskMatter.name,
+        type: riskMatter.type,
+        level: riskMatter.level,
+        status: riskMatter.status,
+        isArchived: riskMatter.isArchived,
+      })
+      .from(riskMatter)
+      .where(
+        and(
+          scopedWhere("risk_matter", actor, eq(riskMatter.id, l.riskMatterId)),
+          sql`NOT ${riskMatter.isDeleted}`,
+        ),
+      )
+      .limit(1);
+    if (row) {
+      rows.push({
+        id: String(row.id),
+        code: row.code,
+        name: row.name,
+        type: row.type,
+        level: row.level,
+        status: row.status,
+        isArchived: row.isArchived,
+      });
+    }
+  }
+  return rows;
 }
 
 /** 建案：编号在这里生成，与业务写、活动日志同事务（§12.3 + §7.3） */

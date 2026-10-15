@@ -289,6 +289,27 @@ export type MatterDetail = {
     unavailable: ("judgment" | "closingDate" | "openNodes")[];
     ready: boolean;
   } | null;
+  /**
+   * 来源事项（MATT-65 / F2-22）：本案件从哪些风险事项转来。**与 `RiskDetail.convertedCases`
+   * 互为镜像**（那边是事项反查案件，这边是案件反查事项）。
+   *
+   * ⚠ 空数组有两种含义，前端必须分开画：真的没有来源（从未转过）vs
+   * **有来源但当前用户看不见**（服务层按范围谓词过滤掉了）。后者的形态是
+   * 「卡上只有一条占位」，且响应体里**不含**那条事项的任何字段 ——
+   * 占位不能变成越权入口（AC 第 5 条）。当前用 `sourceRisksHidden`
+   * 把这两种空区分开（服务层算，前端不猜）。
+   */
+  sourceRisks: {
+    id: string;
+    code: string;
+    name: string;
+    type: string;
+    level: string;
+    status: string;
+    isArchived: boolean;
+  }[];
+  /** 有关联行、但按范围谓词看不见的来源事项条数（> 0 ⇒ 前端画占位） */
+  sourceRisksHidden: number;
 };
 
 /**

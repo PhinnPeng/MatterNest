@@ -377,6 +377,64 @@ export function MatterDetail({ id }: { id: string }) {
                   >
                     {m.description?.trim() ? m.description : "没有填写基本情况。"}
                   </Typography.Paragraph>
+
+                  {/*
+                    来源风险卡片（MATT-65 / F2-22）—— 与事项详情页那张「已转案件」卡
+                    **互为镜像**（那边是事项反查案件，这边是案件反查事项）。
+
+                    三种状态分开画，不能合并：
+                      ① 有可见来源 ⇒ 列表，每行带跳转；
+                      ② 有来源但一条都看不见（`sourceRisksHidden > 0` 且列表空）⇒ **占位**，
+                         文案说清"那里还有东西只是你看不到"（用户故事 24 的原话）；
+                      ③ 真的没有来源 ⇒ 空态，且文案与②不同 ——
+                         把"你看不见"画成"没有来源"会让人以为这条案件建错了地方。
+
+                    ⚠ 占位行**不带任何跳转**：那条事项的 id 不在响应体里
+                    （服务层按范围谓词过滤掉了），给了链接点进去也是 404 ——
+                    那不是"礼貌的占位"，是把越权入口摆在界面上。
+                  */}
+                  {m.sourceRisks.length > 0 || m.sourceRisksHidden > 0 ? (
+                    <Card
+                      size="small"
+                      title={`来源风险 (${m.sourceRisks.length})`}
+                      style={{ marginTop: 12 }}
+                    >
+                      {m.sourceRisks.length > 0 ? (
+                        <List
+                          size="small"
+                          dataSource={m.sourceRisks}
+                          renderItem={(s) => (
+                            <List.Item
+                              actions={[
+                                <Link key="go" href={`/risk-matters/${s.id}`}>
+                                  <Button type="link" size="small" style={{ padding: 0 }}>
+                                    查看
+                                  </Button>
+                                </Link>,
+                              ]}
+                            >
+                              <Space size={6}>
+                                <Tag style={{ marginInlineEnd: 0 }}>{s.code}</Tag>
+                                <span style={{ fontSize: 13 }}>{s.name}</span>
+                                <span style={{ fontSize: 12, color: INK.muted }}>
+                                  {meta?.enums.riskTypes?.[s.type] ?? s.type}
+                                </span>
+                                {s.isArchived ? (
+                                  <span style={{ fontSize: 12, color: INK.faint }}>（已归档）</span>
+                                ) : null}
+                              </Space>
+                            </List.Item>
+                          )}
+                        />
+                      ) : null}
+                      {m.sourceRisks.length === 0 && m.sourceRisksHidden > 0 ? (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          这条案件有 {m.sourceRisksHidden} 条来源风险，但它们不在你的数据范围内，
+                          因此不显示名称与编号。
+                        </Typography.Text>
+                      ) : null}
+                    </Card>
+                  ) : null}
                 </>
               ),
             },
