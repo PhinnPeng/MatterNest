@@ -44,8 +44,14 @@ try {
   process.loadEnvFile();
 } catch (e) {
   if (e.code !== "ENOENT") throw e;
-  console.error("找不到 .env。先执行：cp .env.example .env 并填入 PGPASSWORD。");
-  process.exit(1);
+  // ⚠ 没有 `.env` **不是**错误（2026-10-15，与 migrate / db-check 统一口径）：
+  // CI 里值由 workflow 的 env 块注入。此前此处 `exit(1)` 并叫人 `cp .env.example`，
+  // 那条指引对 CI 是错的 —— 它会让「等首轮心跳」这一步死在开发机上才有的前提上。
+  if (!process.env.PGHOST || !process.env.PGDATABASE) {
+    console.error("找不到 .env，且环境变量里也没有 PGHOST / PGDATABASE。");
+    console.error("本地开发请先：cp .env.example .env 并填入 PGPASSWORD。");
+    process.exit(1);
+  }
 }
 
 const pg = {

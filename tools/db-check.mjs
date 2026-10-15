@@ -60,9 +60,15 @@ try {
   process.loadEnvFile();
 } catch (e) {
   if (e.code !== "ENOENT") throw e;
-  console.error("找不到 .env。先执行：cp .env.example .env 并填入 PGPASSWORD。");
-  console.error("（.env 已在 .gitignore 内，禁止提交；本脚本不落盘、不打印密码）");
-  process.exit(1);
+  // ⚠ 没有 `.env` **不是**错误（2026-10-15，与 migrate / wait-heartbeat 统一口径）：
+  // CI 与容器的值由环境注入、不经文件。只有「既无文件、环境变量里也没有库配置」
+  // 才是真的没配 —— 那时才给本地指引，不该让 CI 死在一条开发指引上。
+  if (!process.env.PGHOST || !process.env.PGDATABASE) {
+    console.error("找不到 .env，且环境变量里也没有 PGHOST / PGDATABASE。");
+    console.error("本地开发请先：cp .env.example .env 并填入 PGPASSWORD。");
+    console.error("（.env 已在 .gitignore 内，禁止提交；本脚本不落盘、不打印密码）");
+    process.exit(1);
+  }
 }
 
 const pg = {

@@ -25,7 +25,29 @@ const LOCK_KEY = "matternest:migrator";
 const MIGRATIONS = "src/app/lib/server/db/migrations";
 const SEEDS = "src/app/lib/server/db/seed";
 
-process.loadEnvFile();
+/**
+ * 读 `.env`（不引 dotenv：Node 22 自带 `loadEnvFile`，见 engines 钉版本）。
+ *
+ * ⚠ **没有 `.env` 不是错误**（2026-10-15，CI 首跑抓到的）：
+ * 裸的 `process.loadEnvFile()` 在文件不存在时**抛 ENOENT**，而 CI 里 `.env`
+ * 被 `.gitignore` 排除、值由 workflow 的 env 块注入 ⇒ 迁移那一步当场炸，
+ * 报的是 `ENOENT: open '.env'` —— 一个与真因毫无关系的错。
+ *
+ * 缺 `.env` 之后**不要立刻退出**：只有「既没有文件、环境变量里也没有库配置」
+ * 才是真的没配，那时才给本地指引。CI 与容器走的是环境变量那条路，
+ * 它们**不该**被一个本地开发指引拦住。
+ */
+try {
+  process.loadEnvFile();
+} catch (e) {
+  if (e.code !== "ENOENT") throw e;
+  if (!process.env.PGHOST || !process.env.PGDATABASE) {
+    console.error("找不到 .env，且环境变量里也没有 PGHOST / PGDATABASE。");
+    console.error("本地开发请先：cp .env.example .env 并填入 PGPASSWORD。");
+    console.error("（.env 已在 .gitignore 内，禁止提交；本脚本不落盘、不打印密码）");
+    process.exit(1);
+  }
+}
 const mode = process.argv.includes("--seed-only")
   ? "seed"
   : process.argv.includes("--migrate-only")
