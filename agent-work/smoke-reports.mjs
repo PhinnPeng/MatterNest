@@ -396,8 +396,7 @@ function bucketOf({ days, remind, confirmed = true, status = "in_progress" }) {
   if (status !== "not_started" && status !== "in_progress") return null;
   if (days === null) return null;
   if (days < 0) return "overdue";
-  const win = remind.length ? Math.max(...remind) : 7;
-  return days < win ? "soon" : "later";
+  return days < windowOf({ remind }) ? "soon" : "later";
 }
 
 /**
@@ -427,7 +426,7 @@ async function insertMatterNode(matterId, fx) {
       (${id}, ${matterId}, ${nt.id}, ${`报表冒烟 到期节点 ${stamp}-${nodeSeq}`}, 'point',
        ${at(days)}, null, ${confirmed}, ${arr(remind)}::int[], ${status}, 'manual',
        0, now(), now(), false)`;
-  const entry = { kind: "matter", host, bucket: bucketOf(fx) };
+  const entry = { kind: "matter", host, bucket: bucketOf(fx), days, remind };
   nodeFixtures.push(entry);
   return entry;
 }
@@ -446,7 +445,7 @@ async function insertRiskNode(riskMatterId, fx) {
       (${id}, ${riskMatterId}, ${nt.id}, ${`报表冒烟 到期事项节点 ${stamp}`}, 'point',
        ${at(days)}, null, true, ${arr(remind)}::int[], 'in_progress', 'manual',
        0, now(), now(), false)`;
-  const entry = { kind: "risk_matter", host, bucket: bucketOf(fx) };
+  const entry = { kind: "risk_matter", host, bucket: bucketOf(fx), days, remind };
   nodeFixtures.push(entry);
   riskNodeIds.push(String(id));
   return entry;
@@ -461,6 +460,102 @@ function expectNodes(kind, hosts) {
   }
   return out;
 }
+
+/**
+ * **夹具必须离分档边界留出余量**（2026-10-15，MATT-84）。
+ *
+ * ## 为什么这条断言存在
+ *
+ * 夹具算 deadline 用**应用时钟**（`at(days)` = `new Date(Date.now() + days*86400000)`），
+ * 而服务端分档用**库时钟**（`reports.ts:194` 的 `now()`）。两个时钟有稳定偏差 ——
+ * 实测 **683ms**（应用快于库）。
+ *
+ * 测法（不依赖任何工装，可随时复现）：连续 5 次
+ * `select (extract(epoch from now()) * 1000)::bigint`，每次取应用侧往返的中点
+ * 与库值之差。实测 5 次落在 **653–683ms**，即偏差稳定存在、不是偶发抖动。
+ * 出处：MATT-84 的调查（同一台机器、同一个 dev 库）。
+ *
+ * 于是 `days` 恰好等于阈值（`max(remind)` 或默认 7）的那条夹具，
+ * 它的期望档位就取决于**两个时钟的亚秒级一致**：
+ *
+ *   · 单独跑 ⇒ 110 通过 / 0 失败
+ *   · 全组跑 ⇒ 109 通过 / 1 失败，且**两次失败的不是同一条断言**（抖动签名）
+ *
+ * 那种「失败断言会漂」的形态比稳定失败更贵 —— 读报错的人会以为发现了新缺陷。
+ * 而且它会让 CI 不可信：会随机红的门禁很快被当成噪音，然后真红也被忽略。
+ *
+ * ## 判据是「离边界多远」而不是「落在哪一档」
+ *
+ * 这条断言不重算服务端的 SQL（那是 tautological），它只问一件事：
+ * **这条夹具的 `days` 与它自己的阈值之间，有没有留出足够余量**。
+ *
+ * 余量取 `MIN_MARGIN_HOURS`（1 小时）：实测时钟偏差 683ms，1 小时是它的
+ * 5,270 倍 —— 即使换一台时钟同步更差的机器（NTP 步进、虚拟机漂移）也仍然安全。
+ * 取「一天」会过严：为了让「回落值」那条夹具保持判别力，它需要用
+ * **非整数天**（见下面那处的注释），而半天余量已经远超所需。
+ *
+ * 逾期档（`days < 0`）不参与：它没有阈值，不存在贴边问题。
+ *
+ * ## canary：夹具账为空时不许假绿
+ *
+ * 本仓对「校验器什么都没扫到 ⇒ 看起来全绿」有真实戒心
+ * （`smoke-hygiene.mjs` 的「扫到 0 处」、`enum-check` 的五道「扫描器不是空转」）。
+ * 这条断言同样需要它：`nodeFixtures` 空、或每条都被 `!f.bucket` 跳掉时，
+ * `tooClose` 也是空的 —— 那时它会打印「0 条夹具全部有余量」并**绿**，
+ * 而真相是**一条都没验**。所以下面同时断言「真的检查过若干条」。
+ *
+ * ## 调用点在**最后一条夹具之后**
+ *
+ * 它读的是 `nodeFixtures` 这本账，所以必须在账登记完毕之后跑 ——
+ * 放早了会漏掉之后新增的进档夹具。
+ *
+ * ⚠ 初版放在节点段开头（计数断言之前），理由是「贴边的红该出现在被它带偏的那些红
+ * 之前」。那个理由本身成立，但**代价是覆盖不全**：当时它漏掉了归档段的 `b` 事项节点
+ * 与 `eNode` 两条。**静默漏检比报错顺序更贵** —— 这条断言的全部价值就是不让贴边的
+ * 夹具溜过去，所以取了覆盖完整。
+ */
+const MIN_MARGIN_HOURS = 1;
+/**
+ * canary 的下限：**进档**夹具的条数（逾期档与不进档的不算）。
+ * 本文件当前是 6 条；取 4 是留出余量 —— 它要防的是「整个夹具账空掉、
+ * 或被 `!f.bucket` 全部跳掉」那种假绿，不是防「少了一条夹具」。
+ */
+const MIN_FIXTURES_CHECKED = 4;
+
+/**
+ * 一条夹具的**分档窗口**：它自己的提醒档里最大的那个，空数组回落 7 天。
+ *
+ * 抽出来是因为 `bucketOf` 与服务端各有一份同样的口径 —— 两处各写一遍的话，
+ * 改一处忘另一处时**不会报错**，只会让期望与实现对不上（而这条断言正是
+ * 为了发现那种不一致而存在的，它自己不能先漂）。
+ */
+function windowOf(fx) {
+  return fx.remind.length ? Math.max(...fx.remind) : 7;
+}
+
+function assertFixtureMargin() {
+  const tooClose = [];
+  let checked = 0;
+  for (const f of nodeFixtures) {
+    if (!f.bucket || f.bucket === "overdue") continue;
+    checked++;
+    const win = windowOf(f);
+    const marginHours = Math.abs(f.days - win) * 24;
+    if (marginHours < MIN_MARGIN_HOURS) {
+      tooClose.push(
+        `days=${f.days} / 阈值=${win}（余量 ${marginHours.toFixed(1)} 小时 < ${MIN_MARGIN_HOURS}）`,
+      );
+    }
+  }
+  ok(
+    `**进档夹具的 \`days\` 离阈值至少 ${MIN_MARGIN_HOURS} 小时**（否则期望档位取决于应用时钟与库时钟的亚秒级一致）`,
+    tooClose.length === 0 && checked >= MIN_FIXTURES_CHECKED,
+    tooClose.length
+      ? tooClose.join(" · ")
+      : `检查了 ${checked} 条（下限 ${MIN_FIXTURES_CHECKED}）· 全部有余量`,
+  );
+}
+
 const totalOf = (t) => t.overdue + t.soon + t.later;
 const expLiveM = () => expectNodes("matter", ["live"]);
 const expLiveR = () => expectNodes("risk_matter", ["unassigned"]);
@@ -821,22 +916,56 @@ try {
     "later",
   );
   /*
-   * ⚠ 这一条是**后补的**，它把回落值从**上方**钉死。
+   * ⚠ 下面两条是**后补的**，它们把回落值**从上下两侧**钉死。
    *
    * 上面那两条原先只钉住了"回落值 > 5"（5 天算临期 ⇒ 回落值必须大于 5），
    * 而 7 和 30 都满足它 —— 检查子代理实测：把回落值从 7 改成 30（F8-2 原稿那个数），
    * **"还剩 5 天 → 临期"那条全程保持 GREEN**，只有"还剩 9 天"那条红。
    * 也就是说实现者自评的"两条新断言都被变异证明过"**有一半是夸大的**。
    *
-   * 这一条要求 `days=7` 算"更远"：回落=7 时 `7 < 7` 为假 → later ✓；
-   * 回落=8 或更大时 → soon ✗ 红。与"5 天算临期"合起来，回落值被夹在 **5 < v ≤ 7** 里，
-   * 而 v 是整数 ⇒ **唯一解 7**。
+   * ## 判别力：把回落值夹成**唯一**的 7
+   *
+   *   还剩 6 天 → 临期   ⇔ `6 < v` 成立   ⇔ **v ≥ 7**
+   *   还剩 7.5 天 → 更远 ⇔ `7.5 < v` 不成立 ⇔ **v ≤ 7**
+   *   ⇒ v = 7（v 是 `coalesce(max(remind_days), 7)`，整数）
+   *
+   * ⚠ 原文只写了「还剩 7 天」一条，注释里称"唯一解 7"——**那是不对的**：
+   * 单侧约束只能得到 `5 < v ≤ 7`，整数解有两个（6 和 7）。
+   * 加上「还剩 6 天」这一侧，v 才真的被夹住。
+   *
+   * ## ⚠ 为什么是 **7.5 天**而不是 7 天（2026-10-15，MATT-84）
+   *
+   * 原本这一条写的是 `days: 7` —— **正好压在分档边界上**，于是它的期望档位
+   * 取决于应用时钟与库时钟的亚秒级一致（完整论证与实测数字见
+   * `assertFixtureMargin()` 的文档注释，不在这里重抄一遍）。
+   *
+   * **贴边的夹具本质上不可能稳定**：插入与比较发生在不同时刻，
+   * 换成库时钟也一样（只是把「应用 vs 库」换成「插入事务 vs 报表事务」）。
+   * 所以必须移开；而移开之后要保住判别力，就得用**非整数天**：
+   * 阈值是整数 7，任何落在 `(7, 8]` 的 days 与 7 的判别力完全相同，
+   * 而 7.5 离边界有 **12 小时**（远超那条断言要求的 1 小时下限）。
+   *
+   * **怎么复现这条断言的红**（AC 第 4 条，实测过一次）：把本行的 `days: 7.5`
+   * 改回 `7`（或把 `MIN_MARGIN_HOURS` 改大到 24），跑
+   * `node --env-file=.env agent-work/smoke-reports.mjs`，会得到：
+   *
+   *   [FAIL] **进档夹具的 `days` 离阈值至少 1 小时**… — days=7 / 阈值=7（余量 0.0 小时 < 1）
+   *
+   * 它是**断言红**（不是编译红），且不会连带弄挂别的断言 —— 除了那条
+   * 「逐格对上夹具账」会跟着漂，而那正是本票要消灭的现象本身。
    */
   await stepNode(
     s1.cookie,
-    "**空数组 `remind_days` 回落 7 天：还剩 7 天 → 更远 +1**（把回落值从上方钉死，见本处注释）",
+    "**空数组 `remind_days` 回落 7 天：还剩 6 天 → 临期 +1**（把回落值从**下方**钉死）",
     "matter",
-    () => insertMatterNode(c.body.id, { days: 7, remind: [] }),
+    () => insertMatterNode(c.body.id, { days: 6, remind: [] }),
+    "soon",
+  );
+  await stepNode(
+    s1.cookie,
+    "**空数组 `remind_days` 回落 7 天：还剩 7.5 天 → 更远 +1**（从**上方**钉死；非整数天是为了离边界 12 小时，见本处注释）",
+    "matter",
+    () => insertMatterNode(c.body.id, { days: 7.5, remind: [] }),
     "later",
   );
   // ⑥ 未确认时间：不进任何一档
@@ -873,7 +1002,7 @@ try {
   const expM = expLiveM();
   const expR = expLiveR();
   ok(
-    "**九条夹具逐格对上夹具账**（三档各自的和，不是只看总数）",
+    "**每条夹具逐格对上夹具账**（三档各自的和，不是只看总数）",
     cellN(rNodes.body, "matter", "overdue") === expM.overdue &&
       cellN(rNodes.body, "matter", "soon") === expM.soon &&
       cellN(rNodes.body, "matter", "later") === expM.later &&
@@ -923,6 +1052,11 @@ try {
   matterIds.push(e.body?.id);
   await tagMatter(e.body.id);
   const eNode = await insertMatterNode(e.body.id, { days: -1, remind: [7, 3, 1] });
+
+  // 夹具账到此才算登记完（这一行是最后一条 `insertMatterNode` / `insertRiskNode`），
+  // 所以夹具质量的自检放这里 —— 放早了会漏掉之后新增的进档夹具（MATT-84 的评审
+  // 抓到过这一处：初版放在节点段开头，漏了本行与上面 `b` 事项那条）。
+  assertFixtureMargin();
 
   const liveBefore = await report(s1.cookie, { status: ST });
   ok(
