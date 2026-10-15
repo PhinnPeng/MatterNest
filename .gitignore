@@ -1,6 +1,12 @@
 # 本地工具状态，不纳入版本管理（未列入本次纳入范围）
 .qoder/
 .zcode/
+# 同上：本IDE 写在项目根的工作区状态（`settings.local.json`）。
+# 它既不该入库，也不该让 prettier 管 —— format:check 会因为 IDE 自己重写这个文件而红。
+.codebuddy/
+# 同上：另一侧 harness 的项目级落点（`memory/` 会话记忆、`tmp/`）。同为工具自身产物，
+# 既不该入库，也不该让 prettier 去检查它自己写出来的 Markdown。
+.workbuddy/
 
 # dsh-mcp-manager 的项目级 MCP 配置：里面是**真实 API key**（技术选型 §6 任何密钥不入库）。
 # `.dsh/` 其余内容（DSH.md、skills）是入库的，所以只忽略这一个落点。
