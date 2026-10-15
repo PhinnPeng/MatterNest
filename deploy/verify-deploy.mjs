@@ -26,6 +26,15 @@
  *    意味着 nginx 会在超时后自己重试；单副本时是空操作，加副本那一刻就变成
  *    「用户没点、nginx 自己把 81 秒的导入跑了两遍」。
  *
+ * ## 它还断言什么（MATT-36 追加）
+ *
+ * 6. **`migrator` 不继承 `*app-env`** —— 那一段里有三把密钥，而
+ *    `tools/migrate.mjs` 对它们的引用实测为**零**。一次性容器拿到了
+ *    一次也没用的密钥，是纯粹的暴露面。
+ * 7. **`migrator` 的环境键集合与 `migrate.mjs` 的 `process.env` 引用双向相等。**
+ *    少给 ⇒ 迁移当场连不上库；多给 ⇒ 回到第 6 条那个毛病。两条一起把
+ *    「compose 与脚本各走各的」钉死——改了一边忘了另一边，这里会红。
+ *
  * ## 怎么跑
  *
  *   node deploy/verify-deploy.mjs
@@ -55,6 +64,10 @@ const IMPORT_MIN_TIMEOUT_SECONDS = 120;
 
 /** 应用自己的请求体字符上限，从源码现读（`MAX_IMPORT_ROWS = 1000` 配套的那条）。 */
 const IMPORT_SCHEMA_FILE = join(REPO, "src", "shared", "schema", "import.ts");
+
+/** MATT-36：compose 与迁移脚本本身（键集合要双向相等，所以两边都得读）。 */
+const COMPOSE_FILE = join(HERE, "docker-compose.yml");
+const MIGRATE_FILE = join(REPO, "tools", "migrate.mjs");
 
 const failures = [];
 
@@ -306,6 +319,144 @@ function verify() {
   console.log("");
 }
 
+/* ── compose：migrator 拿不到三把密钥（MATT-36 收紧第 1 项） ───────────────── */
+
+/**
+ * 取某个 service 的 `environment:` 键集合。
+ *
+ * 刻意**不引 YAML 库**：这个脚本的自我定位是「纯文本解析、不需要构建」，
+ * 而这里要读的形状简单到正则够用——`environment:` 下的 `KEY:` 行，
+ * 加一个 `<<: *app-env` 的合并锚点。
+ *
+ * @returns `{ keys: string[], hasMergeAnchor: boolean }`
+ *   `hasMergeAnchor` 是**必须的**：合并锚点会让本函数的 `keys` 变空，
+ *   而「空」与「故意一个都不给」在返回值上长得一模一样——不单独报出来就会假绿。
+ */
+function parseServiceEnv(composeRaw, service) {
+  const active = composeRaw
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .join("\n");
+  const lines = active.split("\n");
+  const start = lines.findIndex((l) => new RegExp(`^  ${service}:\\s*$`).test(l));
+  if (start < 0) return null;
+
+  const block = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    // 下一个同级 service（两空格缩进 + `name:`）就是本块结束
+    if (/^ {2}\S/.test(lines[i])) break;
+    block.push(lines[i]);
+  }
+  const envAt = block.findIndex((l) => /^ {4}environment:\s*$/.test(l));
+  if (envAt < 0) return { keys: [], hasMergeAnchor: false, missingEnvironment: true };
+
+  const envLines = [];
+  for (let i = envAt + 1; i < block.length; i++) {
+    if (/^ {4}\S/.test(block[i])) break;
+    envLines.push(block[i]);
+  }
+  return {
+    keys: [...new Set(envLines.map((l) => /^ {6}([A-Z][A-Z0-9_]*):/.exec(l)?.[1]).filter(Boolean))],
+    // ⚠ 匹配**任意**锚点，不是字面的 `*app-env`。早先只认 `*app-env`，
+    // 于是把锚点改名成 `&secrets` 就整套绕过（评审实测：三条断言全绿）。
+    hasMergeAnchor: envLines.some((l) => /<<:\s*\*\s*\w+/.test(l)),
+    missingEnvironment: false,
+  };
+}
+
+/** migrate.mjs 实际读到的每一个 `process.env.X` */
+function readEnvRefs(scriptRaw) {
+  return [...new Set([...scriptRaw.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]))];
+}
+
+const SECRET_KEYS = ["MN_AES_KEY", "MN_HMAC_KEY", "MN_SESSION_PEPPER"];
+
+function verifyMigratorSecrets() {
+  const compose = readFileSync(COMPOSE_FILE, "utf8");
+
+  console.log("\n[MATT-36] 一次性容器的最小权限");
+
+  const env = parseServiceEnv(compose, "migrator");
+  const refs = readEnvRefs(readFileSync(MIGRATE_FILE, "utf8"));
+
+  // ⚠ 两条 canary **必须分开**，且都不能与别的条件合取。
+  //
+  // 早先写成 `env.missingEnvironment && env.keys.length === 0`，于是下面两种
+  // 组合会**同时**把两边清空、然后「双向相等（0 个）」报绿（评审两例实测）：
+  //   ① compose 用 list 形式（`- PGHOST=…`，合法 compose）⇒ 解析器读出 0 个键；
+  //   ② migrate.mjs 改成 `const {PGHOST} = process.env` ⇒ 正则读出 0 个引用。
+  // 一边空、另一边不空时上面的合取式也不会响 —— 而那正是最该响的形态。
+  //
+  // 本仓对「扫到 0 处 ⇒ 看起来全绿」有真实戒心（`smoke-hygiene.mjs` 与
+  // `enum-check` 的五道「扫描器不是空转」）。这里失败是**响**，不是漏：
+  // 真出现 list 形式时本函数会报错要求改回 map 形式，而不是默默放过。
+  let canaryOk = true;
+  if (!env || env.missingEnvironment || env.keys.length === 0) {
+    fail(
+      "能从 docker-compose.yml 解析出 migrator 的 environment（非空）",
+      "至少一个 `KEY:` 形式的键（本解析器只认 map 形式，不认 `- KEY=` 的 list 形式）",
+      env === null
+        ? "没有 migrator 服务"
+        : env.missingEnvironment
+          ? "environment 段缺失"
+          : "解析出 0 个键 ⇒ 下面的断言会全部假绿",
+    );
+    canaryOk = false;
+  }
+  if (refs.length === 0) {
+    fail(
+      "能从 tools/migrate.mjs 解析出 process.env 引用（非空）",
+      "至少一个 `process.env.X`",
+      "0 个 ⇒ migrate.mjs 改了取值写法（解构？`env()` 助手？）或已不读 env，" +
+        "下面的双向比较会变成「0 == 0」而报绿",
+    );
+    canaryOk = false;
+  }
+  if (!canaryOk) return;
+
+  console.log(
+    `  解析到 migrator ${env.keys.length} 个键 · migrate.mjs ${refs.length} 个 process.env 引用`,
+  );
+
+  if (env.hasMergeAnchor) {
+    fail(
+      "migrator 不继承 *app-env",
+      "一段自己的 environment（不写任何 `<<: *锚点`）",
+      "它继承了锚点 ⇒ 一次性容器拿到了三把一次也没用的密钥（实测 migrate.mjs 零引用）",
+    );
+  } else {
+    ok("migrator 不继承任何锚点", `自己的 environment，${env.keys.length} 个键`);
+  }
+
+  for (const k of SECRET_KEYS) {
+    if (env.keys.includes(k)) {
+      fail(`migrator 的环境里没有 ${k}`, "不出现", "出现了");
+    }
+  }
+  if (!SECRET_KEYS.some((k) => env.keys.includes(k))) {
+    ok("migrator 拿不到三把密钥", SECRET_KEYS.join(" / "));
+  }
+
+  // 双向：少给 ⇒ 迁移当场连不上库；多给 ⇒ 又是「给了却用不上」
+  const missing = refs.filter((r) => !env.keys.includes(r));
+  const extra = env.keys.filter((k) => !refs.includes(k));
+  if (missing.length > 0) {
+    fail(
+      "migrator 的环境覆盖 migrate.mjs 读到的每一个变量",
+      `含 ${refs.join(" / ")}`,
+      `缺 ${missing.join(" / ")} ⇒ 迁移会连不上库`,
+    );
+  } else if (extra.length > 0) {
+    fail(
+      "migrator 的环境不多给 migrate.mjs 用不到的变量",
+      `恰好 ${refs.length} 个：${refs.join(" / ")}`,
+      `多了 ${extra.join(" / ")} ⇒ 给了却用不上（多给的那类正是本次要收的）`,
+    );
+  } else {
+    ok("migrator 环境 ⇔ migrate.mjs 的 process.env 引用", `双向相等（${refs.length} 个）`);
+  }
+}
+
 /* ── 入口 ──────────────────────────────────────────────────────────────── */
 
 try {
@@ -318,9 +469,19 @@ try {
   process.exitCode = 1;
 }
 
+try {
+  verifyMigratorSecrets();
+} catch (e) {
+  console.error("\n[FATAL] compose 段核对自身失败（这不是断言失败）：");
+  console.error(e);
+  process.exitCode = 1;
+}
+
 if (failures.length > 0) {
-  console.error(`\n[MATT-71] 失败 ${failures.length} 条断言。\n`);
+  console.error(
+    `\n失败 ${failures.length} 条断言（[MATT-71] 部署配置 + [MATT-36] 一次性容器最小权限）。\n`,
+  );
   process.exitCode = 1;
 } else {
-  console.log(`[MATT-71] 全部断言通过。\n`);
+  console.log(`\n全部断言通过（[MATT-71] 部署配置 + [MATT-36] 一次性容器最小权限）。\n`);
 }

@@ -22,11 +22,50 @@ const COOKIE = "mn_session";
 /** 演示期 8 小时绝对过期；离职回收降级（P1-16）正是靠这个窗口兜底 */
 const SESSION_TTL_SECONDS = 60 * 60 * 8;
 
-/** 摘要密钥只从 env 取；缺了就抛，不用硬编码默认值糊过去（技术选型 §6） */
+/**
+ * 摘要密钥只从 env 取；缺了就抛，不用硬编码默认值糊过去（技术选型 §6）。
+ *
+ * **模块级缓存**（与 `field-crypto.ts` 的 `aesKey()` 同一形状，MATT-36 收紧第 2 项）：
+ * 它在**热路径**上 —— `pepper()` → `tokenHashOf()` → `readActor()`，
+ * 而 `withActor()` 是**每个** `/api/**` handler 的包装器（`http.ts:188`），
+ * 即每个需鉴权的请求都重读一次 `process.env`。
+ *
+ * ⚠ 缓存的代价写在下面，因为它不显然：**改了 `.env` 里的 pepper 而不重启，
+ * 这个值不会生效**。已发出的 cookie 仍按旧 pepper 校验（继续能用），
+ * 新发的会话也仍用旧 pepper —— 于是 `.env` 里显示新值、跑的却是旧值。
+ *
+ * 这不是缺陷，是缓存的定义；要说清楚的是**为什么它值得写下来**：
+ * 改动之前（每次重读 `process.env`）这件事是「改了就生效」的，
+ * 加了缓存之后不再是 ⇒ **从「改 `.env` 即可」变成了「改 `.env` + 重启」**。
+ * 步骤多了一步，而漏掉那一步的形态是静默的（服务照常、会话照常、只是没换）。
+ *
+ * ⚠ 标注：本仓**未实测** Next dev 是否会在 `.env` 变化时热重载 `process.env`。
+ * 上面那句结论**不依赖**那个答案 —— 无论它会不会重载，缓存都会让新值不生效。
+ * 「重启后旧会话全部失效」是**预期**行为：换 pepper 就是让所有旧会话作废。
+ */
+let pepperCache: string | null = null;
 function pepper(): string {
-  const v = process.env.MN_SESSION_PEPPER;
-  if (!v) throw new Error("缺 MN_SESSION_PEPPER：会话摘要密钥不许走默认值");
-  return v;
+  if (pepperCache === null) {
+    const v = process.env.MN_SESSION_PEPPER;
+    if (!v) throw new Error("缺 MN_SESSION_PEPPER：会话摘要密钥不许走默认值");
+    pepperCache = v;
+  }
+  return pepperCache;
+}
+
+/**
+ * 启动期自检（对称于 `field-crypto.ts` 的 `assertFieldCryptoConfigured()`）。
+ *
+ * ## 为什么它必须存在，而不是「让 `pepper()` 在第一次鉴权时抛」
+ *
+ * 没有它的话，缺 `MN_SESSION_PEPPER` 的形态是：应用 ready、`/login` 页面 200、
+ * 然后**每一个** `/api/**` 请求 500。那是「看起来起来了、其实全不可用」——
+ * 而部署健康检查打的就是 `/login`，它会报绿。
+ *
+ * 调用点在 `instrumentation-node.ts` 的 `registerNode()`，排在起定时器之前。
+ */
+export function assertSessionPepperConfigured(): void {
+  pepper();
 }
 
 function tokenHashOf(token: string): string {

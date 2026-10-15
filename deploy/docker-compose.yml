@@ -5,12 +5,21 @@
 # `app` **没有** `deploy.replicas`，也**不该有**。一期单副本是有依据的裁定
 # （收益为零：内网自用工具，发布停机可接受），不是「还没配」。
 #
-# ## 本文件不做什么
+# ## 密钥托管口径（MATT-36，2026-10-15 已裁定）
 #
-# **B7 三把密钥的托管口径不在这里拍**（MATT-36，HITL 待决）。本文件只做两件事：
-#   1. 把变量名列出来，让「缺哪个」在启动时报错而不是运行时才发现；
+# **三把密钥只经 `environment:` 注入，不入库、不进镜像、不进 git。** 依据见
+# `docs/research-secret-storage.md`。本文件据此只做两件事：
+#   1. 把变量名列出来，让「缺哪个」在启动时报错而不是运行时才发现
+#      （自检挂在 `instrumentation-node.ts` 的 `registerNode()`，排在起定时器之前）；
 #   2. **全部留空值** —— 真实值只经 `deploy/.env` 注入，该文件被 `.gitignore`
 #      的 `.env` 规则排除（已用 `git check-ignore` 核实）。
+#
+# ⚠ 两条**没做**的（裁定为登记而不实施，各带触发条件，别当成遗漏）：
+#   · 信封加密（DB 存 wrapped DEK、KEK 在主机文件）—— 触发条件是引入
+#     Vault/KMS 或数据库转托管服务。KEK 与 pgdata 同机 ⇒ 跨不过任何真实边界；
+#   · Compose `secrets:` 文件挂载 —— 触发条件是运维日志/工单里出现过 compose
+#     展开结果。它提升的是**可见性**（不进 `docker inspect`），不是隔离性。
+#     ⚠ 走它必须先改写 `field-crypto.ts:32-34` 那条「不加第三处密钥来源」的禁令。
 #
 # ## 尚未启用的服务，以及为什么
 #
@@ -121,8 +130,22 @@ services:
       dockerfile: deploy/Dockerfile
       target: builder
     command: ["node", "tools/migrate.mjs", "--migrate-only"]
+    # ⚠ **刻意不继承 `*app-env`**（MATT-36 收紧第 1 项）。
+    #
+    # 那一段里有 `MN_AES_KEY` / `MN_HMAC_KEY` / `MN_SESSION_PEPPER`，而
+    # `tools/migrate.mjs` 对三把的引用实测为**零** —— 一次性容器拿到了三把
+    # 一次也没用的密钥，是纯粹的暴露面（NIST SP 800-57 Pt1 R5 §5.2 第 2 条：
+    # 「限制一把钥匙的用途，就限制了它失陷时的破坏面」）。
+    #
+    # 下面是 migrate.mjs **实际读到的全部变量**（`grep 'process\.env\.'` 的完整结果）。
+    # 少给 ⇒ 迁移连不上库而当场失败；多给 ⇒ 又变成「给了却用不上」。
+    # `deploy/verify-deploy.mjs` 有断言钉住这个集合，两边不会各走各的。
     environment:
-      <<: *app-env
+      PGHOST: ${PGHOST:-postgres}
+      PGPORT: ${PGPORT:-5432}
+      PGDATABASE: ${PGDATABASE:-matternest}
+      PGUSER: ${PGUSER:-matternest}
+      PGPASSWORD: ${PGPASSWORD:-}
       # migrator 的第一道闸门：`MN_DB_CONFIRM` 必须与 `current_database()` 逐字相等，
       # 否则 `tools/migrate.mjs` 直接拒跑（共享实例上连错库跑迁移是唯一不可逆事故）。
       MN_DB_CONFIRM: ${PGDATABASE:-matternest}

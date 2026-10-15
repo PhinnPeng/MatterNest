@@ -103,9 +103,15 @@ function keyVersion(): string {
 /**
  * 启动期自检：密钥齐不齐、长度对不对。
  *
- * ⚠ 一期**没有**把它挂到任何启动钩子上（`instrumentation.ts` 不在本票写范围内），
- * 所以真正的失败点是"第一次用到加密"的那次请求 —— 那一次会 500 并在日志里留下
- * 上面那两句人话。谁接启动钩子，就把这一句放进去。
+ * ✅ **已挂在 `instrumentation-node.ts` 的 `registerNode()` 上**（MATT-36 收紧第 3 项，
+ * `src/instrumentation.spec.ts` 有四条用例钉住，含「三把都要在」与调用顺序）。
+ * 挂上之前的失败点是「第一次用到加密」的那次请求 ⇒ 应用 ready、`/login` 200、
+ * 直到某人打开当事人详情才 500，而**那之前没有任何一处报错**。
+ *
+ * ⚠ 它只管**字段加密那两把**；`MN_SESSION_PEPPER` 归 `auth.ts`
+ * （`assertSessionPepperConfigured()`）。两个出口由
+ * `instrumentation-node.ts` 的 `assertServerSecretsConfigured()` 合起来调用 ——
+ * 「启动期密钥自检」这个名字覆盖三把，少一把都会让人以为已经查过了。
  */
 export function assertFieldCryptoConfigured(): void {
   aesKey();

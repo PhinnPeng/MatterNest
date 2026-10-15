@@ -116,6 +116,23 @@ node deploy/verify-deploy.mjs
 
 ---
 
+## ⚠ 换密钥前必读：三条不可逆（MATT-36，2026-10-15）
+
+托管口径已裁定为「**只经 `environment:` 注入，不入库、不进镜像、不进 git**」
+（依据 `docs/research-secret-storage.md`）。轮换**一期不做**，但下面三条现在
+就该知道 —— 它们都不是「回滚一下就好」的形态：
+
+| 换哪一把            | 后果                                 | 为什么不可逆                                                                                                                                             |
+| ------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MN_AES_KEY`        | **全库 PII 永久不可读**              | 历史密文全部解不开。`decryptField` 会抛 GCM 认证失败、**不会**静默给乱码 —— 这是好事，但意味着它表现为「一打开当事人详情就 500」，而不是「数据慢慢变错」 |
+| `MN_HMAC_KEY`       | 盲索引全变 ⇒ **同一人查不出同一人**  | `mn_party.id_number_hash` 的唯一索引（`db/schema/hosts.ts:461`）会拒收任何重复行 ⇒ 要么插不进去，要么查不出关联                                          |
+| `MN_SESSION_PEPPER` | **全部会话立即失效**，所有人重新登录 | 这是**预期**行为（换 pepper 就是让旧会话作废），但要提前通知                                                                                             |
+
+真要轮换时，`MN_KEY_VERSION` 只做记录、**不做密钥选择**（`field-crypto.ts:98`
+写明「一期只有一把钥匙」）—— 所以「先把新密钥写进去、旧密文之后再迁」这条路
+**现在还走不通**，得先有密钥版本簿记。NIST 对对称密钥的 cryptoperiod 建议是
+≤2 年，所以这是个需要提前排期的决定，不是「想起来就换」。
+
 ## 四件部署期安全项的现状
 
 原 README 列的四条，逐条交代：
@@ -124,6 +141,12 @@ node deploy/verify-deploy.mjs
    → `MN_AES_KEY` / `MN_HMAC_KEY` / `MN_KEY_VERSION` 三个键在 `docker-compose.yml`
    与 `.env.example` 里都是**分离的两项**；`Dockerfile` 刻意不 `COPY .env`。
    ✅ 位置已留。
+   → **2026-10-15 追加（MATT-36 收紧）**：三处最小权限已落地 ——
+   ① `migrator` 不再继承 `*app-env`（它对三把密钥零引用），
+   ② `MN_SESSION_PEPPER` 改为模块级缓存（原先每个鉴权请求重读一次 `process.env`），
+   ③ 三把密钥的启动期自检挂在 `instrumentation-node.ts` 的 `registerNode()` 上，
+   **缺任何一把都在 server ready 之前 `exit 1`**，而不是等某人第一次打开当事人详情。
+   后两条各由 `src/instrumentation.spec.ts` 与 `deploy/verify-deploy.mjs` 断言钉住。
 
 2. **云之家 `appId`/`appSecret` env 注入；回调登记以云之家侧规则为准，
    所以部署域名必须在联调前定死。**
@@ -146,9 +169,11 @@ node deploy/verify-deploy.mjs
 ## 本票不做的
 
 - **不接真实部署**（无服务器、无域名）。产出是配置工件 + 可机械核对的断言。
-- **不拍密钥托管口径。** B7 三把密钥怎么存、证书放哪，属 **MATT-36（HITL）**。
-  配置里只留占位并标清，没有自选方案。
-- **不启 TLS。** 域名未定死（MATT-34）+ 证书托管未定（MATT-36）。
+- ~~**不拍密钥托管口径。**~~ ✅ **已拍（MATT-36，2026-10-15）**：三把密钥只经
+  `environment:` 注入，不入库、不进镜像、不进 git；另做三处最小权限收紧。
+  依据与被否决的两个变体见 `docs/research-secret-storage.md`。
+  仍未拍的是**证书托管**（跟着 TLS 那一项）。
+- **不启 TLS。** 域名未定死（MATT-34）+ 证书托管未定（属 MATT-36 未拍部分）。
   `nginx.conf` 里 443 段是注释，写全了也只是"看起来能用"。
 - **不验证起栈。** `docker compose up` 本票没跑过（本机 Docker daemon 未运行），
   `Dockerfile` 的构建也未跑过。compose 与 Dockerfile 是**按契约写的**，

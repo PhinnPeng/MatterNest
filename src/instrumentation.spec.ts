@@ -139,6 +139,94 @@ describe("前置件 3：真 croner 上的四项配置与不拒绝的回调", () 
   });
 });
 
+/**
+ * 启动期的密钥自检（MATT-36 决策第 4 项）。
+ *
+ * ## 为什么它必须在 `registerNode()` 里而不是「第一次用到加密时」
+ *
+ * 缺 `MN_AES_KEY` 的真实形态**不是**报错，而是：应用照常起来、界面照常显示，
+ * 直到某个人第一次打开当事人详情页才 500。在那之前**没有任何一处会报错**。
+ * `field-crypto.ts` 的文件头把这条叫「静默降级」，并写明它最贵的地方在于
+ * 「无法事后区分哪些行是密文、哪些是明文」—— 所以自检要抢在 ready 之前。
+ *
+ * ## 为什么每条用例都要 `vi.resetModules()`
+ *
+ * `aesKey()` / `hmacKey()` / `pepper()` 都是**模块级缓存**（见收紧第 2 项）。
+ * 于是删掉 env 之后再调自检会命中缓存 ⇒ **不抛** ⇒ 测试假绿，
+ * 而且它假绿的方式与「自检根本没生效」一模一样。
+ * 每条用例重新 import 一次，拿的是缓存-cold 的模块实例。
+ */
+describe("启动期密钥自检：缺任何一把都在 ready 之前抛", () => {
+  const KEYS = ["MN_AES_KEY", "MN_HMAC_KEY", "MN_SESSION_PEPPER"] as const;
+  /** 32 字节 base64url —— `parseKeyMaterial` 认的形状（见该函数 :75-76） */
+  const GOOD = Buffer.alloc(32, 7).toString("base64url");
+
+  async function selfCheckWith(env: Partial<Record<(typeof KEYS)[number], string>>) {
+    const saved = new Map(KEYS.map((k) => [k, process.env[k]]));
+    for (const k of KEYS) delete process.env[k];
+    for (const [k, v] of Object.entries(env)) process.env[k as string] = v;
+    vi.resetModules();
+    try {
+      const mod = await import("./instrumentation-node");
+      return mod.assertServerSecretsConfigured();
+    } finally {
+      for (const [k, v] of saved) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      vi.resetModules();
+    }
+  }
+
+  it("三把都在 ⇒ 自检通过（先证明这条不是恒红）", async () => {
+    // `.resolves` 而不是 `.not.toThrow()`：后者收的是**函数**，给 Promise 会静默通过
+    await expect(
+      selfCheckWith({ MN_AES_KEY: GOOD, MN_HMAC_KEY: GOOD, MN_SESSION_PEPPER: GOOD }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("缺 MN_AES_KEY ⇒ 抛，且消息点名这一个变量", async () => {
+    await expect(selfCheckWith({ MN_HMAC_KEY: GOOD, MN_SESSION_PEPPER: GOOD })).rejects.toThrow(
+      /MN_AES_KEY/,
+    );
+  });
+
+  it("缺 MN_HMAC_KEY ⇒ 抛", async () => {
+    await expect(selfCheckWith({ MN_AES_KEY: GOOD, MN_SESSION_PEPPER: GOOD })).rejects.toThrow(
+      /MN_HMAC_KEY/,
+    );
+  });
+
+  /**
+   * 这条是**故意多加**的：只接 `assertFieldCryptoConfigured()` 的话，
+   * pepper 缺失仍然要到「第一次有人鉴权」才炸 —— 那时应用已经 ready 了，
+   * 而 18 个 `/api/**` handler 全程不可用。自检叫「启动期密钥自检」却漏一把，
+   * 比不做更坏：**它会让人以为已经查过了**。
+   */
+  it("缺 MN_SESSION_PEPPER ⇒ 也抛（**三把都要在**，不只是字段加密那两把）", async () => {
+    await expect(selfCheckWith({ MN_AES_KEY: GOOD, MN_HMAC_KEY: GOOD })).rejects.toThrow(
+      /MN_SESSION_PEPPER/,
+    );
+  });
+
+  /**
+   * 自检必须在 `startTimer()` **之前**。
+   *
+   * 顺序反了不会立刻出事，但会留下一条更难查的形态：定时器已经起来、心跳在推进、
+   * 只有自检那一行还没执行 —— 于是「密钥缺失」这件事被推迟到某个请求上，
+   * 而那时候进程日志里已经有「定时器已启动」这几行，读的人会先怀疑定时器。
+   */
+  it("`registerNode()` 里自检排在 `startTimer()` 之前（顺序不能被后人挪反）", () => {
+    const src = readFileSync(new URL("./instrumentation-node.ts", import.meta.url), "utf8");
+    const body = src.slice(src.indexOf("export function registerNode()"));
+    const checkAt = body.indexOf("assertServerSecretsConfigured()");
+    const startAt = body.indexOf("startTimer()");
+    expect(checkAt).toBeGreaterThan(-1);
+    expect(startAt).toBeGreaterThan(-1);
+    expect(checkAt).toBeLessThan(startAt);
+  });
+});
+
 describe("入口 `src/instrumentation.ts` 的形态（前置件 1 + Edge 编译的前提）", () => {
   const entry = readFileSync(new URL("./instrumentation.ts", import.meta.url), "utf8");
 

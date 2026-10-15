@@ -1,5 +1,7 @@
 import { Cron } from "croner";
 import { eq, sql } from "drizzle-orm";
+import { assertSessionPepperConfigured } from "@/app/lib/server/auth/auth";
+import { assertFieldCryptoConfigured } from "@/app/lib/server/crypto/field-crypto";
 import { getDb } from "@/app/lib/server/db/client";
 import { timerHeartbeat } from "@/app/lib/server/db/schema";
 import { pumpAll, type PumpResult } from "@/app/lib/server/services/pump-gate";
@@ -303,6 +305,44 @@ export function startTimer(
 }
 
 /**
+ * 启动期的密钥自检（MATT-36 决策第 4 项 · 收紧第 3 项）。
+ *
+ * ## 为什么合在一个函数里，而不是各自挂在启动钩子上
+ *
+ * 「启动期密钥自检」这个名字覆盖**三把**。若只接 `assertFieldCryptoConfigured()`，
+ * 缺 `MN_SESSION_PEPPER` 仍然要到「第一次有人鉴权」才炸 —— 那时应用已经 ready，
+ * 而 18 个 `/api/**` handler 全程不可用、`/login` 却报 200。
+ * **漏一把比不做更坏**：它会让人以为已经查过了。
+ *
+ * ## 为什么排在 `startTimer()` 之前
+ *
+ * 顺序反了不会立刻出事，但会留下一条更难查的形态：定时器已起来、心跳在推进、
+ * 只有自检还没执行 —— 于是「密钥缺失」被推迟到某个请求上，而进程日志里那时
+ * 已经有「定时器已启动」几行，读的人会先怀疑定时器。
+ *
+ * ## 为什么抛出去就让它崩，不 catch
+ *
+ * 与本文件头「前置件 1」同一条纪律：`register()` 抛错 ⇒ 整个 Next 进程 `exit 1`
+ * （真实形态是崩溃循环，不是 502）。而这里**就该**是崩溃循环 ——
+ * 缺密钥的应用不能对外 ready，那正是 `field-crypto.ts` 文件头说的
+ * 「静默降级是最危险的失败形态」。给容器 `restart: unless-stopped`
+ * 会重试并留下 stdout 第一行，那行是人话。
+ *
+ * ⚠ 它只管**密钥**。`PG*` 那几项的启动期断言在 `db/client.ts` 且至今仍只在
+ * 首次请求时抛 —— 同一种「ready 了但全 500」的形态，本轮没扩到那里。
+ * 这个函数名**不该**被读成「启动期该查的都查过了」。
+ *
+ * ⚠ 它**可能因缓存已暖而永不抛**：production 里它跑在 instrumentation chunk 的
+ * `auth.ts` 实例上，而请求路径跑的是 route chunk 那一份 ⇒ 两个实例、两个缓存，
+ * 自检那份必然是冷的。反过来在**单 registry** 的测试里，先跑过的用例会把它暖掉
+ * （`src/instrumentation.spec.ts` 的 `vi.resetModules()` 就是为此）。
+ */
+export function assertServerSecretsConfigured(): void {
+  assertFieldCryptoConfigured();
+  assertSessionPepperConfigured();
+}
+
+/**
  * Next 在**每个 server 实例启动时调用一次**，且「必须完成之后 server 才 ready」
  * （`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/instrumentation.md:18`）。
  *
@@ -328,8 +368,12 @@ export function startTimer(
  * 本仓没有 `globalThis` 单例标记，也不需要——框架防住了「register 重跑」这一类，
  * 而另一类（被 app 代码 import 而重求值）由「定时器只住在本文件里」防住
  * （`services/pump-gate.ts` 的文件头写了这条）。
+ *
+ * ⚠ 第一句是密钥自检（`assertServerSecretsConfigured()`），**它不是 I/O** ——
+ * 只读 env、只做长度校验，所以不违反前置件 1。
  */
 export function registerNode(): void {
+  assertServerSecretsConfigured();
   const job = startTimer();
   log.info(
     `定时器已启动：pattern=${PUMP_PATTERN} tz=${BUSINESS_TIMEZONE} ` +
