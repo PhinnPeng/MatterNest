@@ -29,7 +29,7 @@
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs && pnpm anchors:check && pnpm deploy:check",
     "anchors:check": "node agent-work/verify-anchors.mjs",
     "prepare": "node tools/install-githooks.mjs",
-    "verify:all": "pnpm verify && MN_DB_CONFIRM=dev_matternest pnpm db:check && pnpm smoke"
+    "verify:all": "pnpm verify && cross-env MN_DB_CONFIRM=dev_matternest pnpm db:check && pnpm smoke"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -39,6 +39,7 @@
     "@types/node": "^22.20.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "cross-env": "^10.1.0",
     "drizzle-kit": "0.31.10",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",

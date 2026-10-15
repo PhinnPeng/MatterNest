@@ -2,6 +2,7 @@ import dayjs from "dayjs";
 import "dayjs/locale/zh-cn.js";
 import { describe, expect, it } from "vitest";
 import {
+  BUSINESS_TIMEZONE,
   DATE_COMPACT_PATTERN,
   DATE_DISPLAY_PATTERN,
   DEADLINE_COUNTDOWN_PATTERN,
@@ -17,9 +18,30 @@ import {
  * 断言的是**产出串**而不是"用了哪个库"：本次从 date-fns 换到 dayjs（antd 只认 dayjs），
  * 口径一个字都不能变——所以这几条正好是换库的安全网。
  */
+/**
+ * ⚠ `SAMPLE` 必须带 `.tz(BUSINESS_TIMEZONE)`（2026-10-15，CI 首跑抓到的）
+ *
+ * 裸的 `dayjs(...).format()` 走的是**本机时区**，于是这个文件在 UTC 机器上必红：
+ *
+ * ```
+ * 本机 UTC+8  ⇒ 2026年9月27日 ✓
+ * CI     UTC  ⇒ 2026年9月26日 ✗   ← 首次 CI 运行的真实失败
+ * ```
+ *
+ * 而上面那段「一旦有人改成按 UTC 解释就会红」的意图，**从未被真正测到** ——
+ * 它测到的是「本机时区不是 +8」。两者恰好在 +8 机器上同形，所以本地全绿掩盖了它。
+ *
+ * 加 `.tz()` 之后：时区被钉住，任何机器上都是 27；而**若有人把格式化改成按 UTC
+ * 解释，`.tz()` 不会救他** —— 那一刻掉到 26，本文件照样红。⇒ 意图保住了，且变得确定。
+ *
+ * ⚠ 同形痕迹就在本文件里：倒计时那条断言写的是 `/^2026年9月2\d日/`（`2\d` 容忍两天），
+ * 说明写它的人**已经踩到过一次**，但只给那一条打了补丁。
+ * 现在统一钉时区，那种「逐条打补丁」的做法就没有必要了。
+ */
 dayjs.locale("zh-cn");
 
-const SAMPLE = dayjs("2026-09-27T02:00:00+08:00");
+/** 上海时区下的样本 —— 跨零点，所以「按 UTC 解释」与「按上海解释」会差一天 */
+const SAMPLE = dayjs("2026-09-27T02:00:00+08:00").tz(BUSINESS_TIMEZONE);
 
 describe("中文日期口径（dayjs zh-cn）", () => {
   it("月份出中文（日历表头用的就是这条）", () => {
