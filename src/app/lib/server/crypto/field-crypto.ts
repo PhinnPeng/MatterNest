@@ -43,8 +43,14 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:
 
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
-/** AES-256-GCM 与 HMAC-SHA256 的密钥都是 32 字节；长度不符即拒（不做截断/补齐） */
-const KEY_BYTES = 32;
+/**
+ * AES-256-GCM 与 HMAC-SHA256 的密钥都是 32 字节；长度不符即拒（不做截断/补齐）。
+ *
+ * 导出是因为 `MN_SESSION_PEPPER` 现在走**同一个** `parseKeyMaterial`
+ * （MATT-36 决策第 4 项）：它是 HMAC-SHA256 的密钥，口径理应与另两把逐字相同 ——
+ * 而它此前是三把里**唯一**只查「非空」的，等于弱值可以静默生效。
+ */
+export const KEY_BYTES = 32;
 
 /** 密文信封：`v<key_version>:<base64url(iv | tag | ciphertext)>`，版本号自描述，不另开列 */
 const ENVELOPE = /^v(\d+):/;
@@ -68,7 +74,7 @@ export function parseKeyMaterial(raw: string | undefined, envName: string, bytes
   const v = raw?.trim();
   if (!v) {
     throw new Error(
-      `缺 ${envName}：字段加密的密钥不许走默认值（有默认值等于所有部署共用一把）。` +
+      `缺 ${envName}：密钥不许走默认值（有默认值等于所有部署共用一把）。` +
         `生成一个：node -e "console.log(require('crypto').randomBytes(${bytes}).toString('base64url'))"，写进 .env`,
     );
   }

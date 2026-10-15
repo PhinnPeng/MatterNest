@@ -31,11 +31,6 @@ jobs:
           --health-retries 10
 
     env:
-      # 三把密钥：CI 里用随机值，只要格式对就行（32 字节 hex）。
-      # 真实的密钥走 GitHub Secrets，见 .env.example。
-      MN_AES_KEY: ${{ secrets.MN_AES_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
-      MN_HMAC_KEY: ${{ secrets.MN_HMAC_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
-      MN_SESSION_PEPPER: ${{ secrets.MN_SESSION_PEPPER || 'ci-only-not-for-production' }}
       PGHOST: 127.0.0.1
       PGPORT: 30432
       PGDATABASE: dev_matternest
@@ -46,6 +41,20 @@ jobs:
       NODE_ENV: development
       LOG_LEVEL: info
       MN_DB_CONFIRM: dev_matternest
+
+      # ⚠ 这里**没有**三把密钥，而且这是有意的（MATT-36 决策第 4 项）。
+      #
+      # 原先是 `secrets.X || '<固定占位>'`，两个问题都被这次改动去掉：
+      #   1. **`MN_AES_KEY` 与 `MN_HMAC_KEY` 的兜底值逐字相同**（两个 64 个 0）——
+      #      直接违反 NIST SP 800-57 Pt1 R5 §5.2 的 `shall`（一条 key 只做一个用途），
+      #      而且是**我们自己 CI 里现存的**。启动期自检现在会拦这种形态，
+      #      留着这个占位值 CI 自己就起不来；
+      #   2. `||` 回落让「secret 名字配错」在 CI 里**永远看不出来**。
+      #
+      # 改成下面那一步 `pnpm keys:gen` 每次运行现生成：CI 的库每次新建、只装演示数据，
+      # 本就该用一次性密钥（OWASP SM §2.7.1 要求密钥「cryptographically robust enough
+      # for their purpose」，固定明文不满足）。顺带让 CI 每天走一遍真实产出路径，
+      # 工具坏了 CI 就红。
 
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +73,30 @@ jobs:
 
       - name: pnpm verify（format / lint / typecheck / test / lint-guard / anchors / deploy）
         run: pnpm verify
+
+      # ⚠ 必须在**起 dev server 之前**，且在 `pnpm verify` 之后 ——
+      # `tools/keys.spec.ts` 会 `gen --force` 跑真工具，而 verify 里的启动期断言
+      # （三把互不相同、pepper 长度）依赖这些性质成立。
+      #
+      # `--force` 在这里不危险：护栏看的是 `deploy/.env` 与 `.env`，CI 里两个都不存在
+      # （`.env` 被 gitignore）⇒ 护栏本来就空触发。写出来只为让「此处确实是空环境」显式。
+      #
+      # 那句 `if [ "$n" -ne 3 ]` 是 canary：工具的输出格式若变了、grep 捞不到值，
+      # 没有它 CI 会带着**空密钥**继续往下跑，然后在起 dev server 时报一个
+      # 与真因无关的错。有了它，产出这一步自己就红。
+      #
+      # 值只经 `$GITHUB_ENV` 进后续 step 的进程环境，**不进任何 echo / 日志**。
+      - name: 产出三把密钥（MATT-36：不再用固定占位值）
+        run: |
+          vals="$(node tools/keys.mjs gen --force | grep -E '^[A-Z0-9_]+=')"
+          n="$(printf '%s\n' "$vals" | grep -c '=')"
+          if [ "$n" -ne 3 ]; then
+            echo "::error::只捞到 $n 行 KEY=value，应为 3 行 —— 生成器输出格式变了？"
+            printf '%s\n' "$vals" | sed 's/=.*/=<已隐去>/'
+            exit 1
+          fi
+          printf '%s\n' "$vals" >> "$GITHUB_ENV"
+          echo "已注入 3 把（值不进日志）"
 
       - name: 迁移 + seed
         run: |

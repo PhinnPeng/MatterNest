@@ -1,7 +1,11 @@
 import { Cron } from "croner";
 import { eq, sql } from "drizzle-orm";
 import { assertSessionPepperConfigured } from "@/app/lib/server/auth/auth";
-import { assertFieldCryptoConfigured } from "@/app/lib/server/crypto/field-crypto";
+import {
+  assertFieldCryptoConfigured,
+  KEY_BYTES,
+  parseKeyMaterial,
+} from "@/app/lib/server/crypto/field-crypto";
 import { getDb } from "@/app/lib/server/db/client";
 import { timerHeartbeat } from "@/app/lib/server/db/schema";
 import { pumpAll, type PumpResult } from "@/app/lib/server/services/pump-gate";
@@ -304,6 +308,49 @@ export function startTimer(
   );
 }
 
+/** 三把的顺序即报错时的列举顺序，与 `tools/keys.mjs` 的输出一致 */
+const SECRET_KEY_NAMES = ["MN_AES_KEY", "MN_HMAC_KEY", "MN_SESSION_PEPPER"] as const;
+
+/**
+ * 三把密钥必须**互不相同**（MATT-36 决策第 4 项）。
+ *
+ * ## 为什么单开一条，而不是让各模块自己管
+ *
+ * 违例形态是「三把填成同一个值」，而它在**每一处局部检查里都是绿的**：
+ * `parseKeyMaterial` 只管长度与字符集，`aesKey()`/`hmacKey()`/`pepper()`
+ * 各读各的、互不相识。⇒ 这条只能在一个能同时看见三把的地方判。
+ *
+ * ## 一手依据
+ *
+ * NIST SP 800-57 Pt1 Rev 5 §5.2 Key Usage：「a single key **shall** be used for only
+ * one purpose」，其理由之二就是「Limiting the use of a key limits the damage that could
+ * be done if the key is compromised」。本仓三把共用一把 ⇒ 拿到它的人**一次**就同时
+ * 拿到「解密全部 PII」与「为任意 userId 伪造会话」两件事。
+ *
+ * ## 为什么比较的是**字节**而不是字符串
+ *
+ * `MN_AES_KEY` 写成 64 字符 hex、`MN_HMAC_KEY` 写成同一把的 43 字符 base64url ——
+ * 逐字比较是绿的，但它们是同一把。所以这里统一 `parseKeyMaterial` 成 32 字节再比。
+ */
+function assertKeysMutuallyDistinct(): void {
+  // 用 Map 去重而不是两两比较：既避开 `noUncheckedIndexedAccess` 下的索引可选性，
+  // 也不再需要在报错时去数组里反查「第 i 把和第 j 把」——直接记下**先出现的那把的名字**。
+  const seen = new Map<string, string>();
+  for (const name of SECRET_KEY_NAMES) {
+    const hex = parseKeyMaterial(process.env[name], name, KEY_BYTES).toString("hex");
+    const earlier = seen.get(hex);
+    if (earlier !== undefined) {
+      throw new Error(
+        `${earlier} 与 ${name} 解析后是**同一把密钥**：` +
+          `NIST SP 800-57 Pt1 R5 §5.2「一条 key shall 只做一个用途」——` +
+          `共用一把意味着拿到它的人一次就同时拿到「解密全部 PII」与「伪造任意会话」。` +
+          `产出工具：node tools/keys.mjs gen（三把各自独立生成）`,
+      );
+    }
+    seen.set(hex, name);
+  }
+}
+
 /**
  * 启动期的密钥自检（MATT-36 决策第 4 项 · 收紧第 3 项）。
  *
@@ -340,6 +387,7 @@ export function startTimer(
 export function assertServerSecretsConfigured(): void {
   assertFieldCryptoConfigured();
   assertSessionPepperConfigured();
+  assertKeysMutuallyDistinct();
 }
 
 /**

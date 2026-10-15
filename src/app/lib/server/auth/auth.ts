@@ -4,6 +4,7 @@ import { cache } from "react";
 import { eq } from "drizzle-orm";
 import { type DataScope, widestDataScope } from "@/shared/enums";
 import { nextId } from "@/shared/ids/snowflake";
+import { KEY_BYTES, parseKeyMaterial } from "../crypto/field-crypto";
 import { getDb } from "../db/client";
 import { appUser, appUserRole, authSession, role } from "../db/schema";
 
@@ -25,6 +26,13 @@ const SESSION_TTL_SECONDS = 60 * 60 * 8;
 /**
  * 摘要密钥只从 env 取；缺了就抛，不用硬编码默认值糊过去（技术选型 §6）。
  *
+ * **形状与另两把逐字相同**（MATT-36 决策第 4 项）：走 `parseKeyMaterial`，
+ * 即 32 字节（43 字符 base64url / 64 字符 hex），长度不符即拒。
+ * 在此之前它是三把里**唯一**只查「非空」的 —— 而它恰恰是**唯一能造成权限提升**
+ * 的那把（拿到即可为任意 `userId` 算出合法 `token_hash`）。弱值在这里
+ * 不是「不够安全」，是「本该拦住的没拦住」。NIST 对 HMAC 密钥的门限是
+ * ≥112 bit，32 字节 = 256 bit。
+ *
  * **模块级缓存**（与 `field-crypto.ts` 的 `aesKey()` 同一形状，MATT-36 收紧第 2 项）：
  * 它在**热路径**上 —— `pepper()` → `tokenHashOf()` → `readActor()`，
  * 而 `withActor()` 是**每个** `/api/**` handler 的包装器（`http.ts:188`），
@@ -38,17 +46,19 @@ const SESSION_TTL_SECONDS = 60 * 60 * 8;
  * 改动之前（每次重读 `process.env`）这件事是「改了就生效」的，
  * 加了缓存之后不再是 ⇒ **从「改 `.env` 即可」变成了「改 `.env` + 重启」**。
  * 步骤多了一步，而漏掉那一步的形态是静默的（服务照常、会话照常、只是没换）。
+ * ⚠ 换 pepper 的运维手册必须写「改 env **+ 重启**」两步。
  *
  * ⚠ 标注：本仓**未实测** Next dev 是否会在 `.env` 变化时热重载 `process.env`。
  * 上面那句结论**不依赖**那个答案 —— 无论它会不会重载，缓存都会让新值不生效。
- * 「重启后旧会话全部失效」是**预期**行为：换 pepper 就是让所有旧会话作废。
  */
 let pepperCache: string | null = null;
 function pepper(): string {
   if (pepperCache === null) {
-    const v = process.env.MN_SESSION_PEPPER;
-    if (!v) throw new Error("缺 MN_SESSION_PEPPER：会话摘要密钥不许走默认值");
-    pepperCache = v;
+    const raw = process.env.MN_SESSION_PEPPER;
+    // 抛错时用的是它自己的消息（已中性化，不再说「字段加密的密钥」——
+    // 那是另两把的语境，出现在 pepper 上会把人引去查错文件）
+    parseKeyMaterial(raw, "MN_SESSION_PEPPER", KEY_BYTES);
+    pepperCache = raw!.trim();
   }
   return pepperCache;
 }

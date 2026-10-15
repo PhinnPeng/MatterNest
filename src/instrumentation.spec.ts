@@ -158,8 +158,17 @@ describe("前置件 3：真 croner 上的四项配置与不拒绝的回调", () 
  */
 describe("启动期密钥自检：缺任何一把都在 ready 之前抛", () => {
   const KEYS = ["MN_AES_KEY", "MN_HMAC_KEY", "MN_SESSION_PEPPER"] as const;
-  /** 32 字节 base64url —— `parseKeyMaterial` 认的形状（见该函数 :75-76） */
-  const GOOD = Buffer.alloc(32, 7).toString("base64url");
+  /**
+   * 三个**互不相同**的合法 32 字节值（`parseKeyMaterial` 认的 base64url 形状）。
+   *
+   * ⚠ 必须三个不同：自检里有「三把互不相同」那一条，而这条测试写出来时
+   * 三处都用了同一个 `GOOD` —— 立刻被自检判红。留着这条注释，
+   * 下一个人加用例时不必重新踩一遍。
+   */
+  const AES = Buffer.alloc(32, 1).toString("base64url");
+  const HMAC = Buffer.alloc(32, 2).toString("base64url");
+  const PEPPER = Buffer.alloc(32, 3).toString("base64url");
+  const ALL = { MN_AES_KEY: AES, MN_HMAC_KEY: HMAC, MN_SESSION_PEPPER: PEPPER };
 
   async function selfCheckWith(env: Partial<Record<(typeof KEYS)[number], string>>) {
     const saved = new Map(KEYS.map((k) => [k, process.env[k]]));
@@ -178,35 +187,66 @@ describe("启动期密钥自检：缺任何一把都在 ready 之前抛", () => 
     }
   }
 
-  it("三把都在 ⇒ 自检通过（先证明这条不是恒红）", async () => {
+  it("三把都在且互不相同 ⇒ 自检通过（先证明这条不是恒红）", async () => {
     // `.resolves` 而不是 `.not.toThrow()`：后者收的是**函数**，给 Promise 会静默通过
-    await expect(
-      selfCheckWith({ MN_AES_KEY: GOOD, MN_HMAC_KEY: GOOD, MN_SESSION_PEPPER: GOOD }),
-    ).resolves.toBeUndefined();
+    await expect(selfCheckWith(ALL)).resolves.toBeUndefined();
   });
 
   it("缺 MN_AES_KEY ⇒ 抛，且消息点名这一个变量", async () => {
-    await expect(selfCheckWith({ MN_HMAC_KEY: GOOD, MN_SESSION_PEPPER: GOOD })).rejects.toThrow(
+    await expect(selfCheckWith({ MN_HMAC_KEY: HMAC, MN_SESSION_PEPPER: PEPPER })).rejects.toThrow(
       /MN_AES_KEY/,
     );
   });
 
   it("缺 MN_HMAC_KEY ⇒ 抛", async () => {
-    await expect(selfCheckWith({ MN_AES_KEY: GOOD, MN_SESSION_PEPPER: GOOD })).rejects.toThrow(
+    await expect(selfCheckWith({ MN_AES_KEY: AES, MN_SESSION_PEPPER: PEPPER })).rejects.toThrow(
       /MN_HMAC_KEY/,
     );
   });
 
-  /**
-   * 这条是**故意多加**的：只接 `assertFieldCryptoConfigured()` 的话，
-   * pepper 缺失仍然要到「第一次有人鉴权」才炸 —— 那时应用已经 ready 了，
-   * 而 18 个 `/api/**` handler 全程不可用。自检叫「启动期密钥自检」却漏一把，
-   * 比不做更坏：**它会让人以为已经查过了**。
-   */
   it("缺 MN_SESSION_PEPPER ⇒ 也抛（**三把都要在**，不只是字段加密那两把）", async () => {
-    await expect(selfCheckWith({ MN_AES_KEY: GOOD, MN_HMAC_KEY: GOOD })).rejects.toThrow(
+    await expect(selfCheckWith({ MN_AES_KEY: AES, MN_HMAC_KEY: HMAC })).rejects.toThrow(
       /MN_SESSION_PEPPER/,
     );
+  });
+
+  /**
+   * 三把填成同一个值 ⇒ **静默通过**（实测：`assertFieldCryptoConfigured()` 只各读一次，
+   * `parseKeyMaterial` 只管长度与字符集，没有任何一处比较过它们）。
+   *
+   * 这直接违反 NIST SP 800-57 Pt1 R5 §5.2 的 `shall`：「a single key shall be used
+   * for only one purpose」，理由之二就是「限制一把钥匙的用途，就限制了它失陷时的爆炸面」。
+   * 而三把共用一把 ⇒ 拿到它的人一次就同时拿到「解密全部 PII」与「伪造任意会话」。
+   *
+   * 这条也是 MATT-36 决策第 4 项里 CI 改造的**动因**：CI 的
+   * `MN_AES_KEY` / `MN_HMAC_KEY` 兜底值逐字相同（两个 64 个 0），
+   * 所以「加这条断言」与「CI 改运行时生成」必须同时做，否则 CI 自己起不来。
+   */
+  it("三把逐字相同 ⇒ 抛（NIST §5.2 的 shall：一条 key 只做一个用途）", async () => {
+    await expect(
+      selfCheckWith({ MN_AES_KEY: AES, MN_HMAC_KEY: AES, MN_SESSION_PEPPER: AES }),
+    ).rejects.toThrow(/同一把/);
+  });
+
+  /**
+   * 逐字比较会漏掉的形态：AES 写成 hex、HMAC 写成同一把的 base64url。
+   * 所以自检比的是**解析后的 32 字节**，不是字符串。
+   */
+  it("同一把的不同写法（hex vs base64url）⇒ 也抛", async () => {
+    const bytes = Buffer.alloc(32, 4);
+    await expect(
+      selfCheckWith({
+        MN_AES_KEY: bytes.toString("hex"),
+        MN_HMAC_KEY: bytes.toString("base64url"),
+        MN_SESSION_PEPPER: PEPPER,
+      }),
+    ).rejects.toThrow(/同一把/);
+  });
+
+  it("pepper 长度不对 ⇒ 抛（此前它是三把里唯一只查「非空」的）", async () => {
+    await expect(
+      selfCheckWith({ MN_AES_KEY: AES, MN_HMAC_KEY: HMAC, MN_SESSION_PEPPER: "x" }),
+    ).rejects.toThrow(/MN_SESSION_PEPPER/);
   });
 
   /**
