@@ -1,5 +1,6 @@
 import { scanArchiveIncomplete } from "./archive-reminder";
 import { pumpNotifications } from "./notifications";
+import { scanStale30d } from "./stale-reminder";
 
 /**
  * 轮询的**进程内单飞**（MATT-74 前置件 4）。
@@ -68,16 +69,23 @@ import { pumpNotifications } from "./notifications";
  * （读驱动那条会让这次 GET 500，与今天一致；定时器那条会记日志且不写心跳）。
  */
 
-/** 一次 pump 的全部计数。三个字段都直接来自服务层现成的返回类型，不另造 DTO */
+/**
+ * 一次 pump 的全部计数。字段都直接来自服务层现成的返回类型，不另造 DTO。
+ *
+ * ⚠ **每新增一个扫描器都要在这里加一个字段**，否则它不在心跳里 ⇒
+ * 「它跑了没有」没有任何可观测证据（`api/notifications/route.ts:43-44` 那条注）。
+ */
 export type PumpResult = Awaited<ReturnType<typeof pumpNotifications>> & {
   archive: Awaited<ReturnType<typeof scanArchiveIncomplete>>;
+  stale: Awaited<ReturnType<typeof scanStale30d>>;
 };
 
-/** 一次 pump 本体：三个扫描的顺序与 `route.ts` 原来那两行逐字相同 */
+/** 一次 pump 本体：扫描的顺序与 `route.ts` 原来那两行逐字相同，规则 4 接在其后 */
 async function pumpOnce(): Promise<PumpResult> {
   const { outbox, scan } = await pumpNotifications();
   const archive = await scanArchiveIncomplete();
-  return { outbox, scan, archive };
+  const stale = await scanStale30d();
+  return { outbox, scan, archive, stale };
 }
 
 /** 链上调用者的身份，**只进日志**（见下） */

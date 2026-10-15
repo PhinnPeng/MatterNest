@@ -28,11 +28,26 @@ import { makeOnOverrun, makeTick, startTimer, type TickDeps } from "./instrument
 
 const quiet: TickDeps["log"] = { info: () => {}, error: () => {} };
 
-/** 一次成功 pump 的形状（三个字段都是服务层现成的返回类型，这里逐字照抄） */
+/**
+ * 一次成功 pump 的形状（字段都是服务层现成的返回类型，这里逐字照抄）。
+ *
+ * ⚠ **`stale`（规则 4，MATT-61）必须在这里**：`PumpResult` 少一个字段是**类型错误**，
+ * 而类型错误正是"新增扫描器有第三个落点"这件事唯一能被机器发现的方式 ——
+ * 少了它，`pnpm typecheck` 会红在这里，而不是让定时器那条路静默少跑一个扫描器。
+ */
 const PUMP_OK: PumpResult = {
   outbox: { scanned: 1, published: 1, failed: 0, events: 1, merged: 0 },
   scan: { scanned: 2, events: 1, merged: 0 },
   archive: {
+    ruleFound: true,
+    enabled: true,
+    scanned: 3,
+    events: 0,
+    merged: 0,
+    skipped: [],
+    dateKey: "2026-10-14",
+  },
+  stale: {
     ruleFound: true,
     enabled: true,
     scanned: 3,

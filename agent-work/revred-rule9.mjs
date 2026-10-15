@@ -78,9 +78,16 @@ const MODES = {
       {
         file: F_GATE,
         tag: "no-wiring",
+        /**
+         * ⚠ 2026-10-15 更新（MATT-61）：`pumpOnce()` 里多了一次 `scanStale30d()`，
+         * 返回行随之变成 `{ outbox, scan, archive, stale }`。锚点是**逐字**的，
+         * 所以这里必须跟着改 —— 否则本模式的注入会静默失效（找不到锚点 ⇒ 不注入，
+         * 而"没注入"与"没咬住"在跑批结果里长得一样）。
+         */
         needle: `  const { outbox, scan } = await pumpNotifications();
   const archive = await scanArchiveIncomplete();
-  return { outbox, scan, archive };`,
+  const stale = await scanStale30d();
+  return { outbox, scan, archive, stale };`,
         replacement: `  // 反向红（no-wiring）：摘掉规则 9 的调用；cast 只为让注入版能编译
   return (await pumpNotifications()) as PumpResult;`,
       },

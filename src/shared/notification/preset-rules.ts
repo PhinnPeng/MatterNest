@@ -109,7 +109,8 @@ export const RULE_RISK_CONVERTED_NOTIFY: PresetNotifyRule = {
  * 结案后材料不全提醒（规则 9，MATT-43 / IQ-16）。
  *
  * 它是 `archive_incomplete` 这个事件类型的**唯一生产者**（T4 交付时 E29 的 8 个值里
- * `mention`/`stale_30d`/`archive_incomplete` 三个还没有生产者，本条补掉第三个）。
+ * `mention`/`stale_30d`/`archive_incomplete` 三个还没有生产者，本条补掉第三个；
+ * `stale_30d` 由 MATT-61 补掉，至此 E29 只剩 `mention` 一档仍在 MATT-58 上）。
  * 收件人**只有经办人**：补材料的动作只有他能做，而关注人看到只会去问经办人。
  */
 export const RULE_ARCHIVE_INCOMPLETE_NOTIFY: PresetNotifyRule = notifyView(9);
@@ -117,10 +118,14 @@ export const RULE_ARCHIVE_INCOMPLETE_NOTIFY: PresetNotifyRule = notifyView(9);
 /**
  * 长期未更新提醒（规则 4）。
  *
- * ⚠ **本票没有给它接生产者**（30 天无进展的扫描不在 MATT-43 范围内）。
- * 它出现在这里是因为规则表已经落地、它的 `receivers` 有了唯一取值源；
- * 而 `stale_30d` 事件在 E29 里仍然没有生产者——那件事在 T4 的缺口清单上，
- * 别把它读成"这条规则已经生效"。
+ * **MATT-61 已给它接上生产者**（`services/stale-reminder.ts` + `shared/notification/stale-30d.ts`），
+ * 所以从本票起 `stale_30d` 不再是"声明了但没有写入方"的事件类型。
+ *
+ * ⚠ **收件人是 `owner`，不是 `owner + follower`**：MATT-61 票面的括注里写的是
+ * "owner + follower"，而规则目录与 seed（`db/seed/0006_automation_rules.sql:55`）
+ * **一致地写着 `["owner"]`** —— 目录是唯一取值源且由 `preset-rules.seed.spec.ts` 机器对拉，
+ * 所以以目录为准。差别是真实的推进行为：关注人收不到"30 天没进展"这条。
+ * 若产品口径要改成含 follower，该改的是目录（连带 seed 与那份对拉单测），不是扫描器。
  */
 export const RULE_STALE_30D_NOTIFY: PresetNotifyRule = notifyView(4);
 

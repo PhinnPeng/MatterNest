@@ -14,9 +14,10 @@ import { POST } from "./route";
  * 下面两条断言必须变红（且是断言失败，不是编译错误）——它证明这道门
  * 真的把「无 token 请求」挡在服务层之前，而不是碰巧绿。
  */
-const { pumpNotifications, scanArchiveIncomplete } = vi.hoisted(() => ({
+const { pumpNotifications, scanArchiveIncomplete, scanStale30d } = vi.hoisted(() => ({
   pumpNotifications: vi.fn(),
   scanArchiveIncomplete: vi.fn(),
+  scanStale30d: vi.fn(),
 }));
 
 vi.mock("@/app/lib/server/services/notifications", () => ({
@@ -24,6 +25,9 @@ vi.mock("@/app/lib/server/services/notifications", () => ({
 }));
 vi.mock("@/app/lib/server/services/archive-reminder", () => ({
   scanArchiveIncomplete,
+}));
+vi.mock("@/app/lib/server/services/stale-reminder", () => ({
+  scanStale30d,
 }));
 
 const TOKEN = "pump-smoke-token";
@@ -39,6 +43,16 @@ const post = (authorization?: string) =>
 const PUMP_RESULT = {
   outbox: { scanned: 3, published: 3, failed: 0, events: 2, merged: 1 },
   scan: { scanned: 12, events: 1, merged: 0 },
+  // 规则 4（MATT-61）：与规则 9 同形，也是心跳的一部分
+  stale: {
+    ruleFound: true,
+    enabled: true,
+    scanned: 7,
+    events: 1,
+    merged: 0,
+    skipped: [],
+    dateKey: "2026-10-14",
+  },
 };
 
 beforeEach(() => {
@@ -53,6 +67,7 @@ beforeEach(() => {
     skipped: [],
     dateKey: "2026-10-14",
   });
+  scanStale30d.mockResolvedValue(PUMP_RESULT.stale);
 });
 
 afterEach(() => {
@@ -88,7 +103,7 @@ describe("POST /api/internal/pump 鉴权（bearer token ⇒ MN_INTERNAL_TOKEN）
     expect(pumpNotifications).not.toHaveBeenCalled();
   });
 
-  it("对 token ⇒ 200 + { outbox, scan } 计数，两个泵各跑一次、无参调用", async () => {
+  it("对 token ⇒ 200 + { outbox, scan, stale } 计数，三个扫描各跑一次、无参调用", async () => {
     const res = await post(`Bearer ${TOKEN}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -98,6 +113,10 @@ describe("POST /api/internal/pump 鉴权（bearer token ⇒ MN_INTERNAL_TOKEN）
     expect(pumpNotifications).toHaveBeenCalledWith();
     expect(scanArchiveIncomplete).toHaveBeenCalledTimes(1);
     expect(scanArchiveIncomplete).toHaveBeenCalledWith();
+    // ⚠ 规则 4 是本端点**第二个**落点：漏了它，定时器这条路上规则 4 永不执行，
+    //   而库里表现为"零事件"，与"没人该收"同形
+    expect(scanStale30d).toHaveBeenCalledTimes(1);
+    expect(scanStale30d).toHaveBeenCalledWith();
   });
 });
 

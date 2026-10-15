@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { json, notFound } from "@/app/lib/server/http";
 import { scanArchiveIncomplete } from "@/app/lib/server/services/archive-reminder";
 import { pumpNotifications } from "@/app/lib/server/services/notifications";
+import { scanStale30d } from "@/app/lib/server/services/stale-reminder";
 
 /**
  * 通知泵的内部触发端点（MATT-73 / T4d）。
@@ -37,8 +38,14 @@ import { pumpNotifications } from "@/app/lib/server/services/notifications";
  *
  * ## 返回体
  *
- * `{ outbox, scan }` 两个计数直接来自 `pumpNotifications` 的返回类型
- * （`notifications.ts:774-780` / `:894-898`），供触发器落心跳（MATT-83）。
+ * `{ outbox, scan, stale }`：`outbox` / `scan` 直接来自 `pumpNotifications` 的返回类型
+ * （`notifications.ts:774-780` / `:894-898`），`stale` 来自规则 4 的扫描器（MATT-61），
+ * 供触发器落心跳（MATT-83）。
+ *
+ * ⚠ **规则 9 与规则 4 都要在这里点名调用**：本端点没有走 `pump-gate` 的单飞
+ * （它是无会话的独立入口），所以"新增扫描器要加进 `pumpOnce()`"那条规矩在这里
+ * 有**第二个落点**——漏掉它，定时器这条路上规则 4 就永远不跑，
+ * 而库里的形态（零事件）与"没人该收"一模一样。
  */
 export async function POST(req: Request) {
   const expected = process.env.MN_INTERNAL_TOKEN;
@@ -56,5 +63,6 @@ export async function POST(req: Request) {
 
   const { outbox, scan } = await pumpNotifications();
   await scanArchiveIncomplete();
-  return json({ outbox, scan });
+  const stale = await scanStale30d();
+  return json({ outbox, scan, stale });
 }

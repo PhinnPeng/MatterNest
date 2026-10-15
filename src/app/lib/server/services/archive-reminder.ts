@@ -43,8 +43,12 @@ import { insertNotificationEvent, loadHostFacts, resolveRecipients } from "./not
  * ## 与规则 4 的关系
  *
  * 两条规则同为 `time_no_progress` + `notify`，靠 `trigger_config` 落在不同触发域
- * （`{days:30}` vs `{days:14,status_code:"closed"}`）。规则 4 的扫描器**不在本票范围**
- * （`stale_30d` 至今没有生产者，见 `notification/preset-rules.ts` 的注）。
+ * （`{days:30}` vs `{days:14,status_code:"closed"}`）。
+ *
+ * **规则 4 的扫描器已由 MATT-61 补上**（`services/stale-reminder.ts`）；它在本票
+ * （MATT-43）时尚无生产者，那段"至今没有生产者"的话到此为止。
+ * 两条规则的判定**刻意不共用**（时钟锚点不同：结案 vs 上次投入），
+ * 见 `shared/notification/stale-30d.ts` 的文件头。
  */
 /** 规则 9 在 seed 里的 `code`。它是幂等锚，也是本扫描器认领规则行的唯一依据 */
 export const ARCHIVE_REMINDER_RULE_CODE = "preset_09_archive_incomplete_notify";
