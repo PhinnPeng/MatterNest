@@ -92,7 +92,8 @@ jobs:
       # 没有它 CI 会带着**空密钥**继续往下跑，然后在起 dev server 时报一个
       # 与真因无关的错。有了它，产出这一步自己就红。
       #
-      # 值只经 `$GITHUB_ENV` 进后续 step 的进程环境，**不进任何 echo / 日志**。
+      # 值只经 `$GITHUB_ENV` 进后续 step 的进程环境；**不进任何 echo**，
+      # 且下面显式 `add-mask` —— 因为 GitHub 会把每个 step 的完整 env 打进日志，光「不 echo」不够。
       - name: 产出三把密钥（MATT-36：不再用固定占位值）
         run: |
           vals="$(node tools/keys.mjs gen --force | grep -E '^[A-Z0-9_]+=')"
@@ -102,8 +103,19 @@ jobs:
             printf '%s\n' "$vals" | sed 's/=.*/=<已隐去>/'
             exit 1
           fi
+          # ⚠⚠ **必须 add-mask**，否则三把密钥明文躺在每次 run 的日志里（2026-10-15 实测）。
+          #
+          # 原注释写的是「值只经 GITHUB_ENV 进后续 step 的进程环境，**不进任何 echo / 日志**」——
+          # **那句话是错的**：GitHub Actions 会把**每个 step 的完整 env** 打进日志，
+          # 于是 GITHUB_ENV 里的三把值在下一�� step 的 env 块里逐字出现。
+          # 仓库里没注册成 secret，所以 GitHub 也不会自动抹。
+          #
+          # 不 echo 不够 —— 要显式告诉 GitHub 把这三个值从日志里抹掉。
+          printf '%s\n' "$vals" | while IFS= read -r line; do
+            echo "::add-mask::${line#*=}"
+          done
           printf '%s\n' "$vals" >> "$GITHUB_ENV"
-          echo "已注入 3 把（值不进日志）"
+          echo "已注入 3 把（已 add-mask）"
 
       # ⚠ 必须在**迁移之前**：从这一步交出去之后，流水线剩下的每一步都改用非超级用户角色。
       #

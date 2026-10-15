@@ -82,10 +82,47 @@ describe("provisionSql：交出去的角色必须是非超级用户", () => {
     expect(all()).toMatch(/format\('create role %I login password %L/);
   });
 
-  it("幂等：角色已存在时**把属性收回来**，而不是跳过 —— 否则承诺依赖历史状态", () => {
-    const t = all();
-    expect(t).toMatch(/if not exists \(select 1 from pg_roles where rolname = \$1\)/i);
-    expect(t).toMatch(/alter role %I nosuperuser nocreatedb nocreaterole login/i);
+  it("幂等：角色已存在时跳过 create，但**属性仍然收回来** —— 否则承诺依赖历史状态", () => {
+    const fresh = provisionSql({ ...args, roleExists: false })
+      .map((s) => s.text)
+      .join("\n");
+    const exists = provisionSql({ ...args, roleExists: true })
+      .map((s) => s.text)
+      .join("\n");
+
+    // create 只在「角色不在」时发 —— 重跑不该因 42710 duplicate_role 而炸
+    expect(fresh).toMatch(/format\('create role %I/);
+    expect(exists).not.toMatch(/format\('create role %I/);
+    // 而 alter 两边都发：镜像重建过、或有人手工抬过权限时，它把承诺收回来
+    for (const t of [fresh, exists]) {
+      expect(t).toMatch(
+        /format\('alter role %I login password %L nosuperuser nocreatedb nocreaterole/,
+      );
+    }
+  });
+
+  /**
+   * 早先这里写的是 `do $$ … if not exists (select 1 from pg_roles where rolname = $1) … $$;`。
+   *
+   * 它在**真库上直接报错**：`could not determine data type of parameter $1` ——
+   * DO 块的体是函数体，`$1` 被 PL/pgSQL 当成函数参数，而这个函数没有参数。
+   *
+   * 16 条离线判据当时全绿，因为它们只看 SQL 文本。**这正是「文本断言盖不住真库才暴露的
+   * 语义错误」的一个实例**，所以现在加一条结构断言把形态钉住。
+   */
+  it("**不得**再出现 DO 块（它的 $1 是函数参数引用，在真库上必报「无法确定参数类型」）", () => {
+    expect(all()).not.toMatch(/\bdo\s+\$\$/i);
+  });
+
+  it("凡是要在真库上执行的语句，都标了 `exec: true`（先 format、再执行它返回的 stmt）", () => {
+    const sts = provisionSql(args);
+    const needsExec = sts.filter((s) => s.text.includes("format("));
+    expect(needsExec.length).toBeGreaterThan(0);
+    for (const s of needsExec) expect(s.exec).toBe(true);
+    // 而那两条 ALTER 是直接发的，不该被再执行一遍
+    for (const s of sts.filter((x) => /alter (database|schema)/.test(x.text))) {
+      expect(s.exec).toBeUndefined();
+    }
   });
 });
 

@@ -68,7 +68,7 @@ export function quoteIdent(name, what = "标识符") {
  *
  * 口令走 `$1` / `$2` 参数位，**不进 SQL 文本**（因此也不会出现在任何日志里）。
  */
-export function provisionSql({ database, role, password }) {
+export function provisionSql({ database, role, password, roleExists = false }) {
   if (!password) {
     throw new Error(
       "MN_CI_APP_PASSWORD 是必填项 —— 没有它就会建出一个空口令的可登录角色，" +
@@ -78,23 +78,31 @@ export function provisionSql({ database, role, password }) {
   const db = quoteIdent(database, "库名");
   const r = quoteIdent(role, "角色名");
 
+  // ⚠ 为什么是「format 出一条语句、再执行它」，而不是直接发 `create role … password '…'`：
+  //
+  //   1. **口令不能进 SQL 文本** —— 它会进日志、进 `pg_stat_activity`、进任何一次异常回显，
+  //      而 MATT-36 的裁定是三把密钥「不入库 / 不进镜像 / 不进 git」。数据库口令是同一类东西。
+  //   2. **但 PG 没有 `CREATE ROLE … PASSWORD $1`** —— 角色名与口令都不是参数位。
+  //      所以只能用服务端侧的 `format('%I' / '%L')` 生成语句文本。
+  //
+  // ⚠⚠ 早先这里写的是 `do $ … if not exists (select … where rolname = $1) … $;`
+  //    —— **在真库上直接报错**：`could not determine data type of parameter $1`。
+  //    DO 块的体是一个函数体，$1 被 PL/pgSQL 当成**函数参数**引用，而这个函数没有参数。
+  //    （这条只有在真库上跑才暴露 —— 16 条离线判据全绿，因为它们只看 SQL 文本。）
+  const stmt = (verb) => ({
+    text:
+      `select format('${verb} role %I login password %L ` +
+      "nosuperuser nocreatedb nocreaterole', $1, $2) as stmt",
+    params: [role, password],
+    // true = 返回的 stmt 字段要**再执行一遍**（它才是真正的那条 DDL）
+    exec: true,
+  });
+
   return [
-    {
-      // 幂等：CI 每次都是新库，但本地手工重跑不该因为「角色已存在」而炸。
-      // 用 DO 块 + format(%I/%L)，而不是「先查再插」—— 后者在并发下有窗口。
-      text: `do $$
-begin
-  if not exists (select 1 from pg_roles where rolname = $1) then
-    execute format('create role %I login password %L nosuperuser nocreatedb nocreaterole', $1, $2);
-  else
-    -- 角色已存在：仍然把属性**收回来**。镜像重建过、或有人手工抬过权限时，
-    -- 这一句让本工具的承诺（交出去的是非超级用户）不依赖历史状态。
-    execute format('alter role %I nosuperuser nocreatedb nocreaterole login', $1);
-    execute format('alter role %I password %L', $1, $2);
-  end if;
-end $$;`,
-      params: [role, password],
-    },
+    // 角色已存在时跳过 create：重复创建会报 42710，而报错在这里是**正常路径**不是故障。
+    // 权限仍然由下面那条 alter 收回来 —— 不依赖历史状态。
+    ...(roleExists ? [] : [stmt("create")]),
+    stmt("alter"),
     // 姿态的第一半：它是库的属主 ⇒ 库级 CREATE 自动有（够 drizzle 建 `drizzle` schema）
     { text: `alter database ${db} owner to ${r};`, params: [] },
     // 姿态的第二半：`public` 的 CREATE。**显式**改，不依赖 PG15+ 的伪角色默认（见文件头 ⚠）
@@ -184,8 +192,22 @@ if (isEntry) {
             `但它建出来的角色是给流水线后面每一步用的非超级用户。`,
         );
       }
-      for (const s of provisionSql({ database, role, password })) {
-        await boot.unsafe(s.text, s.params);
+      const [{ n: existing }] = await boot.unsafe(
+        "select count(*)::int as n from pg_roles where rolname = $1",
+        [role],
+      );
+      for (const s of provisionSql({
+        database,
+        role,
+        password,
+        roleExists: existing > 0,
+      })) {
+        if (s.exec) {
+          const [{ stmt: ddl }] = await boot.unsafe(s.text, s.params);
+          await boot.unsafe(ddl);
+        } else {
+          await boot.unsafe(s.text, s.params);
+        }
       }
       console.log(`已分权：${role} 现在是 ${database} 的属主，且非超级用户`);
     } catch (e) {
