@@ -45,6 +45,7 @@ import { nextCode } from "./numbering";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import { hostStatusRows, initialStatusCode } from "./statuses";
 import { logActivity } from "./activity";
+import { mentionPartsOf } from "./comment-mentions";
 // 通知意图的两个生产点（MATT-41 / T4）：状态变更**同事务**落事件，新评论**只落 outbox**。
 // 两者都不在业务事务里做"投递"这个动作本身 —— 见 services/notifications.ts 文件头。
 import {
@@ -957,6 +958,8 @@ export async function getRiskMatter(actor: Actor, id: string) {
           authorName: appUser.displayName,
           createdAt: comment.createdAt,
           updatedAt: comment.updatedAt,
+          /** @提及的 user id（MATT-68 / T4b2 的读取侧）；出 DTO 前换成 `parts`，见下 */
+          mentionIds: comment.mentionIds,
         })
         .from(comment)
         .innerJoin(appUser, eq(appUser.id, comment.authorId))
@@ -1031,6 +1034,14 @@ export async function getRiskMatter(actor: Actor, id: string) {
         .orderBy(asc(nodeTypeConfig.sortOrder)),
     ]);
 
+  /**
+   * 评论的 @提及分段（MATT-68 / T4b2），与案件侧同一实现：
+   * 按 `mention_ids` 取名册状态 → 切成文本/提及段。
+   * 字段逐项列出而不是 `{...c}`：`mentionIds` 是 `bigint[]`（过不了 JSON 序列化），
+   * 而界面要的是渲染件而不是一串 user id。
+   */
+  const commentParts = await mentionPartsOf(db, comments);
+
   return {
     ...row,
     id: String(row.id),
@@ -1042,10 +1053,15 @@ export async function getRiskMatter(actor: Actor, id: string) {
     staff: staff.map((s) => ({ ...s, id: String(s.id), userId: String(s.userId) })),
     parties: parties ?? [],
     comments: comments.map((c) => ({
-      ...c,
       id: String(c.id),
+      body: c.body,
       parentId: c.parentId === null ? null : String(c.parentId),
+      isEdited: c.isEdited,
       authorId: String(c.authorId),
+      authorName: c.authorName,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      parts: commentParts.get(String(c.id)) ?? [],
     })),
     activity: activity.map((a) => ({ ...a, id: String(a.id), operatorId: String(a.operatorId) })),
     statuses,

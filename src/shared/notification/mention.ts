@@ -39,17 +39,37 @@ export type MentionCandidate = {
 export const MENTION_PREFIX = "@";
 
 /**
- * 从评论正文里解析被 @ 到的人。
+ * 正文里**一处**提及：`@` 的下标 + 命中的字面名字 + 这个字面名字命中的全部同事。
  *
- * 返回**按出现顺序**排好的 user id（同一人在一条评论里 @ 两次只算一次）。
- * 顺序有意义：`mention_ids` 落库后是排障时的第一手证据，
- * 排序会让"谁先被点名"这件事在库里看不出来。
- *
- * 同名同事（`display_name` 没有唯一约束，只有 `username` 有）**全部命中**而不是任选一个：
- * 本票要挡的失败形态正是"@ 了人但通知没发出去"这种静默，宁可多喊一个同事，
- * 也不要让点名落空。这是 10 人组织里可接受的代价（IQ-14 同一条理由：花名册无保密价值）。
+ * `ids` 是数组而不是单值：同名同事（`display_name` 无唯一约束）会同时命中，见 `parseMentionIds`。
  */
-export function parseMentionIds(body: string, candidates: readonly MentionCandidate[]): string[] {
+export type MentionSpan = {
+  /** `@` 的下标 */
+  start: number;
+  /** 名字结束的下标（`end = start + @ 的长度 + name.length`） */
+  end: number;
+  /** 正文里那个字面的名字（**不是**候选人现在的 `display_name`）；原样切出来，供渲染方按需高亮 */
+  name: string;
+  /** 命中的人。同名时不止一个，顺序同 `parseMentionIds` 的口径 */
+  ids: string[];
+};
+
+/**
+ * 从评论正文里解析被 @ 到的人**及其在正文里的位置**（MATT-68 / T4b2 的读取侧要它）。
+ *
+ * 为什么位置也要：渲染侧要把 `@张三` 画成可辨认的样子，就必须知道它在正文里是哪一段。
+ * 这件事只能由**同一个匹配器**做 —— 另写一套定位（哪怕是"再跑一遍正则"）会在
+ * "长名优先"、"命中后跳过整个名字"、"不要求词边界"这三条上与前缀解析分叉，
+ * 于是通知发给了 A、界面高亮的却是 B。所以本文件只有**一个**走位循环，
+ * `parseMentionIds` 是它的一层投影（见下）。
+ *
+ * ⚠ 位置是**这一刻**按候选人算出来的：同一条评论换一套候选人会得到不同的位置
+ * （`@张三丰` 在只认识「张三」的人眼里是命中「张三」）。调用方必须与写入口径给同一批候选人。
+ */
+export function parseMentionSpans(
+  body: string,
+  candidates: readonly MentionCandidate[],
+): MentionSpan[] {
   if (!body || candidates.length === 0) return [];
 
   // 长名优先。同长度的候选在同一个位置只可能是同一个串，所以长度降序已经够定序；
@@ -62,8 +82,7 @@ export function parseMentionIds(body: string, candidates: readonly MentionCandid
         b.displayName.length - a.displayName.length || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
     );
 
-  const out: string[] = [];
-  const seen = new Set<string>();
+  const spans: MentionSpan[] = [];
   let i = 0;
   while (i < body.length) {
     const at = body.indexOf(MENTION_PREFIX, i);
@@ -84,13 +103,41 @@ export function parseMentionIds(body: string, candidates: readonly MentionCandid
     }
 
     const name = body.slice(at + MENTION_PREFIX.length, at + MENTION_PREFIX.length + matchedLength);
-    for (const c of ordered) {
-      if (c.displayName === name && !seen.has(c.id)) {
-        seen.add(c.id);
-        out.push(c.id);
-      }
-    }
+    spans.push({
+      start: at,
+      end: at + MENTION_PREFIX.length + matchedLength,
+      name,
+      ids: ordered.filter((c) => c.displayName === name).map((c) => c.id),
+    });
     i = at + MENTION_PREFIX.length + matchedLength;
+  }
+  return spans;
+}
+
+/**
+ * 从评论正文里解析被 @ 到的人。
+ *
+ * 返回**按出现顺序**排好的 user id（同一人在一条评论里 @ 两次只算一次）。
+ * 顺序有意义：`mention_ids` 落库后是排障时的第一手证据，
+ * 排序会让"谁先被点名"这件事在库里看不出来。
+ *
+ * 同名同事（`display_name` 没有唯一约束，只有 `username` 有）**全部命中**而不是任选一个：
+ * 本票要挡的失败形态正是"@ 了人但通知没发出去"这种静默，宁可多喊一个同事，
+ * 也不要让点名落空。这是 10 人组织里可接受的代价（IQ-14 同一条理由：花名册无保密价值）。
+ *
+ * 实现是 `parseMentionSpans` 的**投影**（同一次走位，去掉位置、按首次出现去重）——
+ * 不在这里另写一遍匹配：两份匹配器迟早会在"长名优先"这类细节上分叉，
+ * 而分叉的后果是"通知发给谁"与"界面高亮谁"不再一致（T4b2 正是为此而开）。
+ */
+export function parseMentionIds(body: string, candidates: readonly MentionCandidate[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const span of parseMentionSpans(body, candidates)) {
+    for (const id of span.ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
   }
   return out;
 }

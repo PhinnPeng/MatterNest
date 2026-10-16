@@ -36,6 +36,7 @@ import { initialStatusCode, hostStatusRows } from "./statuses";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
+import { mentionPartsOf } from "./comment-mentions";
 import {
   enqueueCommentIntent,
   notifyStatusChanged,
@@ -240,6 +241,12 @@ export async function getMatter(actor: Actor, id: string) {
         createdAt: comment.createdAt,
         parentId: comment.parentId,
         author: sql<string>`(select u.display_name from mn_app_user u where u.id = ${comment.authorId})`,
+        /**
+         * @提及的 user id（MATT-68 / T4b2 的读取侧）。
+         * **只在服务层用**：出 DTO 之前就换成 `parts`（见下面的映射），
+         * 因为 `bigint[]` 过不了 JSON 序列化，而"谁被点名"落成 id 数组送给浏览器也没有用处。
+         */
+        mentionIds: comment.mentionIds,
       })
       .from(comment)
       .where(
@@ -278,6 +285,17 @@ export async function getMatter(actor: Actor, id: string) {
       .orderBy(desc(matterProgress.progressDate)),
   ]);
 
+  /**
+   * @提及的渲染分段（MATT-68 / T4b2）：按 `mention_ids` 取名册状态，再切成文本/提及段。
+   *
+   * 字段逐项列出而**不 `{...c}`**：`mentionIds` 是 `bigint[]`，既过不了 JSON 序列化
+   * （`Do not know how to serialize a BigInt`），也不该出现在响应里 —— 界面要的是
+   * "这段是提及"这个渲染件，不是一串 user id。
+   * 顺带修一处既有偏差：`parentId` 是外键（`bigint`），原先直接展开送出，
+   * **有回复的评论会让详情接口 500**（顶层评论 `parentId` 是 null，所以此前没暴露）。
+   */
+  const commentParts = await mentionPartsOf(db, comments);
+
   return {
     ...row,
     id: String(row.id),
@@ -287,7 +305,14 @@ export async function getMatter(actor: Actor, id: string) {
     // ⚠ 当事人证件号必须解密（MATT-40 之后库里存的是密文信封）——
     //   直接回原文会把 `v1:<base64url>` 画到案件详情的当事人块上。
     parties: parties.map((p) => ({ ...p, id: String(p.id), idNumber: decryptField(p.idNumber) })),
-    comments: comments.map((c) => ({ ...c, id: String(c.id) })),
+    comments: comments.map((c) => ({
+      id: String(c.id),
+      body: c.body,
+      createdAt: c.createdAt,
+      parentId: c.parentId === null ? null : String(c.parentId),
+      author: c.author,
+      parts: commentParts.get(String(c.id)) ?? [],
+    })),
     activity: activity.map((a) => ({ ...a, id: String(a.id) })),
     progress: progress.map((p) => ({ ...p, id: String(p.id) })),
     statuses,

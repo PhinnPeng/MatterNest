@@ -45,6 +45,7 @@ import { ExpensePanel } from "@/app/components/expense-panel";
 import { ExportFileButton } from "@/app/components/export-file-button";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
+import { CommentBody } from "@/app/components/comment-body";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { RichTextView, RichTextEditorLazy } from "@/app/components/ui/rich-text";
 import { ConvertDialog } from "../convert-dialog";
@@ -776,7 +777,7 @@ function CommentList({
                   ) : (
                     <>
                       <Typography.Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                        {c.body}
+                        <CommentBody body={c.body} parts={c.parts} />
                       </Typography.Paragraph>
                       {!readOnly && (
                         <Button

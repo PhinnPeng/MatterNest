@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMentionIds, type MentionCandidate } from "./mention";
+import { parseMentionIds, parseMentionSpans, type MentionCandidate } from "./mention";
 
 /**
  * `@` 提及解析的回归锁（MATT-58 / T4b）。
@@ -78,5 +78,54 @@ describe("评论里的 @提及解析（MATT-58 / T4b）", () => {
 
   it("空显示名不参与匹配（否则每个 `@` 都会命中一个空名字的账号）", () => {
     expect(parseMentionIds("@张三", [{ id: "7", displayName: "" }, ...people])).toEqual(["1"]);
+  });
+});
+
+/**
+ * 位置（MATT-68 / T4b2）：渲染侧靠它把 `@张三` 画成可辨认的一段。
+ *
+ * 与 `parseMentionIds` 是**同一次走位**（后者是前者的投影），所以这里锁的不是"和写入口径一致"
+ * 这种感觉 —— 而是具体的下标，因为界面上多切一个字就是一次可见的高亮错位。
+ */
+describe("评论里的 @提及位置（MATT-68 / T4b2）", () => {
+  const people: MentionCandidate[] = [
+    { id: "1", displayName: "张三" },
+    { id: "2", displayName: "李四" },
+    { id: "3", displayName: "张三丰" },
+  ];
+
+  it("下标覆盖 `@` 与整个名字（供切片用，`end` 是开区间）", () => {
+    const spans = parseMentionSpans("请 @李四 看一下", people);
+    expect(spans).toEqual([
+      { start: 2, end: 5, name: "李四", ids: ["2"] },
+      // 正文切片：`请 `（0..2）+ `@李四`（2..5）+ ` 看一下`
+    ]);
+    expect("请 @李四 看一下".slice(spans[0]!.start, spans[0]!.end)).toBe("@李四");
+  });
+
+  it("**长名优先**体现在下标上：`@张三丰` 的 `end` 是 4 不是 3", () => {
+    const spans = parseMentionSpans("@张三丰 请核", people);
+    expect(spans).toEqual([{ start: 0, end: 4, name: "张三丰", ids: ["3"] }]);
+  });
+
+  it("`@` 后面不是同事名字的位置不产生 span（下标不留空档地跳过）", () => {
+    const spans = parseMentionSpans("发到 a@b.com，最后 @李四", people);
+    expect(spans).toEqual([{ start: 14, end: 17, name: "李四", ids: ["2"] }]);
+  });
+
+  it("同名同事在一处 span 里全带上，顺序稳定", () => {
+    const dup: MentionCandidate[] = [
+      { id: "9", displayName: "张三" },
+      { id: "1", displayName: "张三" },
+    ];
+    expect(parseMentionSpans("@张三", dup)).toEqual([
+      { start: 0, end: 3, name: "张三", ids: ["1", "9"] },
+    ]);
+  });
+
+  it("没有提及 / 空正文时返回空数组", () => {
+    expect(parseMentionSpans("已核查，先发函催告", people)).toEqual([]);
+    expect(parseMentionSpans("", people)).toEqual([]);
+    expect(parseMentionSpans("@张三", [])).toEqual([]);
   });
 });

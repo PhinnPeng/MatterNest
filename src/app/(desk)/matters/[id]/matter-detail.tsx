@@ -32,6 +32,7 @@ import { ExportFileButton } from "@/app/components/export-file-button";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
+import { CommentBody } from "@/app/components/comment-body";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import {
   NOT_READY_TEXT,
@@ -805,7 +806,9 @@ function LogTab({
                 <div style={{ fontSize: 11, color: INK.muted }}>
                   {c.author} · {fromNow(c.createdAt)}
                 </div>
-                <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{c.body}</div>
+                <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>
+                  <CommentBody body={c.body} parts={c.parts} />
+                </div>
               </>
             </List.Item>
           )}

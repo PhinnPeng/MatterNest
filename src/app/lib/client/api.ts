@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { CommentPart } from "@/shared/notification/comment-body";
 
 /**
  * 客户端读取层。
@@ -253,6 +254,13 @@ export type MatterDetail = {
     createdAt: string;
     parentId: string | null;
     author: string;
+    /**
+     * @提及的可渲染分段（MATT-68 / T4b2）：**服务端算好给**。
+     *
+     * 为什么前端不自己从正文里找 `@`：`mention_ids` 才是"谁被点名"的事实（也是通知的依据），
+     * 重解析会在"编辑过的正文"和"改过名字的同事"上画出与通知不一致的高亮。
+     */
+    parts: CommentPart[];
   }[];
   progress: {
     id: string;
@@ -374,6 +382,8 @@ export type RiskDetail = {
     authorName: string;
     createdAt: string;
     updatedAt: string;
+    /** @提及的可渲染分段（MATT-68 / T4b2），与 `MatterDetail.comments[].parts` 同一实现 */
+    parts: CommentPart[];
   }[];
   activity: {
     id: string;
