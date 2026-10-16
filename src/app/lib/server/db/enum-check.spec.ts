@@ -916,16 +916,19 @@ const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
   //    而 `mn_activity_log.target_id NOT NULL` + 7 值 `target_type` 让它根本写不进去。
   //    要它回来：先做 `activity_log` 的表结构迁移（迁移 0014 的头注与
   //    `docs/survey-missing-seams.md` §5.2「路 A」都写了这件事的前置），再谈动作值。
+  // ⚠⚠ 下面五条 2026-10-16 **只改了理由文字，条目本身仍成立**（写入点确实不存在，门禁照旧绿）。
+  //    过期的是那两句「等 MATT-61」「等 MATT-73/74」——**两张票都已 Done，而写入点一个都没出现**。
+  //    这正是本文件开头点名的错法：把票号当落点承诺。所以状态从「等票」改判成「真缺口、暂无票」。
   AUTO_RULE_EXECUTED:
-    "等 **MATT-61**（自动化规则执行器）。规则表与预置种子已进库，执行器尚未落地。`_SKIPPED` 载荷比 `EXECUTED` 多一个 `skip_reason`（冲突唯一键 / 冷却期 / 收件人不可见），去重语义已经写进 `db/schema/outbox.ts:10` 的文件头与迁移 0003 的注释 —— 但**注释不算写入点**，这正是本门禁存在的理由。⚠ 与 `SENSITIVE_FIELD_READ` 区分开：那一类是**已作废**，这一类是**未实现**（意图已写下、执行器还没有），所以它该跟着 MATT-61 变成有写入点，而不是永远挂着。",
+    "**真缺口、暂无票** —— 原文写「等 MATT-61」，2026-10-16 核对：**#61 已 Done**（提交 `77c5170`），但它交付的是**规则 4 的扫描器**（`stale_30d` 的生产者），不是自动化规则执行器；执行器至今不存在，写入点自然没出现。规则表与预置种子已进库（`db/seed/0006_automation_rules.sql`），去重语义写在 `db/schema/outbox.ts:10` 与迁移 0003 的注释里 —— 但**注释不算写入点**，这正是本门禁存在的理由。⚠ 原文那句预测「它该跟着 MATT-61 变成有写入点」**已被证伪**：票关了、洞还在，且票面上搜不到任何一张覆盖执行器的票（2026-10-16 `search_tasks` 查「执行器」零命中）。⚠ 与 `SENSITIVE_FIELD_READ` 区分开：那一类是**已作废**，这一类是**未实现**。",
   AUTO_RULE_SKIPPED:
-    "等 **MATT-61**（自动化规则执行器）。规则表与预置种子已进库，执行器尚未落地。`_SKIPPED` 载荷比 `EXECUTED` 多一个 `skip_reason`（冲突唯一键 / 冷却期 / 收件人不可见），去重语义已经写进 `db/schema/outbox.ts:10` 的文件头与迁移 0003 的注释 —— 但**注释不算写入点**，这正是本门禁存在的理由。⚠ 与 `SENSITIVE_FIELD_READ` 区分开：那一类是**已作废**，这一类是**未实现**（意图已写下、执行器还没有），所以它该跟着 MATT-61 变成有写入点，而不是永远挂着。",
+    "**真缺口、暂无票**（原「等 MATT-61」已被证伪，同 `AUTO_RULE_EXECUTED`）。三种跳过原因里已有两种以**别的形态**落地、只是不落审计动作：「重复」走 `mn_notification_event.dedupe_key` 唯一键合并并累加 `merge_count`（`notifications.ts:333`），「收件人不可见」走占位 / `void` 投递行（`notifications.ts:361`）—— 两条都写的是投递行，不是本动作。「冷却期」至今无人实现。`skip_reason` 的三个取值见 `docs/PRD-phase1-enums-and-schemas.md:130`。",
   AUTO_RULE_FAILED:
-    "等 **MATT-61**（自动化规则执行器）。规则表与预置种子已进库，执行器尚未落地。`_SKIPPED` 载荷比 `EXECUTED` 多一个 `skip_reason`（冲突唯一键 / 冷却期 / 收件人不可见），去重语义已经写进 `db/schema/outbox.ts:10` 的文件头与迁移 0003 的注释 —— 但**注释不算写入点**，这正是本门禁存在的理由。⚠ 与 `SENSITIVE_FIELD_READ` 区分开：那一类是**已作废**，这一类是**未实现**（意图已写下、执行器还没有），所以它该跟着 MATT-61 变成有写入点，而不是永远挂着。",
+    "**真缺口、暂无票**（原「等 MATT-61」已被证伪，同 `AUTO_RULE_EXECUTED`）。失败态以前置存在执行器为条件：`error` 载荷见 `docs/PRD-phase1-enums-and-schemas.md:131`，而执行器与覆盖它的票都还没有。",
   REMINDER_SENT:
-    "等 **MATT-73/74**（提醒调度与投递）。提醒侧的 `mn_notification_delivery.status` 值域已进库，但调度器还没跑起来。",
+    "**真缺口、暂无票** —— 原文写「等 MATT-73/74」，2026-10-16 核对：**#73（pump 端点）与 #74（应用内定时器）都已 Done**，后一句「调度器还没跑起来」整句过期。调度跑起来了，但投递结果记在**表**里而不是审计里：`mn_notification_delivery` 全项目唯一写入点是 `notifications.ts:365`，状态取 E31 的 `sent` / `void`（`0010_notification_pipeline.sql:126`）⇒ 这个动作名留还是退，取决于一次口径裁定（补写入点，或按 §5.3 走退役流程），现在两者都没排期。",
   REMINDER_FAILED:
-    "等 **MATT-73/74**（提醒调度与投递）。提醒侧的 `mn_notification_delivery.status` 值域已进库，但调度器还没跑起来。",
+    "**真缺口、暂无票**（原「等 MATT-73/74」已被证伪，同 `REMINDER_SENT`）。重试相关列（`attempt` / `error`）已随 `0010_notification_pipeline.sql` 进表，但没有任何代码产出本动作；站内渠道现在是一行写入即终态（`notifications.ts:365`），失败重试尚无生产者。",
 };
 
 describe("审计动作 ↔ 写入点：清单里每个值都得有代码真写得出来（白名单那 16 条除外）", () => {
