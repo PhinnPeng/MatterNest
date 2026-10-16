@@ -13,7 +13,7 @@ import {
   Empty,
   Flex,
   Input,
-  List,
+  Listy,
   Popconfirm,
   Space,
   Table,
@@ -401,19 +401,11 @@ export function MatterDetail({ id }: { id: string }) {
                       style={{ marginTop: 12 }}
                     >
                       {m.sourceRisks.length > 0 ? (
-                        <List
-                          size="small"
-                          dataSource={m.sourceRisks}
-                          renderItem={(s) => (
-                            <List.Item
-                              actions={[
-                                <Link key="go" href={`/risk-matters/${s.id}`}>
-                                  <Button type="link" size="small" style={{ padding: 0 }}>
-                                    查看
-                                  </Button>
-                                </Link>,
-                              ]}
-                            >
+                        <Listy
+                          items={m.sourceRisks}
+                          rowKey={(s) => s.id}
+                          itemRender={(s) => (
+                            <Flex justify="space-between" align="center" gap={8}>
                               <Space size={6}>
                                 <Tag style={{ marginInlineEnd: 0 }}>{s.code}</Tag>
                                 <span style={{ fontSize: 13 }}>{s.name}</span>
@@ -424,7 +416,12 @@ export function MatterDetail({ id }: { id: string }) {
                                   <span style={{ fontSize: 12, color: INK.faint }}>（已归档）</span>
                                 ) : null}
                               </Space>
-                            </List.Item>
+                              <Link href={`/risk-matters/${s.id}`}>
+                                <Button type="link" size="small" style={{ padding: 0 }}>
+                                  查看
+                                </Button>
+                              </Link>
+                            </Flex>
                           )}
                         />
                       ) : null}
@@ -485,80 +482,76 @@ export function MatterDetail({ id }: { id: string }) {
                       </Space>
                     }
                   >
-                    <List
-                      size="small"
-                      dataSource={m.staff}
-                      locale={{
-                        emptyText: (
-                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有参与人" />
-                        ),
-                      }}
-                      renderItem={(s) => (
-                        <List.Item
-                          actions={[
-                            <span key="r" style={{ fontSize: 12, color: INK.muted }}>
-                              {meta?.enums.staffRoles[s.staffRole] ?? s.staffRole}
-                            </span>,
-                            // 经办人摘不掉（服务端 403 owner_protected）——所以这里不摆按钮。
-                            // 换负责人是「负责人」字段的事，不是名单的事。
-                            s.staffRole === "owner" ? null : (
-                              <Popconfirm
-                                key="x"
-                                title="把这位同事移出名单？"
-                                okText="移出"
-                                cancelText="取消"
-                                onConfirm={() => removeStaff.mutate(s.userId)}
-                              >
-                                <Button type="link" size="small" danger>
-                                  移出
-                                </Button>
-                              </Popconfirm>
-                            ),
-                          ]}
-                        >
-                          <Space size={6}>
-                            <Avatar size={20} style={{ fontSize: 11 }}>
-                              {s.displayName.slice(0, 1)}
-                            </Avatar>
-                            <span style={{ fontSize: 13 }}>{s.displayName}</span>
-                          </Space>
-                        </List.Item>
-                      )}
-                    />
+                    {m.staff.length ? (
+                      <Listy
+                        items={m.staff}
+                        // ⚠ 不能只用 `userId`：同一个人可以**两种身份**都在名单里（案 7001 就是
+                        // owner + co_owner 各一行）。老 `List` 没传 `rowKey`，key 取的是下标，
+                        // 所以这个重复一直藏着；迁移后按 `userId` 取 key 立刻变成 React 的
+                        // "two children with the same key" 报错。唯一键照库里的
+                        // `uk_mn_matter_staff_triple (matter_id, user_id, staff_role)`：二元组足矣。
+                        rowKey={(s) => `${s.userId}-${s.staffRole}`}
+                        itemRender={(s) => (
+                          <Flex justify="space-between" align="center" gap={8}>
+                            <Space size={6}>
+                              <Avatar size={20} style={{ fontSize: 11 }}>
+                                {s.displayName.slice(0, 1)}
+                              </Avatar>
+                              <span style={{ fontSize: 13 }}>{s.displayName}</span>
+                            </Space>
+                            <Space size={4}>
+                              <span style={{ fontSize: 12, color: INK.muted }}>
+                                {meta?.enums.staffRoles[s.staffRole] ?? s.staffRole}
+                              </span>
+                              {/* 经办人摘不掉（服务端 403 owner_protected）——所以这里不摆按钮。
+                                  换负责人是「负责人」字段的事，不是名单的事。 */}
+                              {s.staffRole === "owner" ? null : (
+                                <Popconfirm
+                                  title="把这位同事移出名单？"
+                                  okText="移出"
+                                  cancelText="取消"
+                                  onConfirm={() => removeStaff.mutate(s.userId)}
+                                >
+                                  <Button type="link" size="small" danger>
+                                    移出
+                                  </Button>
+                                </Popconfirm>
+                              )}
+                            </Space>
+                          </Flex>
+                        )}
+                      />
+                    ) : (
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有参与人" />
+                    )}
                   </Card>
                   <Card
                     size="small"
                     title={`当事人 (${m.parties.length})`}
                     style={{ flex: "1 1 320px" }}
                   >
-                    <List
-                      size="small"
-                      dataSource={m.parties}
-                      locale={{
-                        emptyText: (
-                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有当事人" />
-                        ),
-                      }}
-                      renderItem={(p) => (
-                        <List.Item
-                          actions={[
-                            <Space key="a" size={4}>
-                              <span style={{ fontSize: 12, color: INK.muted }}>
-                                {meta?.enums.litigationRoles[p.partyRole] ?? p.partyRole}
-                              </span>
-                            </Space>,
-                          ]}
-                        >
-                          <>
+                    {m.parties.length ? (
+                      <Listy
+                        items={m.parties}
+                        rowKey={(p) => p.id}
+                        itemRender={(p) => (
+                          // ⚠ 老 `List.Item` 是 `display:flex` + `space-between`：迁移前的三块（名称 /
+                          // 类型·证件号 / 角色）就是**横排**的。这里保持同形，改不改是另一个决定。
+                          <Flex justify="space-between" align="center" gap={8}>
                             <div style={{ fontSize: 13 }}>{p.name}</div>
                             <div style={{ fontSize: 11, color: INK.muted }}>
                               {meta?.enums.partyTypes[p.type] ?? p.type}
                               {p.idNumber ? ` · ${p.idNumber}` : ""}
                             </div>
-                          </>
-                        </List.Item>
-                      )}
-                    />
+                            <span style={{ fontSize: 12, color: INK.muted }}>
+                              {meta?.enums.litigationRoles[p.partyRole] ?? p.partyRole}
+                            </span>
+                          </Flex>
+                        )}
+                      />
+                    ) : (
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有当事人" />
+                    )}
                   </Card>
                 </Flex>
               ),
@@ -583,35 +576,30 @@ export function MatterDetail({ id }: { id: string }) {
             {
               key: "activity",
               label: `活动日志 (${m.activity.length})`,
-              children: (
-                <List
-                  size="small"
-                  dataSource={m.activity}
-                  locale={{
-                    emptyText: (
-                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有活动记录" />
-                    ),
-                  }}
-                  renderItem={(a) => (
-                    <List.Item>
-                      <Flex gap={12} align="baseline" wrap>
-                        <span
-                          className="num"
-                          style={{ fontSize: 12, color: INK.muted, minWidth: 148 }}
-                        >
-                          {dateTime(a.createdAt)}
-                        </span>
-                        <Tag variant="filled" style={{ fontSize: 11 }}>
-                          {meta?.enums.auditActions[a.action] ?? a.action}
-                        </Tag>
-                        <span style={{ fontSize: 13 }}>
-                          {a.operator}
-                          {a.reason ? <span style={{ color: INK.muted }}> · {a.reason}</span> : ""}
-                        </span>
-                      </Flex>
-                    </List.Item>
+              children: m.activity.length ? (
+                <Listy
+                  items={m.activity}
+                  rowKey={(a) => a.id}
+                  itemRender={(a) => (
+                    <Flex gap={12} align="baseline" wrap>
+                      <span
+                        className="num"
+                        style={{ fontSize: 12, color: INK.muted, minWidth: 148 }}
+                      >
+                        {dateTime(a.createdAt)}
+                      </span>
+                      <Tag variant="filled" style={{ fontSize: 11 }}>
+                        {meta?.enums.auditActions[a.action] ?? a.action}
+                      </Tag>
+                      <span style={{ fontSize: 13 }}>
+                        {a.operator}
+                        {a.reason ? <span style={{ color: INK.muted }}> · {a.reason}</span> : ""}
+                      </span>
+                    </Flex>
                   )}
                 />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有活动记录" />
               ),
             },
           ]}
@@ -793,45 +781,39 @@ function LogTab({
             发布评论
           </Button>
         </Space>
-        <List
-          size="small"
-          header={<span style={{ fontSize: 13 }}>评论 ({comments.length})</span>}
-          dataSource={comments}
-          locale={{
-            emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有评论" />,
-          }}
-          renderItem={(c) => (
-            <List.Item>
-              <>
+        <div style={{ fontSize: 13, paddingBlock: 12 }}>评论 ({comments.length})</div>
+        {comments.length ? (
+          <Listy
+            items={comments}
+            rowKey={(c) => c.id}
+            itemRender={(c) => (
+              // ⚠ 老 `List.Item` 是 `display:flex` + `space-between`，所以这两块一直是**横排**的：
+              // 迁移**保持同形**（`Listy` 的 item 是块级，不套 Flex 就会静默变成纵排）。
+              <Flex justify="space-between" align="center" gap={8}>
                 <div style={{ fontSize: 11, color: INK.muted }}>
                   {c.author} · {fromNow(c.createdAt)}
                 </div>
                 <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>
                   <CommentBody body={c.body} parts={c.parts} />
                 </div>
-              </>
-            </List.Item>
-          )}
-        />
+              </Flex>
+            )}
+          />
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有评论" />
+        )}
       </div>
 
       <div style={{ flex: "1 1 320px" }}>
-        <List
-          size="small"
-          header={<span style={{ fontSize: 13 }}>案件进展 ({progress.length})</span>}
-          dataSource={progress}
-          locale={{
-            emptyText: (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="这条链路上还没有进展记录（写进展的端点还没做）"
-              />
-            ),
-          }}
-          renderItem={(p) => (
-            <List.Item>
-              <>
-                <Flex justify="space-between" gap={8}>
+        <div style={{ fontSize: 13, paddingBlock: 12 }}>案件进展 ({progress.length})</div>
+        {progress.length ? (
+          <Listy
+            items={progress}
+            rowKey={(p) => p.id}
+            itemRender={(p) => (
+              // 同「评论」：老 `List.Item` 是 flex 行，几个 div 一直是**横排**的，这里保持同形
+              <Flex justify="space-between" align="center" gap={8}>
+                <Flex justify="space-between" gap={8} style={{ flex: 1 }}>
                   <span style={{ fontSize: 12, color: INK.secondary }}>
                     {meta?.enums.progressTypes[p.progressType] ?? p.progressType}
                   </span>
@@ -844,10 +826,15 @@ function LogTab({
                   <div style={{ fontSize: 12, color: INK.muted }}>下一步：{p.nextPlan}</div>
                 ) : null}
                 <div style={{ fontSize: 11, color: INK.faint }}>{p.author}</div>
-              </>
-            </List.Item>
-          )}
-        />
+              </Flex>
+            )}
+          />
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="这条链路上还没有进展记录（写进展的端点还没做）"
+          />
+        )}
       </div>
     </Flex>
   );

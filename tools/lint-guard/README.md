@@ -30,6 +30,27 @@
 D2/E 都是**按内容**判断而不是按"规则在不在"判断：禁令⑦ 现在挂在 `src/app/**` 全域，
 `api/**` 与 `lib/server/**` 自然也带着它，那些位置不该带的是 ⑥⑤/① 那一份——只看开关状态分辨不出来。
 
+## 七条源码断言（没有 eslint 规则可挂，`check.mjs` 直接扫源码）
+
+前两条拦的是"位置上不给它留缺口"的东西，后面五条是记账与卫生。
+
+| 禁令       | 实现                           | 拦什么                                                                                            |
+| ---------- | ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| 副标题纪律 | `check.mjs` 内联（无独立文件） | `src/**` 里再出现 `eyebrow=` / `meta=`（`PageHeader` 的第二行插槽已删）                           |
+| ⑦ 白名单   | `check.mjs` 内联               | `@blocknote/*` / `@mantine/*` 出现在 `components/ui/rich-text/` 之外                              |
+| ⑧          | `smoke-hygiene.mjs`            | `agent-work/smoke-*.mjs` 里裸的 `await call(...)`（拿了结果不看，必须显式接住或写 `// discard:`） |
+| ⑨          | `business-day.mjs`             | `toISOString().slice(0, 10)` —— 业务日写成了 UTC 日                                               |
+| ⑩          | `secret-literals.mjs`          | `.github/workflows` / `deploy` / `.env.example` 里三把密钥的字面量                                |
+| ⑪          | `judge-portability.mjs`        | `agent-work/*.mjs` 的语法、相对 import 是否入库、写死的机器绝对路径                               |
+| ⑫          | `antd-deprecated.mjs`          | `<List>` / `<List.Item>` / `direction=` —— antd 6.6.5 起废弃（`Listy` / `orientation`）           |
+
+⑧⑨⑩⑪⑫ 都以「扫到 0 个文件 ⇒ 假通过」收尾（⑧ 与 ⑩ 数的是"看到的语句/赋值"，
+不是"违规数"——数违规会得到"仓库干净时计数为 0"，canary 反过来在正确时报红）。
+⑫ 另有一条**自检**：三个匹配式先在一段必然命中的字面量上跑一次——迁移做完之后
+src 里 0 命中才是正确状态，正则死掉与仓库干净**同形**，只有自检能分开这两者。
+
+⑨ 与 ⑫ 共用 `strip-comments.mjs`:剥注释与字符串**内容**、保留换行以便按行报号。
+
 ## 加新禁令的写法
 
 往 `SCOPES` 里加一项（`rule` / `marker` / `expectHits` / 两个 fixture / 挂载点 / 不该扩到的地方），

@@ -17,7 +17,7 @@ import {
   Flex,
   Form,
   Input,
-  List,
+  Listy,
   Modal,
   Popconfirm,
   Popover,
@@ -312,7 +312,7 @@ export function RiskDetail({ id }: { id: string }) {
                   <Popover
                     trigger={["hover", "focus"]}
                     content={
-                      <Space direction="vertical" size={8}>
+                      <Space orientation="vertical" size={8}>
                         {risk.convertedCases.map((c) => (
                           <Space key={c.id} size={8} align="baseline" wrap>
                             <Link href={`/matters/${c.id}`} className="num">
@@ -347,12 +347,12 @@ export function RiskDetail({ id }: { id: string }) {
                   key: "ref",
                   label: <SectionTitle>当事人 / 参与人 / 费用 / 附件 / 登记信息</SectionTitle>,
                   children: (
-                    <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                    <Space orientation="vertical" size={12} style={{ width: "100%" }}>
                       <DetailBlock title="当事人">
                         {risk.parties.length === 0 ? (
                           <Dash hint="没有当事人时无法转案件——转案件要求每案至少 1 个当事人。" />
                         ) : (
-                          <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                          <Space orientation="vertical" size={6} style={{ width: "100%" }}>
                             {risk.parties.map((p) => (
                               <Space key={p.id} size={8}>
                                 <span>{p.name}</span>
@@ -392,7 +392,7 @@ export function RiskDetail({ id }: { id: string }) {
                         />
                       </DetailBlock>
                       <DetailBlock title="登记信息">
-                        <Space direction="vertical" size={4}>
+                        <Space orientation="vertical" size={4}>
                           <MetaLine label="创建">{dateTime(risk.createdAt)}</MetaLine>
                           <MetaLine label="更新">{dateTime(risk.updatedAt)}</MetaLine>
                           {risk.convertedAt && (
@@ -443,12 +443,10 @@ export function RiskDetail({ id }: { id: string }) {
                           }
                         />
                       ) : (
-                        <List
-                          size="small"
-                          itemLayout="vertical"
+                        <Listy
+                          items={risk.nodes}
                           rowKey={(n: Risk["nodes"][number]) => String(n.id)}
-                          dataSource={risk.nodes}
-                          renderItem={(n: Risk["nodes"][number]) => (
+                          itemRender={(n: Risk["nodes"][number]) => (
                             <NodeRow node={n} readOnly={risk.isArchived} onDone={invalidate} />
                           )}
                         />
@@ -466,7 +464,7 @@ export function RiskDetail({ id }: { id: string }) {
                       <Timeline
                         items={risk.activity.slice(0, 20).map((a) => ({
                           children: (
-                            <Space direction="vertical" size={0}>
+                            <Space orientation="vertical" size={0}>
                               <span>{meta?.enums.auditActions[a.action] ?? a.action}</span>
                               <span style={{ color: INK.muted, fontSize: 12 }}>
                                 {dateTime(a.createdAt)}
@@ -643,7 +641,7 @@ function NodeRow({
   const label = NODE_STATUS_LABELS[node.status as keyof typeof NODE_STATUS_LABELS] ?? node.status;
   return (
     <div>
-      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={4} style={{ width: "100%" }}>
         <Space size={8} align="baseline">
           <Typography.Text strong>{node.name}</Typography.Text>
           <Tag
@@ -737,64 +735,58 @@ function CommentList({
         {risk.comments.length === 0 ? (
           <Dash hint="事项的核查走评论，不靠进展——所以这里可能是空的。" />
         ) : (
-          <List
-            size="small"
-            itemLayout="vertical"
+          <Listy
+            items={risk.comments}
             rowKey={(c: Risk["comments"][number]) => String(c.id)}
-            dataSource={risk.comments}
-            renderItem={(c: Risk["comments"][number]) => (
-              <List.Item>
-                <Space direction="vertical" size={4} style={{ width: "100%" }}>
-                  <Space size={8} align="baseline" wrap>
-                    <Typography.Text strong>{c.authorName}</Typography.Text>
-                    <span style={{ color: INK.muted, fontSize: 12 }}>{fromNow(c.createdAt)}</span>
-                    {c.isEdited && (
-                      <span style={{ color: INK.muted, fontSize: 12 }}>（已编辑）</span>
-                    )}
-                  </Space>
-                  {editing === c.id ? (
-                    <Space direction="vertical" size={6} style={{ width: "100%" }}>
-                      <Input.TextArea
-                        autoSize={{ minRows: 2, maxRows: 6 }}
-                        value={editText}
-                        onChange={(e) => setEditText(e.target.value)}
-                      />
-                      <Space size={6}>
-                        <Button
-                          size="small"
-                          type="primary"
-                          loading={edit.isPending}
-                          disabled={!editText.trim()}
-                          onClick={() => edit.mutate({ id: c.id, text: editText })}
-                        >
-                          保存
-                        </Button>
-                        <Button size="small" onClick={() => setEditing(null)}>
-                          取消
-                        </Button>
-                      </Space>
-                    </Space>
-                  ) : (
-                    <>
-                      <Typography.Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                        <CommentBody body={c.body} parts={c.parts} />
-                      </Typography.Paragraph>
-                      {!readOnly && (
-                        <Button
-                          size="small"
-                          type="link"
-                          onClick={() => {
-                            setEditing(c.id);
-                            setEditText(c.body);
-                          }}
-                        >
-                          编辑
-                        </Button>
-                      )}
-                    </>
-                  )}
+            itemRender={(c: Risk["comments"][number]) => (
+              <Space orientation="vertical" size={4} style={{ width: "100%" }}>
+                <Space size={8} align="baseline" wrap>
+                  <Typography.Text strong>{c.authorName}</Typography.Text>
+                  <span style={{ color: INK.muted, fontSize: 12 }}>{fromNow(c.createdAt)}</span>
+                  {c.isEdited && <span style={{ color: INK.muted, fontSize: 12 }}>（已编辑）</span>}
                 </Space>
-              </List.Item>
+                {editing === c.id ? (
+                  <Space orientation="vertical" size={6} style={{ width: "100%" }}>
+                    <Input.TextArea
+                      autoSize={{ minRows: 2, maxRows: 6 }}
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                    />
+                    <Space size={6}>
+                      <Button
+                        size="small"
+                        type="primary"
+                        loading={edit.isPending}
+                        disabled={!editText.trim()}
+                        onClick={() => edit.mutate({ id: c.id, text: editText })}
+                      >
+                        保存
+                      </Button>
+                      <Button size="small" onClick={() => setEditing(null)}>
+                        取消
+                      </Button>
+                    </Space>
+                  </Space>
+                ) : (
+                  <>
+                    <Typography.Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                      <CommentBody body={c.body} parts={c.parts} />
+                    </Typography.Paragraph>
+                    {!readOnly && (
+                      <Button
+                        size="small"
+                        type="link"
+                        onClick={() => {
+                          setEditing(c.id);
+                          setEditText(c.body);
+                        }}
+                      >
+                        编辑
+                      </Button>
+                    )}
+                  </>
+                )}
+              </Space>
             )}
           />
         )}
@@ -945,7 +937,7 @@ function OwnerDialog({
       confirmLoading={mut.isPending}
       onOk={() => mut.mutate(value === undefined ? current : value)}
     >
-      <Space direction="vertical" size={10} style={{ width: "100%", marginTop: 12 }}>
+      <Space orientation="vertical" size={10} style={{ width: "100%", marginTop: 12 }}>
         {/* 这里原来有一段弹窗顶部说明，讲「这是普通字段编辑 / 退回未指派会怎样」——
             按前端规范（副标题纪律 · 旁白，2026-10-12）属**讲规则**，不落四类落点之一，整段删除。
             「退回未指派」的后果改用 Select 的 title 承载（悬停才出，不占常驻版面）。

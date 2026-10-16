@@ -366,7 +366,7 @@ export function RisksView() {
           }
           description={
             batchResult.summary.skipped.length ? (
-              <Space direction="vertical" size={2}>
+              <Space orientation="vertical" size={2}>
                 {batchResult.summary.skipped.map((s) => (
                   <Typography.Text key={s.id} style={{ fontSize: 12 }}>
                     <span className="num">{batchResult.labels[s.id] ?? s.id}</span> —{" "}

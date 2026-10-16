@@ -309,7 +309,7 @@ export function UsersView() {
             </Space>
           }
         >
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={8} style={{ width: "100%" }}>
             {pending.map((u) => (
               <Flex key={u.id} align="center" justify="space-between" gap={12} wrap>
                 <Space size={8} wrap>

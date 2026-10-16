@@ -138,7 +138,7 @@ export function StatusDialog({
           }
           description={
             readiness?.missing.length ? (
-              <Space direction="vertical" size={2}>
+              <Space orientation="vertical" size={2}>
                 <Typography.Text style={{ fontSize: 12 }}>
                   缺项不阻断归档——照样能归，但会记进归档活动，并计入材料完整率。
                 </Typography.Text>

@@ -267,6 +267,12 @@ await assertNoSecretLiterals(failures);
 const { assertJudgePortability } = await import("./judge-portability.mjs");
 await assertJudgePortability(failures);
 
+// 禁令⑫ antd 已废弃 API（2026-10-16）
+// List → Listy、Space 的 direction → orientation。独立文件的理由同上；
+// 另外它按**行号**定位，报出来的每一行都对应一个要改的标签。
+const { assertNoAntdDeprecated } = await import("./antd-deprecated.mjs");
+await assertNoAntdDeprecated(failures);
+
 if (loaded === 0) failures.push("A 一个 fixture 都没读到，整套断言都是假通过");
 
 if (failures.length > 0) {
@@ -278,5 +284,5 @@ if (failures.length > 0) {
 console.log(
   `lint-guard 通过：${SCOPES.length} 条禁令 × (违规按数被拦 / 合法不误伤 / 挂载点正确 / 覆盖不被顶掉 / 不溢出)，共 ${loaded} 个 fixture；` +
     `另：源码断言「页头无第二行插槽」0 处 · 「富文本白名单」0 处越界 · 冒烟脚本卫生 0 处裸调用 · 业务日 UTC 切片 0 处 · ` +
-    `密钥字面量 0 处 · 判据脚本可移植 0 处违规`,
+    `密钥字面量 0 处 · 判据脚本可移植 0 处违规 · antd 废弃 API 0 处`,
 );

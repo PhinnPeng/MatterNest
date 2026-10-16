@@ -45,6 +45,8 @@
 
 import { readdir, readFile } from "node:fs/promises";
 
+import { stripTsComments } from "./strip-comments.mjs";
+
 /** 只扫应用源码；`agent-work/` 是探针与冒烟，它们自己会有夹具用的切片 */
 const SRC_ROOT = "src";
 
@@ -53,79 +55,6 @@ const SRC_ROOT = "src";
  * 这样注释里为了解释而写出的 `now.slice(0, 10)` 不会被误伤。
  */
 const UTC_DAY_SLICE = /toISOString\(\)\s*\.\s*slice\(\s*0\s*,\s*10\s*\)/;
-
-/**
- * 剥掉 TS/TSX 的注释，再拿去匹配。
- *
- * ## 为什么必须剥（第一版没剥，当场被自己绊倒）
- *
- * 第一版只靠「窄形态」防误伤，理由写的是「注释里会写 `now.slice(0, 10)`，
- * 不含 `toISOString()` 就天然排除了」。**那个假设是错的** ——
- * 本禁令自己的文档注释里就完整写了这个表达式（解释为什么不能用它），
- * 于是门禁上线第一次运行就报了 `risks.ts` 的**注释**。
- *
- * 教训与冒烟卫生那条同源：**注释里出现的值不算命中**。
- * 解释「不要用 X」这件事，自然要把 X 写出来 —— 这是文档的正常形态，
- * 不是违规。所以剥注释是必需的，不是保险。
- *
- * ## 它怎么工作 / 边界
- *
- * 单趟扫描，维护「当前是否在字符串里」与「是否在块注释里」两个状态。
- * 字符串含 `'` `"` `` ` `` 三种；模板串里的 `${…}` 不单独解析
- * （本禁令的表达式不含 `${}`，近似足够）。
- *
- * **已知边界**：正则字面量里若含引号（如 `/["']/`）会让配对错位 ——
- * 方向是**多剥**（把后面的代码当注释），也就是可能**漏报**而不是误报。
- * 本仓当前没有这种字面量；真出现时这条断言会静默变松，
- * 而它自己那条「扫到 0 个文件」的 canary 抓不到这种情形。
- * 记在这里，不假装它完备。
- */
-function stripTsComments(code) {
-  let out = "";
-  let i = 0;
-  let quote = null;
-  let inBlock = false;
-
-  while (i < code.length) {
-    const ch = code[i];
-    const next = code[i + 1];
-
-    if (inBlock) {
-      if (ch === "*" && next === "/") {
-        inBlock = false;
-        i += 2;
-      } else i++;
-      continue;
-    }
-    if (quote) {
-      if (ch === "\\") {
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      i++;
-      continue;
-    }
-    if (ch === "'" || ch === '"' || ch === "`") {
-      quote = ch;
-      i++;
-      continue;
-    }
-    if (ch === "/" && next === "/") {
-      // 行注释：吃到行尾（换行保留，免得把两行拼成一行）
-      while (i < code.length && code[i] !== "\n") i++;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      inBlock = true;
-      i += 2;
-      continue;
-    }
-    out += ch;
-    i++;
-  }
-  return out;
-}
 
 /**
  * @param {string[]} failures 收集到的违规。由 check.mjs 传进来 ——

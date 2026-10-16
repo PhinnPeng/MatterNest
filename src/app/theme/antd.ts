@@ -78,6 +78,17 @@ export const antdThemeConfig: ThemeConfig = {
     },
     Card: { paddingLG: 16 },
     Descriptions: { itemPaddingBottom: 8 },
+    /**
+     * `Listy`（2026-10-16 顶替已废弃的 `List`）。本仓的列表都是**卡片内小列表**，
+     * 迁移前一律 `size="small"`：那套的内间距实测是 `8px 16px`
+     * （`itemPaddingSM = paddingContentVerticalSM(paddingXS=8) × paddingContentHorizontal(16)`）。
+     * `Listy` 的默认是 `paddingSM / padding`（12px 16px）—— 行高会比迁移前多 8px。
+     *
+     * 密度是一处可调的刻度，所以差别在这里抹平，而不是在每个 `<Listy>` 上写 `styles.item`
+     * （工作台那两处**刻意更紧**的 8px/6px 仍走 `styles.item`，见 `workbench.tsx`）。
+     * 想回到 antd 默认密度，把这一行删掉即可。
+     */
+    Listy: { itemPaddingBlock: 8 },
     Tabs: { horizontalItemPadding: "8px 2px", horizontalMargin: "0 0 12px 0" },
     Form: { itemMarginBottom: 12, verticalLabelPadding: "0 0 2px" },
   },

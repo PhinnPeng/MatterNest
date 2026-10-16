@@ -9,7 +9,7 @@ import {
   Col,
   Divider,
   Flex,
-  List,
+  Listy,
   Progress,
   Row,
   Space,
@@ -117,9 +117,11 @@ export function Workbench() {
                 }
               />
             ) : (
-              <List
-                dataSource={upcoming}
-                renderItem={(n) => {
+              <Listy
+                items={upcoming}
+                rowKey={(n) => n.id}
+                styles={{ item: { padding: "8px 12px" } }}
+                itemRender={(n) => {
                   const d = daysLeft(n.deadlineTime);
                   const overdue = d !== null && d < 0;
                   const soon = d !== null && d >= 0 && d <= 3;
@@ -129,32 +131,9 @@ export function Workbench() {
                       ? DEADLINE_TONE.soon.color
                       : "transparent";
                   return (
-                    <List.Item
-                      key={n.id}
-                      style={{ padding: "8px 12px" }}
-                      actions={[
-                        <span
-                          key="d"
-                          style={{
-                            color: color === "transparent" ? undefined : color,
-                            fontVariantNumeric: "tabular-nums",
-                            fontSize: 13,
-                            minWidth: 92,
-                            textAlign: "right",
-                          }}
-                        >
-                          {d === null
-                            ? "未定"
-                            : d < 0
-                              ? `逾期 ${-d} 天`
-                              : d === 0
-                                ? "今天"
-                                : `剩 ${d} 天`}
-                        </span>,
-                      ]}
-                    >
+                    <Flex justify="space-between" align="center" gap={8}>
                       {/* 左侧一条 3px 色带承担"危险程度"，文字仍写完整日期：色带只让扫读更快，不是唯一通道 */}
-                      <div style={{ display: "flex", gap: 10, minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 10, minWidth: 0, flex: 1 }}>
                         <span
                           style={{
                             width: 3,
@@ -176,7 +155,25 @@ export function Workbench() {
                           </div>
                         </div>
                       </div>
-                    </List.Item>
+                      <span
+                        style={{
+                          color: color === "transparent" ? undefined : color,
+                          fontVariantNumeric: "tabular-nums",
+                          fontSize: 13,
+                          minWidth: 92,
+                          textAlign: "right",
+                          flex: "0 0 auto",
+                        }}
+                      >
+                        {d === null
+                          ? "未定"
+                          : d < 0
+                            ? `逾期 ${-d} 天`
+                            : d === 0
+                              ? "今天"
+                              : `剩 ${d} 天`}
+                      </span>
+                    </Flex>
                   );
                 }}
               />
@@ -288,29 +285,29 @@ export function Workbench() {
               {!data?.recent.length ? (
                 <StateBlock title="还没有活动记录" hint="建案、改状态、加评论都会记在这里。" />
               ) : (
-                <List
-                  dataSource={data.recent}
-                  renderItem={(r) => (
-                    <List.Item style={{ padding: "6px 12px" }}>
-                      <div style={{ minWidth: 0 }}>
-                        <Space size={6} wrap>
-                          <Tag variant="filled" style={{ fontSize: 11, marginInlineEnd: 0 }}>
-                            {r.actionLabel}
-                          </Tag>
-                          <Link
-                            href={`/${r.kind === "matter" ? "matters" : "risk-matters"}/${r.hostId}`}
-                          >
-                            <span className="num" style={{ fontSize: 12 }}>
-                              {r.hostCode ?? "—"}
-                            </span>
-                          </Link>
-                        </Space>
-                        <div style={{ fontSize: 11, color: INK.muted }}>
-                          {r.operator} · {fromNow(r.createdAt)}
-                          {r.reason ? ` · ${r.reason}` : ""}
-                        </div>
+                <Listy
+                  items={data.recent}
+                  rowKey={(r) => r.id}
+                  styles={{ item: { padding: "6px 12px" } }}
+                  itemRender={(r) => (
+                    <div style={{ minWidth: 0 }}>
+                      <Space size={6} wrap>
+                        <Tag variant="filled" style={{ fontSize: 11, marginInlineEnd: 0 }}>
+                          {r.actionLabel}
+                        </Tag>
+                        <Link
+                          href={`/${r.kind === "matter" ? "matters" : "risk-matters"}/${r.hostId}`}
+                        >
+                          <span className="num" style={{ fontSize: 12 }}>
+                            {r.hostCode ?? "—"}
+                          </span>
+                        </Link>
+                      </Space>
+                      <div style={{ fontSize: 11, color: INK.muted }}>
+                        {r.operator} · {fromNow(r.createdAt)}
+                        {r.reason ? ` · ${r.reason}` : ""}
                       </div>
-                    </List.Item>
+                    </div>
                   )}
                 />
               )}
