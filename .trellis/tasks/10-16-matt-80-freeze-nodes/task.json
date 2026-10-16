@@ -1,0 +1,28 @@
+{
+  "id": "matt-80-freeze-nodes",
+  "name": "matt-80-freeze-nodes",
+  "title": "MATT-80 冻结后节点全锁：addRiskNode / setRiskNodeStatus 补 isRiskFrozen 门",
+  "description": "冻结（conversion_status=1）的事项，节点新增与节点状态变更都拒：services/risks.ts 的 addRiskNode / setRiskNodeStatus 补 isRiskFrozen 门，与 changeRiskStatus / updateRiskMatter / unconvertFromCase 三道同形；risks.spec.ts 里「节点路径不含 isRiskFrozen」那组断言翻转为正向。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "phinnpeng",
+  "assignee": "phinnpeng",
+  "createdAt": "2026-10-16",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "paca_task": "80"
+  }
+}

@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { nodeStatusSchema, pruneEmpty } from "@/shared/schema/hosts";
-import { addRiskNode, setRiskNodeStatus } from "@/app/lib/server/services/risks";
+import {
+  addRiskNode,
+  RISK_FROZEN_MESSAGE,
+  setRiskNodeStatus,
+} from "@/app/lib/server/services/risks";
 import {
   body,
   fail,
@@ -52,6 +56,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     });
     if (r.ok) return json({ id: r.id }, 201);
     if (r.why === "not_found") return notFound();
+    // 冻结必须走自己那一条：掉进下面的兜底会说「归档是终态，或你不是经办人」，
+    // 而真实原因是**这条事项转过案件**（MATT-80 / ADR 0005）—— 用户会照着错的提示去查权限。
+    if (r.why === "frozen") return fail(422, "frozen", RISK_FROZEN_MESSAGE);
     if (r.why === "range_not_allowed") {
       // 给 422 + 下一步动作，不给 400：请求没写错，是**事项侧不支持这个节点类型**
       return fail(
@@ -85,6 +92,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     );
     if (r.ok) return json({ ok: true });
     if (r.why === "not_found") return notFound();
+    // 同 POST：掉进兜底会变成「目标状态与当前状态相同」—— 那是句**假话**，
+    // 真正的原因是事项已转过案件，节点状态在事项侧不再可改（MATT-80 / ADR 0005）。
+    if (r.why === "frozen") return fail(422, "frozen", RISK_FROZEN_MESSAGE);
     if (r.why === "reason_required") return reasonRequired();
     if (r.why === "forbidden") return fail(403, "forbidden", "归档是终态，无法改节点状态");
     return fail(422, "unchanged", "目标状态与当前状态相同");

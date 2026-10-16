@@ -230,7 +230,7 @@ describe("unconvertSchema：撤销转案件", () => {
  *
  * 下面这一组盯三件事，顺序是「语义 → 覆盖面 → 只写一处」：
  *   1. 判据本身对不对（纯函数，可离线判）；
- *   2. 三条写路径是不是都走了它（漏一条 = 裁定形同虚设，且**不报错**）；
+ *   2. 五条写路径是不是都走了它（漏一条 = 裁定形同虚设，且**不报错**）；
  *   3. 判据是不是**只有一处**（票面原话：未来若要放开只需改一处判定）。
  *
  * 为什么不连库测：`unconvertFromCase` / `changeRiskStatus` 一进去就连库、跑事务，
@@ -263,7 +263,7 @@ describe("isRiskFrozen：转过案件的事项一律冻结", () => {
   });
 });
 
-describe("冻结判据：只写一处，且三条写路径都走它", () => {
+describe("冻结判据：只写一处，且五条写路径都走它", () => {
   const src = readFileSync("src/app/lib/server/services/risks.ts", "utf8");
 
   /** 抽出 `export async function X(` 的函数名 + 函数体，用于逐个查它有没有走判据 */
@@ -278,13 +278,13 @@ describe("冻结判据：只写一处，且三条写路径都走它", () => {
   });
 
   it("`conversion_status = 1` 这个比较在 services/risks.ts 里只出现一次", () => {
-    // 这条是「未来若要放开只需改一处判定」的可执行形式。判据散在三个函数里的话，
-    // 放开时必须改三处，而漏掉的那一处**不会报错** —— 只会让裁定悄悄地只生效了一半。
+    // 这条是「未来若要放开只需改一处判定」的可执行形式。判据散在多个函数里的话，
+    // 放开时必须改多处，而漏掉的那一处**不会报错** —— 只会让裁定悄悄地只生效了一半。
     const hits = src.match(/conversionStatus\s*===\s*1/g) ?? [];
     expect(hits).toEqual(["conversionStatus === 1"]);
   });
 
-  it("三条写路径的门都是**活的** `if (isRiskFrozen(...)) return frozen`，恰好三处", () => {
+  it("五条写路径的门都是**活的** `if (isRiskFrozen(...)) return frozen`，恰好五处", () => {
     // ⚠ 这一条是被反向红逼出来的：先前只查「函数体里出现过 isRiskFrozen(」，
     // 而把门改成 `if (false && isRiskFrozen(...))` 照样命中 —— 门被摘掉了，断言还是绿的。
     // 「门存在」与「门挡得住」是两件事，后者才需要断言。所以这里比对完整形态。
@@ -295,25 +295,30 @@ describe("冻结判据：只写一处，且三条写路径都走它", () => {
     ];
     expect(
       gates.map((m) => m[1]),
-      "三条写路径上少了一道活门，或门被短路了",
-    ).toEqual(["src", "cur", "cur"]);
+      "五条写路径上少了一道活门，或门被短路了",
+    ).toEqual(["src", "cur", "cur", "vis", "node"]);
   });
 
-  it("状态流转 / 字段编辑 / 撤销转案件 三条路径都先问 isRiskFrozen", () => {
+  it("状态流转 / 字段编辑 / 撤销转案件 / 新增节点 / 改节点状态 五条路径都先问 isRiskFrozen", () => {
     const guarded = functions
       .filter((f) => f.body.includes("isRiskFrozen("))
       .map((f) => f.name)
       .sort();
-    expect(guarded).toEqual(["changeRiskStatus", "unconvertFromCase", "updateRiskMatter"]);
+    expect(guarded).toEqual([
+      "addRiskNode",
+      "changeRiskStatus",
+      "setRiskNodeStatus",
+      "unconvertFromCase",
+      "updateRiskMatter",
+    ]);
   });
 
-  it("新增/改节点、发处置记录、关注人、软删**没有**被冻结门拦住", () => {
-    // 票面没有裁定这几条（"是否还允许在冻结的事项上加节点/评论/关注"是未决问题），
-    // 所以它们必须保持原样：谁在这里加一道冻结，就是把一个未裁定的问题替他裁了。
-    // 这条断言的作用是「将来有人加了，这里会红，红色会逼他回去问人」。
+  it("发处置记录、关注人、软删、当事人、批量标签**没有**被冻结门拦住", () => {
+    // ADR 0005 把「协作面与分类」列为**刻意豁免**：评论 / 关注人 / 追加转案件保持开放，
+    // 否则冻结会比归档更严（归档尚且允许评论），与既有裁定冲突。
+    // 当事人与软删归 MATT-81 / MATT-82 两张票，本票（MATT-80）只锁节点。
+    // 这条断言的作用是「将来有人在本票范围外加门，这里会红，红色会逼他回去对齐 ADR」。
     const mustStayOpen = [
-      "addRiskNode",
-      "setRiskNodeStatus",
       "addRiskComment",
       "editRiskComment",
       "addRiskFollowers",
@@ -326,7 +331,9 @@ describe("冻结判据：只写一处，且三条写路径都走它", () => {
     for (const name of mustStayOpen) {
       const fn = functions.find((f) => f.name === name);
       expect(fn, `${name} 不在 services/risks.ts 里了 —— 先看清楚再改这条断言`).toBeTruthy();
-      expect(fn!.body, `${name} 出现了冻结门，但票面没裁定它`).not.toContain("isRiskFrozen(");
+      expect(fn!.body, `${name} 出现了冻结门，但它属于豁免清单或别的票`).not.toContain(
+        "isRiskFrozen(",
+      );
     }
   });
 

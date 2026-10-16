@@ -71,17 +71,17 @@ import { randomUUID } from "node:crypto";
 /**
  * **冻结判定 —— 全仓唯一的一处**（2026-10-14 裁定）。
  *
- * 事项一旦转过**至少一个**案件，它的业务内容就不能再改：状态流转、字段编辑、撤销转案件
- * 一律拒。冻结点是 `conversion_status = 1`（"有没有转过"），**不是** `converted_case_count`
- * ——一个案件和十个案件得到的结论完全一样。
+ * 事项一旦转过**至少一个**案件，它的业务内容就不能再改：状态流转、字段编辑、撤销转案件、
+ * 新增节点、改节点状态一律拒。冻结点是 `conversion_status = 1`（"有没有转过"），
+ * **不是** `converted_case_count` ——一个案件和十个案件得到的结论完全一样。
  *
  * ## 为什么必须是"一个纯函数、一个比较"
  *
- * 票面原话是「未来若要放开只需改一处判定」。如果这个判定散在三处写路径里，放开时就要改
- * 三处，而**漏掉的那一处不会报错** —— 它只会让裁定悄悄地只生效了三分之二：用户看到
+ * 票面原话是「未来若要放开只需改一处判定」。如果这个判定散在多处写路径里，放开时就要改
+ * 多处，而**漏掉的那一处不会报错** —— 它只会让裁定悄悄地只生效了一部分：用户看到
  * "状态推不动、字段也改不了，唯独那一项还能改"，而没有任何日志说这里本该也锁上。
  * 反过来，多写一处同样糟：多一个 `=== 1` 就是第二个事实源，两处迟早会漂。
- * `risks.spec.ts` 里那两条源码断言（只出现一次 / 三条路径都走它）就是这份契约的看守。
+ * `risks.spec.ts` 里那两条源码断言（只出现一次 / 五条路径都走它）就是这份契约的看守。
  *
  * ## 为什么用等值而不是真值
  *
@@ -95,9 +95,9 @@ export function isRiskFrozen(conversionStatus: number | null | undefined): boole
   return conversionStatus === 1;
 }
 
-/** 冻结对外的一句话（三个路由共用，别各抄一份 —— 抄一份的代价是三处说法慢慢不一样） */
+/** 冻结对外的一句话（四个路由共用，别各抄一份 —— 抄一份的代价是四处说法慢慢不一样） */
 export const RISK_FROZEN_MESSAGE =
-  "这条事项已经转过案件，业务内容已冻结：状态、字段与转案件关联都不能再改。" +
+  "这条事项已经转过案件，业务内容已冻结：状态、字段、节点与转案件关联都不能再改。" +
   "要继续推进请在案件上做，或另建一条事项。";
 
 /**
@@ -1479,21 +1479,34 @@ export async function editRiskComment(
  * **只支持时间点**：节点类型配置里若 `time_type='range'`，这里直接拒。
  * 不是"前端不给控件"就够了——服务层不拒的话，一个手写请求就能建出时间段节点，
  * 而事项侧的提醒扫描与展示都按"只有时间点"写的。
+ *
+ * **冻结（MATT-80 / ADR 0005）**：事项转过案件之后**节点也不能再加** —— 判据是
+ * `isRiskFrozen`。事项节点常是硬期限（举证期、开庭日、答复期），转案件之后期限的
+ * 实际推进已在案件侧，此刻还能在台账上加一条，**没人会察觉那条期限是后补的** ——
+ * 这是这条链上唯一"改错了不出声"的形态。要紧急调期限请去**案件**侧改。
+ * 排在归档与归属判定之前：冻结是这条记录的属性，与"你是不是经办人"无关。
  */
 export async function addRiskNode(
   actor: Actor,
   riskId: string,
   input: { nodeTypeId: string; name?: string; startTime?: string | null; remark?: string | null },
 ): Promise<
-  { ok: true; id: string } | { ok: false; why: "not_found" | "forbidden" | "range_not_allowed" }
+  | { ok: true; id: string }
+  | { ok: false; why: "not_found" | "forbidden" | "range_not_allowed" | "frozen" }
 > {
   const db = await getDb();
   const [vis] = await db
-    .select({ id: riskMatter.id, ownerId: riskMatter.ownerId, isArchived: riskMatter.isArchived })
+    .select({
+      id: riskMatter.id,
+      ownerId: riskMatter.ownerId,
+      isArchived: riskMatter.isArchived,
+      conversionStatus: riskMatter.conversionStatus,
+    })
     .from(riskMatter)
     .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
     .limit(1);
   if (!vis) return { ok: false, why: "not_found" };
+  if (isRiskFrozen(vis.conversionStatus)) return { ok: false, why: "frozen" };
   if (vis.isArchived) return { ok: false, why: "forbidden" };
   if (vis.ownerId !== null && !ownsAttribution(actor, vis.ownerId))
     return { ok: false, why: "forbidden" };
@@ -1558,6 +1571,11 @@ export async function addRiskNode(
  *
  * 状态只有四值（E21），`pending` / `confirm_time` 是**命令**不是状态：
  * 前者把 `is_time_confirmed` 落下去，后者抬上来，`status` 一列不动。
+ *
+ * **冻结（MATT-80 / ADR 0005）**：事项转过案件之后节点状态也不可再改 —— 判据是
+ * `isRiskFrozen`。与 `addRiskNode` 同一条理由：把一条已移交的硬期限在事项侧标成
+ * "已完成/已取消"，会直接改写"这条期限还算不算数"，而案件侧并不知情。
+ * 排在归档与归属判定之前（同既有三道：冻结是记录自身的属性）。
  */
 export async function setRiskNodeStatus(
   actor: Actor,
@@ -1566,7 +1584,8 @@ export async function setRiskNodeStatus(
   status: string,
   cancelReason?: string | null,
 ): Promise<
-  { ok: true } | { ok: false; why: "not_found" | "forbidden" | "reason_required" | "unchanged" }
+  | { ok: true }
+  | { ok: false; why: "not_found" | "forbidden" | "reason_required" | "unchanged" | "frozen" }
 > {
   const db = await getDb();
   const [node] = await db
@@ -1577,6 +1596,7 @@ export async function setRiskNodeStatus(
       isTimeConfirmed: riskMatterNode.isTimeConfirmed,
       isArchived: riskMatter.isArchived,
       ownerId: riskMatter.ownerId,
+      conversionStatus: riskMatter.conversionStatus,
     })
     .from(riskMatterNode)
     .innerJoin(riskMatter, eq(riskMatter.id, riskMatterNode.hostId))
@@ -1591,6 +1611,7 @@ export async function setRiskNodeStatus(
     )
     .limit(1);
   if (!node) return { ok: false, why: "not_found" };
+  if (isRiskFrozen(node.conversionStatus)) return { ok: false, why: "frozen" };
   if (node.isArchived) return { ok: false, why: "forbidden" };
   if (node.ownerId !== null && !ownsAttribution(actor, node.ownerId))
     return { ok: false, why: "forbidden" };

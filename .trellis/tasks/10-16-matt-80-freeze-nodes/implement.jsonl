@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端派单前置：开工清单与 Quality Check，确认本票改动落在 services 层、鉴权/范围不新增第二套判断"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "拒绝原因与状态码口径：不可见一律 404、业务不可为 422，冻结是记录自身的属性须排在归属判定之前，返回值形态要可读而非笼统 forbidden"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "八条禁令与验收门禁：确认新增门不引入第二个判据事实源、不绕过 scope，且 pnpm verify 全绿"}
+{"file": ".trellis/spec/guides/testing-guidelines.md", "reason": "断言写法口径：it 名要写「期望 — 反例事故」、断言整体形状、反向用例一个都不许省（本票的源码断言翻转与反向红都按它写）"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "冻结门在事务之前早退、不写 activity_log，与既有三道同形；确认这条早退不产生审计缺口"}
+{"file": "docs/adr/0005-freeze-covers-business-facts.md", "reason": "本票裁定的载体：节点为什么必须锁、豁免清单（评论/标签/追加转案件）为什么不许顺手补门、撤销维持原判"}

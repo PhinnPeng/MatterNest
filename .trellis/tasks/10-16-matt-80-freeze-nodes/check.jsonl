@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端 Quality Check 清单：收工前逐条过，确认改动未绕过 scope、未引入第二套权限判断"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "检查冻结门的顺序与返回形态：冻结须先于归属判定、why 为可读的 frozen 而不是 forbidden"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "八条禁令 + 验收门禁：检查是否有第二处 conversion_status 判据、断言强度是否下降"}
+{"file": ".trellis/spec/guides/testing-guidelines.md", "reason": "检查测试是否覆盖反例（未冻结照旧成功）与断言是否整体形状、是否只改了数字而丢掉强度"}
+{"file": "docs/adr/0005-freeze-covers-business-facts.md", "reason": "对照 ADR 检查豁免清单是否被越界修改（评论/标签/追加转案件必须仍开放）"}
