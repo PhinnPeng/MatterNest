@@ -22,3 +22,11 @@ agent-work/
 # /prototype 的一次性原型页面：它们刻意不按生产代码标准写（无测试、极简错误处理），
 # 且评审完就整体挪去一次性分支。重排它们只会制造噪音 diff。
 **/prototype-*.html
+
+# Impeccable 的落盘处（本地运行态 + 一次性设计 mock），与 agent-work/ 同一条处理。
+# ⚠ 不是"懒得排版"：`questions/.gitignore` 是工具自己写的、内容是一个 `*`（自述"local runtime
+# state, never committed"），而 **prettier 对 `.gitignore` 没有 parser** —— 它会让
+# `format:check` 报 `No parser could be inferred` 这个**硬错误**，`--write` 也修不掉，
+# 于是 pre-commit 钩子挡下所有人的提交（MATT-94 的现场）。
+# prettier-ignore ≠ git-ignore：mocks/** 照样可以入库。
+.impeccable/
