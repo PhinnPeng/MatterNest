@@ -39,8 +39,9 @@ import {
   SCAN_WINDOW_MAX_DAYS,
   SCANNABLE_NODE_STATUSES,
   pickDueReminders,
+  scanDueDateKey,
 } from "@/shared/notification/scan";
-import { businessDateKey, businessDayStartIso } from "@/shared/time/zh-cn";
+import { businessDayStartIso } from "@/shared/time/zh-cn";
 import { getDb } from "../db/client";
 import {
   appUser,
@@ -84,7 +85,7 @@ import type { DataScope } from "@/shared/enums";
  *
  * 单副本部署、不引 Redis（技术栈裁定）。所以 `pumpNotifications()` 由通知中心的读请求触发：
  * 先抽干待投递的 outbox，再跑一遍节点到期扫描。两件事都**幂等**——
- * 前者靠 `dedupe_key`，后者靠"同目标同业务日"的 scheduled key，
+ * 前者靠 `dedupe_key`，后者靠"同节点同档位"的 scheduled key（`scanDueDateKey`），
  * 所以"每次读都跑一遍"不会产生第二条通知，只是白跑几次索引扫描（两张节点表各一次）。
  */
 
@@ -888,7 +889,7 @@ type ScanNodeRow = {
  * 所以这里的 WHERE 必须同时给出 `is_time_confirmed`、`status IN (...)` 与 `deadline_time` 的窗口
  * ——少任何一个都会退化成全表扫（前两个还顺带改变业务语义：把"判决 待定"的节点也拉进来发提醒）。
  * 窗口的上界取 `SCAN_WINDOW_MAX_DAYS`，它是"让索引第二列可用"的手段，
- * 真正的判定是 `pickDueReminders` 里的等值比较。
+ * 真正的判定是 `pickDueReminders` 里的**区间判定**（`SCAN_CATCHUP_DAYS`）。
  *
  * 两条 SQL 各扫自己表（§7.2 合并规则 6：不为规则引入跨宿主统一节点视图），结果并集后进同一管道。
  */
@@ -899,7 +900,6 @@ export async function scanDueNodes(now: Date = new Date()): Promise<{
 }> {
   const db = await getDb();
   const nowIso = now.toISOString();
-  const dateKey = businessDateKey(now);
   const windowStart = businessDayStartIso(now);
   const windowEnd = new Date(
     Date.parse(windowStart) + (SCAN_WINDOW_MAX_DAYS + 1) * 86_400_000,
@@ -958,6 +958,12 @@ export async function scanDueNodes(now: Date = new Date()): Promise<{
         nowIso,
       );
       if (due.length === 0) continue;
+      /**
+       * 不可达守卫（`pickDueReminders` 对 `deadlineTime` 为空的节点已经返回 `[]`）：
+       * 写成一条显式判断，只是为了让下面去重键的输入不必是 `string | null`。
+       */
+      const deadlineTime = node.deadlineTime;
+      if (!deadlineTime) continue;
       const facts = factsByHost.get(String(node.hostId));
       // 归档记录不再产生新通知（M4「什么时候不用」）
       if (!facts || facts.isArchived) continue;
@@ -981,7 +987,14 @@ export async function scanDueNodes(now: Date = new Date()): Promise<{
           const dedupeKey = scheduledDedupeKey({
             eventType: d.eventType,
             targetId: node.id,
-            dateKey,
+            /**
+             * ⚠ **`dateKey` 取"档位稳定"的那个，不是扫描日**（`scanDueDateKey`：
+             * 截止业务日 + 档位）。判定区间化之后同一档位会在 `d, d-1, d-2` 三天都命中，
+             * 若还按扫描日算 key，同一条「还有 3 天」会连发三条；换成这一口径后
+             * **补发窗口内多天只写一条**（同一扫描日命中两个档位仍是两条——
+             * 那是两条不同的里程碑，见 `scanDueDateKey` 的注释）。
+             */
+            dateKey: scanDueDateKey(deadlineTime, d.daysLeft),
           });
           return insertNotificationEvent(tx, {
             eventType: d.eventType,
@@ -997,8 +1010,8 @@ export async function scanDueNodes(now: Date = new Date()): Promise<{
              * 接口 500、事件表空）。
              *
              * 定时类没有"一次业务操作"这个批次，所以给一个新的 uuid：
-             * 它的聚合语义由 `dedupe_key` 的**业务日**承担（同一天重扫得到同一个 key），
-             * `event_batch_id` 在这里只用于排障分组。
+             * 它的聚合语义由 `dedupe_key` 的**截止日 + 档位**承担
+             * （补发窗口内重扫得到同一个 key），`event_batch_id` 在这里只用于排障分组。
              */
             batchId: randomUUID(),
             dedupeKey,

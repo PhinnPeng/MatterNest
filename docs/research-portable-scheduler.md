@@ -16,7 +16,7 @@
 | **Q-A** | 选 **`croner@10.0.1`**：唯一同时满足「零依赖 + 2026-02 仍在发版 + 时区用 ICU 不碰 OS tz 数据库 + 自带 `unref`/`protect`/`catch`」的库；`node-cron@4.6.0` 可作备选但它的多副本路线要 Redis（已被裁定排除）；`node-schedule@2.1.1` 应排除（3 个依赖、2023-01 最后发版、README 自称不适合 interval）。 |
 | **Q-B** | **应用内定时器可行且零部署件**：`register()` 只 `await` 它**返回的** promise，`setInterval` 同步返回 ⇒ **不会挡住 server ready**；框架自带单例（模块级 promise 缓存且永不重置），dev HMR 不会起第二份；`standalone` 与 `next start` 都是**单进程**。但「register 抛错 ⇒ 全站 502」这个说法**机制上是错的**——真实形态是 `process.exit(1)` 崩溃循环。 |
 | **Q-C** | **正确性上安全**：`ON CONFLICT DO NOTHING` 与 `merge_count = merge_count + 1` 都是单语句原子操作，没有「查了再插」的窗口；**风险不在连接条数而在连接占用时长**——单次 pump 顺序持有 1 条连接数秒，峰值 3 条；`PG_POOL_MAX=10` 在十人企业下够用但会有排队。 |
-| **Q-D** | 节点到期提醒**不补发**（`pickDueReminders` 是 `daysLeft === remindDay` 等值判定），停机 2 小时后错过的档位**永久丢失**；outbox **自愈**（无 `DELETE`，失败只累加 `attempts`）。 |
+| **Q-D** | 节点到期提醒**不补发**（`pickDueReminders` 是 `daysLeft === remindDay` 等值判定），停机 2 小时后错过的档位**永久丢失**；outbox **自愈**（无 `DELETE`，失败只累加 `attempts`）。**⚠ 前半句已被 MATT-78 改掉**（等值 → 区间判定，补发窗口 K=3 天）——见 §5.1 的更新块；outbox 那半句不变。 |
 
 ---
 
@@ -298,9 +298,22 @@ export function register() {
 
 ### 5.1 进程停 2 小时再起来，节点到期提醒会怎样
 
-**不会补发。错过的档位永久丢失。** 这是本轮最重要的发现。
+> **⚠ 更新（MATT-78，2026-10-17）：本节结论已按产品裁定改动。**
+>
+> 下面这一小节记录的是**改动前**的状态（等值判定），它作为"缺陷为什么存在"的取证仍然成立；
+> 但「**不会补发 / 错过的档位永久丢失**」这个结论**对节点提醒已经不成立**：
+> `pickDueReminders` 现在是**区间**判定 `remindDay - K < daysLeft <= remindDay`
+> （`SCAN_CATCHUP_DAYS = 3`，**K 是产品裁定**），所以档位当天没跑到、之后 K 天内补跑仍会发出。
+> 窗口**只朝 `daysLeft` 更小的一侧**扩（`daysLeft` 随日子递减，跨过档位后恢复时它已经小于档位，
+> 反方向补不回任何东西）；代价是**晚发**（最迟在还剩 `d-K+1` 天时发出「还有 d 天」），
+> 而**停机超过 K 天的那部分仍然会丢**——这一条没有变。
+> 连带：scheduled `dedupe_key` 从"扫描日"改成"截止业务日 + 档位"（否则补发窗口内三天各发一条），
+> 对齐件已回写 `docs/PRD-phase1-design-revision-r1.md` §7.2（R3）。
+> 与规则 9 的对照（下一条 ⚠）**仍然成立**：规则 9 是下界无上界，参数也另算。
 
-`src/shared/notification/scan.ts:69-83`：
+**不会补发。错过的档位永久丢失。** 这是本轮最重要的发现（**已过时，见上面的更新块**）。
+
+`src/shared/notification/scan.ts:69-83`（**改动前**的实现，MATT-78 之后 `:81` 那一行是区间判定）：
 
 ```ts
 export function pickDueReminders(node: ScannableNode, now: string | Date): DueReminder[] {

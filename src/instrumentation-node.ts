@@ -260,9 +260,12 @@ export function makeOnOverrun(logger: Logger): () => void {
  *      ——若首轮要等 5 分钟，`db:check` 就只能在 CI 里凭空等一轮（见 `.github/workflows/ci.yml`
  *      与 `tools/wait-heartbeat.mjs`：顺序改成「起 server → 等首轮心跳 → db:check → 冒烟」）。
  *
- * 它**不是**「补跑」：节点提醒是「按此刻算还剩几天」的等值判定
- * （`src/shared/notification/scan.ts:81`），多跑一次不会补出任何过期档位，
- * 只会把该发的发得更早（同一业务日的 `dedupe_key` 会吸收重复）。
+ * 它**不是**「补跑机制」，但也不是"多跑一次什么都不会变"：节点提醒的判定自 MATT-78
+ * 起是**区间**的（`scan.ts` 的 `SCAN_CATCHUP_DAYS = 3`，产品裁定）——档位当天没跑到，
+ * 之后 K 天内任何一次扫描都会补出那一档，多条重复由"同节点同档位"的 `dedupe_key` 吸收。
+ * 首轮立即执行于是**顺带**把「定时器刚起来、而我们恰好落在某档位的补发窗口里」
+ * 的那一档补上；它补不了的是**停机超过 K 天**那部分（窗口封顶，超期就不再补，
+ * 避免"还有 7 天"在只剩 3 天时还往外发）。
  */
 export function startTimer(
   deps: TickDeps = { pump: () => pumpAll("timer"), heartbeat: writeHeartbeat, log },

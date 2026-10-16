@@ -270,7 +270,9 @@ export async function scanArchiveIncomplete(now: Date = new Date()): Promise<Arc
         targetType: "matter",
         targetId: c.id,
         // 定时类没有"一次业务操作"的批次号：`event_batch_id` 在这里只用于排障分组，
-        // 聚合语义由 `dedupe_key` 的业务日承担（与 `scanDueNodes` 同一条理由）
+        // 聚合语义由 `dedupe_key` 的业务日承担。⚠ 节点到期扫描（`scanDueNodes`）**已不适用**
+        // 这句：MATT-78 把那条判定区间化之后，它的键必须是"档位稳定"的 `scanDueDateKey`，
+        // 按扫描日算会连发三天。规则 9 是**下界 + 冷却**口径，按扫描日聚合正是它要的，所以不动。
         batchId: randomUUID(),
         dedupeKey: scheduledDedupeKey({
           eventType: "archive_incomplete",

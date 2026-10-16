@@ -16,7 +16,8 @@ import { listNotifications, countUnread } from "@/app/lib/server/services/notifi
  *     「没人打开这一页时提醒照样发」——一个要人主动去找才收到的提醒，不是提醒。
  *
  * 它**不会产生重复通知**：outbox 的重复消费被 `dedupe_key` 唯一键吸收，
- * 节点扫描被"同目标同业务日"的 scheduled key 吸收。代价只是多跑几次索引扫描，
+ * 节点扫描被"同节点同档位"的 scheduled key 吸收（`scanDueDateKey`，MATT-78 区间化之后
+ * 键不能再按扫描日算，否则补发窗口内一条提醒会发三天）。代价只是多跑几次索引扫描，
  * 而两条路径的重叠由 `services/pump-gate.ts` 的进程内单飞收在一处（串行，不是跳过）。
  *
  * `unreadOnly` 走同一个 schema：列表与徽标必须是同一个可见性口径（§7.1），

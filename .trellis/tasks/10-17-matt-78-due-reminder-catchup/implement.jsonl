@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端硬性约束与收工门禁（Quality Check 那节）：本票改的是 shared 层纯函数 + 服务层 key 构造，落点就在它的依赖方向与「未证实能力不得当既有实现」两条上"}
+{"file": "docs/research-portable-scheduler.md", "reason": "§4/§5.1 是本票的**先例源**：把现状写成 `d === daysLeft`（等值）并点明替代写法是下界；同时它的 §5.1 结论「错过的档位永久丢失」正是本票要改掉的那句话，改完必须回写同步"}

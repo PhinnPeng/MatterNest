@@ -58,6 +58,25 @@ describe("源码守卫：通知管线不写 user_watch", () => {
 });
 
 /**
+ * **MATT-78：节点提醒的 scheduled `dateKey` 必须是"档位稳定"的**（`scanDueDateKey`：
+ * 截止业务日 + 档位），不能退回**扫描日**口径。
+ *
+ * 为什么这一条只能用源码守卫：`notification.spec.ts` 的「同一节点同一档位只发一次」
+ * 复刻了这里的构造，所以它盯得住 `scanDueDateKey` 自己的契约，**盯不住这一行被换回
+ * `businessDateKey(now)`**——而判定自 MATT-78 起是**区间**的（补发窗口 K 天），
+ * 换回去就是同一条「还有 3 天」在 `d, d-1, d-2` 连发三条。
+ * 行为断言要真库才看得到这一处（节点扫描挂在不打 DB 的用例之外）；
+ * 源码守卫看得到"这一行是这么写的"，与上面那组同一姿态。
+ */
+describe("源码守卫：节点提醒的 dateKey 是档位稳定的（MATT-78）", () => {
+  it("扫描处传 scanDueDateKey（截止日 + 档位），不是扫描日 businessDateKey(now)", () => {
+    const src = stripComments(readFileSync("src/app/lib/server/services/notifications.ts", "utf8"));
+    expect(src).toContain("dateKey: scanDueDateKey(deadlineTime, d.daysLeft),");
+    expect(src).not.toContain("businessDateKey(now)");
+  });
+});
+
+/**
  * outbox 行的展开口径（MATT-58 / T4b 补）。
  *
  * 这一层不碰数据库，所以它盯的是"**能跑通、只是口径错了**"那类缺陷：

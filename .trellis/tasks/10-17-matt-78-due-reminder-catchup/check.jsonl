@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/testing-guidelines.md", "reason": "反向红纪律与断言写法口径（第 5 条「该钉的反向一个都不许省」、第 6 条「注释里写明对应事故」）：本票的核心证据是两条反向红与「同一档位只一条」的键断言"}
+{"file": ".trellis/spec/backend/index.md", "reason": "收工前的 Quality Check 清单 + 依赖方向约束（shared 层不得碰 Node API）：核对改动的落点与门禁逐条过关"}

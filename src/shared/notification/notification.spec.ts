@@ -5,7 +5,7 @@ import {
   NOTIFICATION_EVENT_TYPES,
   PHASE1_NOTIFY_CHANNEL,
 } from "@/shared/enums/notify";
-import { formatBusinessTime } from "@/shared/time/zh-cn";
+import { businessDateKey, formatBusinessTime } from "@/shared/time/zh-cn";
 import {
   DEDUPE_KEY_MAX_LENGTH,
   immediateDedupeKey,
@@ -19,7 +19,7 @@ import {
   renderNotification,
   renderTemplate,
 } from "./template";
-import { pickDueReminders, SCANNABLE_NODE_STATUSES } from "./scan";
+import { pickDueReminders, scanDueDateKey, SCANNABLE_NODE_STATUSES } from "./scan";
 import {
   CREATOR_ECHO_RULES,
   PRESET_NOTIFY_RULES,
@@ -88,7 +88,7 @@ describe("dedupe_key（§7.2 合并规则 4：靠唯一键去重）", () => {
     expect(a).not.toBe(b);
   });
 
-  it("定时类不含收件人：同节点同业务日只有一条（一天内人员变动不该再发一条）", () => {
+  it("定时类不含收件人：同目标同 dateKey 只有一条（人员变动不该在同一条提醒内再发一次）", () => {
     const a = scheduledDedupeKey({
       eventType: "node_due_end",
       targetId: 7n,
@@ -232,9 +232,114 @@ describe("节点到期扫描（只走带 is_time_confirmed 的 partial index 那
     expect(pickDueReminders({ ...base, remindDays: [7, 1] }, now)).toEqual([]);
   });
 
+  /**
+   * **MATT-78 的窗口用例**：等值判定改**区间**判定（`SCAN_CATCHUP_DAYS = 3`，产品裁定）。
+   *
+   * 上面那条 `[7,1]` 是"窗口的**上**沿"（比档位还早的日子不该发），这条是"当天没跑到"
+   * 这个事故：等值判定下 `daysLeft = d-1` 一条都不出 ⇒ 那一档永久丢失。
+   * ⚠ 两个方向合起来才是区间：往 `daysLeft` **更小**的一侧扩 K 天（补发），
+   * 往更大的一侧**一天都不扩**——`[d, d+K)` 那个方向补不回任何东西
+   * （停机跨过档位后恢复时 `daysLeft` 已经小于 d），见 `scan.ts` 的常量注释。
+   */
+  it("**跨过档位当天补跑仍能命中**，且只补 K=3 天（窗外与更早那侧都不发）", () => {
+    // 上海 10-24 截止 + remind_days=[7] ⇒ 7 天档的窗口是 daysLeft ∈ {5,6,7}
+    const node = { ...base, deadlineTime: "2026-10-24T02:00:00.000Z", remindDays: [7] };
+    const hit = [{ eventType: "node_due_start" as const, daysLeft: 7 }];
+    // daysLeft = d+1：比档位还早的那一天，**不许**命中（窗口只朝小的一侧扩）
+    expect(pickDueReminders(node, "2026-10-16T03:00:00.000Z")).toEqual([]);
+    expect(pickDueReminders(node, "2026-10-17T03:00:00.000Z")).toEqual(hit); // 档位当天
+    expect(pickDueReminders(node, "2026-10-18T03:00:00.000Z")).toEqual(hit); // 停机跨过一天
+    expect(pickDueReminders(node, "2026-10-19T03:00:00.000Z")).toEqual(hit); // 窗口最后一天 = d-K+1
+    // daysLeft = d-K：窗外，超期就不再补（否则"还有 7 天"会在只剩 3 天时还往外发）
+    expect(pickDueReminders(node, "2026-10-20T03:00:00.000Z")).toEqual([]);
+  });
+
+  it("长停机后 `daysLeft` 落进两个窗的交叠区 ⇒ 一次出两条里程碑（不是连发）", () => {
+    // 上海 10-17 截止、remind_days=[7,3,1]、daysLeft=1：3 天档还在窗口里（1 > 3-3），1 天档也到点
+    expect(
+      pickDueReminders({ ...base, remindDays: [7, 3, 1] }, "2026-10-16T03:00:00.000Z"),
+    ).toEqual([
+      { eventType: "node_due_start", daysLeft: 1 },
+      { eventType: "node_due_start", daysLeft: 3 },
+    ]);
+  });
+
   it("时间未填 / 已软删的节点不提醒", () => {
     expect(pickDueReminders({ ...base, deadlineTime: null }, now)).toEqual([]);
     expect(pickDueReminders({ ...base, isDeleted: true }, now)).toEqual([]);
+  });
+});
+
+/**
+ * **去重键的档位稳定性**（MATT-78：区间判定上线后必须配套的那一半）。
+ *
+ * 判定区间化之后同一档位会在 `d, d-1, d-2` 三天都命中，而 `dedupe_key` 是
+ * `UNIQUE` + `ON CONFLICT DO NOTHING` 的**唯一**去重手段（§7.2 合并规则 4：
+ * 去重靠数据库唯一键，不靠应用层判重）⇒ 键还按**扫描日**算就会连发三条。
+ * 这里复刻 `services/notifications.ts` 那一处的构造，钉住"同节点同档位只一条"。
+ */
+describe("节点提醒的 scheduled dateKey（档位稳定，不是扫描日）", () => {
+  const NODE_ID = 7n;
+  const deadline = "2026-10-24T02:00:00.000Z"; // 上海 10-24
+  const node = {
+    timeType: "point",
+    deadlineTime: deadline,
+    remindDays: [7],
+    isTimeConfirmed: true,
+    status: "not_started",
+  };
+  /** 复刻服务层的两步：先判定命中哪一档（`pickDueReminders`），再按「截止日 + 档位」算 key */
+  const keyOfScanDay = (now: string): string | null => {
+    const [due] = pickDueReminders(node, now);
+    return due
+      ? scheduledDedupeKey({
+          eventType: due.eventType,
+          targetId: NODE_ID,
+          dateKey: scanDueDateKey(deadline, due.daysLeft),
+        })
+      : null;
+  };
+  const scanDays = [
+    "2026-10-17T03:00:00.000Z",
+    "2026-10-18T03:00:00.000Z",
+    "2026-10-19T03:00:00.000Z",
+  ];
+
+  it("**同一节点同一档位只发一次**：补发窗口内不同扫描日得到同一个 key", () => {
+    const onTime = keyOfScanDay(scanDays[0] ?? "");
+    const catchUp1 = keyOfScanDay(scanDays[1] ?? "");
+    const catchUp2 = keyOfScanDay(scanDays[2] ?? "");
+    expect(onTime, "档位当天的 key 没算出来，下面两条比较就是空转").toBeTruthy();
+    expect(catchUp1).toBe(onTime);
+    expect(catchUp2).toBe(onTime);
+    // 探针：这三天的**扫描日**互不相同 ⇒ 旧口径（`businessDateKey(now)`）会算出 3 个 key。
+    // 少了这半句，"换成扫描日"这个缺陷与"补发窗口没生效"会同时被这条用例放过。
+    expect(new Set(scanDays.map((d) => businessDateKey(d))).size).toBe(3);
+  });
+
+  it("不同档位得到不同 key：交叠区那次扫描的两条里程碑不会被合成一条", () => {
+    expect(scanDueDateKey(deadline, 7)).not.toBe(scanDueDateKey(deadline, 3));
+    // daysLeft=1 时 3 天档与 1 天档都命中 ⇒ 两个事件（两条不同的里程碑，不是重复）
+    const keys = pickDueReminders(
+      { ...node, remindDays: [7, 3, 1] },
+      "2026-10-23T03:00:00.000Z",
+    ).map((d) =>
+      scheduledDedupeKey({
+        eventType: d.eventType,
+        targetId: NODE_ID,
+        dateKey: scanDueDateKey(deadline, d.daysLeft),
+      }),
+    );
+    expect(keys).toHaveLength(2);
+    expect(new Set(keys).size).toBe(2);
+  });
+
+  it("截止日改了 ⇒ 新 key（改期会重新提醒，旧截止日那条不会把它吸收掉）", () => {
+    expect(scanDueDateKey("2026-11-01T02:00:00.000Z", 7)).not.toBe(scanDueDateKey(deadline, 7));
+  });
+
+  it("key 的 dateKey 精确等于「截止业务日#档位」（截止日而不是扫描日）", () => {
+    expect(scanDueDateKey(deadline, 7)).toBe(`${businessDateKey(deadline)}#7`);
   });
 });
 
