@@ -15,11 +15,11 @@
  * 截图写 `agent-work/d2-shots/`（gitignore 内，不参与门禁判定，只是给人眼补看）。
  */
 import { createRequire } from "node:module";
-import { pickChrome } from "./_chrome.mjs";
+import { pickChrome, playwrightRoot } from "./_chrome.mjs";
 import { mkdirSync } from "node:fs";
 import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
 
-const require = createRequire("F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js");
+const require = createRequire(playwrightRoot());
 const { chromium } = require("playwright");
 const CHROME = pickChrome();
 

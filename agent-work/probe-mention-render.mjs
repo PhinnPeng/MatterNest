@@ -25,9 +25,9 @@
  * 用法：`node --env-file=.env agent-work/probe-mention-render.mjs`（需 dev 在 3777）。
  */
 import { createRequire } from "node:module";
-import { pickChrome } from "./_chrome.mjs";
+import { pickChrome, playwrightRoot } from "./_chrome.mjs";
 
-const require = createRequire("F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js");
+const require = createRequire(playwrightRoot());
 const { chromium } = require("playwright");
 const { createSmokeAccount, dropSmokeAccount, ROLE_CODES } = await import("./_testacct.mjs");
 const { default: postgres } = await import("postgres");
@@ -97,7 +97,6 @@ let browser = null;
 
 try {
   if (!targetName) throw new Error("拿不到被点名同事的显示名 —— 夹具没建起来");
-  if (!CHROME) throw new Error("找不到 ms-playwright 下的 chromium —— 先 npx playwright install chromium");
 
   const lr = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",

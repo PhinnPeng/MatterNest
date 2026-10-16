@@ -11,10 +11,10 @@
  * 只断行为与存在，不断观感（N7 边界）。
  */
 import { createRequire } from "node:module";
-import { pickChrome } from "./_chrome.mjs";
+import { pickChrome, playwrightRoot } from "./_chrome.mjs";
 import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
 
-const require = createRequire("F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js");
+const require = createRequire(playwrightRoot());
 const { chromium } = require("playwright");
 const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3777";
 const { default: postgres } = await import("postgres");
