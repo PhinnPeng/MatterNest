@@ -1,0 +1,28 @@
+{
+  "id": "matt-92-hook-gitdir-leak",
+  "name": "matt-92-hook-gitdir-leak",
+  "title": "MATT-92 门禁钩子泄漏 GIT_DIR：临时仓夹具把 init/config/commit 打到真仓上",
+  "description": "钩子带着 git 的定位变量跑 verify，board-drift.spec 的临时仓夹具继承后把三条命令打到真仓上：写身份、把仓翻成 core.bare、并自激成循环；修复=钩子先 unset 再切当前工作树根 + 夹具加守卫",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "phinnpeng",
+  "assignee": "phinnpeng",
+  "createdAt": "2026-10-16",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "paca_task": "92"
+  }
+}

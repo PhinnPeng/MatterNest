@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/testing-guidelines.md", "reason": "本票的病灶就在测试夹具：临时的东西必须只作用在临时的地方，且夹具要能发现自己认错了仓"}
+{"file": "docs/retro-2026-10-14.md", "reason": "钩子为什么存在（候选 4①）—— 判据 1 改的是这道门禁的正文，得知道它当初要挡什么"}

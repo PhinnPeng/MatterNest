@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "收口时照它的质量检查清单过一遍（verify 七道 + 回读类断言）"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "这次的形态正是「一层的问题在另一层发作」：钩子的环境泄漏在测试夹具里爆掉，检查时按它扫一遍还有没有同类"}

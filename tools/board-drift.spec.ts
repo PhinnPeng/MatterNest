@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -51,6 +51,22 @@ const grade = (b: object, c: object) =>
   gradeBoard(b as never, c as never, { now: NOW, staleDays: STALE_DAYS });
 
 beforeAll(() => {
+  /**
+   * **把 git 的定位类变量从进程环境里清掉**（2026-10-16，MATT-92）。
+   *
+   * 钩子会带着它们跑 `pnpm verify`：git 给 linked worktree 的提交注入
+   * `GIT_DIR` / `GIT_INDEX_FILE`（普通仓提交不注入 —— 实测对照过），
+   * 而下面的临时仓夹具继承 `process.env`。继承一次就够：夹具在「临时目录」里
+   * 跑的 `git init` 会把 `GIT_DIR` 指的那个仓**翻成 `core.bare=true`**，
+   * `git config` 会写它的配置，`git commit` 会提交进它并再触发钩子 ⇒ 自激循环。
+   * 真咬过：主仓被写掉身份、被写成裸仓，22:18 那次 `invalid object` 也是它。
+   *
+   * 清掉之后，下面每条命令都只可能作用在**自己刚建的临时仓**上；
+   * `repo()` 里还有一条断言把这件事钉死。
+   */
+  for (const k of Object.keys(process.env)) {
+    if (k.startsWith("GIT_")) delete process.env[k];
+  }
   dir = mkdtempSync(join(tmpdir(), "mn-drift-"));
 });
 afterAll(() => {
@@ -152,9 +168,46 @@ describe("readCommits：git 适配器（唯一没被 Seam 1 盖到的地方）",
    * 来钉。
    */
   const repo = () => {
+    /**
+     * **先挡环境**：定位类变量在场就说明「cwd 说了不算」（2026-10-16，MATT-92）。
+     *
+     * 这条要在**任何 git 命令之前**判 —— 真咬过的那次，`git init` 一跑就把真仓
+     * 翻成了 `core.bare=true`，事后再发现已经晚了。
+     */
+    for (const k of Object.keys(process.env)) {
+      if (
+        /^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|COMMON_DIR|ALTERNATE_OBJECT_DIRECTORIES)$/.test(
+          k,
+        )
+      ) {
+        throw new Error(
+          `环境里带着 ${k}=${process.env[k]} —— git 会绕开 cwd 去打那个仓（MATT-92）`,
+        );
+      }
+    }
+
     const d = mkdtempSync(join(tmpdir(), "mn-git-"));
     const g = (...args: string[]) => execFileSync("git", args, { cwd: d, encoding: "utf8" });
     g("init", "-q");
+
+    /**
+     * **再钉一次结果**：这个仓就是我刚在临时目录里建的那个。
+     *
+     * 上面挡的是「已知的」泄漏形态；这条挡住「没预料到的」那些（`GIT_CONFIG_*`、
+     * `core.worktree`、别的路径变量）。宁可测试当场红，也不要静默去写别人的仓。
+     */
+    // 比路径要当心 Windows 的 8.3 短名：mkdtemp 给的是 `C:\Users\ADMINI~1\…`，
+    // git 回的是长名 —— `realpathSync.native` 把两边都规范化成长名再比，别被写法骗红。
+    const canon = (p: string) => realpathSync.native(p).toLowerCase();
+    const actual = canon(g("rev-parse", "--absolute-git-dir").trim());
+    const want = canon(join(d, ".git"));
+    if (actual !== want) {
+      throw new Error(
+        `临时仓没建在临时目录里：git 解析到 ${actual}（期望 ${want}）——` +
+          `这种状态下每条命令都在写别人的仓（MATT-92）`,
+      );
+    }
+
     g("config", "user.email", "t@example.com");
     g("config", "user.name", "t");
     return { d, g };
@@ -256,6 +309,31 @@ describe("readCommits：git 适配器（唯一没被 Seam 1 盖到的地方）",
       expect(() => readCommits(d)).toThrow();
     } finally {
       rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * **反向红**：环境里带着 `GIT_DIR` 时，夹具必须当场拒绝、一个字节都不碰别的仓。
+   *
+   * 这条钉的是 2026-10-16 的真事故（MATT-92）：钩子把 `GIT_DIR` 泄漏进 verify，
+   * 夹具的三条命令于是全部打在真仓上 —— 写掉身份、把仓翻成 `core.bare=true`，
+   * 还靠「提交 → 钩子 → verify → 夹具再提交」自激。
+   *
+   * 去掉 `repo()` 里那两条守卫，这条用例就会挂成「静默把替身仓写了」。
+   */
+  it("环境里带着 GIT_DIR ⇒ 夹具当场拒绝，替身仓一个字节都没动", () => {
+    const victim = mkdtempSync(join(tmpdir(), "mn-victim-"));
+    execFileSync("git", ["init", "-q"], { cwd: victim });
+    const before = readFileSync(join(victim, ".git/config"), "utf8");
+    const saved = process.env.GIT_DIR;
+    process.env.GIT_DIR = join(victim, ".git");
+    try {
+      expect(() => repo()).toThrow(/GIT_DIR/);
+      expect(readFileSync(join(victim, ".git/config"), "utf8")).toBe(before);
+    } finally {
+      if (saved === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = saved;
+      rmSync(victim, { recursive: true, force: true });
     }
   });
 });

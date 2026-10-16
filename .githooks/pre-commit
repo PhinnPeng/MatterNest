@@ -18,6 +18,36 @@
 #
 # 跳过：`git commit --no-verify`（保留这个逃生口 —— 门禁卡住时
 #       要有办法绕，但绕的动作本身要留下痕迹）。
+#
+# ── 2026-10-16（MATT-92）：跑 verify 之前必须把 git 的「定位类变量」清掉 ──
+#
+# 这不是洁癖，是被咬出来的。git 会给**linked worktree 提交**的钩子注入
+# `GIT_DIR` / `GIT_INDEX_FILE`（普通仓提交不注入 —— 实测对照过），而
+# `tools/board-drift.spec.ts` 的临时仓夹具继承 `process.env`，于是它在
+# 「临时目录」里跑的 init / config / commit 全部打到了**真仓**上：
+#
+#   · `git init` 带着显式 GIT_DIR ⇒ 把那个仓翻成 core.bare=true（实测：
+#     正常 init 是 false，带 GIT_DIR 再 init 变 true）
+#   · `git config user.email/user.name` ⇒ 写的是那个真仓的配置
+#     （实测：真仓被改成 t <t@example.com>，临时目录里连 .git 都没建）
+#   · `git commit --allow-empty` ⇒ 提交进真仓并再触发本钩子 ⇒ 自激循环
+#     （每 ~13 秒一轮整套 verify，CPU 空转；22:18 那次 `invalid object …`
+#     也是同一个泄漏在动真仓的 index）
+#
+# 所以下面先 unset，再跑 verify：门禁进程里不该有任何「指向某个仓」的变量。
+# 这一条就是本次损伤的**止损点** —— 清掉之后，夹具的 init / config / commit
+# 只可能落在它自己刚建的临时仓上。
+#
+# **没顺手改的一件事（在本票里明确不改）**：`dirname $0` 解析回的是**钩子文件
+# 所在的树**，而 worktree 共享主仓的 `.git/hooks` —— 所以从 worktree 提交时，
+# verify 跑的是**主树**，不是这棵树。它是上面那个循环的入口，但改动它 = 改
+# 别人（原型 worktree）的提交流程：那棵树没有 node_modules，改完他们的提交
+# 会当场失败。属于「要先问人」的范围，记在 MATT-92 票面，不在本次修复里。
+
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX \
+      GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM \
+      GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM
 
 cd "$(dirname "$0")/../.." || exit 1
 
