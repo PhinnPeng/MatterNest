@@ -95,10 +95,32 @@ export function isRiskFrozen(conversionStatus: number | null | undefined): boole
   return conversionStatus === 1;
 }
 
-/** 冻结对外的一句话（六个路由共用，别各抄一份 —— 抄一份的代价是六处说法慢慢不一样） */
+/**
+ * 冻结对外的一句话（**五个**路由共用，别各抄一份 —— 抄一份的代价是五处说法慢慢不一样）。
+ *
+ * ⚠ **撤销转案件（unconvert）刻意不用这一句**，它有专门的一句，见
+ * `RISK_UNCONVERT_FROZEN_MESSAGE`。为什么分开写在那边的注释里 —— 不是漏抄。
+ */
 export const RISK_FROZEN_MESSAGE =
   "这条事项已经转过案件，业务内容已冻结：状态、字段、节点与转案件关联都不能再改。" +
   "要继续推进请在案件上做，或另建一条事项。";
+
+/**
+ * 撤销转案件被冻结门挡住时的那句话（**专用**，不与上一句共用；2026-10-16 裁定 / MATT-81）。
+ *
+ * ## 为什么不共用上一句
+ *
+ * 上面那句在回答「**哪些东西不能再改、该去哪儿改**」—— 适合"你想改点什么"的场景。
+ * 而点撤销的人**不是想改，是想退回**：同一句放在这里，读起来像"权限不够"或"系统出错了"，
+ * 于是他会去查权限、找经办人代劳、再试一次 —— 代劳的人拿到的还是同一句。
+ * 所以这里必须点明：**不可撤销是规则，不是故障**。
+ *
+ * ⚠ 改这句话前先看一眼 `src/app/api/risk-matters/[id]/unconvert/route.spec.ts`：
+ * 「规则而非出错」这四个字被断言钉住了；`agent-work/smoke-convert.mjs` 还靠句中的
+ * 「冻结」二字把它与笼统的 `blocked` 分开（那条是 2026-10-14 裁定留下的可观测判据）。
+ */
+export const RISK_UNCONVERT_FROZEN_MESSAGE =
+  "这条事项已经转过案件（已冻结），转案件后不可撤销 —— 这是规则，不是出错了。后续推进请在案件上做。";
 
 /**
  * 排序键 → 列，与案件侧共用同一套白名单（`shared/schema/list-query` 的 `SORTABLE_COLUMNS`）。

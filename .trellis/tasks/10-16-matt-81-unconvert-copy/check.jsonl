@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/testing-guidelines.md", "reason": "断言口径：为什么不测「有没有分支」而测「掉进兜底时说了什么」；以及「刻意豁免/文案契约也要有断言」"}
+{"file": "GLOSSARY.md", "reason": "「冻结」「撤销转案件」的词条口径：文案里用词必须与词条一致，否则两处说法会分叉"}

@@ -1,6 +1,6 @@
 import { unconvertSchema } from "@/shared/schema/hosts";
 import {
-  RISK_FROZEN_MESSAGE,
+  RISK_UNCONVERT_FROZEN_MESSAGE,
   unconvertFromCase,
   type UnconvertBlocker,
 } from "@/app/lib/server/services/risks";
@@ -19,6 +19,10 @@ import { body, fail, json, notFound, pathId, withActor } from "@/app/lib/server/
  * 端点与三条前置按裁定留着（用户在「保留并给出理由」与「删掉」之间选了前者），
  * 下面的 `blocked` 分支因此成了第二道防线。**不是忘了改，是不能改**：见报告里
  * 「UNCONVERT 恒被拒」那条。要放开只改 `services/risks.ts` 里的 `isRiskFrozen` 一处。
+ *
+ * **2026-10-16 裁定（MATT-81）：接受现状**，并补一件小事 —— 拒绝文案要写明
+ * 「转案件后不可撤销**是规则，不是故障**」，免得用户以为出错（用专句
+ * `RISK_UNCONVERT_FROZEN_MESSAGE`，不复用共享那句；理由见那句的注释）。
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const parsed = await body(req, unconvertSchema);
@@ -47,8 +51,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       // 冻结：与下面的 `blocked` 分开，因为**要做的下一步不同**。
       // `blocked` 的理由都落在案件那边（去把进展/节点/费用清掉就能撤），
       // 冻结没有这种补救路径 —— 合并成一句 `blocked` 会让用户白跑一趟。
+      //
+      // 文案也**刻意不复用**共享那句（MATT-81）：撤销的人不是"想改"而是"想退回"，
+      // 共享文案在这里读起来像权限不够 / 系统出错。专用文案点明「是规则，不是出错了」——
+      // 那条要求由 `route.spec.ts` 钉住（原文在 `services/risks.ts` 的
+      // `RISK_UNCONVERT_FROZEN_MESSAGE`，别在这里另抄一份）。
       case "frozen":
-        return fail(422, "frozen", RISK_FROZEN_MESSAGE);
+        return fail(422, "frozen", RISK_UNCONVERT_FROZEN_MESSAGE);
       case "blocked": {
         // 前置不满足：逐条告诉用户还差什么，别只回一句"不能撤"
         const reasons: Record<UnconvertBlocker, string> = {

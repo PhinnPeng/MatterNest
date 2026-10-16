@@ -1,0 +1,28 @@
+{
+  "id": "matt-81-unconvert-copy",
+  "name": "matt-81-unconvert-copy",
+  "title": "MATT-81 撤销转案件：接受现状 + 拒绝文案写明「规则而非故障」",
+  "description": "接受现状（撤销 100% 不可用，三条前置退为备用防线）；只补文案：unconvert 冻结拒绝改用专用句 RISK_UNCONVERT_FROZEN_MESSAGE，点明「转案件后不可撤销是规则，不是故障」，并由 route.spec.ts 钉住。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "phinnpeng",
+  "assignee": "phinnpeng",
+  "createdAt": "2026-10-16",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "paca_task": "81"
+  }
+}
