@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "会话 UTC 的口径与机制（「ID、时间与编号」那节）+「开发库现状与 pnpm db:check」那节的未验项——本票改的正是这两段陈述的事实面（role 级默认由谁下发、C4 反向路径验没验过）"}
+{"file": ".trellis/spec/guides/testing-guidelines.md", "reason": "反向红纪律：本票的判据是「修复前 C4 必红」，先让它红再修，且新增的离线断言要证明它真的会红（不是死断言）"}

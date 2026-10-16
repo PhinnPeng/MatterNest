@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "收工前对照后端前置清单，尤其「凡未跑过 spike 的能力一律标 UNVERIFIED」——本票的每条结论都要有实机原文支撑"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本次形态是「一处前提声明、多处消费」：扫一遍还有没有同形的地方（compose / 迁移 / 本地三条建角色路径、三处 PG_SESSION_TIMEZONE 声明点）"}

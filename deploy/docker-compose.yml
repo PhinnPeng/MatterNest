@@ -52,7 +52,6 @@ x-app-env: &app-env
   PGUSER: ${PGUSER:-matternest}
   PGPASSWORD: ${PGPASSWORD:-}
   PG_POOL_MAX: ${PG_POOL_MAX:-10}
-  PG_SESSION_TIMEZONE: ${PG_SESSION_TIMEZONE:-UTC}
 
   # 对象存储（MinIO）
   MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
@@ -91,8 +90,11 @@ services:
       POSTGRES_DB: ${PGDATABASE:-matternest}
       POSTGRES_USER: ${PGUSER:-matternest}
       POSTGRES_PASSWORD: ${PGPASSWORD:-}
-      # 会话固定 UTC 由**角色级**强制（`ALTER ROLE ... SET timezone='UTC'`），
-      # 见 tools/db-check.mjs；镜像层再钉一次是廉价的第二道。
+      # 会话固定 UTC 在这个栈里靠**服务端默认值**（下面 command 的 `-c timezone=UTC`）：
+      # 这里的应用角色就是镜像的 `POSTGRES_USER`，没有「建角色」这一步可挂 role 级默认。
+      # ⚠ 那条 role 级 `ALTER ROLE … SET timezone='UTC'` 的代码属主在 **CI 那条建角色路径**
+      #   （`tools/ci-provision-role.mjs`，MATT-91）；本栈没有「建角色」这一步，因此没有
+      #   role 级默认值可挂 —— 会话 UTC 只由上面的服务端默认值保证。
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
       TZ: UTC
     command:

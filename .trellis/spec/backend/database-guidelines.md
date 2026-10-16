@@ -17,13 +17,14 @@
 
 - **实例**：共享 dev 机 PostgreSQL **16.13**（Alpine/linux-musl）。经 GameViewer 端口映射暴露，**本机连 `127.0.0.1:30432`**——映射只监听回环，连 `172.16.70.100:30432` 必然超时（这条曾让我误报"共享机不可达"）。
 - **角色与库**：`dev_matternest`（role 兼 DB owner，`LOGIN CREATEDB`，**非超级用户**）。role 级默认 `timezone='UTC'` + `client_encoding='UTF8'`，所以"会话固定 UTC"是**库侧强制**，不依赖每个 handler 记得 `SET`。
+  > ⚠ 那条 role 级默认值此前**没有属主**（只在共享 dev 库上被人工执行过一次）。MATT-91 起由**代码拥有的建角色路径**下发：`tools/ci-provision-role.mjs` 分权时一并 `ALTER ROLE … SET timezone='UTC'`，并由该工具自带的复核（`APP_ROLE_MUST.hasUtcTimezone`，读 `pg_roles.rolconfig`）当场验。手工建过的角色要补跑一次那条工具。理由：`db/client.ts` 起池时不是 UTC 就抛，所以「先连上再 SET」这条兜底路走不通。
 - **凭据位置**：`.env`（已 gitignore，禁提交）；模板 `.env.example`。脚本全程不打印密码，且**拒绝连非 `dev_*` 库**（C8 会跑 DDL 探针）。
 - **断言（12 项）**：C1 连通 / C2 版本 ≥15 / C3 库名+角色名符合预期且 `rolsuper=false` / C4 `SHOW timezone=UTC` / C5 UTF8 / C6 跨零点时刻 `::date` 与 `AT TIME ZONE 'Asia/Shanghai'` 结果不同（即"禁 `current_date`/`now()::date` 当 `day_key`"的实机证据）/ C7 bigint 服务端往返 + C7b 驱动的 int8 解析类型 / C8 事务内 temp DDL 可回滚 / C9 第一条迁移已应用 / C10 三个条件唯一索引 + 表级 CHECK + 生成列**真撞过一次**（跑在回滚事务里）/ C11 seed 八状态齐（每宿主 `init=1,arch=1`）。
 - **C10 的写法坑（踩过）**：PG 里事务内任一语句报错后整个事务进入 aborted 态，后续语句全废 —— 所以每个"预期失败"必须单独包 `tx.savepoint(...)`；且**探针要自己清空探测域**（`delete … where host_type='matter'` 后再插两条初始态），否则空库时测不出冲突、seed 过后又误报冲突，测的其实是数据而不是约束。
 - **不进 `pnpm verify`**：verify 必须离线全绿，`db:check` 是显式命令。
 - **已实测的驱动事实**：postgres.js 把 `int8` 解析成 **JS `string`**（不是 `BigInt`、不是丢精度的 `number`）。P1-19「bigint id 在 DTO 里出 string」因此天然满足一半，但**写侧仍要显式传 string/`::text`**，且别让 `useNumberId` 之类的隐式转换进代码。
 
-**未验项**：C4/C6 的反向路径（把 role 时区改回 `PRC` 应当变红）需要超级用户执行 `ALTER ROLE`，本次未实机触发——依据只有 provisioning 前同一角色读到 `timezone = PRC` 的实测记录。其余失败路径已实跑变红：C1（错密码 / 端口不通）、C3、C9/C10/C11（把库 drop 到空再跑一次，见下节"端到端验过的一轮"）、非 `dev_*` 库直接拒。
+**C4/C6 的反向路径已实跑（MATT-91，2026-10-17）**：起一个 `postgres:16-alpine` 容器并把**服务端默认时区**钉成 `PRC`（`command: [-c timezone=PRC]`，`pg_settings.TimeZone.source = command line`），按代码拥有的路径建 `mn_app`（当时尚未下发 role 级默认）后 `pnpm db:check` ⇒ **C4 红**（`SHOW timezone = PRC`）**且 C6 红**（同一跨零点时刻两式都给 `2026-09-27`）；同一角色下发 `ALTER ROLE … SET timezone='UTC'` 后重连 ⇒ 两项转绿。其余失败路径此前已实跑变红：C1（错密码 / 端口不通）、C3、C9/C10/C11（把库 drop 到空再跑一次，见下节"端到端验过的一轮"）、非 `dev_*` 库直接拒。
 
 
 ---
@@ -128,7 +129,7 @@ index("uk_rule_scope").unique()
 - id：`bigint`，**雪花由应用侧生成**，DB 不设 `IDENTITY`（避免双序列冲突，修订稿 §12.2）。
 - 时间：一律 `timestamptz`(UTC)；`date` 只用于"当事人可见的日历日期"（`discover_date`/`filing_date`/`progress_date`）。**日历日期用 `timestamptz` 会跨时区漂一天，法律期限直接算错**（§12.2，本节自己标了"最容易被忽略"）。期限计算一律走 `src/shared/time`，业务层禁止裸用 `Date`（技术选型 §4「期限计算」行）。
 - 编号 `FX/AJ/AL-YYYYMMDD-XXX`：`code_seq(day_key, prefix)` + `INSERT … ON CONFLICT … DO UPDATE … RETURNING` 单语句原子取号。**日界用业务时区 `Asia/Shanghai`**（已定稿 2026-09-26），SQL 口径即 `date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai')::date`。
-- **会话固定 UTC（连接池参数 + 启动断言）**：`SET TIME ZONE 'UTC'`。**注意理由与规格件原文不同**——2026-09-27 在共享 dev 机（PG 16.13，服务端默认 `timezone = PRC`）实测：上面那条 `AT TIME ZONE 'Asia/Shanghai'` 的日界**与会话时区无关**（PRC/UTC 两跑同为 09-27），真正会漂的是**隐式转换**：同一跨零点时刻 `::date` 在 PRC 会话给 09-27、UTC 会话给 **09-26**，`current_date` 同理。钉 UTC 的目的是让隐式转换与文本往返确定，不是“防编号偏 8 小时”（修订稿 §12.3 已同步更正）。
+- **会话固定 UTC（角色级默认 + 起池断言）**：role 级 `ALTER ROLE … SET timezone='UTC'`（由 `tools/ci-provision-role.mjs` 在建角色时下发，MATT-91）—— 单靠它还不够，`db/client.ts` 起池时会断言、不是 UTC 就抛。**注意理由与规格件原文不同**——2026-09-27 在共享 dev 机（PG 16.13，服务端默认 `timezone = PRC`）实测：上面那条 `AT TIME ZONE 'Asia/Shanghai'` 的日界**与会话时区无关**（PRC/UTC 两跑同为 09-27），真正会漂的是**隐式转换**：同一跨零点时刻 `::date` 在 PRC 会话给 09-27、UTC 会话给 **09-26**，`current_date` 同理。钉 UTC 的目的是让隐式转换与文本往返确定，不是“防编号偏 8 小时”（修订稿 §12.3 已同步更正）。
 - 序号溢出 999 → **扩为 4 位**（`AJ-20261015-1000`），不报错；号可跳不可复（§12.3）。
 - 金额 `numeric(18,2)`，禁 `float`。
 

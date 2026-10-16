@@ -109,6 +109,26 @@ describe("provisionSql：交出去的角色必须是非超级用户", () => {
   });
 
   /**
+   * MATT-91：会话 UTC 这个前提此前**没有属主** —— 真兜底只有两处**探针**
+   * （`db/client.ts` 的起池断言、`db:check` 的 C4），而让会话真是 UTC 的那条 role 级
+   * `ALTER ROLE … SET timezone='UTC'` 只在共享 dev 库上被人手工执行过。
+   *
+   * ⚠ 这条**不能靠 CI 的 C4 代替**：CI 的 `postgres:16-alpine` 镜像默认就是 UTC，
+   *   删掉这条 ALTER，C4 照样绿（那正是本票的病灶）。所以钉在这里 —— 离线、当场红。
+   */
+  it("会话时区由这里拥有：新建 / 已存在两条路径都下发 role 级 SET timezone", () => {
+    const fresh = provisionSql({ ...args, roleExists: false })
+      .map((s) => s.text)
+      .join("\n");
+    const exists = provisionSql({ ...args, roleExists: true })
+      .map((s) => s.text)
+      .join("\n");
+    for (const t of [fresh, exists]) {
+      expect(t).toMatch(/alter role "mn_app" set timezone to 'UTC'/);
+    }
+  });
+
+  /**
    * 早先这里写的是 `do $$ … if not exists (select 1 from pg_roles where rolname = $1) … $$;`。
    *
    * 它在**真库上直接报错**：`could not determine data type of parameter $1` ——
@@ -170,6 +190,7 @@ const ok = {
   rolcreaterole: false,
   ownsDatabase: true,
   canCreateInPublic: true,
+  hasUtcTimezone: true,
 };
 
 describe("复核那一层：别名必须与 APP_ROLE_MUST 逐字对齐", () => {
@@ -185,8 +206,9 @@ describe("复核那一层：别名必须与 APP_ROLE_MUST 逐字对齐", () => {
    */
   it("checkSql 的每个别名都出现在 APP_ROLE_MUST 里（不多不少）", () => {
     const aliases = [...checkSql.matchAll(/\bas\s+"?([A-Za-z_][A-Za-z0-9_]*)"?/g)].map((m) => m[1]);
-    // usr / db 是给人看的，不参与判定
-    const judged = aliases.filter((a) => a !== "usr" && a !== "db");
+    // usr / db 是给人看的，不参与判定；rolconfigRaw 同理 ——
+    // 它只是把原始值打进日志，好让「没设」与「设成了别的」在 CI 日志里分得开
+    const judged = aliases.filter((a) => !["usr", "db", "rolconfigRaw"].includes(a));
     expect([...judged].sort()).toEqual(Object.keys(APP_ROLE_MUST).sort());
   });
 
@@ -225,5 +247,21 @@ describe("APP_ROLE_MUST：这份清单就是 C3 的提前版", () => {
     // 姿态来自 docs/research-ci-role-privileges.md 的实测，不是猜的
     expect(APP_ROLE_MUST.ownsDatabase).toBe(true);
     expect(APP_ROLE_MUST.canCreateInPublic).toBe(true);
+  });
+
+  /**
+   * MATT-91：C4 在 CI 里**必然**绿（镜像默认就是 UTC），所以它证明不了「本工具下发过
+   * role 级默认值」。这条钉住「复核读的是哪一列」—— 改回读 `current_setting('timezone')`
+   * 就会退化成一条没有信息量的绿。
+   */
+  it("要求 role 级 timezone 已下发，且复核读的是 rolconfig（不是本次连接的时区）", () => {
+    expect(APP_ROLE_MUST.hasUtcTimezone).toBe(true);
+    // ⚠ 逐字钉 PG 的**归一化拼写**（大写 TimeZone）与取法：真库实测 `{TimeZone=UTC}`。
+    //   第一版写的是小写 `timezone=UTC` + 裸 `any(rolconfig)`，离线 16 条断言全绿，
+    //   真库上先报 `column "rolconfig" does not exist`、修掉作用域后又会变成永远为 false
+    //   —— 与文件里记着的那两次「文本断言全绿、真库上直接报错」是同一类。
+    expect(checkSql).toMatch(/array_position\(rolconfig, 'TimeZone=UTC'\)/);
+    // 反向：复核里不许出现「本次连接的时区」这种证据 —— 它在 CI 里被镜像默认值喂绿
+    expect(checkSql).not.toMatch(/current_setting\('timezone'\)/);
   });
 });

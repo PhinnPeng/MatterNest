@@ -43,7 +43,6 @@ jobs:
       # job env 会在 `$GITHUB_ENV` **之后**生效、把刚写进去的值盖掉 ⇒ 后面每一步又会悄悄
       # 用回超级用户，而 C3 要等几分钟后才红，还报成一条与真因无关的错。
       PG_POOL_MAX: 10
-      PG_SESSION_TIMEZONE: UTC
       NODE_ENV: development
       LOG_LEVEL: info
       MN_DB_CONFIRM: dev_matternest
@@ -148,7 +147,11 @@ jobs:
       #
       # 那一步工具自带的复核会在**这里**就红（不是等几分钟后 C3 才红）：
       # 它会用建出来的凭据换一个连接，逐项验 rolsuper / rolcreatedb / rolcreaterole /
-      # 自有库 / public 可建 —— 与 APP_ROLE_MUST 一致。
+      # 自有库 / public 可建 / **role 级 timezone=UTC** —— 与 APP_ROLE_MUST 一致。
+      #
+      # ⚠ 最后那一项（MATT-91）是**必需的**：CI 的镜像默认时区本来就是 UTC，所以
+      # `db:check` 的 C4 在 CI 里删掉那条 ALTER 也照样绿。会话 UTC 这个前提现在由
+      # 这一步下发，并由这一步复核 —— 它才是这条前提的属主。
       - name: 建非超级用户角色并分权（MATT-87：C3 要求应用角色不是超级用户）
         env:
           # ⚠ 超级用户只在这一步。这三行就是本流水线里它全部的曝光面。

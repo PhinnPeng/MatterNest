@@ -33,6 +33,19 @@
  * `MN_CI_APP_PASSWORD` 由调用方现生成，本工具**只把它当参数传给 `format('%L')`，从不拼进 SQL、
  * 从不打印**。这是 MATT-36 那条裁定（不入库 / 不进镜像 / 不进 git）在数据库侧的同一个形状。
  *
+ * ## 它还拥有「会话是 UTC」这个前提（MATT-91）
+ *
+ * 「连库后 session timezone 必须是 UTC」此前是本仓**没有属主**的硬前提：真兜底只有两处**探针**
+ * （`db/client.ts` 的起池断言、`db:check` 的 C4），而让会话真是 UTC 的那条 role 级
+ * `ALTER ROLE … SET timezone='UTC'` 只在共享 dev 库上**被人手工执行过** —— 新库 / CI / 部署
+ * 都没人重放。CI 的 C4 之所以一直绿，只是因为 `postgres:16-alpine` **镜像默认**恰好是 UTC。
+ *
+ * ⚠ 所以那条 ALTER 落在这里（**唯一「代码拥有的建角色路径」**），而不是「连上再 SET」：
+ *   `client.ts` 起池时发现 timezone 不是 UTC 就**直接抛**，等于拒绝了「先连上、再 SET 兜」
+ *   这条路 —— 前提必须在连接建立**之前**的下发点成立。
+ *   ⇒ 删掉这一条，本工具的复核（`APP_ROLE_MUST.hasUtcTimezone`）与
+ *   `tools/ci-provision-role.spec.ts` 会**当场红**，而不是等 C4 在别的库上红。
+ *
  * 用法：
  *   · 连接用 `PGUSER` / `PGPASSWORD` / `PGHOST` / `PGPORT` / `PGDATABASE`（此时它们是超级用户）
  *   · 目标角色 `MN_CI_APP_ROLE`（默认 `mn_app`）
@@ -43,6 +56,13 @@ import { pathToFileURL } from "node:url";
 import postgres from "postgres";
 
 export const DEFAULT_ROLE = "mn_app";
+
+/**
+ * 会话时区（MATT-91）。工具内只有这一处事实源：DDL 里下发它，复核里断言它的存在。
+ * 与 `tools/db-check.mjs` 的 `TARGET_TZ` 是同一口径（本文件刻意不 import 那个脚本 ——
+ * 它是带副作用的入口脚本，不是一个可 import 的模块）。
+ */
+export const SESSION_TIMEZONE = "UTC";
 
 /** PG 的标识符：只认小写开头的字母/下划线 + 数字 + 下划线 */
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,62}$/;
@@ -105,6 +125,13 @@ export function provisionSql({ database, role, password, roleExists = false }) {
     // 权限仍然由下面那条 alter 收回来 —— 不依赖历史状态。
     ...(roleExists ? [] : [stmt("create")]),
     stmt("alter"),
+    // 会话时区的前提由**这里**拥有（MATT-91，理由见文件头）。两条路径（新建 / 已存在）都发 ——
+    // 「角色已存在」不代表它被下发过这条默认值（本地与共享库正是这种历史状态）。
+    //
+    // ⚠ 它是**独立一条语句**，不并进上面那条 `alter role … nosuperuser …`：那条走
+    //   `format()` 现拼（因为口令必须走参数位），而这条只有角色名与常量，直发即可，
+    //   报错也会明确指向「时区默认值没下发」而不是混在口令那条里。
+    { text: `alter role ${r} set timezone to '${SESSION_TIMEZONE}';`, params: [] },
     // 姿态的第一半：它是库的属主 ⇒ 库级 CREATE 自动有（够 drizzle 建 `drizzle` schema）
     { text: `alter database ${db} owner to ${r};`, params: [] },
     // 姿态的第二半：`public` 的 CREATE。**显式**改，不依赖 PG15+ 的伪角色默认（见文件头 ⚠）
@@ -122,6 +149,12 @@ export const APP_ROLE_MUST = {
   rolcreaterole: false,
   ownsDatabase: true,
   canCreateInPublic: true,
+  // MATT-91：会话 UTC 的前提也要由这里**证明确实交出去了**。
+  //
+  // ⚠ 为什么断言的是 `rolconfig` 里的 role 级默认值，而不是「这次连接的 session timezone」：
+  //   后者在 CI 里**必然**是 UTC —— 镜像默认值就是 UTC，所以它绿得毫无信息量，
+  //   删掉上面那条 ALTER 也照样绿。rolconfig 里的这一项才是「本工具下发过」的证据。
+  hasUtcTimezone: true,
 };
 
 /**
@@ -142,7 +175,16 @@ export const checkSql = `
          (select rolcreaterole from pg_roles where rolname = current_user) as rolcreaterole,
          (select pg_get_userbyid(datdba) = current_user from pg_database
            where datname = current_database()) as "ownsDatabase",
-         has_schema_privilege(current_user, 'public', 'CREATE') as "canCreateInPublic"`;
+         has_schema_privilege(current_user, 'public', 'CREATE') as "canCreateInPublic",
+         -- ⚠ 两个实测坑（PG 16.14 真库，2026-10-17）：
+         --   1. rolconfig **不在本查询的 FROM 里**（这条 SQL 没有 FROM）——
+         --      裸写 any(rolconfig) 会报 column "rolconfig" does not exist。必须走子查询。
+         --   2. GUC 名被 PG **归一化**成 TimeZone（不是我们写的 timezone）：
+         --      ALTER ROLE … SET timezone TO 'UTC' 落库是 {TimeZone=UTC}。
+         --      写成小写会得到一条**永远为 false** 的断言 —— 而它在离线文本测试里照样绿。
+         (select coalesce(array_position(rolconfig, 'TimeZone=${SESSION_TIMEZONE}') > 0, false)
+            from pg_roles where rolname = current_user) as "hasUtcTimezone",
+         (select rolconfig from pg_roles where rolname = current_user) as "rolconfigRaw"`;
 
 export function report(actual) {
   return Object.entries(APP_ROLE_MUST)
@@ -219,6 +261,9 @@ if (isEntry) {
         }
       }
       console.log(`已分权：${role} 现在是 ${database} 的属主，且非超级用户`);
+      console.log(
+        `  · 会话时区已随角色下发：alter role ${role} set timezone to '${SESSION_TIMEZONE}'`,
+      );
     } catch (e) {
       console.error(`[FAIL] 分权失败：${e.message}`);
       await boot.end({ timeout: 2 }).catch(() => {});
@@ -235,7 +280,9 @@ if (isEntry) {
     console.log(
       `复核（以 ${actual.usr} 连接）：rolsuper=${actual.rolsuper} ` +
         `rolcreatedb=${actual.rolcreatedb} rolcreaterole=${actual.rolcreaterole} ` +
-        `自有库=${actual.ownsDatabase} public 可建=${actual.canCreateInPublic}`,
+        `自有库=${actual.ownsDatabase} public 可建=${actual.canCreateInPublic} ` +
+        `role 级 timezone=${SESSION_TIMEZONE}=${actual.hasUtcTimezone}` +
+        `（rolconfig=${JSON.stringify(actual.rolconfigRaw ?? null)}）`,
     );
     if (bad.length) {
       console.error("[FAIL] 应用角色的性质不符合要求：");

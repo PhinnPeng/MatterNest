@@ -16,7 +16,7 @@
  *   C1 能连上（失败时给出映射口/凭据的排查方向）
  *   C2 服务端版本 ≥ 15（技术选型 §4「数据库」行：PostgreSQL 15+）
  *   C3 连的是预期库、角色是自己、且**不是超级用户**
- *   C4 会话时区 = UTC（修订稿 §12.3 靠 role 级 `ALTER ROLE … SET timezone` 落地）
+ *   C4 会话时区 = UTC（修订稿 §12.3；role 级默认由 `tools/ci-provision-role.mjs` 在建角色时下发，MATT-91）
  *   C5 client_encoding = UTF8（中文文案与全文检索的前提）
  *   C6 日界口径：`::date` 与 `AT TIME ZONE 'Asia/Shanghai'` 结果不同 → 证明禁用 `now()::date`
  *   C7 bigint 服务端往返精确；C7b 回报驱动把 int8 解析成了什么（P1-19 的由来）
@@ -165,7 +165,9 @@ try {
     `SHOW timezone = ${tz}` +
       (tz.toUpperCase() === TARGET_TZ
         ? "（role 级默认值生效 ⇒ 隐式转换与文本往返确定）"
-        : ` ← 未钉 ${TARGET_TZ}：ALTER ROLE ${pg.username} SET timezone='${TARGET_TZ}'; 后重连`),
+        : ` ← 未钉 ${TARGET_TZ}：role 级默认没下发 —— 代码拥有的路径是 ` +
+          `node tools/ci-provision-role.mjs（建角色时一并设）；手工等价操作：` +
+          `ALTER ROLE ${pg.username} SET timezone='${TARGET_TZ}'; 后重连`),
   );
 
   // ---- C5 编码 ----
