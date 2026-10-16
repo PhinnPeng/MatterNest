@@ -12,11 +12,11 @@
  *     node F:/WorkSpace/MatterNest/agent-work/prototype-server.mjs 3941）
  */
 import { createRequire } from "node:module";
+import { pickChrome } from "./_chrome.mjs";
 
 const require = createRequire("F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js");
 const { chromium } = require("playwright");
-const CHROME =
-  "C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1224/chrome-win64/chrome.exe";
+const CHROME = pickChrome();
 const P14 = "http://127.0.0.1:3941/src/app/%28desk%29/config/prototype-p14-import.html";
 
 let pass = 0;

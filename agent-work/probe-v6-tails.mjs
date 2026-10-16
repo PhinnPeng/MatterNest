@@ -8,6 +8,7 @@
  * 验收标准是量出来的数字，不是截图好看（票面原话）。
  */
 import { createRequire } from "node:module";
+import { pickChrome } from "./_chrome.mjs";
 import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
 
 const require = createRequire("F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js");
@@ -88,8 +89,7 @@ async function measure(page, path, label) {
 
 try {
   browser = await chromium.launch({
-    executablePath:
-      "C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1224/chrome-win64/chrome.exe",
+    executablePath: pickChrome(),
   });
   const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
   await ctx.request.post(`${BASE}/api/auth/login`, {

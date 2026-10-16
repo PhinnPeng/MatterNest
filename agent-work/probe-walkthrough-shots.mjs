@@ -23,6 +23,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { pickChrome } from "./_chrome.mjs";
 
 const require = createRequire("F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js");
 const { chromium } = require("playwright");
@@ -30,8 +31,7 @@ const { createSmokeAccount, dropSmokeAccount, ROLE_CODES } = await import("./_te
 const { default: postgres } = await import("postgres");
 
 const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3777";
-const CHROME =
-  "C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1224/chrome-win64/chrome.exe";
+const CHROME = pickChrome();
 const OUT = "agent-work/walkthrough";
 
 /** 五张页（MATT-30 判据里点名的那五张） */

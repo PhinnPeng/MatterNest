@@ -24,9 +24,8 @@
  *
  * 用法：`node --env-file=.env agent-work/probe-mention-render.mjs`（需 dev 在 3777）。
  */
-import { existsSync, readdirSync } from "node:fs";
-import path from "node:path";
 import { createRequire } from "node:module";
+import { pickChrome } from "./_chrome.mjs";
 
 const require = createRequire("F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js");
 const { chromium } = require("playwright");
@@ -34,25 +33,8 @@ const { createSmokeAccount, dropSmokeAccount, ROLE_CODES } = await import("./_te
 const { default: postgres } = await import("postgres");
 
 /**
- * 浏览器可执行文件的路径**不写死版本号**。
- *
- * 仓里其余探针写死了 `chromium-1224`；本机 ms-playwright 已经滚到 1248，
- * 于是它们现在**一条都起不来**。而"探针起不来"与"实现了缺陷"在结果上同形（都只有一个非零退出码），
- * 这正是本仓最忌讳的那种静默——所以这里改成"在 ms-playwright 下挑版本号最大的那个 chromium"。
+ * 浏览器可执行文件的路径**不写死版本号** —— 取法收敛在 `_chrome.mjs`（原先这里有一份本地副本）。
  */
-function pickChrome() {
-  const root = path.join(
-    process.env.LOCALAPPDATA ?? "C:/Users/Administrator/AppData/Local",
-    "ms-playwright",
-  );
-  if (!existsSync(root)) return null;
-  const hit = readdirSync(root)
-    .filter((d) => /^chromium-\d+$/.test(d))
-    .sort((a, b) => Number(b.split("-")[1]) - Number(a.split("-")[1]))
-    .map((d) => path.join(root, d, "chrome-win64", "chrome.exe"))
-    .find((p) => existsSync(p));
-  return hit ?? null;
-}
 
 const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3777";
 const CHROME = pickChrome();

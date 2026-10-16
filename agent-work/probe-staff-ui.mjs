@@ -11,6 +11,7 @@
  * 只断行为与存在，不断观感（N7 边界）。
  */
 import { createRequire } from "node:module";
+import { pickChrome } from "./_chrome.mjs";
 import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
 
 const require = createRequire("F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js");
@@ -113,8 +114,7 @@ try {
   matterIds.push(m.body?.id);
 
   browser = await chromium.launch({
-    executablePath:
-      "C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1224/chrome-win64/chrome.exe",
+    executablePath: pickChrome(),
   });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 950 } });
   await ctx.request.post(`${BASE}/api/auth/login`, {

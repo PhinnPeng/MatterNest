@@ -48,6 +48,9 @@ agent-work/*
 !agent-work/probe-*.mjs
 !agent-work/verify-*.mjs
 !agent-work/_testacct.mjs
+# 探针共用的**浏览器路径取法**（2026-10-16）：11 个探针都 import 它，
+# 漏放行就会得到「本地能跑、别人 clone 下来 import 失败」——与 `_testacct.mjs` 同一条理由。
+!agent-work/_chrome.mjs
 # 冒烟脚本的**进程契约**测试（2026-10-15，MATT-88）。与 revred-*.mjs 同一类：
 # 都是「靠人记记不住」的证据，而 agent-work 是白名单制入库，所以要显式放行。
 !agent-work/*.spec.ts

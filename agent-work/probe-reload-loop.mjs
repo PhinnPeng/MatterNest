@@ -35,6 +35,7 @@
  * 这条门禁红的是"树坏了"，不是"页面坏了"。不区分的话，人会去改页面。
  */
 import { createRequire } from "node:module";
+import { pickChrome } from "./_chrome.mjs";
 
 const require = createRequire("F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js");
 const { chromium } = require("playwright");
@@ -42,8 +43,7 @@ const { createSmokeAccount, dropSmokeAccount, ROLE_CODES } = await import("./_te
 const { default: postgres } = await import("postgres");
 
 const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3777";
-const CHROME =
-  "C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1224/chrome-win64/chrome.exe";
+const CHROME = pickChrome();
 const WINDOW_MS = 5000;
 
 const sql = postgres({
