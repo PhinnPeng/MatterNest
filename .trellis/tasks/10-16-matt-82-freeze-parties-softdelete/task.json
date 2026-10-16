@@ -1,0 +1,28 @@
+{
+  "id": "matt-82-freeze-parties-softdelete",
+  "name": "matt-82-freeze-parties-softdelete",
+  "title": "MATT-82 冻结后：当事人与软删补门、标签写成刻意豁免",
+  "description": "冻结后当事人与软删补 isRiskFrozen 门（含路由显式接住 frozen），批量标签按裁定写成显式刻意豁免并被断言钉住",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "phinnpeng",
+  "assignee": "phinnpeng",
+  "createdAt": "2026-10-16",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "paca_task": "82"
+  }
+}

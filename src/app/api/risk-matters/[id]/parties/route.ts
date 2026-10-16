@@ -1,5 +1,9 @@
 import { riskPartyAppendSchema } from "@/shared/schema/hosts";
-import { appendRiskParties, listRiskParties } from "@/app/lib/server/services/risks";
+import {
+  appendRiskParties,
+  listRiskParties,
+  RISK_FROZEN_MESSAGE,
+} from "@/app/lib/server/services/risks";
 import { UnknownPartyError } from "@/app/lib/server/services/parties";
 import { body, fail, json, notFound, pathId, withActor } from "@/app/lib/server/http";
 
@@ -38,9 +42,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   return withActor(async (actor) => {
     try {
       const r = await appendRiskParties(actor, id, parsed.data.parties);
+      if (r.ok) return json({ added: r.added });
+      // 冻结必须走自己那一条（MATT-82 / ADR 0005）：掉进下面的 404 会把
+      // 「这条事项已转过案件、当事人名单已移交」说成「不存在或已归档」，
+      // 用户会去核对 id 与归档态，而真正的原因在案件那边。
+      if (r.why === "frozen") return fail(422, "frozen", RISK_FROZEN_MESSAGE);
       // 不可见 / 已归档一律 404。归档是终态（§5.2），对已归档事项改当事人同样不该放行。
-      if (!r.ok) return notFound();
-      return json({ added: r.added });
+      return notFound();
     } catch (e) {
       /**
        * 与 `/api/risk-matters`（建事项）和 `/api/matters`（建案件）同形。

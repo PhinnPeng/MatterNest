@@ -226,11 +226,12 @@ describe("unconvertSchema：撤销转案件", () => {
 });
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 冻结（2026-10-14 裁定）：事项一旦转过至少一个案件，它的业务内容就不可再改。
+ * 冻结（2026-10-14 裁定，2026-10-16 MATT-80/82 扩展到节点/当事人/软删）：
+ * 事项一旦转过至少一个案件，它的业务内容就不可再改。
  *
  * 下面这一组盯三件事，顺序是「语义 → 覆盖面 → 只写一处」：
  *   1. 判据本身对不对（纯函数，可离线判）；
- *   2. 五条写路径是不是都走了它（漏一条 = 裁定形同虚设，且**不报错**）；
+ *   2. 八条写路径是不是都走了它（漏一条 = 裁定形同虚设，且**不报错**）；
  *   3. 判据是不是**只有一处**（票面原话：未来若要放开只需改一处判定）。
  *
  * 为什么不连库测：`unconvertFromCase` / `changeRiskStatus` 一进去就连库、跑事务，
@@ -263,7 +264,7 @@ describe("isRiskFrozen：转过案件的事项一律冻结", () => {
   });
 });
 
-describe("冻结判据：只写一处，且五条写路径都走它", () => {
+describe("冻结判据：只写一处，且八条写路径都走它", () => {
   const src = readFileSync("src/app/lib/server/services/risks.ts", "utf8");
 
   /** 抽出 `export async function X(` 的函数名 + 函数体，用于逐个查它有没有走判据 */
@@ -284,10 +285,13 @@ describe("冻结判据：只写一处，且五条写路径都走它", () => {
     expect(hits).toEqual(["conversionStatus === 1"]);
   });
 
-  it("五条写路径的门都是**活的** `if (isRiskFrozen(...)) return frozen`，恰好五处", () => {
+  it("八条写路径的门都是**活的** `if (isRiskFrozen(...)) return frozen`，恰好八处", () => {
     // ⚠ 这一条是被反向红逼出来的：先前只查「函数体里出现过 isRiskFrozen(」，
     // 而把门改成 `if (false && isRiskFrozen(...))` 照样命中 —— 门被摘掉了，断言还是绿的。
     // 「门存在」与「门挡得住」是两件事，后者才需要断言。所以这里比对完整形态。
+    //
+    // 顺序 = 门在 `services/risks.ts` 里出现的顺序（跟着函数定义的先后走）：
+    //   追加当事人 / 摘除当事人 / 撤销转案件 / 改状态 / 改字段 / 加节点 / 改节点状态 / 软删。
     const gates = [
       ...src.matchAll(
         /if \(\s*isRiskFrozen\((\w+)\.conversionStatus\)\)\s*return \{[^}]*why: "frozen"\s*\}/g,
@@ -295,37 +299,71 @@ describe("冻结判据：只写一处，且五条写路径都走它", () => {
     ];
     expect(
       gates.map((m) => m[1]),
-      "五条写路径上少了一道活门，或门被短路了",
-    ).toEqual(["src", "cur", "cur", "vis", "node"]);
+      "八条写路径上少了一道活门，或门被短路了",
+    ).toEqual(["src", "src", "src", "cur", "cur", "vis", "node", "cur"]);
   });
 
-  it("状态流转 / 字段编辑 / 撤销转案件 / 新增节点 / 改节点状态 五条路径都先问 isRiskFrozen", () => {
+  it("追加当事人 / 摘除当事人 / 软删 / 撤销转案件 / 状态流转 / 字段编辑 / 新增节点 / 改节点状态 八条路径都先问 isRiskFrozen", () => {
     const guarded = functions
       .filter((f) => f.body.includes("isRiskFrozen("))
       .map((f) => f.name)
       .sort();
     expect(guarded).toEqual([
       "addRiskNode",
+      "appendRiskParties",
       "changeRiskStatus",
+      "deleteRiskMatter",
+      "removeRiskParty",
       "setRiskNodeStatus",
       "unconvertFromCase",
       "updateRiskMatter",
     ]);
   });
 
-  it("发处置记录、关注人、软删、当事人、批量标签**没有**被冻结门拦住", () => {
+  it("八道门都排在归档与归属判定**之前**（冻结是记录自身的属性）", () => {
+    // 门的先后不是风格：若把 `isRiskFrozen` 排在 `isArchived` / `ownsAttribution` 之后，
+    // 冻结的事项会先被告知「已归档」或「你不是经办人」，用户照着那句去找特权或找经办人，
+    // 而找到之后拿到的还是同一句拒绝。**答案要是"因为已冻结"，不是别的原因。**
+    // 判据只看**判定语句**本身（`if (x.isArchived)` / `ownsAttribution(`），
+    // 不看 select 里那列同名的 `isArchived:` —— 读列名不是判定。
+    const guarded = [
+      "appendRiskParties",
+      "removeRiskParty",
+      "unconvertFromCase",
+      "changeRiskStatus",
+      "updateRiskMatter",
+      "addRiskNode",
+      "setRiskNodeStatus",
+      "deleteRiskMatter",
+    ];
+    for (const name of guarded) {
+      const fn = functions.find((f) => f.name === name);
+      expect(fn, `${name} 不在 services/risks.ts 里了 —— 先看清楚再改这条断言`).toBeTruthy();
+      const body = fn!.body;
+      const gate = body.indexOf("isRiskFrozen(");
+      const archived = body.search(/if \(\s*\w+\.isArchived\b/);
+      const attribution = body.indexOf("ownsAttribution(");
+      const firstOther = [archived, attribution].filter((i) => i >= 0).sort((a, b) => a - b)[0];
+      // 本函数没有归档/归属判定（如 removeRiskParty）就没有顺序可判 —— 跳过，不算过。
+      if (firstOther === undefined) continue;
+      expect(gate, `${name} 的冻结门排在了归档/归属判定之后 —— 用户会先听到假原因`).toBeLessThan(
+        firstOther,
+      );
+    }
+  });
+
+  it("发处置记录、关注人、批量标签**没有**被冻结门拦住（刻意豁免）", () => {
     // ADR 0005 把「协作面与分类」列为**刻意豁免**：评论 / 关注人 / 追加转案件保持开放，
-    // 否则冻结会比归档更严（归档尚且允许评论），与既有裁定冲突。
-    // 当事人与软删归 MATT-81 / MATT-82 两张票，本票（MATT-80）只锁节点。
+    // 否则冻结会比归档更严（归档尚且允许评论），与既有裁定冲突；标签只做分类，
+    // 不改业务事实，也算豁免。
+    // ⚠ 当事人与软删原本在这张清单里（MATT-80 时列作"归 MATT-81/82 那两张票"），
+    // MATT-82 已按裁定给它们补上冻结门，所以**从这里移走** —— 留着会与 ADR 打架。
     // 这条断言的作用是「将来有人在本票范围外加门，这里会红，红色会逼他回去对齐 ADR」。
     const mustStayOpen = [
       "addRiskComment",
       "editRiskComment",
       "addRiskFollowers",
       "removeRiskFollower",
-      "deleteRiskMatter",
-      "appendRiskParties",
-      "removeRiskParty",
       "batchTagRiskMatters",
     ];
     for (const name of mustStayOpen) {
@@ -335,6 +373,31 @@ describe("冻结判据：只写一处，且五条写路径都走它", () => {
         "isRiskFrozen(",
       );
     }
+  });
+
+  it("`batchTagRiskMatters` 的豁免是**刻意写明的**，不是漏加的门", () => {
+    // ## 为什么"豁免"也要有断言
+    //
+    // 这条断言是本次裁定（2026-10-16 / ADR-0005）留下的"备注不可删"钉子：
+    //   · 将来有人顺手给标签补一道冻结门 —— 上面那张 mustStayOpen 会红，红色会逼他回来看 ADR；
+    //   · 反过来，有人**顺手把这段豁免说明抄走或删掉**，则没有任何东西会红 ——
+    //     门还是没加、行为不变，但「为什么不加」这件事没了。下一次读到这段代码的人
+    //     就无法分辨"刻意豁免"与"忘了加"，于是要么白加一道门、要么把真有漏的路径也当豁免放过。
+    // 所以判据不是"有没有门"（那是上一条），而是**说明是否存在且写清了理由**。
+    const fn = functions.find((f) => f.name === "batchTagRiskMatters");
+    expect(
+      fn,
+      "batchTagRiskMatters 不在 services/risks.ts 里了 —— 先看清楚再改这条断言",
+    ).toBeTruthy();
+    const body = fn!.body;
+    expect(body, "豁免说明不见了：标签路径看起来像是漏加门").toContain("刻意豁免");
+    expect(body, "只说了「豁免」没说「不加门」——读者会以为只是暂时没加上").toContain("不加门");
+    // 理由要落在"不改业务事实"这条线上，否则"豁免"二字可以套在任何地方
+    expect(body, "豁免没写理由 —— 得说明标签为什么不改业务事实").toMatch(/只做分类|不改业务事实/);
+    // 理由里要指出它与 ADR 的绑定：改豁免要与 ADR 一起改，否则两份文档会互相打架
+    expect(body, "豁免没指向 ADR-0005 —— 改的时候不会有人发现两份文档已经分叉").toContain(
+      "ADR-0005",
+    );
   });
 
   it("转案件本身**不**被冻结门拦住 —— 冻结是转完才有的，且允许二次转", () => {

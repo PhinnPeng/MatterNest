@@ -1,5 +1,5 @@
-import { removeRiskParty } from "@/app/lib/server/services/risks";
-import { json, notFound, pathId, withActor } from "@/app/lib/server/http";
+import { removeRiskParty, RISK_FROZEN_MESSAGE } from "@/app/lib/server/services/risks";
+import { fail, json, notFound, pathId, withActor } from "@/app/lib/server/http";
 
 /**
  * 摘除一条当事人挂接（T10）。
@@ -20,7 +20,10 @@ export async function DELETE(
 
   return withActor(async (actor) => {
     const r = await removeRiskParty(actor, id, linkId);
-    if (!r.ok) return notFound();
-    return json({ removed: 1 });
+    if (r.ok) return json({ removed: 1 });
+    // 冻结必须走自己那一条（MATT-82 / ADR 0005）：掉进下面的 404 会说「这条当事人
+    // 挂接不存在」，用户会去刷新页面重找，而真实原因是事项已转过案件、名单已移交。
+    if (r.why === "frozen") return fail(422, "frozen", RISK_FROZEN_MESSAGE);
+    return notFound();
   });
 }

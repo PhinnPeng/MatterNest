@@ -17,6 +17,7 @@
 
 ## Consequences
 
-- 施工 = 一个批次挂 M3（MATT-80/81/82）：`addRiskNode`/`setRiskNodeStatus`/`appendRiskParties`/`removeRiskParty`/`deleteRiskMatter` 补 `isRiskFrozen` 门；`batchTagRiskMatters` 处要写注释标明「豁免是刻意的」；`risks.spec.ts:315-338` 那组「当前不锁」断言同步翻转，**先反向红一次**。
+- 施工 = 一个批次挂 M3（MATT-80/81/82）：`addRiskNode`/`setRiskNodeStatus`/`appendRiskParties`/`removeRiskParty`/`deleteRiskMatter` 补 `isRiskFrozen` 门；`batchTagRiskMatters` 处要写注释标明「豁免是刻意的」（MATT-82 已落地，并被 `risks.spec.ts:378-401` 钉住：说明与理由缺一即红）；`risks.spec.ts` 那组「当前不锁」断言同步翻转（现为 `:355-376` 的 `mustStayOpen`，当事人与软删已移出），**先反向红一次**。
+- 八道门还要**排在归档与归属判定之前**（`risks.spec.ts:323` 钉住）：排在后面会让冻结的事项先被告知「已归档」或「你不是经办人」，用户照着假原因去找特权，找到之后拿到的还是同一句拒绝。
 - 软删冻结的连带效果：事项被 N 个案件引用期间不会断源，案件详情页「来源事项卡」不存在显示空态的问题。
 - 「豁免」清单从此有约束力：以后想给评论/标签/追加转案件补冻结门的人，先回来看这条 ADR。

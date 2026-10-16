@@ -79,7 +79,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   });
 }
 
-/** 软删事项（F2-5）。**没有回收站界面**：库内可恢复、普通用户不可见已删行。 */
+/**
+ * 软删事项（F2-5）。**没有回收站界面**：库内可恢复、普通用户不可见已删行。
+ *
+ * **冻结**（MATT-82 / ADR 0005）：事项转过案件之后不可软删 —— 它正被案件引用，
+ * 删掉会让案件详情页的「来源事项卡」断源。所以这里显式接住 `frozen`，
+ * 复用编辑路径那条 422 + 共享文案，别掉进下面的 `attributionRequired()`（403）。
+ */
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const pid = pathId(id);
@@ -88,6 +94,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     const r = await deleteRiskMatter(actor, id);
     if (r.ok) return json({ ok: true });
     if (r.why === "not_found") return notFound();
+    if (r.why === "frozen") return fail(422, "frozen", RISK_FROZEN_MESSAGE);
     return attributionRequired();
   });
 }

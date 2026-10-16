@@ -1,0 +1,2 @@
+{"file": "docs/adr/0005-freeze-covers-business-facts.md", "reason": "本票的裁定原文：冻结覆盖当事人与软删、标签属刻意豁免的理由，检查时逐条对齐。"}
+{"file": "GLOSSARY.md", "reason": "「冻结」词条定义了业务事实 vs 协作面 vs 刻意豁免的边界，检查标签豁免说明是否与术语一致要读它。"}

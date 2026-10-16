@@ -95,7 +95,7 @@ export function isRiskFrozen(conversionStatus: number | null | undefined): boole
   return conversionStatus === 1;
 }
 
-/** 冻结对外的一句话（四个路由共用，别各抄一份 —— 抄一份的代价是四处说法慢慢不一样） */
+/** 冻结对外的一句话（六个路由共用，别各抄一份 —— 抄一份的代价是六处说法慢慢不一样） */
 export const RISK_FROZEN_MESSAGE =
   "这条事项已经转过案件，业务内容已冻结：状态、字段、节点与转案件关联都不能再改。" +
   "要继续推进请在案件上做，或另建一条事项。";
@@ -344,19 +344,33 @@ async function linkRiskParties(
   );
 }
 
-/** 建事项后追加当事人。与建事项那次走同一套校验与去重。 */
+/**
+ * 建事项后追加当事人。与建事项那次走同一套校验与去重。
+ *
+ * **冻结（MATT-82 / ADR-0005）**：事项转过案件之后当事人也不能再加 —— 判据是
+ * `isRiskFrozen`。「当事人」是业务内容（这条台账把谁卷了进来），不是协作面：
+ * 转案件时案件侧会**引用同一批 `mn_party` 行**复制过去，此后在事项侧补一个人，
+ * 那个补上去的人**不会**出现在已经转出去的案卷里 —— 两边的当事人名单从此不一致，
+ * 而界面上看两者都"正常"。这是与本票另两条门同一个失败形态：改错了不出声。
+ * 排在归档与归属判定之前：冻结是这条记录的属性，与"你是不是经办人"无关。
+ */
 export async function appendRiskParties(
   actor: Actor,
   riskId: string,
   links: readonly PartyLinkInput[],
-): Promise<{ ok: true; added: number } | { ok: false; why: "not_found" }> {
+): Promise<{ ok: true; added: number } | { ok: false; why: "not_found" | "frozen" }> {
   const db = await getDb();
   const [src] = await db
-    .select({ id: riskMatter.id, isArchived: riskMatter.isArchived })
+    .select({
+      id: riskMatter.id,
+      isArchived: riskMatter.isArchived,
+      conversionStatus: riskMatter.conversionStatus,
+    })
     .from(riskMatter)
     .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
     .limit(1);
   if (!src) return { ok: false, why: "not_found" };
+  if (isRiskFrozen(src.conversionStatus)) return { ok: false, why: "frozen" };
   if (src.isArchived) return { ok: false, why: "not_found" };
 
   const plan = await planPartyLinks(links);
@@ -383,19 +397,27 @@ export async function appendRiskParties(
   return { ok: true, added: plan.rows.length };
 }
 
-/** 摘除一条当事人挂接。删的是**关联行**，不是当事人本体——后者归 T3 管的档案。 */
+/**
+ * 摘除一条当事人挂接。删的是**关联行**，不是当事人本体——后者归 T3 管的档案。
+ *
+ * **冻结（MATT-82 / ADR-0005）**：与 `appendRiskParties` 同一条理由的另一半 ——
+ * 转案件之后从事项侧摘掉一个当事人，已转出去的案卷里那一行还在，而事项侧看起来
+ * 这个人从未被牵涉。名单分叉在界面上不可见（两边各自正常），所以只能在这里拒。
+ * 排在归属判定之前：冻结是这条记录的属性，与"你是不是经办人"无关。
+ */
 export async function removeRiskParty(
   actor: Actor,
   riskId: string,
   linkId: string,
-): Promise<{ ok: true } | { ok: false; why: "not_found" }> {
+): Promise<{ ok: true } | { ok: false; why: "not_found" | "frozen" }> {
   const db = await getDb();
   const [src] = await db
-    .select({ id: riskMatter.id })
+    .select({ id: riskMatter.id, conversionStatus: riskMatter.conversionStatus })
     .from(riskMatter)
     .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
     .limit(1);
   if (!src) return { ok: false, why: "not_found" };
+  if (isRiskFrozen(src.conversionStatus)) return { ok: false, why: "frozen" };
 
   // 删之前先按**事项 + 关联行**两道条件命中，避免误删到别的事项上去
   const [link] = await db
@@ -1656,18 +1678,25 @@ export async function setRiskNodeStatus(
 /**
  * 软删事项（F2-5）。**没有回收站界面**（T1 验收标准原文）——
  * 库内可恢复、普通用户不可见已删行，恢复留给有特权的人。
+ *
+ * **冻结（MATT-82 / ADR-0005）**：事项转过案件之后不可软删 —— 判据是 `isRiskFrozen`。
+ * 事项是案件的**上游台账**：`mn_risk_matter_case` 上的关联与案件详情页的「来源事项卡」
+ * 都以它为源。正被 N 个案件引用时把事项软删掉，那些卡片就**断源** —— 卡片还在、
+ * 反查却查不到台账，而删的那一侧没有任何提示说"有案件在用"。
+ * 排在归属判定之前：冻结是这条记录的属性，与"你是不是经办人"无关。
  */
 export async function deleteRiskMatter(
   actor: Actor,
   id: string,
-): Promise<{ ok: true } | { ok: false; why: "not_found" | "forbidden" }> {
+): Promise<{ ok: true } | { ok: false; why: "not_found" | "forbidden" | "frozen" }> {
   const db = await getDb();
   const [cur] = await db
-    .select({ ownerId: riskMatter.ownerId })
+    .select({ ownerId: riskMatter.ownerId, conversionStatus: riskMatter.conversionStatus })
     .from(riskMatter)
     .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(id))))
     .limit(1);
   if (!cur) return { ok: false, why: "not_found" };
+  if (isRiskFrozen(cur.conversionStatus)) return { ok: false, why: "frozen" };
   if (cur.ownerId !== null && !ownsAttribution(actor, cur.ownerId))
     return { ok: false, why: "forbidden" };
 
@@ -2027,12 +2056,25 @@ export async function batchArchiveRiskMatters(
  *
  * 审计用 `RISK_UPDATED`（事项侧的字段编辑动作值）而不是新造 `TAG_CHANGED`——
  * 理由与案件侧逐字相同，见 `matters.ts` 里 `batchTagMatters` 的那段注释。
+ *
+ * **冻结不拦这里 —— 这是刻意豁免，不是漏加的门**（2026-10-16 裁定 / ADR-0005）。
+ * 理由在函数体开头（写在体里，好让 `risks.spec.ts` 那条断言钉得住它）。
  */
 export async function batchTagRiskMatters(
   actor: Actor,
   ids: readonly string[],
   tagIds: readonly string[],
 ): Promise<({ ok: true } & BatchSummary) | { ok: false; why: "bad_tag" }> {
+  /**
+   * **冻结：不加门是刻意豁免，不是漏加**（2026-10-16 裁定 / ADR-0005）。
+   *
+   * 标签只做分类、不改业务事实 —— 与节点 / 当事人 / 软删那几条"改了没人察觉"的路径
+   * 不同：标签加错了**一眼能看见**（列表上就挂着），也能当场摘掉，不存在静默损害。
+   * 所以这条路径绕过状态流转（`changeRiskStatus`）直接写 `tag_ids` 是有意为之。
+   *
+   * ⚠ 想给它补冻结门的人：先回 ADR-0005 的 Consequences 第 3 条，那里写明
+   * 「豁免清单从此有约束力」。改这条豁免要与那条 ADR 一起改，否则本文件与 ADR 互相打架。
+   */
   const db = await getDb();
   const wanted = [...new Set(tagIds)].map((t) => BigInt(t));
   // 不过滤 is_enabled：与 `/api/meta` 的标签字典同口径（理由见案件侧同名注释）

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端派单前置：Route Handler 与权限/404 元规则的收工检查清单，本票新增 frozen 路由分支与 422 语义要照它对。"}
+{"file": ".trellis/spec/guides/testing-guidelines.md", "reason": "源码级断言（读源码 + 正则比对）的既有约定与本票的反向红做法同源，新增「刻意豁免」断言要按它写。"}
