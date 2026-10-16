@@ -1,33 +1,44 @@
 "use client";
 
-import { BRAND, INK } from "@/app/theme/brand";
+import { INK } from "@/app/theme/brand";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Button,
   Card,
   Col,
-  Divider,
   Flex,
+  Grid,
   Listy,
-  Progress,
   Row,
+  Skeleton,
   Space,
-  Statistic,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 
-import { useMeta, useOverview } from "@/app/lib/client/api";
+import { useOverview } from "@/app/lib/client/api";
 import { PageHeader } from "@/app/components/page-header";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { fromNow, dateTime } from "@/app/lib/client/format";
 import { DEADLINE_TONE } from "@/app/theme/antd";
 
 /**
- * 工作台。开场放的是**到期压力**，不是四个大数字方块：
- * 这张页要回答的第一问是"今天有什么会过期"，所以临期清单排第一，案件总数只是背景信息。
+ * 工作台。三段，都是整宽：
+ *   ① **指标带** —— 5 张等宽等高的读数卡（PRD 那四问 + 本月新增案件）；
+ *   ② **待办节点** —— 今天该动手的清单，一行一个节点（节点名 / 案件号 / 案件名 / 期限 四列对齐）；
+ *   ③ **最近动作** —— 这里刚发生了什么，两列 10 条。
+ *
+ * 【2026-10-16 改版，原型见 `prototype` 分支的 `prototype-wb-optimize.html`】此前是
+ * "左清单 + 右读数卡"的 15/6 两栏，三个问题：读数只有 2×2 四个数（"这周有没有新活进来"
+ * 看不见）；两栏高度不齐，左栏长的时候右栏下面空一大截；最近动作挤在 6/24 的窄栏里，
+ * 每条只放得下动作名 + 案件号。改成整宽三段后：5 张指标卡的数字落在同一条基线上、
+ * 待办节点靠栅格对齐（不再是"标题一行 + 说明一行"）、动作两列 10 条只占 5 行。
+ *
+ * **待办节点仍是第一段内容**：这张页要回答的第一问是"今天有什么会过期"，
+ * 指标带只是背景事实。
  *
  * 与列表页共用同一套后端口径：所有数字都来自 `/api/overview`，
  * 那里每个读数都过 `scopedWhere`，且**归档不计入**（归档是终态且列表默认隐藏）。
@@ -37,10 +48,125 @@ function daysLeft(iso: string | null): number | null {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 }
 
+/**
+ * 指标带的一格：标签在上、数字贴底。五张同一个 `minHeight` + `space-between`
+ * ⇒ 数字落在同一条基线上。
+ *
+ * 骨架**不用 `Card` 的 `loading`**：它自带的那种三行骨架会把卡片撑到 133，
+ * 数据到货缩回 90 —— 五张卡一起长个儿再一起缩回去，比没有骨架还晃眼（实测过一次）。
+ * 这里自己画两根（标签 + 数字的位置各一根），高度与稳态一样是 88。
+ */
+function Metric({
+  label,
+  value,
+  sub,
+  tone,
+  tip,
+  href,
+  loading,
+}: {
+  label: string;
+  value: number;
+  sub?: string;
+  tone?: string;
+  /** 这个数的口径。挂在标签边的 `i` 上，不铺成卡片里的一行说明 */
+  tip?: string;
+  href?: string;
+  loading: boolean;
+}) {
+  return (
+    <Card
+      size="small"
+      styles={{
+        body: {
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          gap: 10,
+          minHeight: 88,
+          padding: "12px 16px 14px",
+        },
+      }}
+    >
+      {loading ? (
+        <>
+          <Skeleton.Input active block style={{ width: "52%", height: 14, minWidth: 0 }} />
+          <Skeleton.Input active block style={{ width: "38%", height: 22, minWidth: 0 }} />
+        </>
+      ) : (
+        <>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 12.5,
+              color: INK.secondary,
+            }}
+          >
+            {href ? (
+              <Link href={href} style={{ color: "inherit" }}>
+                {label}
+              </Link>
+            ) : (
+              label
+            )}
+            {tip ? (
+              <Tooltip title={tip}>
+                {/* 原生 `title` 只对鼠标可见，键盘用户拿不到这个口径说明；`.i` 是原型里的写法 */}
+                <span
+                  tabIndex={0}
+                  aria-label={tip}
+                  style={{
+                    width: 13,
+                    height: 13,
+                    borderRadius: "50%",
+                    border: `1px solid ${INK.rail}`,
+                    color: INK.muted,
+                    fontSize: 9,
+                    lineHeight: "11px",
+                    textAlign: "center",
+                    cursor: "help",
+                    flex: "none",
+                  }}
+                >
+                  i
+                </span>
+              </Tooltip>
+            ) : null}
+          </span>
+          <span
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 6,
+              fontSize: 26,
+              fontWeight: 600,
+              lineHeight: 1.05,
+              fontVariantNumeric: "tabular-nums",
+              color: tone,
+            }}
+          >
+            {value}
+            {sub ? (
+              <span style={{ fontSize: 11.5, fontWeight: 400, color: INK.muted }}>{sub}</span>
+            ) : null}
+          </span>
+        </>
+      )}
+    </Card>
+  );
+}
+
 export function Workbench() {
-  const { data, isPending, isError, error } = useOverview();
-  const { data: meta } = useMeta("matter");
+  const { data, isPending, isFetching, isError, error } = useOverview();
   const qc = useQueryClient();
+  /**
+   * 四列节点行与两列动作只在 `md` 以上成立，窄屏回落到"标题 + 说明一行"的竖排。
+   * `useBreakpoint` 首帧给 `{}`，但那一帧 `Card` 还在骨架里（`loading={isPending}`），
+   * 看不到布局跳变。
+   */
+  const wide = !!Grid.useBreakpoint().md;
 
   if (isError) {
     return (
@@ -61,14 +187,43 @@ export function Workbench() {
   }
 
   const upcoming = data?.upcoming ?? [];
-  const statusColor = (semantics: string) =>
-    semantics === "closed"
-      ? BRAND.success
-      : semantics === "in_progress"
-        ? BRAND.primary
-        : semantics === "archived"
-          ? INK.faint
-          : INK.rail;
+  /** 品牌新库：一个案件都还没有。两种空态文案不同，数字不用特殊处理（本来就是真值） */
+  const fresh = !!data && data.matters.total === 0;
+
+  const metrics = [
+    {
+      key: "matters",
+      label: "在办案件",
+      href: "/matters",
+      tip: "口径与列表一致：已归档不计入",
+      value: data?.matters.total ?? 0,
+    },
+    {
+      key: "overdue",
+      label: "逾期节点",
+      value: data?.nodes.overdue ?? 0,
+      tone: data?.nodes.overdue ? DEADLINE_TONE.overdue.color : undefined,
+    },
+    {
+      key: "within7",
+      label: "7 日内到期",
+      value: data?.nodes.within7 ?? 0,
+      tone: data?.nodes.within7 ? DEADLINE_TONE.soon.color : undefined,
+    },
+    {
+      key: "risks",
+      label: "事项",
+      href: "/risk-matters",
+      value: data?.risks.total ?? 0,
+      sub: data ? `已转 ${data.risks.converted}` : undefined,
+    },
+    {
+      key: "created",
+      label: "本月新增案件",
+      tip: "按上海业务月算；同样已归档不计入",
+      value: data?.matters.createdThisMonth ?? 0,
+    },
+  ];
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
@@ -79,6 +234,13 @@ export function Workbench() {
         actions={
           <Button
             icon={<ReloadOutlined />}
+            /**
+             * `loading` 绑 `isFetching` 而不是 `isPending`：首屏那次已经在卡片骨架里了，
+             * 这里要盖的是**用户自己按下的**那一次 —— 两个查询都在飞的时候按钮必须转起来。
+             * 没有它的话，点完刷新到数据回来之间页面一声不响（读数、列表全是旧值），
+             * 用户唯一能判断"按到了没有"的线索是鼠标划过时的 `:active` 底色。
+             */
+            loading={isFetching}
             onClick={() => {
               // 两个查询一起失效：只刷 overview 会留着上一个账号缓存的字典
               void qc.invalidateQueries({ queryKey: ["overview"] });
@@ -90,231 +252,243 @@ export function Workbench() {
         }
       />
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={15}>
-          <Card
-            size="small"
-            title="节点到期"
-            extra={
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                含已逾期，按期限升序
-              </Typography.Text>
+      {/* ① 指标带：`flex="1 1 120px"` ⇒ 放得下就是一行五张等宽，放不下才折行 */}
+      <Row gutter={[12, 12]}>
+        {metrics.map((m) => (
+          <Col key={m.key} flex="1 1 120px">
+            <Metric
+              label={m.label}
+              value={m.value}
+              sub={m.sub}
+              tone={m.tone}
+              tip={m.tip}
+              href={m.href}
+              loading={isPending}
+            />
+          </Col>
+        ))}
+      </Row>
+
+      {/* ② 待办节点 */}
+      <Card
+        size="small"
+        title="待办节点"
+        /**
+         * 两张内容卡用**同一个**加载机制（`Card` 的 `loading`）：此前只有这张自己画了
+         * 一行"加载中…"，最近动作在首屏读数据期间**照常渲染** —— 落进空态说"还没有活动记录"。
+         * 那是两句**假话**：它不是"没有记录"，只是还没到。在工作台上"逾期 0"与"逾期 5"
+         * 差的是今天要不要动手，不能拿占位符冒充读数。
+         */
+        loading={isPending}
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            含已逾期，按期限升序
+          </Typography.Text>
+        }
+        style={{ marginTop: 16 }}
+        styles={{ body: { padding: upcoming.length ? 0 : 24 } }}
+      >
+        {!upcoming.length ? (
+          <StateBlock
+            title={fresh ? "还没有案件" : "没有待办节点"}
+            hint={
+              fresh
+                ? "先建第一个案件，再在案件详情页的「工作节点」里加节点。"
+                : "所有已确认时间的节点都完成了。新建节点在案件详情页的「工作节点」里。"
             }
-            styles={{ body: { padding: upcoming.length ? 0 : 24 } }}
-          >
-            {isPending ? (
-              <Card.Grid style={{ width: "100%", padding: 24 }}>加载中…</Card.Grid>
-            ) : !upcoming.length ? (
-              <StateBlock
-                title="没有待办节点"
-                hint="所有已确认时间的节点都完成了。新建节点在案件详情页的「工作节点」里。"
-                action={
-                  <Link href="/matters">
-                    <Button size="small" type="primary">
-                      去案件列表
-                    </Button>
-                  </Link>
-                }
-              />
-            ) : (
-              <Listy
-                items={upcoming}
-                rowKey={(n) => n.id}
-                styles={{ item: { padding: "8px 12px" } }}
-                itemRender={(n) => {
-                  const d = daysLeft(n.deadlineTime);
-                  const overdue = d !== null && d < 0;
-                  const soon = d !== null && d >= 0 && d <= 3;
-                  const color = overdue
-                    ? DEADLINE_TONE.overdue.color
-                    : soon
-                      ? DEADLINE_TONE.soon.color
-                      : "transparent";
-                  return (
-                    <Flex justify="space-between" align="center" gap={8}>
-                      {/* 左侧一条 3px 色带承担"危险程度"，文字仍写完整日期：色带只让扫读更快，不是唯一通道 */}
-                      <div style={{ display: "flex", gap: 10, minWidth: 0, flex: 1 }}>
-                        <span
-                          style={{
-                            width: 3,
-                            borderRadius: 2,
-                            background: color,
-                            alignSelf: "stretch",
-                            flex: "0 0 auto",
-                          }}
-                        />
-                        <div style={{ minWidth: 0 }}>
-                          <Link href={`/matters/${n.hostId}`} style={{ color: "inherit" }}>
-                            <Typography.Text style={{ fontSize: 13 }} strong>
-                              {n.name}
-                            </Typography.Text>
-                          </Link>
-                          <div style={{ fontSize: 12, color: INK.muted }}>
-                            <span className="num">{n.hostCode}</span> · {n.hostName}
-                            {n.owner ? ` · ${n.owner}` : ""} · {dateTime(n.deadlineTime)}
-                          </div>
+            action={
+              <Link href="/matters">
+                <Button size="small" type="primary">
+                  去案件列表
+                </Button>
+              </Link>
+            }
+          />
+        ) : (
+          <Listy
+            items={upcoming}
+            rowKey={(n) => n.id}
+            styles={{ item: { padding: wide ? "9px 16px" : "8px 12px" } }}
+            itemRender={(n) => {
+              const d = daysLeft(n.deadlineTime);
+              const overdue = d !== null && d < 0;
+              const soon = d !== null && d >= 0 && d <= 3;
+              const color = overdue
+                ? DEADLINE_TONE.overdue.color
+                : soon
+                  ? DEADLINE_TONE.soon.color
+                  : "transparent";
+              const due =
+                d === null ? "未定" : d < 0 ? `逾期 ${-d} 天` : d === 0 ? "今天" : `剩 ${d} 天`;
+              // 左侧一条 3px 色带承担"危险程度"，文字里那个天数才是唯一通道
+              // （色带只让扫读更快，对色觉障碍用户等于没有）
+              const band = (
+                <span style={{ width: 3, height: 22, borderRadius: 2, background: color }} />
+              );
+              const dueCell = (
+                <span
+                  style={{
+                    color: color === "transparent" ? undefined : color,
+                    fontSize: 12.5,
+                    fontWeight: overdue || soon ? 600 : 400,
+                    fontVariantNumeric: "tabular-nums",
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {due}
+                </span>
+              );
+
+              if (!wide) {
+                return (
+                  <Flex justify="space-between" align="center" gap={8}>
+                    <div style={{ display: "flex", gap: 10, minWidth: 0, flex: 1 }}>
+                      {band}
+                      <div style={{ minWidth: 0 }}>
+                        <Link href={`/matters/${n.hostId}`} style={{ color: "inherit" }}>
+                          <Typography.Text style={{ fontSize: 13 }} strong>
+                            {n.name}
+                          </Typography.Text>
+                        </Link>
+                        <div style={{ fontSize: 12, color: INK.muted }}>
+                          <span className="num">{n.hostCode}</span> · {n.hostName}
+                          {n.owner ? ` · ${n.owner}` : ""} · {dateTime(n.deadlineTime)}
                         </div>
                       </div>
-                      <span
-                        style={{
-                          color: color === "transparent" ? undefined : color,
-                          fontVariantNumeric: "tabular-nums",
-                          fontSize: 13,
-                          minWidth: 92,
-                          textAlign: "right",
-                          flex: "0 0 auto",
-                        }}
-                      >
-                        {d === null
-                          ? "未定"
-                          : d < 0
-                            ? `逾期 ${-d} 天`
-                            : d === 0
-                              ? "今天"
-                              : `剩 ${d} 天`}
-                      </span>
-                    </Flex>
-                  );
-                }}
-              />
-            )}
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={9}>
-          <Space orientation="vertical" size={16} style={{ display: "flex" }}>
-            <Card size="small" title="范围读数">
-              <Row gutter={[0, 4]}>
-                <Col span={12}>
-                  <Statistic
-                    title={
-                      <Link href="/matters" style={{ color: "inherit" }}>
-                        在办案件
-                      </Link>
-                    }
-                    value={data?.matters.total ?? 0}
-                    styles={{ content: { fontSize: 20 } }}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Statistic
-                    title="逾期节点"
-                    value={data?.nodes.overdue ?? 0}
-                    styles={{
-                      content: {
-                        fontSize: 20,
-                        color: data?.nodes.overdue ? DEADLINE_TONE.overdue.color : undefined,
-                      },
-                    }}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Statistic
-                    title="7 日内到期"
-                    value={data?.nodes.within7 ?? 0}
-                    styles={{
-                      content: {
-                        fontSize: 20,
-                        color: data?.nodes.within7 ? DEADLINE_TONE.soon.color : undefined,
-                      },
-                    }}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Statistic
-                    title={
-                      <Link href="/risk-matters" style={{ color: "inherit" }}>
-                        事项
-                      </Link>
-                    }
-                    value={data?.risks.total ?? 0}
-                    suffix={
-                      data ? (
-                        <span style={{ fontSize: 11, color: INK.muted }}>
-                          已转 {data.risks.converted}
-                        </span>
-                      ) : null
-                    }
-                    styles={{ content: { fontSize: 20 } }}
-                  />
-                </Col>
-              </Row>
-
-              {meta && data?.matters.total ? (
-                <>
-                  <Divider style={{ margin: "12px 0" }} />
-                  <Flex vertical gap={4}>
-                    {meta.statuses.map((s) => {
-                      const n = data.matters.byStatus[s.code] ?? 0;
-                      return (
-                        <Flex key={s.code} align="center" gap={8}>
-                          <span style={{ width: 56, fontSize: 12, color: INK.secondary }}>
-                            {s.name}
-                          </span>
-                          <Progress
-                            percent={Math.round((n / data.matters.total) * 100)}
-                            size="small"
-                            showInfo={false}
-                            strokeColor={statusColor(s.semantics)}
-                            style={{ flex: 1, margin: 0 }}
-                          />
-                          <span
-                            className="num"
-                            style={{ width: 24, textAlign: "right", fontSize: 12 }}
-                          >
-                            {n}
-                          </span>
-                        </Flex>
-                      );
-                    })}
-                  </Flex>
-                </>
-              ) : null}
-            </Card>
-
-            <Card
-              size="small"
-              title="最近动作"
-              extra={
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {data?.recent.length ?? 0}
-                </Typography.Text>
-              }
-              styles={{ body: { padding: data?.recent.length ? 0 : 24 } }}
-            >
-              {!data?.recent.length ? (
-                <StateBlock title="还没有活动记录" hint="建案、改状态、加评论都会记在这里。" />
-              ) : (
-                <Listy
-                  items={data.recent}
-                  rowKey={(r) => r.id}
-                  styles={{ item: { padding: "6px 12px" } }}
-                  itemRender={(r) => (
-                    <div style={{ minWidth: 0 }}>
-                      <Space size={6} wrap>
-                        <Tag variant="filled" style={{ fontSize: 11, marginInlineEnd: 0 }}>
-                          {r.actionLabel}
-                        </Tag>
-                        <Link
-                          href={`/${r.kind === "matter" ? "matters" : "risk-matters"}/${r.hostId}`}
-                        >
-                          <span className="num" style={{ fontSize: 12 }}>
-                            {r.hostCode ?? "—"}
-                          </span>
-                        </Link>
-                      </Space>
-                      <div style={{ fontSize: 11, color: INK.muted }}>
-                        {r.operator} · {fromNow(r.createdAt)}
-                        {r.reason ? ` · ${r.reason}` : ""}
-                      </div>
                     </div>
-                  )}
-                />
-              )}
-            </Card>
-          </Space>
-        </Col>
-      </Row>
+                    {dueCell}
+                  </Flex>
+                );
+              }
+
+              return (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "3px 208px 132px minmax(0,1fr) 92px",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  {band}
+                  <Link
+                    href={`/matters/${n.hostId}`}
+                    style={{
+                      minWidth: 0,
+                      color: "inherit",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {n.name}
+                  </Link>
+                  <span
+                    className="num"
+                    style={{ fontSize: 12, color: INK.secondary, whiteSpace: "nowrap" }}
+                  >
+                    {n.hostCode}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: INK.secondary,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {n.hostName}
+                  </span>
+                  {/* 四列里放不下"精确时刻"和"谁在办"（这一行只留判断要不要现在动手的那四样）：
+                      挂在期限上，想查的人不用为此点进案件 */}
+                  <Tooltip
+                    title={[
+                      n.deadlineTime ? dateTime(n.deadlineTime) : "未定时间",
+                      n.owner ? `经办 ${n.owner}` : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  >
+                    {dueCell}
+                  </Tooltip>
+                </div>
+              );
+            }}
+          />
+        )}
+      </Card>
+
+      {/* ③ 最近动作：整宽两列，10 条只占 5 行 */}
+      <Card
+        size="small"
+        title="最近动作"
+        loading={isPending}
+        extra={
+          // 数据没到之前不画这个数字：`?? 0` 会在首屏把「最近动作 0」摆在卡片头上，
+          // 和下面那句「还没有活动记录」是同一句假话 —— 加载态已经由骨架承担了。
+          data ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {data.recent.length}
+            </Typography.Text>
+          ) : null
+        }
+        style={{ marginTop: 16 }}
+        styles={{ body: { padding: data?.recent.length ? 0 : 24 } }}
+      >
+        {!data?.recent.length ? (
+          <StateBlock title="还没有活动记录" hint="建案、改状态、加评论都会记在这里。" />
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              // 行优先：第 1、2 条同行。DOM 顺序仍是时间序，读屏和键盘走的是一条线
+              gridTemplateColumns: wide ? "1fr 1fr" : "minmax(0,1fr)",
+            }}
+          >
+            {data.recent.map((r, i) => (
+              <div
+                key={r.id}
+                style={{
+                  minWidth: 0,
+                  padding: wide ? "8px 16px" : "6px 12px",
+                  borderBottom: `1px solid ${INK.line}`,
+                  // 两列之间那道竖线只画在左列（行优先：左列的 DOM 下标是偶数）
+                  ...(wide && i % 2 === 0 ? { borderRight: `1px solid ${INK.line}` } : {}),
+                }}
+              >
+                <Space size={6} wrap>
+                  {/* 定宽：字数不等的动作名（"归档" 2 字 vs "状态变更" 4 字）会让右边那列
+                      案件号在行与行之间左右抖 22px（实测 1038 / 1060），10 行下来那列看着是斜的 */}
+                  <Tag
+                    variant="filled"
+                    style={{
+                      fontSize: 11,
+                      marginInlineEnd: 0,
+                      minWidth: 60,
+                      textAlign: "center",
+                    }}
+                  >
+                    {r.actionLabel}
+                  </Tag>
+                  <Link href={`/${r.kind === "matter" ? "matters" : "risk-matters"}/${r.hostId}`}>
+                    <span className="num" style={{ fontSize: 12 }}>
+                      {r.hostCode ?? "—"}
+                    </span>
+                  </Link>
+                </Space>
+                <div style={{ fontSize: 11, color: INK.muted }}>
+                  {r.operator} · {fromNow(r.createdAt)}
+                  {r.reason ? ` · ${r.reason}` : ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

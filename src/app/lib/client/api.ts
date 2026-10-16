@@ -465,7 +465,7 @@ export function usePartySearch(keyword: string) {
 
 /** 工作台读数（`/api/overview`，口径与列表一致：归档不计入） */
 export type Overview = {
-  matters: { total: number; byStatus: Record<string, number> };
+  matters: { total: number; byStatus: Record<string, number>; createdThisMonth: number };
   nodes: { overdue: number; within7: number; later: number };
   risks: { total: number; converted: number };
   upcoming: {
