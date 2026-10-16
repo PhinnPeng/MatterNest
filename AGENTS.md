@@ -38,6 +38,10 @@ single-context — one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs
 
 **旁白**（复述紧邻已经写着的东西、或把规则/排序/权限/为什么为空讲成一句散文）一律删；一句话要么是事实、要么是动作，要么落进四类落点（空态/错误态、控件说明、tooltip、字段表），规则类的话搬到动作发生处。触发点：写或改任何界面文案、新增页面或区块结构、**写原型 HTML**（它在 `prototype/*` 分支上，lint-guard 的源码断言扫不到）。细则见 `.trellis/spec/frontend/component-guidelines.md`「副标题纪律」。
 
+### 对话回答
+
+对话一律中文。
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
