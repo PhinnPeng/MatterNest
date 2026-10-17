@@ -1,0 +1,124 @@
+"use client";
+
+import { Button, Card, Flex, Space, Table, Tag, Typography } from "antd";
+import type { TableColumnsType } from "antd";
+import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+
+import { api, type FavoriteRow } from "@/app/lib/client/api";
+import { dateTime } from "@/app/lib/client/format";
+import { StateBlock } from "@/app/components/ui/state-block";
+
+/**
+ * 我收藏的（F1-13）。
+ *
+ * ## 为什么类型与编号是两列
+ *
+ * 案件与事项**形态不同**（案件有案号、事项有事项编号），合并成一列会让两类行看起来
+ * 是同一种东西 —— 而「事项 → 案件」在本系统里是一道真实边界（GLOSSARY 的词条）。
+ * 所以「类型」标签 + 编号 + 名称三列，一眼能看出这条是哪种。
+ *
+ * ## 为什么没有分页、没有筛选
+ *
+ * 收藏是**用户主动建立**的集合，规模由用户自己的行为决定。加分页等于承认它会大到
+ * 需要翻页，而那时该先问「为什么会收藏这么多」。服务端也因此不分页
+ * （见 `api/watch/route.ts` 的注释）。
+ */
+export function FavoritesView() {
+  const router = useRouter();
+  const { data, isPending, isError, error, refetch } = useQuery({
+    queryKey: ["watch", "favorites"],
+    queryFn: () => api.get<{ favorites: FavoriteRow[] }>("/api/watch"),
+  });
+
+  const columns: TableColumnsType<FavoriteRow> = [
+    {
+      key: "targetType",
+      title: "类型",
+      width: 80,
+      render: (_v, r) => (
+        <Tag style={{ marginInlineEnd: 0 }}>{r.targetType === "matter" ? "案件" : "事项"}</Tag>
+      ),
+    },
+    {
+      key: "subtitle",
+      title: "编号",
+      width: 170,
+      render: (_v, r) => <span style={{ fontSize: 13 }}>{r.subtitle || "—"}</span>,
+    },
+    {
+      key: "title",
+      title: "名称",
+      dataIndex: "title",
+      ellipsis: true,
+      render: (name: string, r) => (
+        <Space size={6}>
+          <Typography.Link
+            onClick={() =>
+              router.push(
+                r.targetType === "matter"
+                  ? `/matters/${r.targetId}`
+                  : `/risk-matters/${r.targetId}`,
+              )
+            }
+          >
+            {name}
+          </Typography.Link>
+          {/* 归档如实标出：收藏是"我还想看这条"，归档恰恰是"它结束了、我可能还要回看"——
+              所以归档行**保留**，只是要让人一眼看出它的状态。 */}
+          {r.isArchived ? <Tag color="default">已归档</Tag> : null}
+        </Space>
+      ),
+    },
+    {
+      key: "createdAt",
+      title: "收藏于",
+      width: 170,
+      render: (_v, r) => <span style={{ fontSize: 12 }}>{dateTime(r.createdAt)}</span>,
+    },
+  ];
+
+  const favorites = data?.favorites ?? [];
+
+  return (
+    <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+      <Flex align="center" justify="space-between" style={{ marginBottom: 12 }}>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          我收藏的
+        </Typography.Title>
+        {/* 一句话说清这个集合的边界：它是**私人的**，与通知是两条线。
+            不写"由你自己收藏"——那是复述标题。 */}
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          只有你自己看得见
+        </Typography.Text>
+      </Flex>
+
+      {isError ? (
+        <StateBlock
+          tone="error"
+          title="收藏读取出错"
+          hint={error instanceof Error ? error.message : undefined}
+          action={
+            <Button size="small" onClick={() => void refetch()}>
+              重试
+            </Button>
+          }
+        />
+      ) : isPending ? (
+        <Card size="small" loading />
+      ) : favorites.length === 0 ? (
+        <StateBlock title="还没有收藏" hint="在案件或事项详情页点右上角的 ⭐，就会出现在这里。" />
+      ) : (
+        <Card size="small">
+          <Table<FavoriteRow>
+            size="small"
+            rowKey={(r) => `${r.targetType}-${r.targetId}`}
+            columns={columns}
+            dataSource={favorites}
+            pagination={false}
+          />
+        </Card>
+      )}
+    </div>
+  );
+}

@@ -36,6 +36,7 @@ import { initialStatusCode, hostStatusRows } from "./statuses";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
+import { isFavorited, syncFollowWatch } from "./watch";
 import { mentionPartsOf } from "./comment-mentions";
 import {
   enqueueCommentIntent,
@@ -332,6 +333,11 @@ export async function getMatter(actor: Actor, id: string) {
      * "没有来源"与"有来源但你看不见"，后者渲染占位而不是空块。
      */
     ...sourceRisks,
+    /**
+     * 我是否收藏了这条（MATT-63 / F1-13）。**详情页的 ⭐ 初值走这里**，
+     * 不另开 `GET /api/watch/{type}/{id}` —— 那是可枚举的存在性探针（见该路由注释）。
+     */
+    favorited: await isFavorited(actor, "matter", id),
   };
 }
 
@@ -1200,6 +1206,17 @@ export async function addMatterStaff(
           staffRole,
         })),
       );
+      // 关注同步（ADR-0003 / MATT-63）：加的是 `follower` 才写 `user_watch(follow)`——
+      // `co_owner` 是参与人但不是"关注人"，两者在 ADR 的形态里不是一回事
+      // （协办收全量业务通知；关注只收预置规则 2/8）。
+      if (staffRole === "follower") {
+        await syncFollowWatch(tx, {
+          host: "matter",
+          hostId: BigInt(matterId),
+          userIds: fresh,
+          action: "add",
+        });
+      }
       await logActivity(tx, actor, {
         matterId: BigInt(matterId),
         targetType: "matter",
@@ -1237,8 +1254,19 @@ export async function removeMatterStaff(
     const rows = await tx
       .delete(matterStaff)
       .where(and(eq(matterStaff.hostId, BigInt(matterId)), eq(matterStaff.userId, BigInt(userId))))
-      .returning({ id: matterStaff.id });
+      .returning({ id: matterStaff.id, staffRole: matterStaff.staffRole });
     if (rows.length) {
+      // 关注同步（ADR-0003 / MATT-63）：移除 `follower` 时**连带删**其 `user_watch(follow)` 行。
+      // 只有 `follower` 触发——摘一个 `co_owner` 不该顺手清掉他单独的"关注"语义
+      // （他是参与人，不是关注人；两条语义在本仓是分开的）。
+      if (rows.some((r) => r.staffRole === "follower")) {
+        await syncFollowWatch(tx, {
+          host: "matter",
+          hostId: BigInt(matterId),
+          userIds: [BigInt(userId)],
+          action: "remove",
+        });
+      }
       await logActivity(tx, actor, {
         matterId: BigInt(matterId),
         targetType: "matter",

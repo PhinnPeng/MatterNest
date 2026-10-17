@@ -45,6 +45,7 @@ import { nextCode } from "./numbering";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import { hostStatusRows, initialStatusCode } from "./statuses";
 import { logActivity } from "./activity";
+import { isFavorited, syncFollowWatch } from "./watch";
 import { mentionPartsOf } from "./comment-mentions";
 // 通知意图的两个生产点（MATT-41 / T4）：状态变更**同事务**落事件，新评论**只落 outbox**。
 // 两者都不在业务事务里做"投递"这个动作本身 —— 见 services/notifications.ts 文件头。
@@ -1110,6 +1111,8 @@ export async function getRiskMatter(actor: Actor, id: string) {
     activity: activity.map((a) => ({ ...a, id: String(a.id), operatorId: String(a.operatorId) })),
     statuses,
     convertedCases: converted.map((c) => ({ ...c, id: String(c.id) })),
+    /** 我是否收藏了这条（MATT-63 / F1-13）；理由见案件侧同名字段 */
+    favorited: await isFavorited(actor, "risk_matter", id),
   };
 }
 
@@ -1872,6 +1875,14 @@ export async function addRiskFollowers(
         staffRole: "follower",
       })),
     );
+    // 关注同步（ADR-0003 / MATT-63）：事项侧的关注人**只有** `follower` 一个角色，
+    // 所以这里无条件同步，不像案件侧要判 `staffRole`。
+    await syncFollowWatch(tx, {
+      host: "risk_matter",
+      hostId: BigInt(riskId),
+      userIds: fresh,
+      action: "add",
+    });
     await tx
       .update(riskMatter)
       .set({ updatedBy: BigInt(actor.userId), updatedAt: new Date().toISOString() })
@@ -1923,6 +1934,13 @@ export async function removeRiskFollower(
 
   await db.transaction(async (tx) => {
     await tx.delete(riskMatterStaff).where(eq(riskMatterStaff.id, link.id));
+    // 关注同步（ADR-0003 / MATT-63）：移除关注人时**连带删** `user_watch(follow)` 行。
+    await syncFollowWatch(tx, {
+      host: "risk_matter",
+      hostId: BigInt(riskId),
+      userIds: [BigInt(userId)],
+      action: "remove",
+    });
     await tx
       .update(riskMatter)
       .set({ updatedBy: BigInt(actor.userId), updatedAt: new Date().toISOString() })

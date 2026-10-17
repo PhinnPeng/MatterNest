@@ -34,6 +34,7 @@ import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
 import { PageHeader } from "@/app/components/page-header";
 import { ExpensePanel } from "@/app/components/expense-panel";
 import { ExportFileButton } from "@/app/components/export-file-button";
+import { FavoriteButton } from "@/app/components/favorite-button";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
@@ -247,6 +248,9 @@ export function MatterDetail({ id }: { id: string }) {
         }
         actions={
           <Space size={8}>
+            {/* ⭐（MATT-63 / F1-13）：私人收藏，与下面「参与人」页签里的关注人名单**不是一回事**
+                （收藏别人看不见；关注是公开名单）。放在操作区最左——它是个人标记，不是业务动作。 */}
+            <FavoriteButton host="matter" hostId={m.id} favorited={m.favorited} />
             <ExportFileButton host="matter" hostId={m.id} code={m.internalCode} />
             <Button onClick={() => setStatusOpen(true)}>变更状态</Button>
             {/* 删除（MATT-62 / F2-5）：文案与事项详情页逐字相同。
