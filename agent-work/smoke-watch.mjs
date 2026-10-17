@@ -87,13 +87,20 @@ async function cleanup() {
                 and target_type in ('risk_matter','matter')`;
     await sql`delete from mn_user_watch where user_id in (${String(smoke.id)}, ${String(smoke2.id)}, ${String(smoke3.id)})`;
     if (rids.length) {
+      await sql`delete from mn_comment where target_type = 'risk_matter' and target_id = any(${sql.array(rids)}::bigint[])`;
       await sql`delete from mn_activity_log where risk_matter_id = any(${sql.array(rids)}::bigint[])`;
       await sql`delete from mn_risk_matter_staff where risk_matter_id = any(${sql.array(rids)}::bigint[])`;
+      await sql`delete from mn_risk_matter_node where risk_matter_id = any(${sql.array(rids)}::bigint[])`;
       await sql`delete from mn_risk_matter where id = any(${sql.array(rids)}::bigint[])`;
     }
     if (mids.length) {
+      // ⚠ 子表必须先删：`mn_matter_node` 等对 `mn_matter` 是 RESTRICT 外键，
+      //   首轮漏了这一步，清场当场红（而这正是 `noteCleanupFailure` 要抓的形态）。
+      await sql`delete from mn_comment where target_type = 'matter' and target_id = any(${sql.array(mids)}::bigint[])`;
       await sql`delete from mn_activity_log where matter_id = any(${sql.array(mids)}::bigint[])`;
       await sql`delete from mn_matter_staff where matter_id = any(${sql.array(mids)}::bigint[])`;
+      await sql`delete from mn_matter_node where matter_id = any(${sql.array(mids)}::bigint[])`;
+      await sql`delete from mn_matter_party where matter_id = any(${sql.array(mids)}::bigint[])`;
       await sql`delete from mn_matter where id = any(${sql.array(mids)}::bigint[])`;
     }
   } catch (e) {
@@ -207,12 +214,23 @@ try {
   }
 
   // ── 非法输入 ──
+  // 宿主类型是**闭合枚举**（公开知识，界面上就这两个入口）⇒ 400（请求写错了），
+  // 不是 404（"东西不在了"会让排查的人去查数据而不是查请求）。
+  // 而"看不见的记录"仍是 404 且与"不存在"同形 —— 那条判定在服务层。
   const badTarget = await call("PUT", "/api/watch/party/123", cookie, { watching: true });
-  ok("不支持的宿主类型 → 404（不给可区分信号）", badTarget.status === 404, `status=${badTarget.status}`);
+  ok("不支持的宿主类型 → 400", badTarget.status === 400, `status=${badTarget.status}`);
   const badId = await call("PUT", `/api/watch/risk_matter/abc`, cookie, { watching: true });
-  ok("非数字 id → 404", badId.status === 404, `status=${badId.status}`);
-  const badType = await call("PUT", `/api/watch/risk_matter/${riskId}`, cookie, { watchType: "follow" });
+  ok("非数字 id → 400", badId.status === 400, `status=${badId.status}`);
+  // ⚠ 这条是**自造 follow 的防线**：`watchType` 若能过，用户就写出一条 follow 行，
+  //   于是「我关注」与「关注人名单」成了两份真相，而两边都 200、都不报错。
+  const badType = await call("PUT", `/api/watch/risk_matter/${riskId}`, cookie, {
+    watching: true,
+    watchType: "follow",
+  });
   ok("body 里塞 watchType → 400（.strict() 拒绝，堵死自造 follow）", badType.status === 400, `status=${badType.status}`);
+  const [noSneak] = await sql`select count(*)::int as n from mn_user_watch
+                              where target_type='risk_matter' and target_id=${riskId} and watch_type='follow'`;
+  ok("被拒之后库里没有多出 follow 行", noSneak.n === 0, `n=${noSneak.n}`);
 } finally {
   await cleanup();
   await dropSmokeAccount(sql, smoke);
