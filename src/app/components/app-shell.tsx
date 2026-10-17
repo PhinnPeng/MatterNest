@@ -11,6 +11,7 @@ import {
   DashboardOutlined,
   ExportOutlined,
   FileTextOutlined,
+  ImportOutlined,
   InboxOutlined,
   LogoutOutlined,
   SafetyCertificateOutlined,
@@ -78,6 +79,12 @@ const NAV: { type: "group"; label: string; children: Item[] }[] = [
     type: "group",
     label: "系统",
     children: [
+      // 批量导入（P14 / F7-4 / MATT-67）。路径按**代码事实**放在 (desk)/config 下
+      // （PRD §4.2 写的 `/settings/*` 从未落地，而且顶层 `src/app/settings/` 不在
+      // (desk) 组内、拿不到这个导航壳）。⚠ 走在这条路由上的裁定需要人确认。
+      // 排在「配置字典」**之前**：下方 `selectedKeys` 取的是首个 startsWith 命中，
+      // `/config/import` 必须先进列表才不会被 `/config` 抢先高亮。
+      { key: "/config/import", label: "批量导入", icon: <ImportOutlined /> },
       { key: "/config", label: "配置字典", icon: <SettingOutlined /> },
       // 用户与角色（MATT-10 / P13）。**不做按权限隐藏**：无 canManageUser 的人点进来
       // 看到的是"这个页面需要「管理账号」权限"这句话，而不是一个凭空消失的菜单项
