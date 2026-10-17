@@ -12,6 +12,12 @@ import { createSmokeAccount, dropSmokeAccount, finishSmoke, noteCleanupFailure, 
  *   · **不可见的记录不能被收藏**（范围谓词唯一出口）；
  *   · **反向那一半**：不加关注人就不得有 `follow` 行（两份真相的防线）。
  *
+ * 2026-10-17 复审补的一组（当时这几条**在反向红里看不见**，所以整批绿却是假绿）：
+ *   · **创建期**关注人（`followerIds`）也要写 `follow` 行，两个宿主各一条 ——
+ *     初版只给 `addMatterStaff`/`addRiskFollowers` 补了同步，创建路径漏了；
+ *   · 非数字 id 的码必须是 `bad_id`（即真的走了 `pathId()`），
+ *     以及 `undefined` 当 id 给 400 而不是 500。
+ *
  * 三个账号的真实对撞（照 smoke-followers 的形状）：
  *   smoke  = full_admin + is_admin（L1，看全部）
  *   smoke2 = joined（L2，能被 L1 加为关注人）
@@ -193,7 +199,43 @@ try {
   const l3mine = await call("GET", "/api/watch", l3.cookie);
   ok("**不可见的记录不出现在「我收藏的」里**", l3mine.status === 200 && !(l3mine.body?.favorites ?? []).some((f) => f.targetId === riskId), `n=${l3mine.body?.favorites?.length}`);
 
+  // ── 断言⑦：**创建期**关注人也写 follow 行（MATT-63 补漏，2026-10-17）──
+  //
+  // 票面写「加关注人时同步写 `user_watch(watch_type='follow')`」，而 ADR-0003 把
+  // `*_staff.follower` 与 `user_watch(follow)` 定义为**同一张表的两面**。
+  // 初版只给 `addMatterStaff`/`addRiskFollowers` 补了同步，**创建路径漏了** ——
+  // IQ-5/IQ-14 允许建案/建事项时直接填关注人，那条路只写了名单、没写关注行。
+  // 本组冒烟当时只打 `POST /staff/followers`，所以整批断言全绿也照不出这个洞。
+  const createWithFollowers = await call("POST", "/api/risk-matters", cookie, {
+    name: `收藏冒烟-创建期关注人 ${stamp}`,
+    type: "contract",
+    level: "high",
+    description: "冒烟：创建期 followerIds ⇒ follow 行",
+    followerIds: [String(smoke2.id), String(smoke3.id)],
+  });
+  ok("创建期带 followerIds 建事项 → 201", createWithFollowers.status === 201, `status=${createWithFollowers.status}`);
+  const crId = createWithFollowers.body?.id;
+  if (crId) ids.risk.push(crId);
+  const crStaff = await call("GET", `/api/risk-matters/${crId}/staff/followers`, cookie);
+  ok(
+    "创建期关注人进了名单（前提，否则下一条不成立）",
+    crStaff.status === 200 && crStaff.body?.length === 2,
+    `名单=${crStaff.body?.length}`,
+  );
+  const crF2 = await watchRows(smoke2.id, "risk_matter", crId);
+  const crF3 = await watchRows(smoke3.id, "risk_matter", crId);
+  ok(
+    "**创建期关注人同步写了 follow 行**（ADR-0003 的两面）",
+    crF2.length === 1 &&
+      crF2[0].watch_type === "follow" &&
+      crF3.length === 1 &&
+      crF3[0].watch_type === "follow",
+    `smoke2=${crF2.length}/${crF2[0]?.watch_type} smoke3=${crF3.length}/${crF3[0]?.watch_type}`,
+  );
+
   // ── 案件侧同形（宿主是 matter 时也走同一套）──
+  // 顺手带上 `followerIds`：创建期同步在**两个宿主各有一份实现**（matters.ts / risks.ts），
+  // 上面验了事项侧，这里验案件侧 —— 只修一侧、另一侧静默漏掉，正是这一族的失败形态。
   const mc = await call("POST", "/api/matters", cookie, {
     name: `收藏冒烟案件 ${stamp}`,
     cause: "买卖合同纠纷",
@@ -202,6 +244,7 @@ try {
     litigationRole: "plaintiff",
     level: "high",
     ownerId: String(smoke.id),
+    followerIds: [String(smoke2.id)],
   });
   if (mc.status === 201) {
     const matterId = mc.body?.id;
@@ -209,6 +252,12 @@ try {
     const mfav = await call("PUT", `/api/watch/matter/${matterId}`, cookie, { watching: true });
     const mrows = await watchRows(smoke.id, "matter", matterId);
     ok("案件侧加 ⭐ 同形成功", mfav.status === 200 && mrows.length === 1, `status=${mfav.status} n=${mrows.length}`);
+    const mfollow = await watchRows(smoke2.id, "matter", matterId);
+    ok(
+      "**案件侧创建期关注人同步写了 follow 行**（同形的那一份）",
+      mfollow.length === 1 && mfollow[0].watch_type === "follow",
+      `n=${mfollow.length} type=${mfollow[0]?.watch_type}`,
+    );
   } else {
     ok("案件侧夹具建成（否则案件侧断言不成立）", false, `status=${mc.status}`);
   }
@@ -219,8 +268,17 @@ try {
   // 而"看不见的记录"仍是 404 且与"不存在"同形 —— 那条判定在服务层。
   const badTarget = await call("PUT", "/api/watch/party/123", cookie, { watching: true });
   ok("不支持的宿主类型 → 400", badTarget.status === 400, `status=${badTarget.status}`);
+  ok("宿主类型非法给 `bad_target`（枚举错，与 bad_tag/bad_status 同族）", badTarget.body?.error === "bad_target", `error=${badTarget.body?.error}`);
+  // ⚠ 这条盯的是 **id 形态规则只有一处**：非数字 id 必须由 `http.ts:pathId()` 回话，
+  //   码是 `bad_id`（全仓 61 处同形）。初版本路由自己写了 `/^\d{1,19}$/` 并自造 `bad_target`，
+  //   于是同一个错误在两条路由上报出两个码 —— 只断 400 是照不出这个分叉的。
   const badId = await call("PUT", `/api/watch/risk_matter/abc`, cookie, { watching: true });
   ok("非数字 id → 400", badId.status === 400, `status=${badId.status}`);
+  ok("非数字 id 的码是 `bad_id`（即走的是 `pathId()`，不是自造规则）", badId.body?.error === "bad_id", `error=${badId.body?.error}`);
+  // `BigInt("undefined")` 抛 SyntaxError 会冒成 500（`pathId()` 存在的理由）——
+  // 手打一个坏 URL 不该污染错误率监控。
+  const undefId = await call("PUT", "/api/watch/risk_matter/undefined", cookie, { watching: true });
+  ok("`undefined` 当 id → 400 而不是 500（`pathId()` 的原始理由）", undefId.status === 400, `status=${undefId.status}`);
   // ⚠ 这条是**自造 follow 的防线**：`watchType` 若能过，用户就写出一条 follow 行，
   //   于是「我关注」与「关注人名单」成了两份真相，而两边都 200、都不报错。
   const badType = await call("PUT", `/api/watch/risk_matter/${riskId}`, cookie, {

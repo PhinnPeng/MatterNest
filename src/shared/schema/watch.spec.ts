@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { favoriteSchema, watchTargetSchema, WATCH_TARGET_TYPES } from "./watch";
-import { WATCH_TYPES, USER_OWNABLE_WATCH_TYPES } from "@/shared/enums/targets";
+import { WATCH_TYPES, USER_OWNABLE_WATCH_TYPES, HOST_TYPES } from "@/shared/enums/targets";
 
 /**
  * 收藏 ⭐（MATT-63 / F1-13）的**离线可测面**。
@@ -33,21 +33,26 @@ describe("收藏 ⭐ 的请求形状（MATT-63）", () => {
     expect(favoriteSchema.safeParse({}).success).toBe(false);
   });
 
-  it("宿主只收案件与事项 —— 与 `services/watch.ts` 的查询面同域", () => {
-    expect(WATCH_TARGET_TYPES).toEqual(["matter", "risk_matter"]);
+  it("宿主只收案件与事项 —— **引的就是 `HOST_TYPES` 那一份**", () => {
+    // 钉"它引的是那份值域"，而不是"恰好值相同"：本模块曾自己抄一遍
+    // `["matter","risk_matter"]`，某天新增宿主时改一处漏一处，两边却都编译得过。
+    expect([...WATCH_TARGET_TYPES]).toEqual([...HOST_TYPES]);
 
-    expect(watchTargetSchema.safeParse({ targetType: "matter", targetId: "1" }).success).toBe(true);
-    expect(
-      watchTargetSchema.safeParse({ targetType: "risk_matter", targetId: "1234567890" }).success,
-    ).toBe(true);
+    expect(watchTargetSchema.safeParse({ targetType: "matter" }).success).toBe(true);
+    expect(watchTargetSchema.safeParse({ targetType: "risk_matter" }).success).toBe(true);
 
     // 从属对象（节点/进展/费用/账号）不在收藏范围：挂上去就永远查不出来
     for (const bad of ["matter_node", "risk_matter_node", "matter_progress", "app_user"]) {
-      expect(watchTargetSchema.safeParse({ targetType: bad, targetId: "1" }).success).toBe(false);
+      expect(watchTargetSchema.safeParse({ targetType: bad }).success).toBe(false);
     }
-    expect(watchTargetSchema.safeParse({ targetType: "matter", targetId: "abc" }).success).toBe(
-      false,
-    );
+  });
+
+  it("**id 的形态不归本模块管** —— 它只在 `http.ts:pathId()` 一处", () => {
+    // 本 schema 曾自带 `/^\d{1,19}$/` 并让路由按自造的 `bad_target` 报错，
+    // 于是仓里有了第二份 id-shape 规则、且与全仓 61 处 `pathId()` 不同码。
+    // 那条规则已摘掉；这条断言是它的反面：`targetId` 根本不在本形状里，
+    // 给什么都由路由层的 `pathId()` 表态（`bad_id` / 400）。
+    expect(watchTargetSchema.shape).not.toHaveProperty("targetId");
   });
 
   it("**`follow` 不在可自建值域里** —— 这条断言是「两份真相」的防线", () => {

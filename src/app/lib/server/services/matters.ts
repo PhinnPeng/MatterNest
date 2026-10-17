@@ -514,6 +514,15 @@ export async function createMatter(
   // 处理人与关注人**合成一次查询**：分成两次是同一个谓词跑两遍。
   await assertAssignable([String(owner), ...(input.followerIds ?? [])]);
 
+  /**
+   * 创建时的关注人，**去重且转成 bigint**。
+   *
+   * 去重是因为同一批里重复的 id 会撞 `uk_mn_matter_staff_triple`；
+   * 提到事务外一次算好，是为了让名单插入与 `syncFollowWatch` 吃**同一个数组**
+   * ——两处各自 `new Set` 一次，某天只改一处就会让名单与关注行错位。
+   */
+  const followers = [...new Set(input.followerIds ?? [])].map(BigInt);
+
   /** 初始态从配置表取，不写字面量 —— 理由见 `services/statuses.ts` */
   const initial = await initialStatusCode("matter");
   /** P1 预设节点同理由：取配置必须在进事务之前，事务内再向池子要一条连接会互等成死锁 */
@@ -557,14 +566,18 @@ export async function createMatter(
       // 创建时的关注人（IQ-5「处理人与关注人在表单上可选填」+ IQ-14 的创建期例外）。
       // 与 owner 同事务：分开提交会留下"案件建好了但关注人没进去"的中间态，
       // 而用户看到的是"我填了关注人"——那种账对不上，也没有入口能补回来。
-      // 去重：同一批里重复的 id 会撞 `uk_mn_matter_staff_triple`。
-      ...[...new Set(input.followerIds ?? [])].map((uid, i) => ({
+      ...followers.map((uid, i) => ({
         id: BigInt(nextId()) + BigInt(i),
         hostId: id,
-        userId: BigInt(uid),
+        userId: uid,
         staffRole: "follower" as const,
       })),
     ]);
+    // 关注同步（ADR-0003 / MATT-63）：ADR 把 `*_staff.follower` 与 `user_watch(follow)`
+    // 定义为**同一张表的两面**——只写名单不写关注行，就会留下"名单上有他、他没有关注"
+    // 的半截状态，而"n 人关注"与「我关注」自此各有一份真相。
+    // 创建路径和 `addMatterStaff` 是同一条语义，所以推导也必须同一处补齐。
+    await syncFollowWatch(tx, { host: "matter", hostId: id, userIds: followers, action: "add" });
     await insertNewParties(tx, partyPlan.rows, BigInt(actor.userId));
     for (const r of partyPlan.rows) {
       await tx.insert(matterParty).values({

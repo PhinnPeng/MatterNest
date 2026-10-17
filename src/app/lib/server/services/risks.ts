@@ -279,6 +279,14 @@ export async function createRiskMatter(
   // 事项的负责人**可空**（IQ-5），所以只有给了 id 才查——空值走不到这里。
   // 处理人与关注人合成一次查询：同一个谓词跑两遍没有额外收益。
   await assertAssignable([owner === null ? null : String(owner), ...(input.followerIds ?? [])]);
+
+  /**
+   * 创建时的关注人，**去重且转成 bigint**（与案件侧同形）。
+   *
+   * 去重：同一批里重复的 id 会撞 `uk_mn_risk_matter_staff_triple`。
+   * 提到事务外一次算好，是为了让名单插入与 `syncFollowWatch` 吃**同一个数组**。
+   */
+  const followers = [...new Set(input.followerIds ?? [])].map(BigInt);
   // 在**进入事务前**取：事务内再向池子要一条连接去查配置，池子满时会互等成死锁
   const initial = await initialStatusCode("risk_matter");
   // ⚠ **事项侧不生成任何预设节点**（IQ-5：「事项是台账，案件是战场」）。
@@ -335,10 +343,9 @@ export async function createRiskMatter(
     // 与 owner 同事务：分开提交会留下"事项建好了但关注人没进去"的中间态，
     // 而用户看到的是"我填了关注人"——那种账对不上，也没有入口能补回来。
     // 去重：同一批里重复的 id 会撞 `uk_mn_risk_matter_staff_triple`。
-    const followerIds = [...new Set(input.followerIds ?? [])].map(BigInt);
-    if (followerIds.length) {
+    if (followers.length) {
       await tx.insert(riskMatterStaff).values(
-        followerIds.map((uid, i) => ({
+        followers.map((uid, i) => ({
           id: BigInt(nextId()) + BigInt(i),
           hostId: id,
           userId: uid,
@@ -346,6 +353,14 @@ export async function createRiskMatter(
         })),
       );
     }
+    // 关注同步（ADR-0003 / MATT-63）：与案件侧同一句 —— `*_staff.follower` 与
+    // `user_watch(follow)` 是**同一张表的两面**，只写名单不写关注行就是半截状态。
+    await syncFollowWatch(tx, {
+      host: "risk_matter",
+      hostId: id,
+      userIds: followers,
+      action: "add",
+    });
     await linkRiskParties(tx, id, partyPlan.rows, BigInt(actor.userId));
     await logActivity(tx, actor, {
       riskMatterId: id,

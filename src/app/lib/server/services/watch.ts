@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
+import { WATCH_TARGET_TYPES } from "@/shared/schema/watch";
 import { getDb } from "../db/client";
 import { matter, riskMatter, userWatch } from "../db/schema";
 import { HOSTS, scopedWhere, type HostKind } from "../scope/visibility";
@@ -39,8 +40,13 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
  * 那是给审计与通知用的，不是给本模块用的）。
  */
 
-/** ⭐ 只挂宿主：见文件头「为什么只对两个宿主」 */
-export const WATCH_HOST_KINDS = ["matter", "risk_matter"] as const satisfies readonly HostKind[];
+/** ⭐ 只挂宿主：见文件头「为什么只对两个宿主」。
+ *
+ * **值域不在这里定义**——直接引 `WATCH_TARGET_TYPES`（=`HOST_TYPES`，`shared/enums/targets.ts`）。
+ * 这行曾经自己写一遍 `["matter", "risk_matter"]`，与 schema 那份各占一处；
+ * `type-safety.md` 明写「**禁止**在 `src/app/**` 里再声明一份业务枚举」。
+ */
+export const WATCH_HOST_KINDS = WATCH_TARGET_TYPES satisfies readonly HostKind[];
 
 export type WatchHostKind = (typeof WATCH_HOST_KINDS)[number];
 
