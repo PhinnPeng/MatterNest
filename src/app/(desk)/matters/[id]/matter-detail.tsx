@@ -9,12 +9,16 @@ import {
   Avatar,
   Button,
   Card,
+  DatePicker,
   Descriptions,
   Empty,
   Flex,
+  Form,
   Input,
   Listy,
+  Modal,
   Popconfirm,
+  Select,
   Space,
   Table,
   Tabs,
@@ -23,6 +27,7 @@ import {
 } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import type { TableColumnsType } from "antd";
+import type { Dayjs } from "dayjs";
 
 import { api, ApiFailure, useMeta, type MatterDetail as Matter } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
@@ -33,6 +38,12 @@ import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { CommentBody } from "@/app/components/comment-body";
+import {
+  applyServerIssues,
+  rulesFor,
+  validateAndFocusFirst,
+} from "@/app/components/form/zod-rules";
+import { progressSchema } from "@/shared/schema/hosts";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import {
   NOT_READY_TEXT,
@@ -750,6 +761,7 @@ function LogTab({
   const { message } = AntdApp.useApp();
   const { data: meta } = useMeta("matter");
   const [body, setBody] = useState("");
+  const [progressOpen, setProgressOpen] = useState(false);
 
   const mut = useMutation({
     mutationFn: () => api.post(`/api/matters/${matterId}/comments`, { body: body.trim() }),
@@ -762,80 +774,202 @@ function LogTab({
   });
 
   return (
-    <Flex gap={16} wrap align="flex-start">
-      <div style={{ flex: "1 1 320px" }}>
-        <Space orientation="vertical" size={8} style={{ display: "flex", marginBottom: 12 }}>
-          <Input.TextArea
-            rows={2}
-            maxLength={2000}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="记录一个结论、一次沟通，或一个待确认的点；用 @姓名 提及同事"
-          />
-          <Button
-            type="primary"
-            size="small"
-            disabled={!body.trim() || mut.isPending}
-            onClick={() => mut.mutate()}
-          >
-            发布评论
-          </Button>
-        </Space>
-        <div style={{ fontSize: 13, paddingBlock: 12 }}>评论 ({comments.length})</div>
-        {comments.length ? (
-          <Listy
-            items={comments}
-            rowKey={(c) => c.id}
-            itemRender={(c) => (
-              // ⚠ 老 `List.Item` 是 `display:flex` + `space-between`，所以这两块一直是**横排**的：
-              // 迁移**保持同形**（`Listy` 的 item 是块级，不套 Flex 就会静默变成纵排）。
-              <Flex justify="space-between" align="center" gap={8}>
-                <div style={{ fontSize: 11, color: INK.muted }}>
-                  {c.author} · {fromNow(c.createdAt)}
-                </div>
-                <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>
-                  <CommentBody body={c.body} parts={c.parts} />
-                </div>
-              </Flex>
-            )}
-          />
-        ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有评论" />
-        )}
-      </div>
-
-      <div style={{ flex: "1 1 320px" }}>
-        <div style={{ fontSize: 13, paddingBlock: 12 }}>案件进展 ({progress.length})</div>
-        {progress.length ? (
-          <Listy
-            items={progress}
-            rowKey={(p) => p.id}
-            itemRender={(p) => (
-              // 同「评论」：老 `List.Item` 是 flex 行，几个 div 一直是**横排**的，这里保持同形
-              <Flex justify="space-between" align="center" gap={8}>
-                <Flex justify="space-between" gap={8} style={{ flex: 1 }}>
-                  <span style={{ fontSize: 12, color: INK.secondary }}>
-                    {meta?.enums.progressTypes[p.progressType] ?? p.progressType}
-                  </span>
-                  <span className="num" style={{ fontSize: 12, color: INK.muted }}>
-                    {calDate(p.progressDate)}
-                  </span>
+    <>
+      <Flex gap={16} wrap align="flex-start">
+        <div style={{ flex: "1 1 320px" }}>
+          <Space orientation="vertical" size={8} style={{ display: "flex", marginBottom: 12 }}>
+            <Input.TextArea
+              rows={2}
+              maxLength={2000}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="记录一个结论、一次沟通，或一个待确认的点；用 @姓名 提及同事"
+            />
+            <Button
+              type="primary"
+              size="small"
+              disabled={!body.trim() || mut.isPending}
+              onClick={() => mut.mutate()}
+            >
+              发布评论
+            </Button>
+          </Space>
+          <div style={{ fontSize: 13, paddingBlock: 12 }}>评论 ({comments.length})</div>
+          {comments.length ? (
+            <Listy
+              items={comments}
+              rowKey={(c) => c.id}
+              itemRender={(c) => (
+                // ⚠ 老 `List.Item` 是 `display:flex` + `space-between`，所以这两块一直是**横排**的：
+                // 迁移**保持同形**（`Listy` 的 item 是块级，不套 Flex 就会静默变成纵排）。
+                <Flex justify="space-between" align="center" gap={8}>
+                  <div style={{ fontSize: 11, color: INK.muted }}>
+                    {c.author} · {fromNow(c.createdAt)}
+                  </div>
+                  <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>
+                    <CommentBody body={c.body} parts={c.parts} />
+                  </div>
                 </Flex>
-                <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{p.content}</div>
-                {p.nextPlan ? (
-                  <div style={{ fontSize: 12, color: INK.muted }}>下一步：{p.nextPlan}</div>
-                ) : null}
-                <div style={{ fontSize: 11, color: INK.faint }}>{p.author}</div>
-              </Flex>
-            )}
+              )}
+            />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有评论" />
+          )}
+        </div>
+
+        <div style={{ flex: "1 1 320px" }}>
+          <Flex justify="space-between" align="center" style={{ paddingBlock: 12 }}>
+            <div style={{ fontSize: 13 }}>案件进展 ({progress.length})</div>
+            <Button size="small" onClick={() => setProgressOpen(true)}>
+              写进展
+            </Button>
+          </Flex>
+          {progress.length ? (
+            <Listy
+              items={progress}
+              rowKey={(p) => p.id}
+              itemRender={(p) => (
+                // 同「评论」：老 `List.Item` 是 flex 行，几个 div 一直是**横排**的，这里保持同形
+                <Flex justify="space-between" align="center" gap={8}>
+                  <Flex justify="space-between" gap={8} style={{ flex: 1 }}>
+                    <span style={{ fontSize: 12, color: INK.secondary }}>
+                      {meta?.enums.progressTypes[p.progressType] ?? p.progressType}
+                    </span>
+                    <span className="num" style={{ fontSize: 12, color: INK.muted }}>
+                      {calDate(p.progressDate)}
+                    </span>
+                  </Flex>
+                  <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{p.content}</div>
+                  {p.nextPlan ? (
+                    <div style={{ fontSize: 12, color: INK.muted }}>下一步：{p.nextPlan}</div>
+                  ) : null}
+                  <div style={{ fontSize: 11, color: INK.faint }}>{p.author}</div>
+                </Flex>
+              )}
+            />
+          ) : (
+            <StateBlock
+              title="还没有进展记录"
+              hint="日常推进、法院动作这类过程记录登记在这里；记一条会刷新「最近进展」。"
+            />
+          )}
+        </div>
+      </Flex>
+
+      <ProgressLogDialog
+        matterId={matterId}
+        open={progressOpen}
+        onClose={() => setProgressOpen(false)}
+        onDone={onDone}
+      />
+    </>
+  );
+}
+
+/**
+ * 写一条案件进展（MATT-59）。表、E19 值域、写端点早已齐备，这里补的是界面入口。
+ *
+ * 校验规则从 `shared/schema/hosts` 的 `progressSchema` 推导（`rulesFor`），
+ * 提交时服务端用**同一个 schema** 再判一次 —— 前端不手写第二套规则（禁令⑧）。
+ */
+function ProgressLogDialog({
+  matterId,
+  open,
+  onClose,
+  onDone,
+}: {
+  matterId: string;
+  open: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { message } = AntdApp.useApp();
+  const { data: meta } = useMeta("matter");
+  const [form] = Form.useForm<{
+    progressType: string;
+    progressDate: Dayjs;
+    content: string;
+    nextPlan?: string;
+  }>();
+
+  const mut = useMutation({
+    mutationFn: (v: {
+      progressType: string;
+      progressDate: string;
+      content: string;
+      nextPlan?: string;
+    }) => api.post<{ id: string }>(`/api/matters/${matterId}/progress`, v),
+    onSuccess: () => {
+      onClose();
+      message.success("进展已记录");
+      onDone();
+    },
+    onError: (e) => {
+      if (e instanceof ApiFailure) {
+        applyServerIssues(form, e.issues);
+        message.error(e.message);
+        return;
+      }
+      message.error("提交失败");
+    },
+  });
+
+  return (
+    <Modal
+      open={open}
+      title="写进展"
+      okText="记录"
+      cancelText="取消"
+      confirmLoading={mut.isPending}
+      destroyOnHidden
+      onCancel={onClose}
+      onOk={async () => {
+        const v = await validateAndFocusFirst(form);
+        if (!v) return;
+        // DatePicker 可被清空；onOk 是 async 而 antd 不 await 它，直接 `.format` 抛错
+        // 的表现是「点了没反应」——先拦一次，别赌 required 规则一定在
+        if (!v.progressDate) {
+          form.setFields([{ name: "progressDate", errors: ["请选择发生日期"] }]);
+          return;
+        }
+        mut.mutate({
+          progressType: v.progressType,
+          // 表单里存 Dayjs，提交前一处转 `YYYY-MM-DD`：`progressDate` 是 `date` 列，
+          // 服务端 schema 也只收这个形状
+          progressDate: v.progressDate.format("YYYY-MM-DD"),
+          content: v.content,
+          nextPlan: v.nextPlan ?? "",
+        });
+      }}
+    >
+      <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
+        <Form.Item
+          name="progressType"
+          label="进展类型"
+          rules={rulesFor(progressSchema, ["progressType"])}
+        >
+          <Select
+            placeholder="选择进展类型"
+            options={Object.entries(meta?.enums.progressTypes ?? {}).map(([value, label]) => ({
+              value,
+              label,
+            }))}
           />
-        ) : (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="这条链路上还没有进展记录（写进展的端点还没做）"
-          />
-        )}
-      </div>
-    </Flex>
+        </Form.Item>
+        <Form.Item
+          name="progressDate"
+          label="发生日期"
+          rules={rulesFor(progressSchema, ["progressDate"])}
+        >
+          <DatePicker style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="content" label="进展内容" rules={rulesFor(progressSchema, ["content"])}>
+          <Input.TextArea rows={3} maxLength={4000} placeholder="发生了什么" />
+        </Form.Item>
+        <Form.Item name="nextPlan" label="下一步" rules={rulesFor(progressSchema, ["nextPlan"])}>
+          <Input.TextArea rows={2} maxLength={2000} placeholder="接下来打算做什么" />
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }
