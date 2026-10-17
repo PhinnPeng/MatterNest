@@ -35,9 +35,9 @@
  * 这条门禁红的是"树坏了"，不是"页面坏了"。不区分的话，人会去改页面。
  */
 import { createRequire } from "node:module";
-import { pickChrome, playwrightRoot } from "./_chrome.mjs";
+import { pickChrome } from "./_chrome.mjs";
 
-const require = createRequire(playwrightRoot());
+const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const { createSmokeAccount, dropSmokeAccount, ROLE_CODES } = await import("./_testacct.mjs");
 const { default: postgres } = await import("postgres");

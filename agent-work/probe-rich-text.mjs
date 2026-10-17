@@ -10,10 +10,10 @@
  * 这一步是"界面已验收"里**唯一能机器证**的部分（N7 边界内：只断行为与存在，不断观感）。
  */
 import { createRequire } from "node:module";
-import { pickChrome, playwrightRoot } from "./_chrome.mjs";
+import { pickChrome } from "./_chrome.mjs";
 import { createSmokeAccount, dropSmokeAccount, ROLE_CODES } from "./_testacct.mjs";
 
-const require = createRequire(playwrightRoot());
+const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const CHROME = pickChrome();
 const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3777";

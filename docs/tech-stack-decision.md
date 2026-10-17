@@ -38,7 +38,7 @@
 | 对象存储 | **MinIO**（S3 兼容）自建 | 法律文件不出内网；后端签 60s URL，不直暴 MinIO |
 | 定时任务 | ~~`@nestjs/schedule`~~ ⚑ ~~Nitro scheduled tasks~~ → **独立 `worker` 容器 + `node-cron` + PG `pg_try_advisory_lock` 单飞**（Next 无内置调度器） | 见 §3.5 与 §12.2 C1、`research-nextjs-stack.md` §2.3（多副本重复触发的老风险不变，只是调度器换成自己的） |
 | ID | 应用层雪花，`shared/ids` | 与设计的 `bigint` 主键一致 |
-| 测试 | Vitest + supertest + Playwright；权限矩阵用 `test.each` 参数化生成 | 权限草案 §10 的组合数按 **角色数 × 对象类数 × 入口数** 生成（现为 5 × 3 × 7 = 105 例，且会随入口增减而变），**不要在文档里钉死常数**，手写更不可能 |
+| 测试 | **Vitest**（服务级，纯函数与分支矩阵）+ **真 HTTP 冒烟**（`agent-work/smoke-*.mjs` 用原生 `fetch` 打 `127.0.0.1:3777`）；权限矩阵用 `test.each` 参数化生成 | 权限草案 §10 的组合数按 **角色数 × 对象类数 × 入口数** 生成（现为 5 × 3 × 7 = 105 例，且会随入口增减而变），**不要在文档里钉死常数**，手写更不可能。⚠ 本行 2026-10-17 改写：原文写 `+ supertest`，而全仓 37 个依赖里**没有 supertest**（实测），冒烟一律用 `fetch`；原文把 `Playwright` 列在测试栈，而它实际是**探针的浏览器驱动**，与测试无关 —— 见 §13.7 |
 | 仓库 | **pnpm workspaces 单仓** | 见 §5 |
 | 部署 | **Docker Compose 单机**：app + postgres + minio | 见 §6 |
 
@@ -588,3 +588,24 @@ Pro 那三件便利（查询区、工具栏、表单化弹窗）本来就是薄�
 | 状态标记 | 每行一个 Badge，点色 `rgb(47,95,224)` / `rgba(0,0,0,.25)` / `rgb(82,196,26)` 三色可分 | 同（"点 + 词"，颜色不是唯一通道） |
 
 **量出来的教训值得单独记一条**：`width` 在 `tableLayout: fixed` 下是真的，但**只要有一列的文字超出列宽，`white-space: normal` 就会把整行撑高**——这是 auto layout 时代"列宽不生效"那个坑的续集。所以密度不是调 `padding` 调出来的，是**每列都 nowrap + 宽度按实测文字**出来的，而"实测"只能靠量，不是靠估。
+
+---
+
+## 13.7 两套浏览器工具的职责（2026-10-17 裁定）
+
+本仓有两样东西都能开浏览器，**它们不是竞品**，分工按「谁驱动」划：
+
+| | `playwright`（devDependency） | `chrome-devtools-mcp`（devDependency，服务配在 `opencode.json`） |
+| --- | --- | --- |
+| 驱动者 | 脚本 / CI，**无人值守** | 人 / agent，有界面、可介入 |
+| 用途 | `agent-work/probe-*.mjs`：量几何、截图取证、反向红 | opencode agent 的浏览器工具（截图、DOM、网络面板） |
+| 断言形态 | 一段 JS 注入页面算完直接 `ok(...)`，能成脚本、能被反向红 | 靠人眼看、靠 agent 口述 |
+| 生命周期 | 跑完即退 | 长驻服务 |
+
+**为什么判据必须走 playwright，不能换成 MCP 浏览器**：`probe-d2-layout.mjs` 头部记着实测 —— MCP 浏览器面板那个会话是 **0×0 hidden**，`getBoundingClientRect` 全返回 0，而 P5-D2 的判据是几何（列宽、顶边、等高、栏底距折线、横向溢出）。那个文件的原话：*「区别于本机 MCP 浏览器面板那个 0×0 hidden 会话，那里全是 0。所以几何断言在这里成立。」* 换过去不是等价替换，是**判据消失**。
+
+**`playwright` 的浏览器从哪来**（2026-10-17 前是本的欠账）：它原先**不在 `package.json`**，只靠一份全局安装 + 探针从 `process.execPath` 反推路径够到 —— node 一升级 11 个探针全灭（`docs/retro-2026-10-16.md` 候选 1 形态②）。现 pin `playwright@1.64.1`，模块解析交回 node；`agent-work/_chrome.mjs` 里那个 `playwrightRoot()` 随之**整段删除**（它自己的注释当年就写着「哪天把它声明成 devDependency，这个函数就退成一行 import」）。
+
+⚠ 版本不是随便挑的：`playwright-core@1.64.x` 期望 `chromium-1248`，与本机 `ms-playwright` 里已装的那份**正好一致**（`1.60` → 1223、`1.62` → 1234，都对不上）。探针走显式 `executablePath`（`pickChrome()` 取版本号最大的那个），所以它们**本来就绕开了 playwright 的修订号解析** —— 换句话说，今天探针能跑靠的是这个显式路径，不是靠 playwright 自己找得到。`pickChrome()` 因此**保留**，它是唯一还带 Windows 形状（`LOCALAPPDATA` + `chrome-win64`）的取法，将来探针要上 Ubuntu CI 改的就是这一处。
+
+**仍未做的一件事**：探针至今**没有 CI 运行者**（`tools/run-smokes.mjs` 只发现 `smoke-*.mjs`，22 个 `probe-*.mjs` 零运行）。「探针起不来」与「实现了缺陷」在结果上同形（都只有一个非零退出码），所以这一条不落地，本节的 pin 只买到「换台机器 clone 下来能跑」这一半收益。另一半（CI 真跑一个探针）见 `docs/retro-2026-10-16.md` 候选 1③。

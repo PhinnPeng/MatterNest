@@ -22,9 +22,9 @@
  * 用法：`node --env-file=.env agent-work/probe-expense-ui.mjs`
  */
 import { createRequire } from "node:module";
-import { pickChrome, playwrightRoot } from "./_chrome.mjs";
+import { pickChrome } from "./_chrome.mjs";
 
-const require = createRequire(playwrightRoot());
+const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const { createSmokeAccount, dropSmokeAccount, ROLE_CODES } = await import("./_testacct.mjs");
 const { default: postgres } = await import("postgres");
