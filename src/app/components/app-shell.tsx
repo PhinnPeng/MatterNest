@@ -15,6 +15,7 @@ import {
   LogoutOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
+  StarOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
 
@@ -46,6 +47,10 @@ const NAV: { type: "group"; label: string; children: Item[] }[] = [
     label: "概要",
     children: [
       { key: "/", label: "工作台", icon: <DashboardOutlined /> },
+      // 「我收藏的」（MATT-63 / F1-13）。与通知同组：两者都是**我的**类入口
+      // （收藏是我个人建立的集合、通知是我的收件箱），不是一类业务实体 ——
+      // 与"案件/事项/当事人"并列会让它们看起来像另几种记录。
+      { key: "/watch", label: "我收藏的", icon: <StarOutlined /> },
       // 通知中心（MATT-41 / T4）。放进"概要"而不是"业务"：它是**我的收件箱**
       // （未读徽标、已读态都是"我对这条通知"的状态），不是一类业务实体——
       // 与"案件/事项/当事人"并列会让它看起来像第五种记录。

@@ -59,7 +59,13 @@ import {
   riskMatterStaff,
   role,
 } from "../db/schema";
-import { HOSTS, scopedWhere, visibility, type HostKind } from "../scope/visibility";
+import {
+  canSeeHostFrom,
+  HOSTS,
+  loadHostAcl,
+  scopedWhere,
+  type HostKind,
+} from "../scope/visibility";
 import type { Actor } from "../auth/auth";
 import type { DataScope } from "@/shared/enums";
 
@@ -231,35 +237,6 @@ function widen(a: DataScope, b: DataScope): DataScope {
   return ra >= rb ? a : b;
 }
 
-/**
- * 某个收件人能不能看见这条宿主。
- *
- * **可见性只有一个出口**：这里调的是 `scope/visibility.ts` 的 `visibility()`，
- * 不自己拼范围条件（禁令：不写 `owner_id = …`）。查不到角色的人按"看不见"处理——
- * 默认拒绝（权限草案 §1 元规则 1）。
- */
-async function canSeeHost(
-  r: Reader,
-  host: HostKind,
-  hostId: bigint,
-  userId: bigint,
-  scope: { dataScope: DataScope; isAdmin: boolean } | undefined,
-): Promise<boolean> {
-  const t = HOSTS[host].table;
-  const vis = visibility(
-    host,
-    scope?.dataScope ?? "owned",
-    String(userId),
-    scope?.isAdmin ?? false,
-  );
-  const [row] = await r
-    .select({ id: t.id })
-    .from(t)
-    .where(and(eq(t.id, hostId), sql`NOT ${t.isDeleted}`, vis))
-    .limit(1);
-  return Boolean(row);
-}
-
 /* ────────────────────────────────────────────────────────────────────────────
  * 三、事件 + 投递的写入（唯一入口）
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -344,15 +321,25 @@ export async function insertNotificationEvent(
   }
 
   const scopes = await recipientScopes(tx, intent.recipients);
+  /**
+   * 宿主 ACL **取一次**（固定 2 次查询），收件人逐个在内存里判（MATT-76）。
+   *
+   * 原来这里是 `canSeeHost` **每收件人一次查询**：一个事件挂 5 个关注人就是 5 次往返，
+   * 而这条路在通知中心的同步读上（用户等它）。改成"取事实 + 内存判"之后，
+   * 收件人从 1 涨到 5、50，往返数**不变**——批量消费 K 行的耗时才可能不是 K 倍线性。
+   *
+   * ⚠ 判决规则没有变、也没有第二份：`canSeeHostFrom` 与 `visibility()` 是同一条规则
+   * 的两种绑定形态（各自只有一份），等价性由 `visibility.spec.ts` 的矩阵单测 +
+   * `smoke-notifications.mjs` 的真库矩阵断言钉住。别在这里内联 OR 条件。
+   */
+  const acl = await loadHostAcl(tx, intent.host, intent.hostId);
   let delivered = 0;
+  const now = new Date().toISOString();
+  /** 本事件的投递行先在内存里攒齐，最后**一次插完**（MATT-76）。 */
+  const deliveryRows: (typeof notificationDelivery.$inferInsert)[] = [];
   for (const userId of intent.recipients) {
-    const visible = await canSeeHost(
-      tx,
-      intent.host,
-      intent.hostId,
-      userId,
-      scopes.get(String(userId)),
-    );
+    const sc = scopes.get(String(userId));
+    const visible = canSeeHostFrom(acl, sc?.dataScope, sc?.isAdmin ?? false, String(userId));
     /**
      * `placeholder` = "看不见，但这一条仍要投递，由读取侧降级成占位"。
      * 它只可能由 `invisibleAsPlaceholder` 打开（见 `NotificationIntent` 的注释）。
@@ -362,32 +349,47 @@ export async function insertNotificationEvent(
     const placeholder = !visible && intent.invisibleAsPlaceholder === true;
     const sent = visible || placeholder;
     if (sent) delivered++;
+    deliveryRows.push({
+      id: BigInt(nextId()),
+      eventId,
+      userId,
+      channel: PHASE1_NOTIFY_CHANNEL,
+      // 站内渠道的"投递"就是这一行出现在收件箱里，所以可见即 `sent`
+      status: sent ? "sent" : "void",
+      attempt: 0,
+      sentAt: sent ? now : null,
+      // `void` 的原因留在这里而不是丢掉：权限草案 §8 说"静默剔除"是**对用户静默**，
+      // 而枚举表 E31 的注记把这类行点名为"安全事件线索"——线索要能被查到。
+      //
+      // 占位行（`sent` 但收件人当时看不见）也留一条痕迹：读取侧渲染时
+      // "投递时就不看见"与"投递后失权"长得一模一样，而排障要能分开这两件事。
+      error: visible
+        ? null
+        : placeholder
+          ? "recipient_cannot_see_host_placeholder"
+          : "recipient_cannot_see_host",
+      isRead: false,
+      readAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  /**
+   * **一次插完**（不是每收件人一次）。
+   *
+   * 语义与逐条完全等同：同一个事务、同一批行、同一个 `ON CONFLICT DO NOTHING`
+   * 目标（`event_id + user_id + channel`）。差别只在往返数：
+   * 逐条是 N 次，一次是 1 次 —— 而这一步正是"收件人越多越慢"的那一半。
+   *
+   * ⚠ 与 outbox 的**逐行事务**不冲突：那里的一条 outbox 行 = 一个事务
+   * （`consumeOutbox` 的注释写明"一条坏行不该把整批回滚"是刻意的），
+   * 而这里的 N 行属于**同一条事件**——它们本来就在同一个事务里，
+   * 拆成 N 条语句只是让同一个原子单元多跑 N-1 趟。
+   */
+  if (deliveryRows.length > 0) {
     await tx
       .insert(notificationDelivery)
-      .values({
-        id: BigInt(nextId()),
-        eventId,
-        userId,
-        channel: PHASE1_NOTIFY_CHANNEL,
-        // 站内渠道的"投递"就是这一行出现在收件箱里，所以可见即 `sent`
-        status: sent ? "sent" : "void",
-        attempt: 0,
-        sentAt: sent ? new Date().toISOString() : null,
-        // `void` 的原因留在这里而不是丢掉：权限草案 §8 说"静默剔除"是**对用户静默**，
-        // 而枚举表 E31 的注记把这类行点名为"安全事件线索"——线索要能被查到。
-        //
-        // 占位行（`sent` 但收件人当时看不见）也留一条痕迹：读取侧渲染时
-        // "投递时就不看见"与"投递后失权"长得一模一样，而排障要能分开这两件事。
-        error: visible
-          ? null
-          : placeholder
-            ? "recipient_cannot_see_host_placeholder"
-            : "recipient_cannot_see_host",
-        isRead: false,
-        readAt: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
+      .values(deliveryRows)
       .onConflictDoNothing({
         target: [
           notificationDelivery.eventId,

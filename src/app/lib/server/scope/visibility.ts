@@ -1,6 +1,7 @@
 import { and, eq, exists, or, sql, type SQL } from "drizzle-orm";
 import { DATA_SCOPES, type DataScope } from "@/shared/enums";
 import { matter, matterStaff, riskMatter, riskMatterStaff } from "../db/schema";
+import type { getDb } from "../db/client";
 
 /**
  * 数据范围谓词（权限草案 §4）—— **全项目唯一一处**决定"谁能看见哪些宿主行"。
@@ -106,6 +107,108 @@ export function scopedWhere(
 export function archivedFilter(host: HostKind, archivedOnly: boolean): SQL {
   const t = HOSTS[host].table;
   return archivedOnly ? sql`${t.isArchived}` : sql`NOT ${t.isArchived}`;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 单条宿主的**批量可见性**（MATT-76）
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 一条宿主的「谁能看见它」所需的全部事实。
+ *
+ * ## 为什么要有这么一层
+ *
+ * outbox 消费侧原本是**每收件人一次查询**（`canSeeHost`）：
+ * 一个事件挂 5 个关注人就是 5 次往返，而这条链在通知中心的同步读上
+ * ⇒ 积压时用户在等它（MATT-76 的起因）。
+ *
+ * 收件人可能每人一套范围（多角色取最宽并集），所以"一条 SQL 判完一批"要么写成
+ * 与 `visibility()` 平行的第二个 SQL 谓词（**两份规则，迟早漂**），要么把这条
+ * 宿主的事实取一次、按同一套规则在内存里判（**规则只有一份**，见下）。
+ * 本函数是后者的"取事实"那一半：**固定 2 次查询**，与收件人个数无关。
+ */
+export type HostAcl = {
+  /** 宿主存在且未软删。false ⇒ 它对**任何人**都不可见（含 L1 与 admin） */
+  exists: boolean;
+  ownerId: string | null;
+  createdBy: string | null;
+  /** `*_staff` 里的 user id 集合（协办/关注/负责人都在内） */
+  staffIds: Set<string>;
+};
+
+/**
+ * 取一条宿主的 ACL。**两次查询，与收件人个数无关**。
+ *
+ * 为什么不是一次：宿主行与 `*_staff` 是两张表，且 staff 只在"有人是 L2"时才需要——
+ * 但把"需不需要"做成条件会让调用方拿到的对象形状随数据变化，
+ * 而固定的两次换取的是**可预测**（这正是本票要的：把 6+2N 变成常数）。
+ */
+export async function loadHostAcl(
+  r: { select: (...a: never[]) => unknown },
+  host: HostKind,
+  hostId: string | bigint,
+): Promise<HostAcl> {
+  const db = r as unknown as Awaited<ReturnType<typeof getDb>>;
+  const h = HOSTS[host];
+  const id = BigInt(hostId);
+
+  const [row] = await db
+    .select({
+      id: h.table.id,
+      ownerId: h.table.ownerId,
+      createdBy: h.table.createdBy,
+    })
+    .from(h.table)
+    .where(and(eq(h.table.id, id), sql`NOT ${h.table.isDeleted}`))
+    .limit(1);
+
+  if (!row) return { exists: false, ownerId: null, createdBy: null, staffIds: new Set() };
+
+  const staff = await db
+    .select({ userId: h.staff.userId })
+    .from(h.staff)
+    .where(eq(h.staffHostId, id));
+
+  return {
+    exists: true,
+    ownerId: row.ownerId === null ? null : String(row.ownerId),
+    createdBy: row.createdBy === null ? null : String(row.createdBy),
+    staffIds: new Set(staff.map((s) => String(s.userId))),
+  };
+}
+
+/**
+ * `visibility()` 的**内存形态**：拿 `HostAcl` + 某人的范围，判他能不能看见这条宿主。
+ *
+ * ## ⚠ 它与 `visibility()` 的关系（两份形态，各单一来源）
+ *
+ * 两者表达**同一条规则**，但绑定的东西不同：
+ *   · `visibility()` 绑定 actor、让**宿主行**当变量（列表查询：一次问"我能看哪些行"）；
+ *   · 本函数绑定宿主、让**用户**当变量（通知投递：一次问"这条行谁看得见"）。
+ * 谁都不能由谁推导出来，所以只能各写一份——但**各自只有一份**，
+ * 而不像"平行再写一个批量 SQL"那样把规则散成两处 SQL。
+ *
+ * ⚠ 想让它们漂的办法很具体：改了 `visibility()` 的某一档而没改这里（或反过来）。
+ * 抓住它的是一条**真库等价断言**：`agent-work/smoke-notifications.mjs` 里
+ * 对 (L1/L2/L3 × owner/creator/staff/无关人) 的矩阵逐格比对两种形态的判决。
+ * 那条断言是这份注释的兑现处——**别把这里改成"看起来一样"就走**。
+ */
+export function canSeeHostFrom(
+  acl: HostAcl,
+  scope: DataScope | undefined,
+  isAdmin: boolean,
+  userId: string,
+): boolean {
+  // 默认拒绝（§1 元规则 1）：宿主不在 ⇒ 谁都不许
+  if (!acl.exists) return false;
+  // §3 逃生口：只放开范围，不碰特权
+  if (isAdmin) return true;
+  const s = narrow(scope ?? "owned");
+  if (s === "all") return true;
+
+  const mine = userId === acl.ownerId || userId === acl.createdBy;
+  if (s === "owned") return mine;
+  return mine || acl.staffIds.has(userId);
 }
 
 /** 关键词命中案号/名称/案由；ILIKE 前后模糊，走不了 btree —— 一期接受，量大时再上 pg_trgm */
