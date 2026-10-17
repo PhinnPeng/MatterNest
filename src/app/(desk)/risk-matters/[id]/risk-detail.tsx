@@ -43,6 +43,7 @@ import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
 import { SectionTitle } from "@/app/components/page-header";
 import { ExpensePanel } from "@/app/components/expense-panel";
 import { ExportFileButton } from "@/app/components/export-file-button";
+import { FavoriteButton } from "@/app/components/favorite-button";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { CommentBody } from "@/app/components/comment-body";
@@ -214,6 +215,9 @@ export function RiskDetail({ id }: { id: string }) {
                 <Button type="primary" onClick={() => setStatusOpen(true)}>
                   变更状态
                 </Button>
+                {/* ⭐（MATT-63 / F1-13）：私人收藏。**刻意与右边的 `FollowGroup` 分开**——
+                    那个是「眼睛 + n 人关注」的公开名单，收藏不进名单、别人看不见。 */}
+                <FavoriteButton host="risk_matter" hostId={risk.id} favorited={risk.favorited} />
                 {/* 整卷导出：两档（脱敏 / 明文），与案件详情页同一个组件 */}
                 <ExportFileButton host="risk_matter" hostId={risk.id} code={risk.code} />
                 {/* 转案件是建案入口之一（IQ-3），详情页与列表页都要能发起（T2 验收原文）。

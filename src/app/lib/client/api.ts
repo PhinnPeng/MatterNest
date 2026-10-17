@@ -75,6 +75,16 @@ export const api = {
       body: body === undefined ? undefined : JSON.stringify(body),
       ...init,
     }),
+  /**
+   * `put`（MATT-63）。与 `patch` 的差别是**语义**：PUT = 幂等整体置位。
+   * 收藏 ⭐ 用它（连点两下 = 一次）；用 `post` 会让人以为每次点都产生一条记录。
+   */
+  put: <T>(path: string, body?: unknown, init?: Options) =>
+    request<T>(path, {
+      method: "PUT",
+      body: body === undefined ? undefined : JSON.stringify(body),
+      ...init,
+    }),
   del: <T>(path: string, init?: Options) => request<T>(path, { method: "DELETE", ...init }),
 };
 
@@ -318,6 +328,11 @@ export type MatterDetail = {
   }[];
   /** 有关联行、但按范围谓词看不见的来源事项条数（> 0 ⇒ 前端画占位） */
   sourceRisksHidden: number;
+  /**
+   * 我是否收藏了这条（MATT-63 / F1-13）。⭐ 控件的初值走这里，
+   * 不另开 `GET /api/watch/{type}/{id}` —— 那是可枚举的存在性探针。
+   */
+  favorited: boolean;
 };
 
 /**
@@ -404,6 +419,18 @@ export type RiskDetail = {
     status: string;
     isArchived: boolean;
   }[];
+  /** 我是否收藏了这条（MATT-63 / F1-13）；理由见 `MatterDetail.favorited` */
+  favorited: boolean;
+};
+
+/** 「我收藏的」一行（MATT-63 / F1-13）。`targetType` 决定点击后跳哪条路由。 */
+export type FavoriteRow = {
+  targetType: "matter" | "risk_matter";
+  targetId: string;
+  title: string;
+  subtitle: string;
+  isArchived: boolean;
+  createdAt: string;
 };
 
 /** 下拉字典（状态与等级是配置表驱动，必须从服务端读，见 `/api/meta`） */
