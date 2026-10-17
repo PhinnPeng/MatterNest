@@ -77,6 +77,59 @@ describe("源码守卫：节点提醒的 dateKey 是档位稳定的（MATT-78）
 });
 
 /**
+ * **投递侧不是 N+1**（MATT-76）。
+ *
+ * ## 为什么用源码守卫而不是墙钟
+ *
+ * 票面要的判据是「批量消费 K 行耗时的增长**不是线性 K 倍**」，而墙钟在本仓
+ * 恰好是最不可信的形态：共享 dev 库、并发跑、机器负载都会让它抖，
+ * 而本仓对"假绿"有真实戒心（票面自己就记着 `revred-notifications` 的并行假红教训）。
+ *
+ * 这里钉的是**往返次数**：它比墙钟更强也更稳。`insertNotificationEvent` 里
+ * 每次 `await` 都是一次数据库往返，而"往返数不随收件人个数增长"正是
+ * "耗时不是线性"的**充分条件**；剩下那半（单次往返的成本）与环境有关，
+ * 由 `agent-work/probe-outbox-n1.mjs` 的真库测量回答。
+ *
+ * ## 三条各钉什么
+ *
+ * ① 收件人循环里**不得**出现逐人的可见性查询 —— 它一回来，6+2N 就回来了，
+ *    而这个函数是**全项目唯一**写事件+投递的地方，所以每一条通知都要付。
+ * ② 内存形态的调用必须在（否则守卫只证明"删掉了旧写法"，不证明"换上了新写法"）。
+ * ③ 宿主 ACL 必须在**循环外**取（挪进循环 = 换个名字继续 N+1）。
+ */
+describe("源码守卫：投递侧的可见性判定不是 N+1（MATT-76）", () => {
+  const src = () =>
+    stripComments(readFileSync("src/app/lib/server/services/notifications.ts", "utf8"));
+
+  it("① 收件人循环里没有逐人的可见性查询", () => {
+    // 旧形态的特征是 `await canSeeHost(`；内存形态 `canSeeHostFrom(` 不含 await 查询。
+    // 用词级匹配会误伤后者，所以钉的是"不回退到逐人查询"这件事本身。
+    expect(src()).not.toMatch(/await\s+canSeeHost\(/);
+  });
+
+  it("② 内存形态的判定必须在（删掉旧写法 ≠ 换上新写法）", () => {
+    expect(src()).toContain("canSeeHostFrom(");
+  });
+
+  it("③ 宿主 ACL 在收件人循环**之前**取（挪进循环 = 换个名字继续 N+1）", () => {
+    const s = src();
+    const aclAt = s.indexOf("await loadHostAcl(");
+    expect(aclAt, "找不到 loadHostAcl —— 守卫的锚点失效了").toBeGreaterThan(0);
+    const loopAt = s.indexOf("for (const userId of intent.recipients)");
+    expect(loopAt, "找不到收件人循环 —— 守卫的锚点失效了").toBeGreaterThan(0);
+    expect(loopAt).toBeGreaterThan(aclAt);
+  });
+
+  it("④ 投递行**一次插完**（逐条插入 = 把 N 次往返又带回来）", () => {
+    const s = src();
+    // `insert(notificationDelivery)` 全项目只应出现一次，且用的是攒好的数组
+    const inserts = s.split("insert(notificationDelivery)").length - 1;
+    expect(inserts, "投递行插入点应恰好 1 处").toBe(1);
+    expect(s).toContain("values(deliveryRows)");
+  });
+});
+
+/**
  * outbox 行的展开口径（MATT-58 / T4b 补）。
  *
  * 这一层不碰数据库，所以它盯的是"**能跑通、只是口径错了**"那类缺陷：
