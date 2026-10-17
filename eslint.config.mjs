@@ -4,6 +4,11 @@ import prettierConfig from "eslint-config-prettier";
 import {
   COLOR_IGNORE_GLOBS,
   COLOR_RULE,
+  COLOR_SELECTORS,
+  EXIT_SELECTORS,
+  HTTP_SELECTORS_FILES_GLOB,
+  HTTP_SELECTORS_IGNORE_GLOBS,
+  ID_SHAPE_SELECTORS,
   SHELL_FILES_GLOBS,
   SHELL_PATTERNS,
   SHARED_PATTERNS,
@@ -69,6 +74,26 @@ export default tseslint.config(
     rules: {
       "no-restricted-imports": ["error", { patterns: [...SHELL_PATTERNS, ...UI_PATTERNS] }],
       ...COLOR_RULE,
+    },
+  },
+  {
+    // 出口形态 + id 形态单源（2026-10-17 retro 候选 1）：
+    //   · 404 只从 `http.ts:notFound()` 出来（手写 fail(404, …) 会带出第二份措辞）；
+    //   · 19 位 id 上界与 bigint 转换只在 `http.ts:pathId()`。
+    // 详细动机见 `tools/lint-guard/restricted-imports.mjs` 里两组 selector 的注释。
+    //
+    // ⚠ 这一块必须**带上 COLOR_SELECTORS**：它用的键（`no-restricted-syntax`）与上面
+    //   禁令⑦ 色值那一块相同，而 flat config 对同一个键是**后段整条覆盖**、不是合并。
+    //   漏掉的话 `src/app/**` 上的色值单源会在此处静默失效（check.mjs 的 D2/E 就是抓这个的）。
+    files: [HTTP_SELECTORS_FILES_GLOB],
+    ignores: HTTP_SELECTORS_IGNORE_GLOBS,
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...COLOR_SELECTORS,
+        ...EXIT_SELECTORS,
+        ...ID_SHAPE_SELECTORS,
+      ],
     },
   },
   {

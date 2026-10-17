@@ -85,6 +85,47 @@ const SCOPES = [
     mustNotReach: "src/app/api/matters/route.ts",
     whyOverflow: "handler 层按定义就要碰 DB，规则扩到 /api 会逼人在页面里写查询",
   },
+  {
+    // 出口形态（2026-10-17 retro 候选 1）。实测来源：watch 路由自己写了
+    // `fail(404, "not_found", "找不到这条记录。")`，与 http.ts:54 的规范措辞不同 ——
+    // 而"不可见与不存在同形同措辞"是权限模型的骨架。
+    id: "404 出口只从 notFound() 出来",
+    rule: "no-restricted-syntax",
+    bad: "tools/lint-guard/fixtures/bad/hand-rolled-not-found.ts",
+    good: "tools/lint-guard/fixtures/good/via-not-found.ts",
+    badPath: "src/app/api/__guard_notfound_bad__/route.ts",
+    goodPath: "src/app/api/__guard_notfound_good__/route.ts",
+    /** fixture 里两处 `fail(404, …)` 都要被拦（只拦一处＝ selector 写窄了） */
+    expectHits: 2,
+    mountedAt: "src/app/api/matters/route.ts",
+    marker: "404 出口只有 http.ts",
+    /** `http.ts` 正是 `notFound()` 的定义处，是这条规则唯一合法的现场 */
+    mustNotReach: "src/app/lib/server/http.ts",
+    whyOverflow: "http.ts 就是 notFound() 的定义体，规则扩进去等于把自己拦下来",
+  },
+  {
+    // id 形态单源（2026-10-17 retro 候选 1）：19 位上界与 bigint 转换只在 pathId()。
+    // 实测来源：watch 路由把这份正则又抄了一遍并按自造的 bad_target 报错 ⇒ 同一个错误两个码。
+    id: "id 形态只在 pathId() 一处",
+    rule: "no-restricted-syntax",
+    bad: "tools/lint-guard/fixtures/bad/redeclared-id-shape.ts",
+    good: "tools/lint-guard/fixtures/good/via-path-id.ts",
+    badPath: "src/app/api/__guard_idshape_bad__/route.ts",
+    goodPath: "src/app/api/__guard_idshape_good__/route.ts",
+    /** 单个 id 的两处形状（`.regex()` 与裸 `.test()`）都要被拦 */
+    expectHits: 2,
+    mountedAt: "src/app/(desk)/matters/page.tsx",
+    marker: "id 的形态（19 位上界）",
+    /**
+     * `src/shared/**` 不在本规则的挂载面内（那里正是 body id 数组的家：
+     * `schema/batch.ts` 的 `idField` 用同一个上界，且注释写了理由），
+     * 用它当 mustNotReach 才验得动"规则没有溢出到 shared"。
+     */
+    mustNotReach: "src/shared/schema/batch.ts",
+    whyOverflow:
+      "shared 是 body id 数组的家（batch.ts 的 idField 同形且有理有据），" +
+      "规则扩过去会把合法的 body 校验也拦下",
+  },
 ];
 
 const failures = [];

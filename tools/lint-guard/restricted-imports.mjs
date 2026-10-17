@@ -98,21 +98,78 @@ export const UI_PATTERNS = [
  * 半透明不写字面量而是 `alpha(BRAND.sider.item, .62)`——同一个色只有一份十六进制。
  * CSS 侧（`globals.css` 的纸色底与正文色）eslint 管不到，那边留了注释指向 brand.ts。
  */
-export const COLOR_RULE = {
-  "no-restricted-syntax": [
-    "error",
-    {
-      selector: String.raw`Literal[value=/#(?!fff\b|ffffff\b)[0-9a-fA-F]{3,8}/]`,
-      message:
-        "禁令⑦：色值只在 src/app/theme/brand.ts 里定义，业务侧用 BRAND.* / INK.*（只有白 #fff 可以写出来）",
-    },
-    {
-      selector: String.raw`Literal[value=/[ra]gba?\(/]`,
-      message:
-        "禁令⑦：半透明用 theme/brand.ts 的 alpha(颜色, 透明度)，别再手写第二份 rgb()/rgba() 色值",
-    },
-  ],
-};
+export const COLOR_SELECTORS = [
+  {
+    selector: String.raw`Literal[value=/#(?!fff\b|ffffff\b)[0-9a-fA-F]{3,8}/]`,
+    message:
+      "禁令⑦：色值只在 src/app/theme/brand.ts 里定义，业务侧用 BRAND.* / INK.*（只有白 #fff 可以写出来）",
+  },
+  {
+    selector: String.raw`Literal[value=/[ra]gba?\(/]`,
+    message:
+      "禁令⑦：半透明用 theme/brand.ts 的 alpha(颜色, 透明度)，别再手写第二份 rgb()/rgba() 色值",
+  },
+];
+
+export const COLOR_RULE = { "no-restricted-syntax": ["error", ...COLOR_SELECTORS] };
+
+/**
+ * 出口形态（2026-10-17 retro 候选 1）：**404 只从 `http.ts:notFound()` 出来**。
+ *
+ * 这一条防的是手写 `fail(404, ...)`：`api-route-conventions.md` 规则 3 把出口限定在
+ * `json` / `fail` / `notFound` / `unauthorized` / `reasonRequired` / `attributionRequired`，
+ * 而"不可见与不存在同形 404、且**措辞一致**"是权限模型的骨架 —— 手写一份就多一份措辞，
+ * 两句"找不到"迟早分叉，而两条路都 200/404 得一模一样。
+ *
+ * 实测来源：2026-10-17 复审发现 `api/watch/[targetType]/[targetId]/route.ts` 自己写了
+ * `fail(404, "not_found", "找不到这条记录。")`，与 `http.ts:54` 的规范措辞不同。
+ * 修掉之后全仓**零基线**（只剩 `http.ts` 自己那一处定义，被 ignore 掉），所以这条规则
+ * 不需要任何存量豁免。
+ */
+export const EXIT_SELECTORS = [
+  {
+    selector: "CallExpression[callee.name='fail'][arguments.0.value=404]",
+    message:
+      "404 出口只有 http.ts 的 notFound()：手写 fail(404, …) 会带出第二份「找不到」措辞，而「不可见与不存在同形同措辞」是权限模型的骨架（api-route-conventions.md 规则 3）",
+  },
+];
+
+/**
+ * id 形态单源（2026-10-17 retro 候选 1）：`^\\d{1,19}$` 与 `bigint` 转换只在 `http.ts:pathId()`。
+ *
+ * `error-handling.md` 第 101 行：`BigInt(路径参数)` 之前**必须**过 `pathId()` ——
+ * `BigInt("undefined")` 抛 SyntaxError 会冒成 500，一个手打的错 URL 就能污染错误率监控。
+ * 而"19 位上界"这个数字一旦出现第二份，两份就会各自演化。
+ *
+ * 实测来源：同一个 watch 路由把这份正则**又抄了一遍**放进 shared schema，
+ * 并按自造的 `bad_target` 报错 —— 同一个错误在两条路由上报出两个码。
+ *
+ * ## selector 为什么带 `:not(CallExpression[callee.property.name="array"] *)`
+ *
+ * 「19 位上界」在仓里有**合法的第二类用法**：body 里的 id **数组**。
+ * `shared/schema/batch.ts:85` 与 `api/notifications/read/route.ts:18`、
+ * `api/risk-matters/[id]/staff/followers/route.ts:18` 都用它校验 `ids: string[]` ——
+ * 那些 id 走 body 而不是路径，`pathId()` 根本用不上（batch.ts 的注释专门写了这条），
+ * 但同一个上界**必须跟着**，否则 40 位的 id 会以 PG `value out of range` 变成 500。
+ *
+ * 所以规则收窄到**单个 id 的 regex**（`z.string().regex(/^\d{1,19}$/)` 这类形状），
+ * 数组里的那份放过。四种写法实测过命中面，选定 `:not(…array… *)` 这一种：
+ *
+ *   · `Literal[regex.pattern="^\\d{1,19}$"]`
+ *         → `http.ts` / `notifications:read` / `followers` / `batch.ts` 各 1 处（4 处，太宽）
+ *   · `…:not(CallExpression[callee.property.name="array"] *)`  ← **选这个**
+ *         → 只剩 `http.ts` 与 `batch.ts`（两个 route 的数组形态被放过）
+ *
+ * 挂载在 `src/app/**`，所以范围内实际只剩 `http.ts`，而它被 ignore 掉 —— **零基线**。
+ * （`batch.ts` 在 `src/shared`，不在本规则的挂载面内，改由它自己的注释守着。）
+ */
+export const ID_SHAPE_SELECTORS = [
+  {
+    selector: String.raw`Literal[regex.pattern="^\\d{1,19}$"]:not(CallExpression[callee.property.name="array"] *)`,
+    message:
+      'id 的形态（19 位上界）与 bigint 转换只在 http.ts:pathId() 一处 —— 路径参数先过 pathId() 再 BigInt，否则 BigInt("undefined") 抛 SyntaxError 冒成 500（error-handling.md 状态码归属表）',
+  },
+];
 
 /**
  * 禁令⑥（页面壳不预取业务数据）+ 禁令⑤（鉴权在 handler 内）：
@@ -139,6 +196,27 @@ export const UI_IGNORE_GLOBS = [];
 /** 唯一例外：主题那两个文件就是定义颜色的地方 */
 export const COLOR_IGNORE_GLOBS = ["src/app/theme/**"];
 export const SHELL_FILES_GLOBS = ["src/app/**/page.tsx", "src/app/**/layout.tsx"];
+
+/* ── 出口形态 + id 形态单源（2026-10-17 retro 候选 1）的挂载面 ── */
+
+/**
+ * 两条新规则**合挂一个块**，因为它们用的是同一个 eslint 键（`no-restricted-syntax`）——
+ * 分成两个块时，后一个会**整条覆盖**前一个的 selector 集合（flat config 按键覆盖，
+ * 不是合并），于是挂在窄 glob 上的那条会在宽 glob 的块面前失效。
+ * 合成一块、把两组 selector 一起摊开，是最不容易被后来者改坏的形式。
+ *
+ * 为什么挂 `src/app/**` 全域而不是只挂 `/api` + `lib/server`：
+ * 出口规则的产品意图确实只在服务端两层，但把 glob 收窄就得再拆块（见上），
+ * 而全域挂上是**无害**的 —— 页面壳与组件里没有 `fail()` 可调，命中即是真的用错了。
+ */
+export const HTTP_SELECTORS_FILES_GLOB = "src/app/**/*.{ts,tsx}";
+
+export const HTTP_SELECTORS_IGNORE_GLOBS = [
+  /** `http.ts` 是这两条规则的**唯一合法现场**：`notFound()` 在此定义、`pathId()` 在此定义 */
+  "src/app/lib/server/http.ts",
+  /** 主题那两处是 `禁令⑦ 色值单源` 的定义点，扩进去会把它的 E 断言顶掉（见 check.mjs 的 D2/E） */
+  "src/app/theme/**",
+];
 
 export const GUARD_GLOBS = {
   bad: "tools/lint-guard/fixtures/bad/**/*.ts",

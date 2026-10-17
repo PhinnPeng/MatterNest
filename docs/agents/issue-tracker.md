@@ -108,6 +108,29 @@ python ./.trellis/scripts/task.py list [--status in_progress]
 - 按 `statusId` 过滤，把目标区间捞进第一页（找 #5x 时用的就是这条）；
 - 已知 uuid 时直接 `get_task`（**不接受** `MATT-55` / `55` 这类编号，只吃 uuid）。
 
+### `status_id` ⇄ 状态名（project `8c42f9be-…`，2026-10-17 实测）
+
+| `status_id` | name | category | position |
+|---|---|---|---|
+| `cabde200-a779-4653-bbd0-62efad6f4e7d` | Backlog | `backlog` | 1 |
+| `c1976711-d256-4881-ae65-4eeeb55314da` | Todo | `todo` | 2 |
+| `0fe789f5-c15d-4681-a50f-9e5b4d33487a` | In Progress | `inprogress` | 3 |
+| `3c67e704-3ddb-4016-9b37-e20998ed87b0` | Done | `done` | 4 |
+
+**`list_tasks` 不返回状态名。** 返回的条目只带 `status_id`（以及 `task_type_id`、`tags` 等），
+没有 name 字段 ⇒ 名字只能**从本表查**或**从状态列表工具查**，没有第三条路。
+
+刷新本表只有一条 sanctioned 路径：Paca MCP 工具 **`list_task_statuses`**。
+REST 协助脚本已全部删除且**不应重建**（见上），所以**不要**去 curl API —— 指 `list_task_statuses`。
+
+它除 `position` 外还返回 **`category`**（`backlog` / `todo` / `inprogress` / `done`），
+所以统计可以**按 category 分组**而不硬编码 uuid。
+
+⚠ **凭 uuid 顺序或 `position` 猜映射 = 静默把整份报告反过来。** 本会话真实发生：
+据此报成「Done 5 / Backlog 72」，真值是「Done 70 / Backlog 15」，**完全颠倒**，
+而**全程没有任何一处报错** —— 一个自信的错结论，看起来和正确的一模一样。
+所以要映射就**每次都从 `list_task_statuses` 取**、或读本表，**绝不从 uuid 排序或 position 推**。
+
 ## 寻址：把 `MATT-n` 换成 uuid
 
 **`list_tasks` 不返回编号。** uuid 与编号的对应只能靠 `Task #N:` 行头按位次对齐 ⇒ **位置错配是结构性的，不是偶发**。
@@ -211,10 +234,32 @@ These skills assume one tracker that owns labels. In this repo:
 **确定性的守卫**（一行、离线、不需要库）：
 
 ```bash
-for b in ticket/*; do
+for b in $(git branch --list 'ticket/*' --format='%(refname:short)'); do
   git merge-base --is-ancestor "$b" HEAD && echo "✓ $b" || echo "✗ $b 未并入"
 done
 ```
+
+⚠ **`ticket/*` 不能裸用（`for b in ticket/*`）—— 那是文件名通配，不是分支通配。**
+repo 里没有 `ticket/` 目录，通配符不展开，循环只跑一次、`$b` 是字面量 `ticket/*`：
+
+```
+fatal: Not a valid object name ticket/*
+✗ ticket/* 未并入
+```
+
+⇒ **无论全并入还是一个没并入，都只印同一行 `✗`**。一条恒假的门禁比没有门禁更糟：
+它让下一个人以为这一步是机械检查，实际它什么也没查。分支名只能由 **`git branch --list`**
+枚举（上面那版）。
+
+跑法：`pnpm branches:merged`（= `node tools/branch-merged.mjs ['<glob>']`，默认 `ticket/*`）。
+同一判据，另外**扫到 0 个分支即判失败** —— 通配符写歪时不允许静默通过。
+
+⚠ **它不进 `pnpm verify`，这是刻意的，不要"顺手"加进去。** `verify` 在 CI 上跑，而
+`actions/checkout`（未配 `fetch-depth`）只拉**一个 ref、depth=1**：那种工作区里
+`git branch --list 'ticket/*'` 匹配 **0 支**，于是 canary 会把 CI 每次跑都判红。
+（实测过：`git clone --depth 1 --no-local . ` 之后 `ticket/*` 分支数 = 0。）
+它与 `board:drift` 同类 —— **需要本地分支/板面状态的本地守卫，只能在关票那一侧手工跑**，
+不能进 CI 门禁链。这条区分值得记住：判据越依赖"本地那棵工作树"，越不该挂 CI。
 
 关票**之前**跑它。为什么必须是机械检查而不是"记得"：
 两次都不是粗心，而是**中断后没回头**——第一次被 abort 打断、第二次在等代理回收时切走了。

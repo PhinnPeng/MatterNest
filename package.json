@@ -23,6 +23,7 @@
     "keys:gen": "node tools/keys.mjs gen",
     "keys:check": "node tools/keys.mjs check",
     "board:drift": "node tools/board-drift.mjs",
+    "branches:merged": "node tools/branch-merged.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node tools/migrate.mjs --migrate-only",
     "db:seed": "node tools/migrate.mjs --seed-only",
