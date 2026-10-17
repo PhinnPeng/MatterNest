@@ -63,3 +63,11 @@ const hit = [...new Set(node.remindDays)].filter((d) => d === daysLeft).sort((a,
 - `docs/PRD-phase1-design-revision-r1.md` §7.2（`dedupe_key` 的 scheduled 行 + 合并规则 4）—— 我的改动**证伪**了那里「`date_key(扫描日期)`」的写法。
 - `docs/research-portable-scheduler.md` §5.1（「不会补发。错过的档位永久丢失」这句结论被本票改掉，节点提醒那一半）。
 - 说明：票面第一顺位对齐件 `docs/PRD-phase1-g-targets-b5-draft.md` 是**已批准定稿**，其中与节点提醒相关的只有 G3 的度量行与规则 9 注记，**没有**描述「档位判定 / scheduled key 构造」的段落 ⇒ 写去了上面两份。
+
+## 五、归档后勘误（2026-10-17，复审）
+
+- 「反向红两次 (ii)」写的「把 key 换回 `businessDateKey(now)` ⇒ 判据 2 必红」**字面未满足**：
+  `notification.spec.ts` 那组是纯函数用例（盯 `scanDueDateKey` 的契约），自复刻构造，只改调用点它照样绿；
+  实际盯住调用点的是**服务层源码守卫**（`services/notifications.spec.ts` 里那条读源码断言，与
+  `nodes/route.spec.ts` 同姿态）。判据的意图（换回旧 key 必须有人拦）由守卫生效 —— 实测换回 ⇒ 守卫红
+  （见 `7fc7848` 提交信息「反向红 (ii)」）。

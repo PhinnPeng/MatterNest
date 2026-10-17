@@ -320,7 +320,7 @@ describe("冻结判据：只写一处，且八条写路径都走它", () => {
     ]);
   });
 
-  it("八道门都排在归档与归属判定**之前**（冻结是记录自身的属性）", () => {
+  it("冻结门都排在归档与归属判定**之前**（八道门逐个点名；两道无可排前判定的跳过，不算过）", () => {
     // 门的先后不是风格：若把 `isRiskFrozen` 排在 `isArchived` / `ownsAttribution` 之后，
     // 冻结的事项会先被告知「已归档」或「你不是经办人」，用户照着那句去找特权或找经办人，
     // 而找到之后拿到的还是同一句拒绝。**答案要是"因为已冻结"，不是别的原因。**
@@ -344,7 +344,7 @@ describe("冻结判据：只写一处，且八条写路径都走它", () => {
       const archived = body.search(/if \(\s*\w+\.isArchived\b/);
       const attribution = body.indexOf("ownsAttribution(");
       const firstOther = [archived, attribution].filter((i) => i >= 0).sort((a, b) => a - b)[0];
-      // 本函数没有归档/归属判定（如 removeRiskParty）就没有顺序可判 —— 跳过，不算过。
+      // 本函数没有归档/归属判定（removeRiskParty / unconvertFromCase 两道）就没有顺序可判 —— 跳过，不算过。
       if (firstOther === undefined) continue;
       expect(gate, `${name} 的冻结门排在了归档/归属判定之后 —— 用户会先听到假原因`).toBeLessThan(
         firstOther,

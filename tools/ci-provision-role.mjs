@@ -181,7 +181,7 @@ export const checkSql = `
          --      裸写 any(rolconfig) 会报 column "rolconfig" does not exist。必须走子查询。
          --   2. GUC 名被 PG **归一化**成 TimeZone（不是我们写的 timezone）：
          --      ALTER ROLE … SET timezone TO 'UTC' 落库是 {TimeZone=UTC}。
-         --      写成小写会得到一条**永远为 false** 的断言 —— 而它在离线文本测试里照样绿。
+         --      写成小写会得到一条**永远为 false** 的断言；第一版离线测试放它过去了，现在逐字钉住大写。
          (select coalesce(array_position(rolconfig, 'TimeZone=${SESSION_TIMEZONE}') > 0, false)
             from pg_roles where rolname = current_user) as "hasUtcTimezone",
          (select rolconfig from pg_roles where rolname = current_user) as "rolconfigRaw"`;
