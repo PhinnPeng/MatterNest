@@ -1,7 +1,11 @@
 import { and, asc, count as dcount, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { z } from "zod";
 import { nextId } from "@/shared/ids/snowflake";
-import { listQuerySchema, SORTABLE_COLUMNS } from "@/shared/schema/list-query";
+import {
+  listQuerySchema,
+  SORTABLE_COLUMNS,
+  type MatterListExportQuery,
+} from "@/shared/schema/list-query";
 import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { type ProgressInput } from "@/shared/schema/hosts";
@@ -36,6 +40,7 @@ import { initialStatusCode, hostStatusRows } from "./statuses";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
+import { configNameDict, csvText, exportAuditPayload, listExportLanding } from "./exports";
 import { mentionPartsOf } from "./comment-mentions";
 import {
   enqueueCommentIntent,
@@ -43,7 +48,7 @@ import {
   quoteOf,
   resolveMentionIds,
 } from "./notifications";
-import { NODE_STATUS_LABELS } from "@/shared/enums/business";
+import { NODE_STATUS_LABELS, PROCEDURE_LABELS } from "@/shared/enums/business";
 
 /**
  * 宿主读写（案件的列表 / 详情 / 建案 / 状态变更 / 节点 / 评论）。
@@ -85,9 +90,21 @@ const SORTABLE: Record<(typeof SORTABLE_COLUMNS)[number], SQL> = {
   updated_at: sql`${matter.updatedAt}`,
 };
 
-export async function listMatters(actor: Actor, q: ListQuery) {
-  const db = await getDb();
-  const where = and(
+/**
+ * 列表与它导出的**同一份**谓词（MATT-64）。
+ *
+ * 为什么必须是一个函数而不是两处各写一遍：导出集合与列表可见集合要**逐行一致**，
+ * 而"少写一个筛选条件"不会报错 —— 用户拿到的是"列表 21 行、导出 43 行"，
+ * 或者更糟：导出比列表**多**（范围谓词漏掉一处）。两个方向都静默。
+ *
+ * 真库上的断言是 `agent-work/smoke-list-export.mjs` 的
+ * 「导出行数 == 同一筛选下列表的 total」；`matters.spec.ts` 里那条源码守卫盯着"只写一处"。
+ */
+function mattersListWhere(
+  actor: Actor,
+  q: { status?: string; keyword?: string; archivedOnly?: boolean; missingMaterials?: boolean },
+): SQL | undefined {
+  return and(
     scopedWhere("matter", actor),
     archivedFilter("matter", Boolean(q.archivedOnly)),
     q.status ? eq(matter.status, q.status) : undefined,
@@ -97,6 +114,52 @@ export async function listMatters(actor: Actor, q: ListQuery) {
     // 只会让"列表说有缺、详情页说齐备"同时成立。
     q.missingMaterials ? archiveMissingSql() : undefined,
   );
+}
+
+/**
+ * 列表 / 导出的**同一份**行投影。
+ *
+ * 抽出来的唯一理由是 `nextDeadline` 那一段：它必须写**裸限定名** `mn_matter.id`
+ * （在 select 列表上下文里 `${matter.id}` 会渲染成无限定的 `"id"`，而子查询自己也有 `id`
+ * ⇒ 恒假、静默 NULL）。两处各写一遍就有一次抄错的机会，抄错的形态是"导出里那一列永远空"。
+ */
+function matterListSelection() {
+  return {
+    id: matter.id,
+    internalCode: matter.internalCode,
+    caseNo: matter.caseNo,
+    name: matter.name,
+    cause: matter.cause,
+    caseType: matter.caseType,
+    procedure: matter.procedure,
+    litigationRole: matter.litigationRole,
+    court: matter.court,
+    amount: matter.amount,
+    level: matter.level,
+    status: matter.status,
+    isArchived: matter.isArchived,
+    archivedAt: matter.archivedAt,
+    ownerName: appUserName(),
+    updatedAt: matter.updatedAt,
+    /**
+     * 最近一个未决节点的期限。
+     *
+     * ⚠ 关联键必须是**裸限定名** `mn_matter.id`，不能写 `${matter.id}`：
+     * 在 **select 列表**上下文里 drizzle 把本表列渲染成**无限定**的 `"id"`，
+     * 而子查询里那张表**自己就有 `id`** ⇒ `n.matter_id = "id"` 被解析成 `n.matter_id = n.id`，
+     * **恒假**。这里比 `archive-readiness.ts` 那处更阴——子查询只有一张表，
+     * PG **不会报歧义**，`min()` 静默恒 NULL：列表的「下一期限」一列永远是空的，
+     * 而没有任何测试盯着它（检查子代理用真库实测：6 个案件里本该 4 个有期限，实际全空）。
+     */
+    nextDeadline: sql<string | null>`(select min(n.deadline_time) from mn_matter_node n
+      where n.matter_id = mn_matter.id and not n.is_deleted
+        and n.status in ('not_started','in_progress'))`,
+  };
+}
+
+export async function listMatters(actor: Actor, q: ListQuery) {
+  const db = await getDb();
+  const where = mattersListWhere(actor, q);
   // 这里不再有 `?? matter.updatedAt` 兜底：SORTABLE 的键集合由类型保证与白名单相等，
   // 兜底反而会掩盖"新加了一列却忘了配映射"。
   const col = SORTABLE[q.sortBy ?? "updated_at"];
@@ -104,37 +167,7 @@ export async function listMatters(actor: Actor, q: ListQuery) {
 
   const [totalRow] = await db.select({ n: dcount() }).from(matter).where(where);
   const rows = await db
-    .select({
-      id: matter.id,
-      internalCode: matter.internalCode,
-      caseNo: matter.caseNo,
-      name: matter.name,
-      cause: matter.cause,
-      caseType: matter.caseType,
-      procedure: matter.procedure,
-      litigationRole: matter.litigationRole,
-      court: matter.court,
-      amount: matter.amount,
-      level: matter.level,
-      status: matter.status,
-      isArchived: matter.isArchived,
-      archivedAt: matter.archivedAt,
-      ownerName: appUserName(),
-      updatedAt: matter.updatedAt,
-      /**
-       * 最近一个未决节点的期限。
-       *
-       * ⚠ 关联键必须是**裸限定名** `mn_matter.id`，不能写 `${matter.id}`：
-       * 在 **select 列表**上下文里 drizzle 把本表列渲染成**无限定**的 `"id"`，
-       * 而子查询里那张表**自己就有 `id`** ⇒ `n.matter_id = "id"` 被解析成 `n.matter_id = n.id`，
-       * **恒假**。这里比 `archive-readiness.ts` 那处更阴——子查询只有一张表，
-       * PG **不会报歧义**，`min()` 静默恒 NULL：列表的「下一期限」一列永远是空的，
-       * 而没有任何测试盯着它（检查子代理用真库实测：6 个案件里本该 4 个有期限，实际全空）。
-       */
-      nextDeadline: sql<string | null>`(select min(n.deadline_time) from mn_matter_node n
-        where n.matter_id = mn_matter.id and not n.is_deleted
-          and n.status in ('not_started','in_progress'))`,
-    })
+    .select(matterListSelection())
     .from(matter)
     .where(where)
     .orderBy(order, desc(matter.id))
@@ -1503,4 +1536,149 @@ export async function batchTagMatters(
     applied++;
   }
   return { ok: true, applied, skipped };
+}
+
+/* ───────────────────── 列表导出（MATT-64 / F2-23：脱敏 / 明文两档） ───────────────────── */
+
+/** 一次导出最多这么多行；超出时 `truncated=true`（与 `PARTY_EXPORT_LIMIT` 同值同义：静默截断＝假全量） */
+export const MATTER_EXPORT_LIMIT = 1000;
+
+/** 导出的一行：列表那一屏的列（+ 正式案号，见 `mattersExportCsv`） */
+export type MatterExportRow = {
+  internalCode: string;
+  caseNo: string;
+  name: string;
+  cause: string;
+  procedure: string;
+  level: string;
+  status: string;
+  amount: string;
+  ownerName: string;
+  nextDeadline: string | null;
+  updatedAt: string;
+};
+
+/**
+ * 案件列表的 CSV。
+ *
+ * ⚠ 脱敏规则（`maskValue`）、CSV 单元格编码（`csvCell`）、BOM 与行分隔（`csvText`）
+ * 都不在本文件里 —— 它们与整卷导出、当事人导出共用 `exports.ts` 那一份实现。
+ * 本文件只留"案件这张表在列表上有哪几列"这一件只有它才知道的事。
+ *
+ * ## 列与列表页的对应
+ *
+ * 逐列照列表（`matters-view.tsx` 的表头）来，**只多一个「正式案号」**：列表因为宽度
+ * 没显示它，而一份清单里没有案号就得逐条打开才认得。导出的是"这一屏的行"，
+ * 所以列不另起一套（多一列身份列，不是多一个功能）。
+ *
+ * ## 两个 code 列查字典
+ *
+ * 程序/审级这类**硬编码枚举**取 `shared/enums` 的中文名（与前端同一份，不在后端再抄一遍）；
+ * 状态与等级是**配置驱动**的（运营可改名），由调用方查库后经 `dict` 传进来。
+ * 两个字典都查不到时**回落原始 code** —— 停用过的状态在历史行上仍然出现，
+ * 导成空白才是丢信息。
+ */
+export function mattersExportCsv(
+  rows: readonly MatterExportRow[],
+  dict: { statusNames?: Record<string, string>; levelNames?: Record<string, string> },
+): string {
+  const header = [
+    "内部编号",
+    "正式案号",
+    "案件名称",
+    "案由",
+    "程序",
+    "等级",
+    "状态",
+    "标的额",
+    "负责人",
+    "最近到期",
+    "更新",
+  ];
+  const lines = rows.map((r) => [
+    r.internalCode,
+    r.caseNo,
+    r.name,
+    r.cause,
+    PROCEDURE_LABELS[r.procedure as keyof typeof PROCEDURE_LABELS] ?? r.procedure,
+    dict.levelNames?.[r.level] ?? r.level,
+    dict.statusNames?.[r.status] ?? r.status,
+    // 金额是 `numeric` 的原样字符串（两位小数）：导出**不重算**、不格式化（与整卷导出同口径）
+    r.amount,
+    r.ownerName,
+    // 没有未决节点时那一格是空的，不写 "null" / "undefined"
+    r.nextDeadline ?? "",
+    r.updatedAt,
+  ]);
+  return csvText([header, ...lines]);
+}
+
+/**
+ * 案件列表导出（F2-23）：**吃列表当前的那套筛选**，默认脱敏档。
+ *
+ * ## 三条口径
+ *
+ *   1. **集合逐行一致**：走 `mattersListWhere`，与 `listMatters` 是同一个函数 ——
+ *      不是"照着列表再写一遍"。真库断言见 `agent-work/smoke-list-export.mjs`；
+ *   2. **两档**：`plain` 只经 `exportAuditPayload` 记录，服务层**不判** `canReadPlain`
+ *      —— 那是 HTTP 层的特权口径（`http.ts` 的 `requirePrivilege`），
+ *      服务层再判一次就是两套口径（与 `exportParties` 逐字同一条理由）；
+ *   3. **整批一条 `EXPORT`**：载荷见 `exportAuditPayload`，`rows` = 数据行数（不含表头）；
+ *      `count` 与它同值 —— 本列表一行就是一件案卷，所以"件数"这个量纲在这里就是行数
+ *      （当事人导出不写 `count`，因为一行不是一件卷）。
+ *
+ * ⚠ 两档在**本列表上内容相同**：案件的加密列（当事人证件号/联系方式）住在 `mn_party`，
+ * 这是宿主列表，一行一案，装不下一条当事人的多个证件号 —— 所以没有"留尾四位"可做。
+ * `plain` 仍然是真口径：它决定**谁能调**（HTTP 层的门）与**审计里记的档位**，
+ * 哪天真给这份列表加一列敏感字段，两档立刻分叉，而门与审计不用改。
+ */
+export async function exportMatters(
+  actor: Actor,
+  q: MatterListExportQuery,
+): Promise<{ plain: boolean; rows: number; count: number; truncated: boolean; csv: string }> {
+  const db = await getDb();
+  const where = mattersListWhere(actor, q);
+  const col = SORTABLE[q.sortBy];
+  const rows = await db
+    .select(matterListSelection())
+    .from(matter)
+    .where(where)
+    .orderBy(q.sortDir === "asc" ? asc(col) : desc(col), desc(matter.id))
+    .limit(MATTER_EXPORT_LIMIT + 1);
+
+  const truncated = rows.length > MATTER_EXPORT_LIMIT;
+  const kept = truncated ? rows.slice(0, MATTER_EXPORT_LIMIT) : rows;
+  const csv = mattersExportCsv(
+    kept.map((r) => ({
+      internalCode: r.internalCode,
+      caseNo: r.caseNo,
+      name: r.name,
+      cause: r.cause,
+      procedure: r.procedure,
+      level: r.level,
+      status: r.status,
+      amount: r.amount,
+      ownerName: r.ownerName,
+      nextDeadline: r.nextDeadline ?? null,
+      updatedAt: r.updatedAt,
+    })),
+    await configNameDict("matter"),
+  );
+
+  await db.transaction(async (tx) => {
+    await logActivity(tx, actor, {
+      // 落点见 `listExportLanding`：跨宿主的导出挂不到某一个案件上（挂上去是说谎）
+      ...listExportLanding(actor),
+      action: "EXPORT",
+      payload: exportAuditPayload({
+        targetType: "matter",
+        scope: "matter_list",
+        rows: kept.length,
+        count: kept.length,
+        plain: q.plain,
+      }),
+    });
+  });
+
+  return { plain: q.plain, rows: kept.length, count: kept.length, truncated, csv };
 }

@@ -26,6 +26,7 @@ import { calDate, fromNow, money } from "@/app/lib/client/format";
 import { BATCH_SKIP_REASON_LABELS, MAX_BATCH_IDS, type BatchSummary } from "@/shared/schema/batch";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { FilterField, QueryFilter } from "@/app/components/query-filter";
+import { ExportListButton } from "@/app/components/export-file-button";
 import { ReportCards } from "@/app/components/report-cards";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { FlagMark, StatusMark } from "@/app/components/ui/status-mark";
@@ -427,6 +428,8 @@ export function RisksView() {
                 void qc.invalidateQueries({ queryKey: ["reports"] });
               }}
             />
+            {/* 导出吃的是**当前筛选**（含「未指派」那一档）：`state` 自己进控件 */}
+            <ExportListButton path="/api/risk-matters/export" fileBase="事项列表" state={state} />
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
               新建事项
             </Button>

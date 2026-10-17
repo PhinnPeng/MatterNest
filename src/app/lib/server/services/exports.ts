@@ -17,6 +17,7 @@ import {
   matterParty,
   matterProgress,
   party,
+  riskLevelConfig,
   riskMatter,
   riskMatterExpense,
   riskMatterNode,
@@ -24,6 +25,7 @@ import {
 } from "../db/schema";
 import { decryptField } from "../crypto/field-crypto";
 import { scopedWhere, type HostKind } from "../scope/visibility";
+import { hostStatusRows } from "./statuses";
 import { logActivity } from "./activity";
 import type { Actor } from "../auth/auth";
 
@@ -114,6 +116,55 @@ export function exportAuditPayload(p: {
 
 /** 每个区段最多导出的行数。超了就把 `truncated` 置真 —— 静默截断等于骗人 */
 export const EXPORT_SECTION_LIMIT = 1000;
+
+/**
+ * **列表类导出**的审计落点：操作者账号维度（`target_type='app_user'`，不挂宿主列）。
+ *
+ * 当事人档案动作（`parties.ts` 里那个 `partyAuditLanding` 是它的别名）与两份列表导出
+ * 共用这一处 —— 三处各写一遍的下场是某天一处换了落点、另一处没换，而两边都"看着对"。
+ *
+ * ## 为什么是这个落点（一处已知偏差，理由与代价写在这里）
+ *
+ *   · E03 `target_type` 的 7 个取值里没有"列表"这个概念，`ck_mn_activity_host` 又要求
+ *     "日志必须挂在案件/事项上（`app_user` 除外）"——一份**跨宿主**的导出清单
+ *     挂到哪一个案件上都是**说谎**（那条日志与那个案件无关）；
+ *   · 迁移 0006 为账号动作开的那个口子（`target_type='app_user'` + 不挂宿主）
+ *     是既有唯一"无业务宿主"的合法落点，于是它承接列表导出，
+ *     `payload.target_type` 里写清**导出的是什么**（`matter` / `risk_matter`）；
+ *   · 正确修法是给 E03 加一个列表/批次的维度（注册表 + 文档 + 迁移三向同批），
+ *     那三处都不在本票写范围内，已写进交付报告。
+ *
+ * ⚠ 别把它换成"挂到第一条导出的记录上"：那会让这条审计出现在某个案件的活动日志里，
+ * 读起来像"这个案件被导出了"，而实际导出的是几十条。
+ */
+export function listExportLanding(actor: Actor): { targetType: string; targetId: bigint } {
+  return { targetType: "app_user", targetId: BigInt(actor.userId) };
+}
+
+/**
+ * 状态与风险等级的中文名字典 —— 这两份是**配置驱动**的（枚举表 §0，运营可改名），
+ * 列表页从 `/api/meta` 取，导出自己查一次。
+ *
+ * 抽到公共件是因为两个宿主列表导出都要它，而"各查一遍"会漂成两份不同口径的
+ * 「进行中」文案。`hostStatusRows` 已经是状态读取的**唯一出口**（`/api/meta` 也走它），
+ * 这里不自己 select `mn_status_config`。
+ */
+export async function configNameDict(
+  host: HostKind,
+): Promise<{ statusNames: Record<string, string>; levelNames: Record<string, string> }> {
+  const db = await getDb();
+  const [statuses, levels] = await Promise.all([
+    hostStatusRows(host),
+    db
+      .select({ code: riskLevelConfig.code, name: riskLevelConfig.name })
+      .from(riskLevelConfig)
+      .orderBy(asc(riskLevelConfig.sortOrder)),
+  ]);
+  return {
+    statusNames: Object.fromEntries(statuses.map((s) => [s.code, s.name])),
+    levelNames: Object.fromEntries(levels.map((l) => [l.code, l.name])),
+  };
+}
 
 /** 一段 CSV：标题行 + 表头行 + 数据行 */
 type Section = { title: string; header: readonly string[]; rows: readonly (readonly string[])[] };

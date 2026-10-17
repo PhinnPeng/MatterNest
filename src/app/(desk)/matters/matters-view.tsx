@@ -25,6 +25,7 @@ import { fromNow, money } from "@/app/lib/client/format";
 import { BATCH_SKIP_REASON_LABELS, MAX_BATCH_IDS, type BatchSummary } from "@/shared/schema/batch";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { FilterField, QueryFilter } from "@/app/components/query-filter";
+import { ExportListButton } from "@/app/components/export-file-button";
 import { ReportCards } from "@/app/components/report-cards";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { StatusMark } from "@/app/components/ui/status-mark";
@@ -388,6 +389,8 @@ export function MattersView() {
                 void qc.invalidateQueries({ queryKey: ["reports"] });
               }}
             />
+            {/* 导出吃的是**当前筛选**（`state` 自己进控件，见 ExportListButton 的注释） */}
+            <ExportListButton path="/api/matters/export" fileBase="案件列表" state={state} />
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
               新建案件
             </Button>

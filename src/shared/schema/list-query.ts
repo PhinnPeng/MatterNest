@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { plainExportField } from "./expenses";
 
 /**
  * 列表查询参数的**唯一**定义（禁令⑧：校验规则单源；枚举表 §5.1）。
@@ -135,11 +136,23 @@ export const REPORT_OMITTED_KEYS = [
   "missingMaterials",
 ] as const;
 
-export const listQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
-  sortBy: z.enum(SORTABLE_COLUMNS).default("updated_at"),
-  sortDir: z.enum(["asc", "desc"]).default("desc"),
+/* ───────────────── 列表的筛选面：列表 / 它导出的那一份 两处同源 ───────────────── */
+
+/**
+ * 排序字段。抽出来是给**列表与它的导出**共用（MATT-64）：两处的默认值与白名单必须是
+ * 同一个对象，否则"列表按更新倒序、导出按编号正序"这种不一致不会报错，只会让人以为导错了。
+ */
+export const sortByField = z.enum(SORTABLE_COLUMNS).default("updated_at");
+export const sortDirField = z.enum(["asc", "desc"]).default("desc");
+
+/**
+ * 案件列表的筛选字段（`listQuerySchema` 与 `matterListExportQuerySchema` **spread 同一批对象**）。
+ *
+ * 为什么是"同一批对象"而不是"照抄一份值域"：`status` 的四值枚举、`keyword` 的长度上限、
+ * 两个开关的三态语义各写一遍，某天一处改了另一处不改 ⇒ 列表能筛的组合导出认不出来（400），
+ * 或者更糟：参数被 zod 静默剥掉、导出的是**没筛过**的全量，而两边都 200。
+ */
+export const matterListFilters = {
   status: z.enum(FILTERABLE_STATUSES).optional(),
   keyword: z.string().trim().min(1).max(60).optional(),
   archivedOnly: archivedOnlyField,
@@ -148,9 +161,56 @@ export const listQuerySchema = z.object({
    * `is_archived = true`，所以它与「已归档」视图天然配套。见 `missingMaterialsField`。
    */
   missingMaterials: missingMaterialsField,
+} as const;
+
+/**
+ * 事项列表的筛选字段。与案件那份逐字对应，只差两处**值域来源不同**（不是不一致）：
+ * `status` 取配置驱动那一份、多一个 `ownerEmpty`（案件必有负责人，事项可空，IQ-5）。
+ */
+export const riskMatterListFilters = {
+  status: configStatusField.optional(),
+  keyword: z.string().trim().max(60).optional(),
+  archivedOnly: archivedOnlyField,
+  ownerEmpty: ownerEmptyField,
+} as const;
+
+export const listQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+  sortBy: sortByField,
+  sortDir: sortDirField,
+  // spread 而不是照抄：列表与它的导出引的是**同一批字段对象**（见 `matterListFilters`）
+  ...matterListFilters,
 });
 
 export type ListQuery = z.infer<typeof listQuerySchema>;
+
+/**
+ * 列表导出的查询面（MATT-64 / F1-20 + F2-23）：**列表的筛选 + `plain`**，没有分页。
+ *
+ * 没有 `page` / `pageSize` 是有意的：导出的是**整个筛选结果**（上限见服务层的
+ * `*_EXPORT_LIMIT`），不是当前那一页 —— "只导出这一页"不是列表导出的语义，
+ * 用户要的是"我筛出来的这一批都给我"。带分页参数进来也只是被 zod 剥掉。
+ *
+ * `plain` 复用 `expenses.ts` 的 `plainExportField`（当事人导出、整卷导出同一个人解析）：
+ * 各写一份的失败形态是"一处认 `1`、另一处只认 `true`"，用户看到的是同一个按钮在两个页面行为不同。
+ */
+export const matterListExportQuerySchema = z.object({
+  ...matterListFilters,
+  sortBy: sortByField,
+  sortDir: sortDirField,
+  plain: plainExportField,
+});
+export type MatterListExportQuery = z.infer<typeof matterListExportQuerySchema>;
+
+/** 事项列表导出（F1-20）。比案件侧多一个 `ownerEmpty`、status 走配置驱动那份 */
+export const riskMatterListExportQuerySchema = z.object({
+  ...riskMatterListFilters,
+  sortBy: sortByField,
+  sortDir: sortDirField,
+  plain: plainExportField,
+});
+export type RiskMatterListExportQuery = z.infer<typeof riskMatterListExportQuerySchema>;
 
 /** 列表响应的固定形状（`type-safety.md`：不要有的接口返数组有的返对象）。 */
 export const listResultSchema = <T extends z.ZodType>(item: T) =>

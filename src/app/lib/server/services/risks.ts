@@ -1,6 +1,6 @@
 import { and, asc, count as dcount, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
-import { SORTABLE_COLUMNS } from "@/shared/schema/list-query";
+import { SORTABLE_COLUMNS, type RiskMatterListExportQuery } from "@/shared/schema/list-query";
 import { assertAssignable, listSelectableUsers } from "./selectable-users";
 import { decryptField } from "../crypto/field-crypto";
 import { getDb } from "../db/client";
@@ -35,6 +35,7 @@ import {
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
 import { canManageStaffList, ownsAttribution } from "../scope/guards";
 import { needsChangeReason } from "@/shared/schema/status-transition";
+import { RISK_MATTER_TYPE_LABELS } from "@/shared/enums/business";
 import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
 // 撤销前置的"费用"那一条复用费用模块的谓词（MATT-47）：两处各写一遍 SQL，
@@ -45,6 +46,7 @@ import { nextCode } from "./numbering";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import { hostStatusRows, initialStatusCode } from "./statuses";
 import { logActivity } from "./activity";
+import { configNameDict, csvText, exportAuditPayload, listExportLanding } from "./exports";
 import { mentionPartsOf } from "./comment-mentions";
 // 通知意图的两个生产点（MATT-41 / T4）：状态变更**同事务**落事件，新评论**只落 outbox**。
 // 两者都不在业务事务里做"投递"这个动作本身 —— 见 services/notifications.ts 文件头。
@@ -140,6 +142,29 @@ const SORTABLE: Record<(typeof SORTABLE_COLUMNS)[number], SQL> = {
   updated_at: sql`${riskMatter.updatedAt}`,
 };
 
+/**
+ * 列表与它导出的**同一份**谓词（MATT-64）。
+ *
+ * 为什么必须是一个函数而不是两处各写一遍：导出集合要与列表可见集合**逐行一致**，
+ * 而"少写一个筛选"不会报错 —— 用户看到的是"列表 21 行、导出 43 行"，或者更糟：
+ * 导出比列表**多**（范围谓词漏一处）。两个方向都静默。
+ * 真库断言见 `agent-work/smoke-list-export.mjs`。
+ */
+function riskMattersListWhere(
+  actor: Actor,
+  q: { status?: string; keyword?: string; archivedOnly?: boolean; ownerEmpty?: boolean },
+): SQL | undefined {
+  return and(
+    scopedWhere("risk_matter", actor),
+    archivedFilter("risk_matter", Boolean(q.archivedOnly)),
+    q.status ? eq(riskMatter.status, q.status) : undefined,
+    keywordFilter("risk_matter", q.keyword),
+    // 未指派 = `owner_id IS NULL`。事项侧经办人可空（IQ-5），所以判空值；
+    // `= ''` 与 `NOT EXISTS` 是另外两种"空"，别混。
+    q.ownerEmpty ? isNull(riskMatter.ownerId) : undefined,
+  );
+}
+
 export async function listRiskMatters(
   actor: Actor,
   q: {
@@ -155,15 +180,7 @@ export async function listRiskMatters(
   },
 ) {
   const db = await getDb();
-  const where = and(
-    scopedWhere("risk_matter", actor),
-    archivedFilter("risk_matter", Boolean(q.archivedOnly)),
-    q.status ? eq(riskMatter.status, q.status) : undefined,
-    keywordFilter("risk_matter", q.keyword),
-    // 未指派 = `owner_id IS NULL`。事项侧经办人可空（IQ-5），所以判空值；
-    // `= ''` 与 `NOT EXISTS` 是另外两种"空"，别混。
-    q.ownerEmpty ? isNull(riskMatter.ownerId) : undefined,
-  );
+  const where = riskMattersListWhere(actor, q);
   const sortCol = SORTABLE[q.sortBy ?? "updated_at"];
   const [total] = await db.select({ n: dcount() }).from(riskMatter).where(where);
   const rows = await db
@@ -2145,4 +2162,136 @@ export async function batchTagRiskMatters(
     applied++;
   }
   return { ok: true, applied, skipped };
+}
+
+/* ───────────────────── 列表导出（MATT-64 / F1-20：脱敏 / 明文两档） ───────────────────── */
+
+/** 一次导出最多这么多行；超出时 `truncated=true`（与 `MATTER_EXPORT_LIMIT` / `PARTY_EXPORT_LIMIT` 同值同义） */
+export const RISK_EXPORT_LIMIT = 1000;
+
+/** 导出的一行：列表那一屏的列 */
+export type RiskExportRow = {
+  code: string;
+  name: string;
+  type: string;
+  level: string;
+  status: string;
+  amount: string;
+  discoverDate: string;
+  ownerName: string | null;
+  conversionStatus: number | null;
+  convertedCaseCount: number;
+  updatedAt: string;
+};
+
+/**
+ * 事项列表的 CSV。
+ *
+ * ⚠ 脱敏规则、CSV 单元格编码、BOM 与行分隔都不在本文件里 —— 它们与整卷导出、
+ * 当事人导出、案件列表导出共用 `exports.ts` 那一份实现；本文件只留"事项这张表
+ * 在列表上有哪几列"这一件只有它才知道的事。
+ *
+ * 列逐项照 `risks-view.tsx` 的表头（没有多列）：这一份导出就是"这一屏的行"。
+ * 「转案件」与「经办人」两列的说法与列表**逐字相同**（`已转 · N` / `未转` / `未指派`）
+ * —— 同一份数据两个说法，用户会以为导错了。
+ */
+export function riskMattersExportCsv(
+  rows: readonly RiskExportRow[],
+  dict: { statusNames?: Record<string, string>; levelNames?: Record<string, string> },
+): string {
+  const header = [
+    "编号",
+    "事项名称",
+    "类型",
+    "等级",
+    "状态",
+    "转案件",
+    "预估影响",
+    "发现日期",
+    "负责人",
+    "更新",
+  ];
+  const lines = rows.map((r) => [
+    r.code,
+    r.name,
+    RISK_MATTER_TYPE_LABELS[r.type as keyof typeof RISK_MATTER_TYPE_LABELS] ?? r.type,
+    dict.levelNames?.[r.level] ?? r.level,
+    dict.statusNames?.[r.status] ?? r.status,
+    // 「转案件」这一列问的是与冻结门**同一个事实**（有没有转过案件），所以走同一个判据
+    // `isRiskFrozen` —— 不在导出里再写一遍 `=== 1`。`risks.spec.ts` 那条
+    // 「只出现一次」的源码守卫就是为这件事存在的（本票的第一次实现正是被它拦下的）。
+    isRiskFrozen(r.conversionStatus) ? `已转 · ${r.convertedCaseCount}` : "未转",
+    // 金额是 `numeric` 的原样字符串（两位小数）：导出不重算、不格式化
+    r.amount,
+    r.discoverDate,
+    // 空值与列表同口径：留白会被读成"数据缺失"，而它是一个有业务含义的状态（待人接手）
+    r.ownerName ?? "未指派",
+    r.updatedAt,
+  ]);
+  return csvText([header, ...lines]);
+}
+
+/**
+ * 事项列表导出（F1-20）：**吃列表当前的那套筛选**（含 `ownerEmpty`）。
+ *
+ * 口径与案件侧 `exportMatters` 逐条相同（集合逐行一致 / 服务层不判 `canReadPlain` /
+ * 整批一条 `EXPORT`），差异只有本表的三件事：状态值域是配置驱动的、
+ * 「转案件」列、经办人可空。
+ */
+export async function exportRiskMatters(
+  actor: Actor,
+  q: RiskMatterListExportQuery,
+): Promise<{ plain: boolean; rows: number; count: number; truncated: boolean; csv: string }> {
+  const db = await getDb();
+  const where = riskMattersListWhere(actor, q);
+  const col = SORTABLE[q.sortBy];
+  /**
+   * ⚠ 这里**不**带列表那两个 join（负责人姓名、当事人条数）：导出的列里没有它们，
+   * 而带上 `leftJoin(mn_risk_matter_party)` 会让 `where` 语义以外的行数也变
+   * —— 导出与列表的"逐行一致"是**谓词**的一致，不是 select 形状的一致。
+   * 负责人姓名按同一表达式取（列表用的也是这一列）。
+   */
+  const rows = await db
+    .select({
+      code: riskMatter.code,
+      name: riskMatter.name,
+      type: riskMatter.type,
+      level: riskMatter.level,
+      status: riskMatter.status,
+      amount: riskMatter.amount,
+      discoverDate: riskMatter.discoverDate,
+      ownerName: appUser.displayName,
+      conversionStatus: riskMatter.conversionStatus,
+      convertedCaseCount: riskMatter.convertedCaseCount,
+      updatedAt: riskMatter.updatedAt,
+    })
+    .from(riskMatter)
+    .leftJoin(appUser, eq(appUser.id, riskMatter.ownerId))
+    .where(where)
+    .orderBy(q.sortDir === "asc" ? asc(col) : desc(col), desc(riskMatter.id))
+    .limit(RISK_EXPORT_LIMIT + 1);
+
+  const truncated = rows.length > RISK_EXPORT_LIMIT;
+  const kept = truncated ? rows.slice(0, RISK_EXPORT_LIMIT) : rows;
+  const csv = riskMattersExportCsv(
+    kept.map((r) => ({ ...r, ownerName: r.ownerName ?? null })),
+    await configNameDict("risk_matter"),
+  );
+
+  await db.transaction(async (tx) => {
+    await logActivity(tx, actor, {
+      // 落点见 `listExportLanding`：跨宿主导出挂不到某一条事项上（挂上去是说谎）
+      ...listExportLanding(actor),
+      action: "EXPORT",
+      payload: exportAuditPayload({
+        targetType: "risk_matter",
+        scope: "risk_matter_list",
+        rows: kept.length,
+        count: kept.length,
+        plain: q.plain,
+      }),
+    });
+  });
+
+  return { plain: q.plain, rows: kept.length, count: kept.length, truncated, csv };
 }

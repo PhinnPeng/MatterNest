@@ -20,7 +20,7 @@ import { matter, matterParty, party, riskMatter, riskMatterParty } from "../db/s
 import { scopedWhere } from "../scope/visibility";
 import { blindIndex, decryptField, encryptField } from "../crypto/field-crypto";
 import { logActivity } from "./activity";
-import { csvText, exportAuditPayload, maskValue } from "./exports";
+import { csvText, exportAuditPayload, listExportLanding, maskValue } from "./exports";
 import type { Actor } from "../auth/auth";
 
 /** 下拉一次给 20 条（与 §4.1 `selectable-users` 的"分页上限 + 不接受批量列举"同一口径） */
@@ -794,19 +794,13 @@ export async function getParty(actor: Actor, id: bigint): Promise<PartyDetail | 
 /**
  * 无业务宿主的档案动作的**审计落点**：操作者账号维度。
  *
- * ⚠ 这是本票的一处**已知偏差**，理由与代价都写在这里：
- *   · E03 `target_type` 的 7 个取值里没有 `party`，`ck_mn_activity_host` 又要求
- *     "日志必须挂在案件/事项上（`app_user` 除外）"——所以一条"谁建了这份档案"的日志
- *     无处可写：填 `party` 被 CHECK 拒，填一个案件是**说谎**（这条日志与那个案件无关）；
- *   · 迁移 0006 为账号动作开的那个口子（`target_type='app_user'` + 不挂宿主）
- *     是既有唯一"无业务宿主"的合法落点，于是档案类动作借它落地，
- *     `payload` 里写清动作对象（`party_id`）。读起来是"这个账号对档案做了这件事"；
- *   · 正确修法是给 E03 加 `party` 维度（注册表 + 文档 + 迁移三向同批），
- *     那三处都不在本票写范围内，已写进交付报告。
+ * ⚠ 这是本票的一处**已知偏差**（E03 的 7 个 `target_type` 里没有 `party`，而
+ * `ck_mn_activity_host` 要求"日志必须挂在案件/事项上，`app_user` 除外"）——
+ * 理由、代价与正确修法都写在 `exports.ts` 的 `listExportLanding` 上：**同一件事**
+ * （无业务宿主 → 账号维度），当事人档案动作与列表导出共用那一处。
+ * 本文件不再单独实现它：两处各写一遍的下场是某天一处换了落点、另一处没换。
  */
-function partyAuditLanding(actor: Actor): { targetType: string; targetId: bigint } {
-  return { targetType: "app_user", targetId: BigInt(actor.userId) };
-}
+const partyAuditLanding = listExportLanding;
 
 export type PartyWriteRejection =
   | { ok: false; why: "identity_exists"; partyId: string; name: string }

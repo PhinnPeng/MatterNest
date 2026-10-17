@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveClosingDate } from "./matters";
+import { readFileSync } from "node:fs";
+import { mattersExportCsv, resolveClosingDate, type MatterExportRow } from "./matters";
 import { businessDateKey } from "@/shared/time/zh-cn";
 
 /**
@@ -67,5 +68,121 @@ describe("其余两个分支不受影响（MATT-42 踩过的坑不许回来）",
   it("离开 closed 且不是归档 ⇒ 清空", () => {
     expect(resolveClosingDate("in_progress", "2026-09-01", SHANGHAI_LATE_NIGHT)).toBeNull();
     expect(resolveClosingDate("custom", "2026-09-01", SHANGHAI_LATE_NIGHT)).toBeNull();
+  });
+});
+
+/* ───────────────── 列表导出（MATT-64 / F2-23） ───────────────── */
+
+/**
+ * 案件列表导出的 CSV 形状。
+ *
+ * 只测**不连库的那一半**：列序、转义、字典回落（`pnpm verify` 口径是离线可跑，
+ * 与 `resolveClosingDate` 同一条理由）。"导出行数 == 同一筛选下列表的 total"
+ * 那条最要紧的断言在真库上——`agent-work/smoke-list-export.mjs`。
+ *
+ * 为什么值得单独测列序：这份 CSV 的主要消费者是 Excel，列错位与串列只有人眼看得见，
+ * 而 `csvCell` 的转义一旦被绕过（有人手写引号），症状只在含逗号的案件名上出现。
+ */
+describe("案件列表导出：CSV 形状（F2-23）", () => {
+  const row = (over: Partial<MatterExportRow> = {}): MatterExportRow => ({
+    internalCode: "AJ-2026-0001",
+    caseNo: "(2026)苏01民初123号",
+    name: "恒基建设施工合同纠纷",
+    cause: "建设工程施工合同纠纷",
+    procedure: "first_instance",
+    level: "high",
+    status: "in_progress",
+    amount: "1200000.00",
+    ownerName: "王小明",
+    nextDeadline: "2026-10-20T09:00:00.000Z",
+    updatedAt: "2026-10-14T02:00:00.000Z",
+    ...over,
+  });
+  /** 状态与等级是**配置驱动**的（列表页从 /api/meta 取中文名），导出这一层自己查一次 */
+  const dict = { statusNames: { in_progress: "进行中" }, levelNames: { high: "高风险" } };
+
+  it("BOM 开头（Excel 中文表头不乱码）、中文表头、列序与列表一致", () => {
+    const csv = mattersExportCsv([row()], dict);
+    expect(csv.startsWith("\uFEFF内部编号,正式案号,案件名称,案由,程序,等级,状态,标的额")).toBe(
+      true,
+    );
+    // 程序/等级/状态是**中文名**，不是库里那串 code（导出是给人看的台账，不是 dump）
+    expect(csv).toContain("一审");
+    expect(csv).toContain("高风险");
+    expect(csv).toContain("进行中");
+    expect(csv).toContain("2026-10-20T09:00:00.000Z");
+  });
+
+  it("逗号/引号/换行按公共件处理（与整卷、当事人导出同一份 csvCell）", () => {
+    const csv = mattersExportCsv(
+      [row({ name: '南京"鼎泰", 房地产\n第二行', cause: "买卖合同纠纷" })],
+      dict,
+    );
+    expect(csv).toContain('"南京""鼎泰"", 房地产 第二行"');
+    // 换行折成空格：Excel 里"一行一条记录"才对得上（表头 1 行 + 数据 1 行）
+    expect(csv.split("\r\n")).toHaveLength(2);
+  });
+
+  it("空结果只给表头（不返回 undefined / 半行）", () => {
+    const csv = mattersExportCsv([], dict);
+    expect(csv.split("\r\n")).toHaveLength(1);
+  });
+
+  it("字典查不到就回落原始 code（停用状态的历史行不许导成空白）", () => {
+    const csv = mattersExportCsv([row({ status: "custom_x", level: "weird" })], {});
+    expect(csv).toContain("custom_x");
+    expect(csv).toContain("weird");
+  });
+
+  it("没有最近期限时那一格是空的，不写 undefined", () => {
+    const csv = mattersExportCsv([row({ nextDeadline: null })], dict);
+    expect(csv).not.toContain("undefined");
+    expect(csv).not.toContain("null");
+  });
+});
+
+/* ───────────────── 源码守卫：导出与列表**同一套**谓词、特权只判一次（MATT-64） ───────────────── */
+
+/**
+ * 这两条钉的是本票最要紧的那句话的两半：
+ *
+ *   · **谓词只写一处**：导出集合与列表可见集合要逐行一致，而"第二处谓词"的失败形态
+ *     是静默的（两处都 200，只是行数不同）——真库上由
+ *     `agent-work/smoke-list-export.mjs` 的「导出行数 == 列表 total」盯着，
+ *     离线这一半盯"结构上不可能有第二处"；
+ *   · **特权只判一次**：`canReadPlain` 只在 HTTP 层（`requirePrivilege`）。服务层再判一次
+ *     就会出现两套口径（与 `exportParties` 逐字同一条理由）。
+ */
+describe("守卫：案件列表导出的谓词与特权判定", () => {
+  const raw = readFileSync("src/app/lib/server/services/matters.ts", "utf8");
+  /** 剥注释再匹配：注释里必然会**写** `scopedWhere("matter"` 来解释为什么只许一处 */
+  const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+
+  /** 顶层函数体（切到下一个顶层函数声明为止）——用来问"这个函数里有没有那个调用" */
+  const boundaries = [...code.matchAll(/^(?:export )?(?:async )?function \w+\(/gm)].map(
+    (m) => m.index!,
+  );
+  const fnBody = (name: string) => {
+    const start = code.search(new RegExp(`^(?:export )?(?:async )?function ${name}\\(`, "m"));
+    expect(start, `找不到函数 ${name}（改名了？那这条守卫要跟着改）`).toBeGreaterThanOrEqual(0);
+    return code.slice(start, boundaries.find((b) => b > start) ?? code.length);
+  };
+
+  it("列表那几个筛选条件各只写一次（第二处就是第二套列表谓词）", () => {
+    // ⚠ 不数 `scopedWhere("matter"`：那一个在**逐条**可见性判定里正当地出现多次
+    // （详情/改状态/删/加进展…每处都要按 id 判一次）。会漂的是**列表那套条件**：
+    // 归档二态、关键词、缺材料 —— 它们只能住在 `mattersListWhere` 里。
+    expect(code.match(/archivedFilter\("matter"/g) ?? []).toHaveLength(1);
+    expect(code.match(/keywordFilter\("matter"/g) ?? []).toHaveLength(1);
+    expect(code.match(/archiveMissingSql\(\)/g) ?? []).toHaveLength(1);
+  });
+
+  it("列表与导出走**同一个** where 构造器（各一次，不是各拼一遍）", () => {
+    expect(fnBody("listMatters")).toContain("mattersListWhere(actor, q)");
+    expect(fnBody("exportMatters")).toContain("mattersListWhere(actor, q)");
+  });
+
+  it("服务层不出现 `canReadPlain`（明文导出的门只在 HTTP 层那一处）", () => {
+    expect(code).not.toContain("canReadPlain");
   });
 });

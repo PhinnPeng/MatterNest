@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { isRiskFrozen, MAX_CASES_PER_CONVERT } from "./risks";
+import {
+  isRiskFrozen,
+  riskMattersExportCsv,
+  MAX_CASES_PER_CONVERT,
+  type RiskExportRow,
+} from "./risks";
 import { BATCH_SKIP_REASON_LABELS } from "@/shared/schema/batch";
 import {
   convertSchema,
@@ -267,10 +272,22 @@ describe("isRiskFrozen：转过案件的事项一律冻结", () => {
 describe("冻结判据：只写一处，且八条写路径都走它", () => {
   const src = readFileSync("src/app/lib/server/services/risks.ts", "utf8");
 
-  /** 抽出 `export async function X(` 的函数名 + 函数体，用于逐个查它有没有走判据 */
-  const functions = [...src.matchAll(/^export async function (\w+)\(/gm)].map((m, i, all) => {
+  /**
+   * 抽出 `export async function X(` 的函数名 + 函数体，用于逐个查它有没有走判据。
+   *
+   * ⚠ **边界不能只认 `export async function`**（MATT-64 踩到）：那样切片是"到下一个
+   * 导出异步函数为止"，于是**同步函数与文件尾**都被算进上一条的身体里。
+   * 实测形态：文件尾新加的 `riskMattersExportCsv` 只是**渲染**「转案件」那一列
+   * （渲染的是已转/未转这一事实，不是写路径上的门），却被算成
+   * "batchTagRiskMatters 也走了冻结门"，于是下面那条八条路径的断言变红 ——
+   * 而真正的问题是切片不是函数体。所以边界放宽到任何顶层函数声明。
+   */
+  const boundaries = [...src.matchAll(/^(?:export )?(?:async )?function \w+\(/gm)].map(
+    (m) => m.index!,
+  );
+  const functions = [...src.matchAll(/^export async function (\w+)\(/gm)].map((m) => {
     const start = m.index!;
-    const end = i + 1 < all.length ? all[i + 1]!.index! : src.length;
+    const end = boundaries.find((b) => b > start) ?? src.length;
     return { name: m[1]!, body: src.slice(start, end) };
   });
 
@@ -425,5 +442,103 @@ describe("冻结在接口上是可读的一条原因，不是笼统的 blocked",
       "archived",
       "frozen",
     ]);
+  });
+});
+
+/* ───────────────── 列表导出（MATT-64 / F1-20） ───────────────── */
+
+/**
+ * 事项列表导出的 CSV 形状。只测**不连库的那一半**（`pnpm verify` 口径是离线可跑）：
+ * "导出行数 == 同一筛选下列表的 total" 那条在真库上，见 `agent-work/smoke-list-export.mjs`。
+ */
+describe("事项列表导出：CSV 形状（F1-20）", () => {
+  const row = (over: Partial<RiskExportRow> = {}): RiskExportRow => ({
+    code: "FX-2026-0007",
+    name: "恒基建设合同违约",
+    type: "contract",
+    level: "high",
+    status: "in_progress",
+    amount: "500000.00",
+    discoverDate: "2026-09-22",
+    ownerName: "王小明",
+    convertedCaseCount: 0,
+    conversionStatus: 0,
+    updatedAt: "2026-10-14T02:00:00.000Z",
+    ...over,
+  });
+  const dict = { statusNames: { in_progress: "进行中" }, levelNames: { high: "高风险" } };
+
+  it("BOM 开头、中文表头、列序与列表一致", () => {
+    const csv = riskMattersExportCsv([row()], dict);
+    expect(csv.startsWith("\uFEFF编号,事项名称,类型,等级,状态,转案件,预估影响,发现日期")).toBe(
+      true,
+    );
+    expect(csv).toContain("合同");
+    expect(csv).toContain("进行中");
+    expect(csv).toContain("2026-09-22");
+  });
+
+  it("未指派写成「未指派」而不是空（列表也是这么说的：留白会被读成数据缺失）", () => {
+    const csv = riskMattersExportCsv([row({ ownerName: null })], dict);
+    expect(csv).toContain("未指派");
+  });
+
+  it("转案件那一列与列表同一句话：未转 / 已转 · N", () => {
+    expect(
+      riskMattersExportCsv([row({ convertedCaseCount: 2, conversionStatus: 1 })], dict),
+    ).toContain("已转 · 2");
+    expect(riskMattersExportCsv([row()], dict)).toContain("未转");
+  });
+
+  it("逗号/引号/换行按公共件处理（与整卷、当事人导出同一份 csvCell）", () => {
+    const csv = riskMattersExportCsv([row({ name: '恒基,"违约"\n第二行' })], dict);
+    expect(csv).toContain('"恒基,""违约"" 第二行"');
+    expect(csv.split("\r\n")).toHaveLength(2);
+  });
+
+  it("空结果只给表头；字典缺键回落原始 code（停用状态不许导成空白）", () => {
+    expect(riskMattersExportCsv([], dict).split("\r\n")).toHaveLength(1);
+    const csv = riskMattersExportCsv([row({ status: "custom_x", level: "weird" })], {});
+    expect(csv).toContain("custom_x");
+    expect(csv).toContain("weird");
+  });
+});
+
+/* ───────────────── 源码守卫：导出与列表**同一套**谓词、特权只判一次（MATT-64） ───────────────── */
+
+/**
+ * 与 `matters.spec.ts` 同形（案件/事项两张列表是同构表对，守卫也就同构）：
+ * 谓词只写一处 + `canReadPlain` 只在 HTTP 层。真库那一半见
+ * `agent-work/smoke-list-export.mjs` 的「导出行数 == 列表 total」。
+ */
+describe("守卫：事项列表导出的谓词与特权判定", () => {
+  const raw = readFileSync("src/app/lib/server/services/risks.ts", "utf8");
+  /** 剥注释再匹配：注释里必然会**写** `scopedWhere("risk_matter"` 来解释为什么只许一处 */
+  const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+
+  const boundaries = [...code.matchAll(/^(?:export )?(?:async )?function \w+\(/gm)].map(
+    (m) => m.index!,
+  );
+  const fnBody = (name: string) => {
+    const start = code.search(new RegExp(`^(?:export )?(?:async )?function ${name}\\(`, "m"));
+    expect(start, `找不到函数 ${name}（改名了？那这条守卫要跟着改）`).toBeGreaterThanOrEqual(0);
+    return code.slice(start, boundaries.find((b) => b > start) ?? code.length);
+  };
+
+  it("列表那几个筛选条件各只写一次（第二处就是第二套列表谓词）", () => {
+    // ⚠ 不数 `scopedWhere("risk_matter"`：逐条可见性判定里它正当地出现多次。
+    // 会漂的是**列表那套条件**：归档二态、关键词、未指派 —— 只能住在 `riskMattersListWhere` 里。
+    expect(code.match(/archivedFilter\("risk_matter"/g) ?? []).toHaveLength(1);
+    expect(code.match(/keywordFilter\("risk_matter"/g) ?? []).toHaveLength(1);
+    expect(code.match(/isNull\(riskMatter\.ownerId\)/g) ?? []).toHaveLength(1);
+  });
+
+  it("列表与导出走**同一个** where 构造器（各一次，不是各拼一遍）", () => {
+    expect(fnBody("listRiskMatters")).toContain("riskMattersListWhere(actor, q)");
+    expect(fnBody("exportRiskMatters")).toContain("riskMattersListWhere(actor, q)");
+  });
+
+  it("服务层不出现 `canReadPlain`（明文导出的门只在 HTTP 层那一处）", () => {
+    expect(code).not.toContain("canReadPlain");
   });
 });

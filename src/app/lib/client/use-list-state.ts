@@ -132,6 +132,35 @@ export function toQuery(s: ListState): string {
   return p.toString();
 }
 
+/* ─────────────────── 列表筛选 → 导出请求串（F1-20 / F2-23） ─────────────────── */
+
+/**
+ * 导出请求串：**列表的那几个筛选**逐个带上，`page` / `pageSize` 一律不带
+ * —— 导出的是整个筛选结果，不是当前这一页（"导出这一页"不是列表导出的语义）。
+ * 排序照带：导出的行序与列表一致。
+ *
+ * 与 `toQuery` 分开写而不是加个开关：两者的**分页**语义相反（一个必须带分页、
+ * 一个必须不带），挤进一个函数就会长出"导出忘了关分页"这类静默错误 ——
+ * 那正是 `ownerEmpty` 出过的那类事故（参数没进请求，界面看起来一切正常）。
+ * 筛选那半边是同一批键名，`use-list-state.spec.ts` 逐键断言两边都带上。
+ *
+ * ⚠ 串里可能带上**本宿主没有的**筛选键（`ListState` 是两张列表共用的，比如案件页的
+ * URL 里粘了 `ownerEmpty`）：两个导出 schema 各自只认自己那几个字段，多出来的会被
+ * zod 剥掉 —— 不 400。这是有意的：多带的那个键在该页面**没有对应控件**，
+ * 它不可能表达用户的意图，报错只会把"粘贴来的链接"变成一次失败。
+ */
+export function toExportQuery(s: ListState): string {
+  const p = new URLSearchParams();
+  p.set("sortBy", s.sortBy);
+  p.set("sortDir", s.sortDir);
+  if (s.keyword) p.set("keyword", s.keyword);
+  if (s.status) p.set("status", s.status);
+  if (s.archivedOnly) p.set("archivedOnly", "1");
+  if (s.ownerEmpty) p.set("ownerEmpty", "1");
+  if (s.missingMaterials) p.set("missingMaterials", "1");
+  return p.toString();
+}
+
 /* ─────────────────── 列表筛选 → 报表卡（F8-1「随筛选联动」） ─────────────────── */
 
 /**

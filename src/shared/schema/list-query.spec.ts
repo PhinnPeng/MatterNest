@@ -3,6 +3,9 @@ import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
   listQuerySchema,
+  matterListExportQuerySchema,
+  ownerEmptyField,
+  riskMatterListExportQuerySchema,
   searchParamsToRecord,
 } from "./list-query";
 
@@ -67,5 +70,101 @@ describe("searchParamsToRecord", () => {
       sortDir: "asc",
       status: "closed",
     });
+  });
+});
+
+/* ───────────────── 列表导出的查询面（MATT-64 / F1-20 + F2-23） ───────────────── */
+
+/**
+ * 为什么要有这一组：导出要"吃列表当前的筛选"，而**少一个筛选不会报错** ——
+ * 症状是"列表 21 行、导出 43 行"（参数被 zod 静默剥掉，导出的是没筛过的全量）。
+ * 所以这里钉两件事：
+ *   ① **键集合**逐字列出（独立真源，不是从另一份 schema 现算的）；
+ *   ② 字段是**同一个对象**，不是照抄一份值域 —— 照抄的那份会在某次改动里漂开，
+ *      而两处都不报错。
+ */
+const keysOf = (shape: Record<string, unknown>, drop: readonly string[]) =>
+  Object.keys(shape)
+    .filter((k) => !drop.includes(k))
+    .sort();
+
+describe("列表导出的查询面与列表同源", () => {
+  it("案件导出吃的筛选键就是列表那几个（多一个少一个都红）", () => {
+    // 这六个是**列表**的筛选面（分页不算，导出没有分页）；`plain` 是导出自己的档位。
+    expect(keysOf(matterListExportQuerySchema.shape, ["plain"])).toEqual([
+      "archivedOnly",
+      "keyword",
+      "missingMaterials",
+      "sortBy",
+      "sortDir",
+      "status",
+    ]);
+    expect(keysOf(listQuerySchema.shape, ["page", "pageSize"])).toEqual([
+      "archivedOnly",
+      "keyword",
+      "missingMaterials",
+      "sortBy",
+      "sortDir",
+      "status",
+    ]);
+  });
+
+  it("事项导出比案件侧多 `ownerEmpty`（案件必有负责人，事项可空，IQ-5）", () => {
+    expect(keysOf(riskMatterListExportQuerySchema.shape, ["plain"])).toEqual([
+      "archivedOnly",
+      "keyword",
+      "ownerEmpty",
+      "sortBy",
+      "sortDir",
+      "status",
+    ]);
+  });
+
+  it("同一个字段**对象**（照抄一份值域是这条要拦的事）", () => {
+    // `as const` 不是装饰：这里逐个键索引 `.shape`，收窄成字面量联合才会在
+    // "导出侧少了一个键"时编译红，而不是静默 `undefined`
+    const shared = [
+      "status",
+      "keyword",
+      "archivedOnly",
+      "missingMaterials",
+      "sortBy",
+      "sortDir",
+    ] as const;
+    for (const k of shared) {
+      expect(matterListExportQuerySchema.shape[k], `${k} 不是列表用的那个对象`).toBe(
+        listQuerySchema.shape[k],
+      );
+    }
+    expect(riskMatterListExportQuerySchema.shape.ownerEmpty).toBe(ownerEmptyField);
+  });
+
+  it("默认值：不传参数 = 全部不限、按更新时间倒序、脱敏档", () => {
+    expect(matterListExportQuerySchema.parse({})).toMatchObject({
+      sortBy: "updated_at",
+      sortDir: "desc",
+      archivedOnly: false,
+      plain: false,
+    });
+  });
+
+  it("两档：`1`/`true` 才是明文，`0` 是脱敏，写错的字面量一律拒（与 archivedOnly 同一条纪律）", () => {
+    for (const v of ["1", "true"] as const) {
+      expect(matterListExportQuerySchema.parse({ plain: v }).plain).toBe(true);
+      expect(riskMatterListExportQuerySchema.parse({ plain: v }).plain).toBe(true);
+    }
+    for (const v of ["0", "false"] as const) {
+      expect(matterListExportQuerySchema.parse({ plain: v }).plain).toBe(false);
+    }
+    // 手打的参数写错该红：`plain=yes` 若被当成 false 静默降级，用户以为导了明文
+    expect(matterListExportQuerySchema.safeParse({ plain: "yes" }).success).toBe(false);
+    expect(riskMatterListExportQuerySchema.safeParse({ plain: "yes" }).success).toBe(false);
+  });
+
+  it("导出不吃分页：带上去也只是被剥掉，不会变成「只导第一页」", () => {
+    const q = matterListExportQuerySchema.parse({ page: "3", pageSize: "5", status: "closed" });
+    expect(q).not.toHaveProperty("page");
+    expect(q).not.toHaveProperty("pageSize");
+    expect(q).toMatchObject({ status: "closed" });
   });
 });

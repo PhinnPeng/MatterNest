@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { REPORT_FILTER_KEYS, REPORT_OMITTED_KEYS } from "@/shared/schema/list-query";
-import { toQuery, toReportQuery, type ListState } from "./use-list-state";
+import { toExportQuery, toQuery, toReportQuery, type ListState } from "./use-list-state";
 
 /**
  * `toQuery` 的守卫（MATT-42 期间补）。
@@ -154,5 +154,56 @@ describe("toReportQuery：报表只吃那三个筛选", () => {
   it("请求串的键集合 == 开着的那些 REPORT_FILTER_KEYS（不许多、不许少）", () => {
     const keys = [...new URLSearchParams(toReportQuery(ALL_ON)).keys()].sort();
     expect(keys).toEqual([...REPORT_FILTER_KEYS].sort());
+  });
+});
+
+/* ───────────────── 列表导出的请求串（MATT-64 / F1-20 + F2-23） ───────────────── */
+
+/**
+ * 与 `toQuery` 同一类风险，同一个解法：`ownerEmpty` 那次事故（筛选在 URL 里、
+ * 界面也回显，唯独请求串里没有 ⇒ "点了没反应"）在导出上**后果更重** ——
+ * 少发一个筛选，用户拿到的是"没筛过的那一批"，而他会拿它去对账。
+ *
+ * 所以这里逐键断言（上游那条 `_exhaustive` 编译期检查只管 `toQuery`，
+ * 覆盖不到这一份串）：`FILTER_KEYS` 里每个开着的键都必须出现在导出串里。
+ */
+describe("toExportQuery：导出吃的就是列表那几个筛选，只是没有分页", () => {
+  it.each(FILTER_KEYS)("筛选键 %s 在开启时出现在导出串里", (key) => {
+    expect(new URLSearchParams(toExportQuery(ALL_ON)).has(key)).toBe(true);
+  });
+
+  it.each(FILTER_KEYS)("筛选键 %s 在关闭时不出现（不发空参数）", (key) => {
+    const off: ListState = {
+      ...ALL_ON,
+      keyword: "",
+      status: "",
+      archivedOnly: false,
+      ownerEmpty: undefined,
+      missingMaterials: undefined,
+    };
+    expect(new URLSearchParams(toExportQuery(off)).has(key)).toBe(false);
+  });
+
+  it("**不带 page/pageSize**（导出的是整批，不是这一页），排序照带", () => {
+    const q = new URLSearchParams(toExportQuery(ALL_ON));
+    expect(q.has("page")).toBe(false);
+    expect(q.has("pageSize")).toBe(false);
+    expect(q.get("sortBy")).toBe("name");
+    expect(q.get("sortDir")).toBe("asc");
+  });
+
+  it("筛选全关时串里只剩排序（不会带出 page=1 这种噪音）", () => {
+    const off: ListState = {
+      ...ALL_ON,
+      keyword: "",
+      status: "",
+      archivedOnly: false,
+      ownerEmpty: undefined,
+      missingMaterials: undefined,
+    };
+    expect([...new URLSearchParams(toExportQuery(off)).keys()].sort()).toEqual([
+      "sortBy",
+      "sortDir",
+    ]);
   });
 });
