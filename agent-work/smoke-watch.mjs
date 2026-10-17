@@ -243,4 +243,9 @@ try {
   await sql.end({ timeout: 5 });
 }
 
+// ⚠ 汇总行是给 `tools/run-smokes.mjs` 看的：它**以退出码为准**，但
+//   「退出码 0 却整段找不到汇总行」会被判成失败（"未见汇总"）——
+//   首版就漏了这一行，全组冒烟因此报 1 个失败而退出码明明是 0。
+console.log(`
+${fail ? "FAIL" : "PASS"}：${pass} 通过 / ${fail} 失败`);
 finishSmoke(fail);
