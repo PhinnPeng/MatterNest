@@ -3,6 +3,7 @@ import type { Actor } from "@/app/lib/server/auth/auth";
 import { getDb } from "@/app/lib/server/db/client";
 import { appUser } from "@/app/lib/server/db/schema";
 import { HOSTS, visibility, type HostKind } from "@/app/lib/server/scope/visibility";
+import { HOST_TYPES } from "@/shared/enums/targets";
 
 /**
  * 可选用户查询（权限草案 §4.1 / §6 被加者条件，PRD F6-7）。
@@ -77,7 +78,10 @@ export async function listSelectableUsers(
   //   那是把 SQL 片段对象按字符串拼，绑定参数会整个丢掉，谓词静默失真。
   //   实测症状：L2 的可选集返回 0 人，连"我自己"都选不到。
   const parts: SQL[] = [sql`${appUser.id} = ${uid}`];
-  for (const other of ["matter", "risk_matter"] as const) {
+  // 宿主集合**从单一源取**（`HOST_TYPES` = E08∩E10 的共用值域，`shared/enums/targets.ts`），
+  // 不在这里再写一份字面量：抄第二份的失败形态是"某天新增宿主时改一处漏一处"，
+  // 而两边都编译得过、单测也绿。
+  for (const other of HOST_TYPES) {
     const oh = HOSTS[other];
     const innerVisible = visibility(other, actor.dataScope, actor.userId, actor.isAdmin ?? false);
     // 范围谓词引用的都是绝对列名（ownerId/creatorId），放进子查询可直接用；

@@ -172,6 +172,48 @@ export const ID_SHAPE_SELECTORS = [
 ];
 
 /**
+ * 宿主集合单源（2026-10-18 retro 候选 3）：`["matter","risk_matter"]` 不许在 `src/app` 里再写一份。
+ *
+ * 单一源是 `HOST_TYPES`（`shared/enums/targets.ts`，E08∩E10 共用值域）。
+ * `type-safety.md` 早写着「**禁止**在 `src/app/**` 里再声明一份业务枚举」，但一直没有检查 ——
+ * 2026-10-18 实测清掉两处（`services/selectable-users.ts`、`services/reports.ts`），
+ * 另有一处 `HOST_KINDS` 附带的**假注释**（自称"编译期防漏"，而 `HostKind` 是同一个文件里
+ * 手写的别名，只能证明字面量等于它自己）—— 详见 `db/schema/hosts.ts` 留的备忘。
+ *
+ * ## 为什么是 AST selector 而不是源码正则
+ *
+ * 第一版写成源码断言（`stripTsComments` 之后跑正则），**它永远不可能命中**：
+ * `stripTsComments` 的契约就是**把字符串内容也剥掉**（好让 `"<List"` 这类字面量
+ * 不被当成"有人真的在用"，见该文件头），于是 `"matter"` 被剥成 `""`，正则再无对象。
+ * 症状是最坏的一种 —— 断言**全绿**，看起来"仓库很干净"。AST 读的是语法树，
+ * 字符串值还在，且天然不受注释与多行影响。
+ *
+ * ## 两种顺序都要收（这就是不用 `elements.0/elements.1` 单条的理由）
+ *
+ * `["matter","risk_matter"]` 与 `["risk_matter","matter"]` 是同一份集合，
+ * 只写一条会漏掉另一种写法（实测：单条只命中正序那 2 处，倒序那处静默漏过）。
+ *
+ * ## 误伤面：只收"两元素且恰好是这两个值"的数组
+ *
+ * `{ matter: …, risk_matter: … }`（`HOSTS` 与 `HOST_TARGET_PREFIX` 的形状）是**对象**，
+ * 是按宿主分派的映射表，不是集合清单 —— selector 要求 `ArrayExpression`，天然不碰。
+ * 单个 `"matter"` 字面量到处都是且多数合法（`HOSTS[host]` 的键、DTO 标注），故意不拦：
+ * 拦它会把这个仓变成一张没人维护的白名单。
+ */
+export const HOST_SET_SELECTORS = [
+  {
+    selector: 'ArrayExpression[elements.0.value="matter"][elements.1.value="risk_matter"]',
+    message:
+      "宿主集合的单一源是 HOST_TYPES（src/shared/enums/targets.ts）—— 直接引它：`for (const host of HOST_TYPES)` / `HOST_TYPES.map(…)`。抄第二份的失败形态是「新增宿主时改一处漏一处」，而两边都编译得过、单测也绿（type-safety.md：禁止在 src/app/** 里再声明一份业务枚举）",
+  },
+  {
+    selector: 'ArrayExpression[elements.0.value="risk_matter"][elements.1.value="matter"]',
+    message:
+      "宿主集合的单一源是 HOST_TYPES（src/shared/enums/targets.ts）—— 顺序反着写也是同一份集合，同样要引它（type-safety.md：禁止在 src/app/** 里再声明一份业务枚举）",
+  },
+];
+
+/**
  * 禁令⑥（页面壳不预取业务数据）+ 禁令⑤（鉴权在 handler 内）：
  * `page.tsx` / `layout.tsx` 不得 import 服务端数据层。
  *
@@ -212,11 +254,21 @@ export const SHELL_FILES_GLOBS = ["src/app/**/page.tsx", "src/app/**/layout.tsx"
 export const HTTP_SELECTORS_FILES_GLOB = "src/app/**/*.{ts,tsx}";
 
 export const HTTP_SELECTORS_IGNORE_GLOBS = [
-  /** `http.ts` 是这两条规则的**唯一合法现场**：`notFound()` 在此定义、`pathId()` 在此定义 */
+  /** `http.ts` 是前两条规则的**唯一合法现场**：`notFound()` 在此定义、`pathId()` 在此定义 */
   "src/app/lib/server/http.ts",
   /** 主题那两处是 `禁令⑦ 色值单源` 的定义点，扩进去会把它的 E 断言顶掉（见 check.mjs 的 D2/E） */
   "src/app/theme/**",
 ];
+
+/**
+ * 宿主集合单源（retro 候选 3）**复用上面那个挂载块**（`src/app/**`），不另起一块 ——
+ * 同一个 eslint 键拆两块时后一块会把前一块的选择器整条覆盖。
+ *
+ * 上界刻意就到 `src/app`：`shared/enums/targets.ts:84` 是 `HOST_TYPES` 的**定义处**
+ * （那行字面量是唯一合法的），而 `shared/enums/automation.ts:29,30,33` 那几处是
+ * preset 规则各自的宿主域（`event_occurred: ["matter","risk_matter"]` 那种），
+ * 语义上属于"这条规则作用于哪些宿主"，不是"宿主集合" —— 扩到 shared 会把它们全拦下。
+ */
 
 export const GUARD_GLOBS = {
   bad: "tools/lint-guard/fixtures/bad/**/*.ts",

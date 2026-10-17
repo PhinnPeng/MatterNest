@@ -189,9 +189,17 @@ export async function loadHostAcl(
  * 而不像"平行再写一个批量 SQL"那样把规则散成两处 SQL。
  *
  * ⚠ 想让它们漂的办法很具体：改了 `visibility()` 的某一档而没改这里（或反过来）。
- * 抓住它的是一条**真库等价断言**：`agent-work/smoke-notifications.mjs` 里
- * 对 (L1/L2/L3 × owner/creator/staff/无关人) 的矩阵逐格比对两种形态的判决。
- * 那条断言是这份注释的兑现处——**别把这里改成"看起来一样"就走**。
+ * 抓住它的是 `visibility.spec.ts` 里**两组**断言（缺一不可）：
+ *   · ① 内存矩阵：下面每个分支的判决写死（L1/L2/L3 × owner/creator/staff/无关人 × admin）；
+ *   · ② SQL 形态：真调 `visibility()`，断言它给不给谓词、以及谓词里有没有 `*_staff` 子句。
+ * 「只改这边」会让 ① 红，「只改那边」会让 ② 红 —— 这才是等价性的兑现处。
+ *
+ * ⚠ 这里原先写的是「真库等价断言在 `agent-work/smoke-notifications.mjs` 里」，
+ * **那份断言从来不存在**（2026-10-18 实测 grep 零命中），而且按原样也落不了地：
+ * 冒烟只走 HTTP，本函数是**内部函数**、不经端点暴露，冒烟够不着它。
+ * 记在这里是因为这条注释本身示范了 retro 候选 6 要防的形态：
+ * **引用别处存在的断言时，写出能被 grep 到的标识**（文件 + describe/it 名），
+ * 不许写"某脚本里有"——那种句子没人能核，于是它会一直错下去。
  */
 export function canSeeHostFrom(
   acl: HostAcl,

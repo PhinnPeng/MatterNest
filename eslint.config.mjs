@@ -6,6 +6,7 @@ import {
   COLOR_RULE,
   COLOR_SELECTORS,
   EXIT_SELECTORS,
+  HOST_SET_SELECTORS,
   HTTP_SELECTORS_FILES_GLOB,
   HTTP_SELECTORS_IGNORE_GLOBS,
   ID_SHAPE_SELECTORS,
@@ -77,14 +78,18 @@ export default tseslint.config(
     },
   },
   {
-    // 出口形态 + id 形态单源（2026-10-17 retro 候选 1）：
+    // 出口形态 + id 形态单源 + 宿主集合单源（2026-10-17/18 retro 候选 1 + 3）：
     //   · 404 只从 `http.ts:notFound()` 出来（手写 fail(404, …) 会带出第二份措辞）；
-    //   · 19 位 id 上界与 bigint 转换只在 `http.ts:pathId()`。
-    // 详细动机见 `tools/lint-guard/restricted-imports.mjs` 里两组 selector 的注释。
+    //   · 19 位 id 上界与 bigint 转换只在 `http.ts:pathId()`；
+    //   · 宿主集合只引 `HOST_TYPES`，不在 `src/app` 里再写一份字面量。
+    // 详细动机见 `tools/lint-guard/restricted-imports.mjs` 里各组 selector 的注释。
     //
     // ⚠ 这一块必须**带上 COLOR_SELECTORS**：它用的键（`no-restricted-syntax`）与上面
     //   禁令⑦ 色值那一块相同，而 flat config 对同一个键是**后段整条覆盖**、不是合并。
     //   漏掉的话 `src/app/**` 上的色值单源会在此处静默失效（check.mjs 的 D2/E 就是抓这个的）。
+    //
+    // 宿主那两条复用同一块（`src/app/**` 已覆盖它要的挂载面），不另起一块 ——
+    // 同一个键拆两块时后一块会把前一块的选择器整条覆盖，是上一轮就踩过的坑。
     files: [HTTP_SELECTORS_FILES_GLOB],
     ignores: HTTP_SELECTORS_IGNORE_GLOBS,
     rules: {
@@ -93,6 +98,7 @@ export default tseslint.config(
         ...COLOR_SELECTORS,
         ...EXIT_SELECTORS,
         ...ID_SHAPE_SELECTORS,
+        ...HOST_SET_SELECTORS,
       ],
     },
   },

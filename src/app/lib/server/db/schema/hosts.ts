@@ -517,9 +517,22 @@ export const HOST_TARGET_PREFIX: Record<HostKind, string> = {
   risk_matter: "risk_matter",
 };
 
-/** 编译期防漏：宿主集合与 E03 的两个宿主值一致 */
-const hostKinds: HostKind[] = ["matter", "risk_matter"];
-export const HOST_KINDS = hostKinds;
+/**
+ * ⚠ **本层不再另立宿主集合**。这里曾有一行，注释写着「编译期防漏：宿主集合与 E03 的两个
+ * 宿主值一致」：
+ *
+ *     const hostKinds: HostKind[] = ["matter", "risk_matter"];
+ *     export const HOST_KINDS = hostKinds;
+ *
+ * 那句注释是**假的**：`HostKind` 就是本文件上面手写的类型别名，用它去标注一个手写的字面量，
+ * 只能证明"字面量等于它自己" —— 与 E03 / `TARGET_TYPES` 没有任何联系，把值换成别的
+ * 类型值它照样编译得过。而且 `HOST_KINDS` 全仓**零消费者**（2026-10-18 实测，含 tools 与 spec）。
+ *
+ * 宿主集合的单一源是 **`HOST_TYPES`**（`shared/enums/targets.ts`，E08∩E10 共用值域）；
+ * 要遍历两个宿主的代码直接引它（先例：`services/selectable-users.ts`、`services/reports.ts`）。
+ * 留这段备忘而不是静默删掉，是因为"再立一份宿主清单"的冲动跟"再立一个状态列"是同一类
+ * （见 `shared/enums/targets.ts` 的 `NO_STATUS_COLUMN`），而它刚刚才被清掉一次。
+ */
 export { TARGET_TYPES };
 
 /** 小工具：smallint 语义的 0/1 列（drizzle 的 smallint 与 bigint 同 mode 约束） */

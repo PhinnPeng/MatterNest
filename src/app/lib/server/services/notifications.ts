@@ -329,8 +329,12 @@ export async function insertNotificationEvent(
    * 收件人从 1 涨到 5、50，往返数**不变**——批量消费 K 行的耗时才可能不是 K 倍线性。
    *
    * ⚠ 判决规则没有变、也没有第二份：`canSeeHostFrom` 与 `visibility()` 是同一条规则
-   * 的两种绑定形态（各自只有一份），等价性由 `visibility.spec.ts` 的矩阵单测 +
-   * `smoke-notifications.mjs` 的真库矩阵断言钉住。别在这里内联 OR 条件。
+   * 的两种绑定形态（各自只有一份），等价性由 `visibility.spec.ts` 里**两组**断言钉住 ——
+   * 「① 内存矩阵」（每格判决写死）与「② SQL 形态」（真调 `visibility()`，
+   * 断言给不给谓词、谓词里有没有 `*_staff` 子句）。别在这里内联 OR 条件。
+   *
+   * （这里原先还引了一份「`smoke-notifications.mjs` 的真库矩阵断言」——那份断言
+   * 从来不存在，且冒烟够不着内部函数；2026-10-18 已改为指向上面那两组。）
    */
   const acl = await loadHostAcl(tx, intent.host, intent.hostId);
   let delivered = 0;

@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { LITIGATION_ROLES, NODE_OPEN_STATUSES } from "@/shared/enums/business";
+import { HOST_TYPES } from "@/shared/enums/targets";
 import { archivedOnlyField, configStatusField, ownerEmptyField } from "@/shared/schema/list-query";
 import type { Actor } from "../auth/auth";
 import { getDb } from "../db/client";
@@ -398,8 +399,9 @@ function shapeNodes(rows: NodeBucketRow[]): NodeDeadlineCard {
   return {
     total,
     buckets: DEADLINE_BUCKETS.map((b) => ({ key: b.key, label: b.label })),
-    // 两个宿主恒各一行（含 0）：界面不用判"这行有没有出现"，合计行也不会因缺行算少
-    rows: (["matter", "risk_matter"] as const).map((kind) => {
+    // 两个宿主恒各一行（含 0）：界面不用判"这行有没有出现"，合计行也不会因缺行算少。
+    // 集合引 `HOST_TYPES` 而不写第二份字面量 —— 见 `selectable-users.ts` 里同一条理由。
+    rows: HOST_TYPES.map((kind) => {
       const cell = counts.get(kind) ?? {};
       return {
         kind,

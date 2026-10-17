@@ -126,6 +126,31 @@ const SCOPES = [
       "shared 是 body id 数组的家（batch.ts 的 idField 同形且有理有据），" +
       "规则扩过去会把合法的 body 校验也拦下",
   },
+  {
+    // 宿主集合单源（2026-10-18 retro 候选 3）。`type-safety.md` 早写着「禁止在 src/app/**
+    // 里再声明一份业务枚举」却没有检查，于是 `["matter","risk_matter"]` 又长出两份。
+    id: "宿主集合只引 HOST_TYPES",
+    rule: "no-restricted-syntax",
+    bad: "tools/lint-guard/fixtures/bad/redeclared-host-set.ts",
+    good: "tools/lint-guard/fixtures/good/via-host-types.ts",
+    badPath: "src/app/api/__guard_hostset_bad__/route.ts",
+    goodPath: "src/app/api/__guard_hostset_good__/route.ts",
+    /**
+     * 两处**两种顺序**都要被拦 —— 只写一条 selector 时倒序那处会静默漏过，
+     * 而这个计数就是为了暴露"只拦下一半"。实测过：单条 selector 只命中 1 处。
+     */
+    expectHits: 2,
+    mountedAt: "src/app/lib/server/services/reports.ts",
+    marker: "宿主集合的单一源是 HOST_TYPES",
+    /**
+     * `HOST_TYPES` 的定义处就在 shared（`shared/enums/targets.ts:84` 那行字面量是唯一
+     * 合法的），`automation.ts` 那几处是 preset 规则各自的宿主域 —— 都不该被这条规则碰。
+     */
+    mustNotReach: "src/shared/enums/targets.ts",
+    whyOverflow:
+      "shared 是 HOST_TYPES 的定义处（那行字面量唯一合法），" +
+      "且 automation.ts 的宿主域是「这条规则作用于哪些宿主」、不是宿主集合",
+  },
 ];
 
 const failures = [];
