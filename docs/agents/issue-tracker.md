@@ -197,3 +197,30 @@ These skills assume one tracker that owns labels. In this repo:
   from Trellis. See `triage-labels.md`'s vocabulary table.
 - Trellis `create`/`add-subtask` is for the *record* side only (PRD/notes
   directories), not for the todo itself.
+
+## 多分支施工：**关票前先证「已并入」**
+
+2026-10-17 一次会话里连着踩了两次，形态是同一个：**「票关了」与「交付落到集成分支上」
+是两件事，而后者没有任何一步会替你检查。**
+
+| 事故 | 症状 | 谁抓到的 |
+|---|---|---|
+| 修复提交 `43407cd` **从未并入** | 一次 `git merge` 因主工作区有未提交改动而 abort；补完那次改动后**忘了重跑 merge**。分支上文件是新的、主工作区是旧的 ⇒ 冒烟脚本每次崩在同一个参数错上，还往共享库留管理员账号（把 `db:check` C14 弄红） | 全组冒烟的 `db:check` C14 |
+| `ticket/matt67` **整支未并入**，票已关 | 更隐蔽：该分支自己 `verify` 全绿、单测全绿，全组冒烟也不报错（导入页不在任何冒烟脚本的必经路径上）⇒ **代码根本不在集成分支里，而票是 Done** | 清理 worktree 时手工核的 |
+
+**确定性的守卫**（一行、离线、不需要库）：
+
+```bash
+for b in ticket/*; do
+  git merge-base --is-ancestor "$b" HEAD && echo "✓ $b" || echo "✗ $b 未并入"
+done
+```
+
+关票**之前**跑它。为什么必须是机械检查而不是"记得"：
+两次都不是粗心，而是**中断后没回头**——第一次被 abort 打断、第二次在等代理回收时切走了。
+"被打断"是这类施工的常态（并行 worktree + 后台代理 + 长任务），所以任何
+「必须回头做」的步骤都得有东西替你回头看。
+
+**为什么全组冒烟不足以兜住它**：冒烟只看**已并入的代码**的行为。
+一张票的交付若完全不在集成分支上，冒烟连它的边都碰不到（导入页那条就是这样）。
+所以这条守卫必须在**关票动作**这一侧，不在测试这一侧。
