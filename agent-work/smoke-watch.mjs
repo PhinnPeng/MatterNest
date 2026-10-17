@@ -233,9 +233,13 @@ try {
   ok("被拒之后库里没有多出 follow 行", noSneak.n === 0, `n=${noSneak.n}`);
 } finally {
   await cleanup();
-  await dropSmokeAccount(sql, smoke);
-  await dropSmokeAccount(sql, smoke2);
-  await dropSmokeAccount(sql, smoke3);
+  // ⚠ 第二个参数是 **user id 标量**（不是账号对象）：首版传了整个对象，
+  //   `_testacct.mjs` 里 `where user_id = ${userId}` 把它插成 `[object Object]`
+  //   ⇒ PG `invalid input syntax for type bigint`。清场工具的参数面没有类型保护，
+  //   所以这条注释留在调用点（别的冒烟都是 `dropSmokeAccount(sql, a.id)`）。
+  await dropSmokeAccount(sql, smoke.id);
+  await dropSmokeAccount(sql, smoke2.id);
+  await dropSmokeAccount(sql, smoke3.id);
   await sql.end({ timeout: 5 });
 }
 
