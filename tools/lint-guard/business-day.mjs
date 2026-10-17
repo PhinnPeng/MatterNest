@@ -41,6 +41,15 @@
  *   没人更新的第二事实源。
  * · **间接落库**：`import.ts:249` 那种「把 null 传给一个会兜底的函数」的路径，
  *   正则看不见（但兜底那一处在本断言覆盖范围内）。
+ *
+ * ## ⚠ 2026-10-18：它是「否定式」断言，所以必须自证还会咬人
+ *
+ * 仓库干净时本断言的命中数**天然为 0** —— 于是「真干净」与「正则腐掉」在结果上
+ * **逐字相同**。实测：把 `UTC_DAY_SLICE` 换成永不命中的形态，`check.mjs` 照样退出 0、
+ * 汇总行照样打印「业务日 UTC 切片 0 处」。原有的 `scanned === 0` canary 挡不住它
+ * （它数文件数，而数命中数会制造假红），所以补了 `SELF_CHECK` 正样本自检
+ * —— 形状抄 `antd-deprecated.mjs`。**同类断言都要有它**：`secret-literals`
+ * 用「逐把要求」、`smoke-hygiene` 用「scanned 数命中语句」。
  */
 
 import { readdir, readFile } from "node:fs/promises";
@@ -57,10 +66,35 @@ const SRC_ROOT = "src";
 const UTC_DAY_SLICE = /toISOString\(\)\s*\.\s*slice\(\s*0\s*,\s*10\s*\)/;
 
 /**
+ * 自检样本 —— 必然命中（见下面「为什么需要它」）。
+ *
+ * ⚠ 修这条断言时**别把计数挪回命中数**：`scanned` 数文件是为了防**假红**
+ * （仓库干净时命中数天然为 0，canary 反着报），它挡不住下面这条。
+ */
+const SELF_CHECK = "const d = new Date().toISOString().slice(0, 10);";
+
+/**
  * @param {string[]} failures 收集到的违规。由 check.mjs 传进来 ——
  *   `failures` 是那个文件的局部变量，这里看不到，所以必须显式传。
  */
 export async function assertNoUtcDaySlice(failures) {
+  // ⚠ **正样本自检**（2026-10-18 补，retro 候选 1）。
+  //
+  // 本断言是「否定式」的：仓库干净时命中数**天然为 0**。于是「仓库真干净」与
+  // 「正则被我改死了」在结果上**逐字相同** —— 实测把 `UTC_DAY_SLICE` 换成
+  // 永不命中的形态，`check.mjs` 照样退出 0、汇总行照样打印「业务日 UTC 切片 0 处」。
+  //
+  // 下面那条 `scanned === 0` canary 挡不住它：它数的是**文件数**，不是命中数
+  // （数命中数会制造假红 —— 干净仓库命中数就是 0）。所以必须另备一条正样本：
+  // 拿一段必然含违规形态的字面量跑一次，跑不中就说明规则本身坏了。
+  // 形状抄 `antd-deprecated.mjs` 的 `SELF_CHECK`，那是仓里既有的先例。
+  if (!UTC_DAY_SLICE.test(SELF_CHECK)) {
+    failures.push(
+      "业务日断言：匹配式连**自检样本**都匹配不上 —— 正则写歪了，" +
+        "本条此刻在「永远绿」的状态（仓库干净时它本来就不报，看不出区别）",
+    );
+  }
+
   const walk = async (dir) => {
     const entries = await readdir(dir, { withFileTypes: true });
     const sub = await Promise.all(

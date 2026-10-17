@@ -61,6 +61,15 @@ import path from "node:path";
 const MACHINE_PATH =
   /["']((?:[A-Za-z]:[\\/](?:Users|WorkSoftware|Program|Windows|ms-playwright)|(?:\/Users\/|\/home\/|\/mnt\/))[^"'\n]*)/g;
 
+/**
+ * 正样本：两种形态（盘符 / POSIX 家目录）各来一个，必然命中。
+ * 跑不中即「正则腐掉」—— 见第 ③ 条那里的自检说明。
+ */
+const MACHINE_PATH_SELF_CHECK = [
+  'const p = "F:/WorkSoftware/nvm/v22.22.2/node_modules/playwright/index.js";',
+  'const q = "/home/runner/work/matternest";',
+].join("\n");
+
 /** 相对 import 的三种写法：静态 `from`、动态 `import()`、`require()` */
 const RELATIVE_SPECS = [
   /from\s+"(\.[^"]+)"/g,
@@ -157,6 +166,17 @@ export async function assertJudgePortability(failures) {
   }
 
   // ③ 机器绝对路径
+  //
+  // ⚠ 这也是**否定式**断言（干净时命中数天然为 0），所以先自证还会咬人
+  // （2026-10-18 补，retro 候选 1）。下面的 `scanned < 50` canary 只说明
+  // 「脚本读到了」，**挡不住正则腐掉** —— 实测把 `MACHINE_PATH` 换成永不命中的形态，
+  // 本断言静默全绿、汇总行照样打印「判据脚本可移植 0 处违规」。
+  if (!new RegExp(MACHINE_PATH.source).test(MACHINE_PATH_SELF_CHECK)) {
+    failures.push(
+      "判据可移植：第 ③ 条的匹配式连**自检样本**都匹配不上 —— 正则写歪了，" +
+        "此刻它在「永远绿」的状态（仓库干净时它本来就不报，看不出区别）",
+    );
+  }
   let scanned = 0;
   for (const file of files) {
     const code = readFileSync(file, "utf8");

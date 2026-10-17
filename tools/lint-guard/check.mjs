@@ -233,13 +233,34 @@ for (const scope of SCOPES) {
  *   · 收口后 0 处（`git grep -cE '\b(eyebrow|meta)\s*=' -- src` 无输出）
  * 误伤面：将来有人把局部变量命名成 `eyebrow` / `meta` 并赋值，会误报一次 —— 这是
  * **说清楚代价后接受的误报**，比让插槽悄悄回来便宜。
+ *
+ * ⚠ 2026-10-18 补：它是**否定式**断言（干净时命中数天然为 0），所以必须自证还会咬人
+ * —— 见下面 `SUBTITLE_SELF_CHECK`。实测过：正则腐掉后本断言静默全绿。
  */
 const SUBTITLE_SLOTS = [
   { name: "eyebrow", re: /\beyebrow\s*=/g },
   { name: "meta", re: /\bmeta\s*=/g },
 ];
 
+/** 正样本：两处属性形态各来一个，必然命中。跑不中即「正则腐掉」 */
+const SUBTITLE_SELF_CHECK = ['<PageHeader eyebrow="x" />', '<PageHeader meta="y" />'].join("\n");
+
 async function assertNoSubtitleSlots() {
+  // ⚠ **正样本自检**（2026-10-18，retro 候选 1）。形状抄 `antd-deprecated.mjs`。
+  //
+  // 本断言是「否定式」的：仓库干净时命中数**天然为 0**。于是「真干净」与
+  // 「正则被我改死了」在结果上**逐字相同** —— 实测把 `eyebrow` 那条换成永不命中的
+  // 形态，`check.mjs` 照样退出 0、汇总行照样打印「页头无第二行插槽 0 处」。
+  // 这条断言连 `scanned === 0` 那类 canary 都没有（它不数文件），所以正样本是唯一防线。
+  for (const { name, re } of SUBTITLE_SLOTS) {
+    if (!new RegExp(re.source).test(SUBTITLE_SELF_CHECK)) {
+      failures.push(
+        `页头第二行插槽断言：匹配式 \`${name}\` 连**自检样本**都匹配不上 —— 正则写歪了，` +
+          "本条此刻在「永远绿」的状态（仓库干净时它本来就不报，看不出区别）",
+      );
+    }
+  }
+
   const { readdir, readFile } = await import("node:fs/promises");
   // 递归必须 `Promise.all` 摊开：`flatMap` 里直接返回子目录的 Promise，会把 Promise 本身
   // 当成文件路路径丢给 `readFile`（实测报 ERR_INVALID_ARG_TYPE）
@@ -281,11 +302,30 @@ await assertNoSubtitleSlots();
  *
  * 代价：`@mantine/*` 除富文本外一律禁（ADR 的硬边界）；将来若白名单要扩，
  * 必须同时改这条、§13.6.2 那行、与 ADR——三处一起改是本仓"文档先行不破值列"的同批纪律。
+ *
+ * ⚠ 2026-10-18 补：与副标题断言同款 —— **否定式**断言，干净时命中数天然为 0，
+ * 所以必须自证还会咬人（见下面 `RICH_TEXT_SELF_CHECK`）。
  */
 const RICH_TEXT_DIR = "src/app/components/ui/rich-text/";
 const RICH_TEXT_IMPORT = /["']@(?:blocknote|mantine)\/[^"']*["']/g;
 
+/** 正样本：两种包各来一个 import 说明符，必然命中。跑不中即「正则腐掉」 */
+const RICH_TEXT_SELF_CHECK = [
+  'import { BlockNoteView } from "@blocknote/react";',
+  'import { TextInput } from "@mantine/core";',
+].join("\n");
+
 async function assertRichTextWhitelist() {
+  // ⚠ **正样本自检**（2026-10-18，retro 候选 1，形状抄 `antd-deprecated.mjs`）。
+  // 理由与副标题断言同一句：仓库干净时命中数天然为 0 ⇒ 「真干净」与「正则腐掉」
+  // 在结果上逐字相同，而这条断言没有任何 canary 兜底。
+  if (!new RegExp(RICH_TEXT_IMPORT.source).test(RICH_TEXT_SELF_CHECK)) {
+    failures.push(
+      "富文本白名单断言：匹配式连**自检样本**都匹配不上 —— 正则写歪了，" +
+        "本条此刻在「永远绿」的状态（仓库干净时它本来就不报，看不出区别）",
+    );
+  }
+
   const { readdir, readFile } = await import("node:fs/promises");
   const walk = async (dir) => {
     const entries = await readdir(dir, { withFileTypes: true });

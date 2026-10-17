@@ -30,3 +30,12 @@ agent-work/
 # 于是 pre-commit 钩子挡下所有人的提交（MATT-94 的现场）。
 # prettier-ignore ≠ git-ignore：mocks/** 照样可以入库。
 .impeccable/
+
+# 别条线（品牌改版）的未跟踪产物。它们还没入库，而 `format:check` 走的是**文件系统**
+# （含未跟踪文件）—— 不放行的话，这一份文件会**挡住全仓所有人的提交**
+# （2026-10-18 实测：`pnpm verify` 的 format:check 报它，pre-commit 钩子拒绝一切提交，
+# 我为了提交两次 `git stash push -u -- DESIGN.md`）。
+# 与 `docs/` / `.trellis/` 同一条理由：设计规格不参与格式化。
+# ⚠ 它入库那天该不该继续忽略，由那条线决定 —— 但"卡住所有人"不能是默认状态。
+DESIGN.md
+PRODUCT.md
