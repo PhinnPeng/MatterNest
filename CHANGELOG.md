@@ -5,6 +5,34 @@
 
 ---
 
+---
+
+## [未发布] — 2026-10-17 · 文档与部署裁定对齐（MATT-77）：单副本落地 + advisory lock 措辞降级
+
+只改文档与 `.env.example`，不碰 `src/`。起因是把**已作出的裁定**写回文档，而不是留着
+"看着像还没定"的措辞让下一个人照着配。
+
+### Changed
+
+- **单副本裁定落地三处**：`.env.example` 两个多副本槽标注为**空转**（本仓无 Server Function
+  ⇒ 加密键无物可解；`deploymentId` 防的是多实例版本错配，单副本没这个面）；
+  `docs/tech-stack-decision.md` §13.3-3 删掉"退路是一期单副本"、改为**已裁定**并回指 MATT-35；
+  §13.4 门禁清单里的 **N4 取消**（它验的是双副本加密键与 `deploymentId`，
+  前提被 MATT-35 抽掉了 ⇒ 留着就是一个永远不会跑的门禁项）。
+- **advisory lock 措辞降级两处**（`worker/README.md:5`、`.trellis/spec/backend/database-guidelines.md:153`）：
+  "这不是保险，是多副本下的功能正确性前提" → **"二期/多副本下的正确性前提；一期单副本下是廉价保险"**。
+  保留过强措辞的后果是下一个人会以为不配锁系统就是坏的；一期它挡的是
+  **滚动发布期双实例并存**那一瞬（技术选型 §3.5），不是稳态。
+
+### Fixed
+
+- `CHANGELOG.md:533`（本日之前的行）的"框架内置 cron"加括注：指 **Nuxt/Nitro**，不是 Next。
+  否则后人会以为 Next 也有过内置 cron，从而把"改用宿主调度器"误读成推翻 v5 裁定。
+- `docs/PRD-phase1-master.md:575` 的 **P1-18 作废**：它自己写了"选单副本则本条整体作废"，
+  而 MATT-35 已选单副本（2026-10-13）。原文整段保留在注里，只把状态从"待办"改成"作废"。
+
+---
+
 ## [未发布] — 2026-10-13 · 切片一三票：通知回音 / 报表形态改判 / 案件成本与两档导出
 
 三张施工票（T4 / T8 / T9）并行落地。本节只记"读代码看不出来"的部分。
@@ -530,7 +558,7 @@ N2–N7 未跑（G1 只过了第一格）；PG 建 `dev_matternest` 角色仍需
 ### Changed
 
 - 技术选型升 **v5**：§2 前端/服务端数据/定时任务/校验契约四行改为 Next + `@tanstack/react-table` + `react-query` + 独立 worker 容器；§3.3 由"纯 shadcn-vue"再改写为"纯 shadcn（React 原版）"，表单库从三选一收敛为 **react-hook-form + Zod resolver 单一选择**；§5 拓扑改 `src/app/**` + `src/shared/**` + `src/lib/server/**` + `worker/`；§11/§12 整体标注**已被 §13 取代**（保留为核验记录），§12.3 旧八条禁令标注"不要照抄，现行看 §13.5"。
-- 定时任务从"框架内置 cron"改为**自建 worker 进程**（`node-cron` + `pg_try_advisory_lock` 单飞 + SIGTERM drain）；多副本结论：C1 的锁由"必须"继续是"必须"，理由从 per-process croner 变成"自己起的进程同样多副本"。
+- 定时任务从"框架内置 cron"（**指 Nuxt/Nitro 的 scheduled tasks，不是 Next** —— Next 从来没有内置 cron，所以"改用宿主调度器"不构成对本次 v5 裁定的推翻，只是沿用同一结论）改为**自建 worker 进程**（`node-cron` + `pg_try_advisory_lock` 单飞 + SIGTERM drain）；多副本结论：C1 的锁由"必须"继续是"必须"，理由从 per-process croner 变成"自己起的进程同样多副本"。
 - 附件上传的兜底位置更新：框架层不设 body 上限这条老问题，改由 **nginx 明确设请求体上限**兜住（官方自托管页把 payload size 限制列为反向代理职责），预签名 PUT 直传不变。
 - "整站 SPA"这个目标**取消**：自托管跑 Node 进程，不需要静态导出（`proxy` 在静态导出下根本不支持）；替换为一条新禁令——**页面壳不得预取业务数据**，否则行级权限被绕开。
 - master：§0.1 文档清单加两份新文件并把技术选型状态改 v5；版本说明补 master-v3（此前被误覆盖）/v4/v5 三行且恢复顺序；② 页面结构图的路由说明由"Nuxt 文件路由"改为 Next App Router。

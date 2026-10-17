@@ -150,7 +150,7 @@ index("uk_rule_scope").unique()
   ```sql
   SELECT pg_try_advisory_lock(hashtext('matternest:reminder-scan'))
   ```
-  拿不到锁直接返回。**这不是"保险起见"，是多副本下的功能正确性前提**（outbox 双派＝双发通知，技术选型 C1 经 §13.2 继承）。
+  拿不到锁直接返回。**二期/多副本下的正确性前提；一期单副本下是廉价保险**（outbox 双派＝双发通知，技术选型 C1 经 §13.2 继承）——一期单副本已裁定（MATT-35），本期它挡的是**滚动发布期双实例并存**那一瞬，不是稳态。
 - outbox：至少一次投递 + `notification_event.dedupe_key` 唯一键冲突即跳过（技术选型 §4「outbox 至少一次 + 去重」行、修订稿 §7.2、矩阵 §4.1）。
 - 连接池设 **10**，不引入 pgbouncer（§12.5）——顺带消除 transaction-mode pooling 与 advisory lock / `SET LOCAL` 的冲突。
 

@@ -510,12 +510,16 @@ Nuxt 全栈成立，不阻塞。7 项主张：VERIFIED 5 项、PARTIALLY 2 项�
 
 1. **鉴权不放在 proxy/middleware。** 官方原文："Always verify authentication and authorization inside each Server Function rather than relying on Proxy alone"，且 matcher 排除某路径会连带跳过该路径上的 Server Function。所以 §4 的"默认拒绝"这一层必须落在每个 handler 的 `withScope()` 里，proxy 只做登录跳转。**顺带撤回我上一轮写的"Next middleware 跑 Edge 拿不到 PG 连接"——v16 起 proxy 默认 Node.js 运行时，那条风险不成立。**
 2. **页面壳零业务数据。** 自托管不需要静态导出（`proxy` 在静态导出下根本不支持），所以我们保留服务端进程即可，不必再追求"整站 SPA"；但页面壳若预取业务数据就会绕开行级权限，故列禁令。
-3. **多副本三件套。** 除 advisory lock 外，必须给所有实例同一个 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`（否则滚动发布报 "Failed to find Server Action"）并配 `deploymentId` 防版本错配；默认缓存是每实例一份，与 §12.5"不引任何跨用户缓存"决定天然一致，但**不许改用 `'use cache'`**。若不想配这两个变量，退路是一期单副本。
+3. **多副本三件套。** 除 advisory lock 外，必须给所有实例同一个 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`（否则滚动发布报 "Failed to find Server Action"）并配 `deploymentId` 防版本错配；默认缓存是每实例一份，与 §12.5"不引任何跨用户缓存"决定天然一致，但**不许改用 `'use cache'`**。**一期已裁定单副本（MATT-35，2026-10-13）**，故这两个变量当前不配；二期转多副本时按本件恢复。
 4. **graceful shutdown。** 官方要求 SIGTERM 后留 10–30s drain 让 `after()` 回调跑完；worker 容器与 migrator 服务都要照此配，否则 outbox 投递会被掐断。
 
 ### 13.4 前置 spike（替代 §8 的 F spike）
 
-N1 装配与 CLI 能力现场看 / N2 一条带 `withScope` 的 404 查询 / N3 worker + 锁 + drain / N4 双副本加密键与 deploymentId / N5 预签名 PUT + nginx 上限 / N6 云之家 OIDC 回跳 / N7 一张真表 + 动态数组表单。逐条通过标准写在 `research-nextjs-stack.md` §5。**注意：原版 shadcn 的 React 组件清单本轮抓取失败、未核到**，所以"有没有现成上传件"不作为已知事实——按自封装排期，两条路线都不变。
+N1 装配与 CLI 能力现场看 / N2 一条带 `withScope` 的 404 查询 / N3 worker + 锁 + drain / ~~N4 双副本加密键与 deploymentId~~ **已取消** / N5 预签名 PUT + nginx 上限 / N6 云之家 OIDC 回跳 / N7 一张真表 + 动态数组表单。逐条通过标准写在 `research-nextjs-stack.md` §5。**注意：原版 shadcn 的 React 组件清单本轮抓取失败、未核到**，所以"有没有现成上传件"不作为已知事实——按自封装排期，两条路线都不变。
+
+> **N4 取消（MATT-77，2026-10-17）**：它验的是"双副本下加密键与 `deploymentId` 配好没"，
+> 而 **MATT-35 已裁定一期单副本**（2026-10-13）⇒ 这个 spike 的前提不存在了，留着它等于
+> 让门禁清单里挂一个永远不会跑的项。二期转多副本时按 §13.3-3 恢复。
 
 > **N1 于 2026-09-27 实跑，结果分两半（详证见 `research-nextjs-stack.md` §3.1 与 §6）。** 前半**通过**：`next@16.3.6 + react@19.3.0 + tailwindcss@4.3.3` 手工装配后 `pnpm build` 成功、产出 `.next/standalone`。顺带钉死三条现场事实——① `create-next-app` 默认会写 `AGENTS.md`（本仓是 Trellis 受管块，**禁用它**，改手工装配）；② Next 16 构建时会把 `tsconfig.json` 的 `jsx` 强改为 `react-jsx`，但**不会回退其它严格项**；③ shadcn CLI 4.21.0 的 `base` 是 **`radix | base | aria` 三选一**，所以禁令⑦ 括号里的"Radix UI"是**本仓选定的原语**，不是 shadcn 的唯一可能。
 > **✅ N1 已通过（2026-09-27 同日，加代理后跑完）**。四条结论：① `shadcn init` 默认落 `src/components/ui`，但 `components.json` 的 `aliases` 一改，`add` 就正确落到 §5 要求的 `src/app/components/ui/` → **§5 拓扑守得住**；② `cn()` 现在是 shadcn 官方 npm 包 `cn`（零依赖、周下载 596 万，发布方核过），本仓 `clsx`+`tailwind-merge` 已移除；③ 原语包是统一的 `radix-ui`，禁令⑦ 括号里的写法据此更新；④ 中文 locale 实测通过（`react-day-picker@10` + `date-fns@4` 的 `zhCN`，渲染出「九月 2026」与星期单字）。**两条新硬约束**：`Locale` 含函数，**不能在 Server Component 里当 prop 传给 client 件**（prerender 会炸），必须 client 侧 import；**跑 CLI 后必须 review diff**——它注入的 `next/font/google` 会让构建依赖外网，与内网私有化部署冲突，已移除。详证 `research-nextjs-stack.md` §6.4。此前「域名级定向重置」的诊断成立（TCP 连上即 RST，同机访问 npm/GitHub 全通），换出口即解。
