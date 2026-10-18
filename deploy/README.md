@@ -5,7 +5,7 @@
 | 文件                 | 是什么                                               | 谁核对              |
 | -------------------- | ---------------------------------------------------- | ------------------- |
 | `nginx.conf`         | TLS 终结 + 反向代理（当前只听 80，TLS 未启用，见下） | `verify-deploy.mjs` |
-| `Dockerfile`         | 应用镜像（`output: "standalone"`）                   | 本票不验证构建      |
+| `Dockerfile`         | 应用镜像（`output: "standalone"`）                   | 构建由 CI 核对      |
 | `docker-compose.yml` | 单副本栈：postgres / minio / migrator / app / nginx  | 本票不验证起栈      |
 | `verify-deploy.mjs`  | 解析 `nginx.conf` 并断言关键值                       | 它自己              |
 
@@ -18,10 +18,33 @@ node deploy/verify-deploy.mjs
 不需要数据库、不需要 Docker、不需要构建——纯文本解析，所以它能进任何一次提交前检查。
 退出码 0 = 通过，1 = 有断言失败。
 
-> ⚠ **本票没有把它接进 `pnpm verify`。** 原因：`package.json` 不在本票的改动面内
-> （多 lane 并行，改共享清单会撞车）。接线只差一行，接的时候记得连同
-> 「`pnpm verify` 必须离线」这条既有约束一起看——`verify-deploy.mjs` 满足离线，
-> 但 `pnpm test` 之外的部分不满足。
+> **它今天挂在 `pnpm verify` 里了**（`deploy:check`，第 7 道）。
+> 2026-10-15 写下这行时没挂，理由记的是「`package.json` 不在本票改动面内」；
+> 后来接上了，本行按事实改写。它满足「verify 必须离线」这条约束——纯文本解析。
+
+### 构建与起栈，各自归谁验（2026-10-18 更新）
+
+原先这张表写 `Dockerfile` 与 compose 都「本票不验证」，**构建那一半现在有归属了**：
+
+| 事                                 | 谁验                                    | 怎么验                                 |
+| ---------------------------------- | --------------------------------------- | -------------------------------------- |
+| `next build` 能不能产出 standalone | **CI**（`pnpm build` 那一步）           | 反向红实测过：注入类型错 ⇒ 退 1        |
+| standalone **起不起来**            | 人眼（2026-10-18 实测过一次，见下）     | 原地 `node .next/standalone/server.js` |
+| compose 能不能拉起整套             | **仍未验**（Docker 引擎起不来，需提权） | —                                      |
+
+⚠ **standalone 必须原地起，不能拷走再起。** 2026-10-18 实测：`pnpm build` 产出的
+`.next/standalone/node_modules/next` 是**指向仓库 `node_modules/.pnpm/...` 的绝对符号链接**
+（pnpm 布局），把它 `cp` 到别处后符号链接全部断掉，起服报
+`Cannot find module '@swc/helpers/_/_interop_require_default'`。
+原地起则正常：`login=200`、定时器打日志、`/` 也 200。
+
+⇒ 这条对 Dockerfile 是不成立的（容器里 `COPY --from=builder` 在同一文件系统内搬，
+且 builder 阶段的 `node_modules` 与 `.next` 同处 `/app`），但**对本机手工部署成立** ——
+别把 `.next/standalone` 拷到别的目录去跑。
+
+⚠ **`.next/static` 与 `public/` standalone 不会自带**，必须手工搬（Dockerfile 里那两行
+`COPY` 就是干这个的）。原地起服时它们恰好都在旁边，所以**看起来**没问题 ——
+那是巧合，不是产物自足。手工部署照样要搬。
 
 ---
 
@@ -159,8 +182,10 @@ node deploy/verify-deploy.mjs
 - **不启 TLS。** 域名未定死（MATT-34）+ 证书托管未定（属 MATT-36 未拍部分）。
   `nginx.conf` 里 443 段是注释，写全了也只是"看起来能用"。
 - **不验证起栈。** `docker compose up` 本票没跑过（本机 Docker daemon 未运行），
-  `Dockerfile` 的构建也未跑过。compose 与 Dockerfile 是**按契约写的**，
+  `docker build` 也没跑过。compose 与 Dockerfile 是**按契约写的**，
   不是**按实测跑通的**——用之前先自己起一次。
+  （**应用本身的构建**不在这一条里：2026-10-18 起 CI 跑 `pnpm build`，
+  且 standalone 已在本机原地起过一次，见上「构建与起栈，各自归谁验」。）
 - **不写 `worker` 服务。** MATT-35 裁定一期不引调度进程（通知泵由外部触发器驱动），
   且 `worker/` 下当前只有 README、没有实现。留一个指向不存在代码的服务比不写更糟。
 
