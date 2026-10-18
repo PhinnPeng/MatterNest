@@ -58,6 +58,20 @@ import { MAX_IMPORT_ROWS } from "@/shared/schema/import";
  * 再决定导不导 —— 预检存在的全部意义就是这个。所以主按钮是「开始导入」，
  * 旁边是「预检」；预检完之后不自动真导。
  */
+/**
+ * 提交前那道客户端 schema 校验没过时的短路信号。
+ *
+ * 用一个专用类而不是 `throw new Error("skipped")` 再按字符串认：后者会在同一次
+ * `onError` 里与服务端来的真错误混在一起，改一个字（`"skipped"` → `"skip"`）
+ * 就会把"文件太大"这类**该显示的错误**静默吞掉。
+ */
+class PayloadRejected extends Error {
+  constructor() {
+    super("payload rejected");
+    this.name = "PayloadRejected";
+  }
+}
+
 export function ImportDialog({
   hostType,
   open,
@@ -95,21 +109,21 @@ export function ImportDialog({
   }
 
   /** 提交前先过**同一份** schema（不是第二套规则）。预检与真导走同一段组装 */
-  function submitWith(dryRun: boolean) {
+  function checkedPayload() {
     if (!file) return;
     const checked = checkImportPayload(buildImportPayload(hostType, file.name, file.text));
     if (!checked.ok) {
       setFileError(importPayloadError(checked.issues));
       return;
     }
-    return { dryRun, payload: checked.data };
+    return checked.data;
   }
 
   const previewMut = useMutation({
     mutationFn: () => {
-      const req = submitWith(true);
-      if (!req) throw new Error("skipped");
-      return runImport(req.payload, { dryRun: true });
+      const payload = checkedPayload();
+      if (!payload) throw new PayloadRejected();
+      return runImport(payload, { dryRun: true });
     },
     onSuccess: (r) => {
       setFileError(null);
@@ -117,7 +131,7 @@ export function ImportDialog({
       setPreview(r);
     },
     onError: (e) => {
-      if (e instanceof Error && e.message === "skipped") return;
+      if (e instanceof PayloadRejected) return;
       setPreview(null);
       setFileError(e instanceof ApiFailure ? e.message : "预检失败，请重试");
     },
@@ -125,9 +139,9 @@ export function ImportDialog({
 
   const importMut = useMutation({
     mutationFn: () => {
-      const req = submitWith(false);
-      if (!req) throw new Error("skipped");
-      return runImport(req.payload);
+      const payload = checkedPayload();
+      if (!payload) throw new PayloadRejected();
+      return runImport(payload);
     },
     onSuccess: (r) => {
       setFileError(null);
@@ -138,7 +152,7 @@ export function ImportDialog({
       );
     },
     onError: (e) => {
-      if (e instanceof Error && e.message === "skipped") return;
+      if (e instanceof PayloadRejected) return;
       setResult(null);
       // 400 是**文件级**拒绝（整份退回）；403 由入口按钮的权限面接管
       setFileError(e instanceof ApiFailure ? e.message : "导入失败，请重试");
