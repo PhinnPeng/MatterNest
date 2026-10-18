@@ -31,8 +31,17 @@ import { sqlInList } from "./ddl";
 export const statusConfig = pgTable(
   "mn_status_config",
   {
-    /** 雪花 id，应用侧生成（修订稿 §12.2）；DB 不设 IDENTITY */
-    id: bigint("id", { mode: "number" }).primaryKey(),
+    /**
+     * 雪花 id，应用侧生成（修订稿 §12.2）；DB 不设 IDENTITY。
+     *
+     * ⚠ `mode` 必须是 `"bigint"`（与 `common.ts` 的 `id()` 同型），不是 `"number"`：
+     * `mode` 是 **drizzle 的应用侧读值模式**，不进 DDL（快照里只有 `bigint` 类型，
+     * 改它不产迁移）。写 `"number"` 的失败形态是**静默丢低位** —— 雪花值超出
+     * `Number.MAX_SAFE_INTEGER`（2^53-1），`Number(id)` 之后低位被抹平，而它不报错
+     * （master P1-19 点名的正是这一类）。MATT-101 给这张表加新增路径时实测撞到
+     * `tsc` 拒绝用 bigint 写 number 列，才把这一处与其余四张配置表对齐。
+     */
+    id: bigint("id", { mode: "bigint" }).primaryKey(),
     /** 语义标识：seed 与规则引用它，创建后不可改 */
     code: varchar("code", { length: 32 }).notNull(),
     /** 展示名：可改 */
