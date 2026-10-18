@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, count as dcount, eq } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { appUser, appUserRole, role } from "../db/schema";
 
@@ -44,14 +44,6 @@ export type RoleSeed = {
   isSystem: boolean;
 };
 
-/** 一条「谁持有什么角色」的授予行（投影函数的输入）。 */
-export type RoleGrantRow = {
-  roleId: string;
-  userId: string;
-  username: string;
-  displayName: string;
-};
-
 /** 角色成员摘要：只带定位一个人的最小三列。**不含**凭据/最后登录等账号列。 */
 export type RoleMember = { id: string; username: string; displayName: string };
 
@@ -69,31 +61,41 @@ export type RoleDetail = RoleSeed & {
 };
 
 /**
- * 把「角色清单 + 授予行」投影成接口形状（**纯函数，不连库**）。
+ * 把「角色清单 + 计数 + 可选成员清单」投影成接口形状（**纯函数，不连库**）。
  *
  * 计数与成员都**按角色归并**：同一个人持两个角色时，两个角色各数他一次 ——
  * 这正是 seed 里 `admin` 同时持 `sys_admin` + `full_admin` 时要看到的 1 / 1，
  * 而不是"按人去重后某个角色变成 0"。
  *
- * `includeMembers` 是**唯一**由权限门控制的参数：false 时成员清单换成 `null`，
- * 其余字段逐字不动。这样"收窄"与"翻译"两件事在类型上就分开了 ——
- * 权限门不可能顺手改了角色定义。
+ * ## 计数与成员是**两个独立输入**，不是一份数据的两种投影（2026-10-18 更正）
+ *
+ * 初版写成 `(roles, grants, { includeMembers })`：一份 `grants` 既算计数又出名单，
+ * 无权限时把 `grants` 传成 `[]`。**那是个真缺陷** —— 计数也一起变 0，
+ * 于是无 `canManageUser` 的用户看到「5 个角色，共 0 人持有」，
+ * 而票面明写"看不到成员时**只给计数**"。实机验出来的（两个账号对撞，非单测）：
+ *
+ * | 账号 | 计数 | 名单 |
+ * |---|---|---|
+ * | `sys_admin`（有 `canManageUser`） | 2 | admin + 临时账号 |
+ * | `full_admin`（无） | **0** ← 应为 2 | 只给计数 |
+ *
+ * 单测没抓到，是因为它把 `GRANTS` 直接喂进纯函数 —— 纯函数**从来没坏过**，
+ * 坏的是"无权限就整个不查"这个接线。所以修法是把两个输入在类型上分开：
+ * 计数**必给**、名单**可为 null**，接线层就不可能再把计数连坐掉。
+ *
+ * `members === null` = 没有看名单的权限（`[]` = 看得到但确实没人持有）。
  */
 export function projectRoleDetails(
   roles: readonly RoleSeed[],
-  grants: readonly RoleGrantRow[],
-  opts: { includeMembers: boolean },
+  holderCounts: ReadonlyMap<string, number>,
+  members: ReadonlyMap<string, readonly RoleMember[]> | null,
 ): RoleDetail[] {
-  return roles.map((r) => {
-    const held = grants.filter((g) => g.roleId === r.id);
-    return {
-      ...r,
-      holderCount: held.length,
-      members: opts.includeMembers
-        ? held.map((g) => ({ id: g.userId, username: g.username, displayName: g.displayName }))
-        : null,
-    };
-  });
+  return roles.map((r) => ({
+    ...r,
+    // 计数不指名道姓，所以任何登录用户都拿得到；与名单是两条独立的输入
+    holderCount: holderCounts.get(r.id) ?? 0,
+    members: members ? [...(members.get(r.id) ?? [])] : null,
+  }));
 }
 
 /**
@@ -102,8 +104,16 @@ export function projectRoleDetails(
  * **调用方必须先决定 `includeMembers`**（路由层用 `actor.privileges.canManageUser`）：
  * 服务层不读会话 —— 那是第二条鉴权路径，禁令⑤ 要的是"每个 handler 内部自己判权限"。
  *
- * 两次查询再在内存里归并，与 `users.ts:listUsers()` 同一形状：十人组织看不出差别，
- * 但"每行一次查询"这种形状一旦定型，加人时没人会回头改。
+ * ## 三次查询，其中两次是刻意的（2026-10-18 更正）
+ *
+ * · **角色行**：5 行，必查；
+ * · **计数**：`group by role_id, count(*)`，**必查、且只出数字**（不带用户名）。
+ *   计数不指名道姓，所以无 `canManageUser` 的人也拿得到 —— 这正是票面"只给计数"那一档。
+ * · **成员名单**：只带 `includeMembers` 时查。它出的是**人名**，是"人的信息"那一档。
+ *
+ * 把计数与名单拆成两次查询是**有意的**，不是懒得合并：合并成一次（像初版那样）
+ * 会让"无权限"顺手把计数也连坐掉，而那是一个真出过的缺陷（见 `projectRoleDetails` 的头注）。
+ * 拆开之后下一个人想"省一次查询"时，会先撞上一句说明为什么不能合。
  */
 export async function listRoleDetails(opts: { includeMembers: boolean }): Promise<RoleDetail[]> {
   const db = await getDb();
@@ -135,13 +145,36 @@ export async function listRoleDetails(opts: { includeMembers: boolean }): Promis
     isSystem: r.isSystem,
   }));
 
-  // 无权限者根本不需要查成员 —— 少一次全表读，也少一个"查了但没给"的中间态。
-  const grants: RoleGrantRow[] = opts.includeMembers ? await loadGrants() : [];
-  return projectRoleDetails(seeds, grants, opts);
+  // 两次查询并发：两者互不依赖，串起来只是白等一个往返
+  const [counts, members] = await Promise.all([
+    loadHolderCounts(),
+    opts.includeMembers ? loadMembers() : Promise.resolve(null),
+  ]);
+  return projectRoleDetails(seeds, counts, members);
 }
 
-/** 全部授予行（含账号名）。只在需要成员清单时调用。 */
-async function loadGrants(): Promise<RoleGrantRow[]> {
+/**
+ * 每个角色的持有**人数**（`group by role_id`）。
+ *
+ * 刻意不 select 用户名：这一条要在无 `canManageUser` 时也能跑，
+ * 而"能跑"与"能读名字"是两件事 —— 只出数字的那条查询不该有读名字的能力。
+ */
+async function loadHolderCounts(): Promise<Map<string, number>> {
+  const db = await getDb();
+  const rows = await db
+    .select({ roleId: appUserRole.roleId, n: dcount() })
+    .from(appUserRole)
+    .groupBy(appUserRole.roleId);
+  return new Map(rows.map((r) => [String(r.roleId), Number(r.n)]));
+}
+
+/**
+ * 每个角色的成员清单（含账号名）。
+ *
+ * **只在 `includeMembers` 为真时调用** —— 这张表出的每一列都在指认一个人。
+ * 与 `listUsers()` 同一道门（`canManageUser`）。
+ */
+async function loadMembers(): Promise<Map<string, RoleMember[]>> {
   const db = await getDb();
   const rows = await db
     .select({
@@ -154,10 +187,12 @@ async function loadGrants(): Promise<RoleGrantRow[]> {
     .innerJoin(appUser, eq(appUser.id, appUserRole.userId))
     .orderBy(asc(appUser.username));
 
-  return rows.map((r) => ({
-    roleId: String(r.roleId),
-    userId: String(r.userId),
-    username: r.username,
-    displayName: r.displayName,
-  }));
+  const out = new Map<string, RoleMember[]>();
+  for (const r of rows) {
+    const key = String(r.roleId);
+    const list = out.get(key) ?? [];
+    list.push({ id: String(r.userId), username: r.username, displayName: r.displayName });
+    out.set(key, list);
+  }
+  return out;
 }
