@@ -105,10 +105,26 @@ describe("入口页五张卡片", () => {
 
 describe("字段能力按细项裁剪（不是一份通用 schema）", () => {
   it("标签没有 code 列 ⇒ 给 code 的请求被 `.strict()` 拒（不是静默剥离）", () => {
-    const tagOk = configCreateSchema("tag").safeParse({ name: "涉外" });
+    const tagOk = configCreateSchema("tag").safeParse({ name: "涉外", hostType: "matter" });
     expect(tagOk.success).toBe(true);
-    const tagWithCode = configCreateSchema("tag").safeParse({ name: "涉外", code: "foreign" });
+    const tagWithCode = configCreateSchema("tag").safeParse({
+      name: "涉外",
+      hostType: "matter",
+      code: "foreign",
+    });
     expect(tagWithCode.success, "标签页不该收 code —— 那一列在 mn_tag 里不存在").toBe(false);
+  });
+
+  it("标签的宿主必填（`mn_tag.host_type` 是 NOT NULL），且值域同 E08/E10", () => {
+    // 标签一行只能一个宿主：原型画的「适用 = 案件 + 事项」在表里表达不出来，
+    // 要两行才等义 —— 所以这里是单选枚举，不是数组。
+    expect(configCreateSchema("tag").safeParse({ name: "涉外" }).success).toBe(false);
+    expect(configCreateSchema("tag").safeParse({ name: "涉外", hostType: "risk_matter" }).success).toBe(
+      true,
+    );
+    expect(configCreateSchema("tag").safeParse({ name: "涉外", hostType: "contract" }).success).toBe(
+      false,
+    );
   });
 
   it("状态细项收 code 与 color（两列都在 mn_status_config 里）", () => {

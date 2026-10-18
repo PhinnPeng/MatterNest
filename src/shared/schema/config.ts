@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { STATUS_SEMANTICS } from "@/shared/enums/status";
+import { HOST_TYPES } from "@/shared/enums/targets";
 
 /**
  * 功能配置的 14 个细项（MATT-101）。
@@ -245,18 +246,22 @@ export const configSortOrderField = z
 
 /**
  * 每个可写细项的字段能力（新增与编辑共用；`code` 只在新增时出现）。
- * `hasSemantics` 只对状态为真 —— 语义列只有 `mn_status_config` 有。
+ * `hasSemantics` 只对状态为真 —— 语义列只有 `mn_status_config` 有；
+ * `needsHost` 只对标签为真 —— `mn_tag.host_type` 是 NOT NULL（一行只能一个宿主）。
  */
 export const CONFIG_WRITE_FIELDS: Record<
   WritableConfigKind,
-  { needsCode: boolean; hasColor: boolean; hasSemantics: boolean }
+  { needsCode: boolean; hasColor: boolean; hasSemantics: boolean; needsHost: boolean }
 > = {
-  case_status: { needsCode: true, hasColor: true, hasSemantics: true },
-  item_status: { needsCode: true, hasColor: true, hasSemantics: true },
-  risk_level: { needsCode: true, hasColor: false, hasSemantics: false },
-  tag: { needsCode: false, hasColor: true, hasSemantics: false },
-  expense_item: { needsCode: true, hasColor: false, hasSemantics: false },
+  case_status: { needsCode: true, hasColor: true, hasSemantics: true, needsHost: false },
+  item_status: { needsCode: true, hasColor: true, hasSemantics: true, needsHost: false },
+  risk_level: { needsCode: true, hasColor: false, hasSemantics: false, needsHost: false },
+  tag: { needsCode: false, hasColor: true, hasSemantics: false, needsHost: true },
+  expense_item: { needsCode: true, hasColor: false, hasSemantics: false, needsHost: false },
 };
+
+/** 标签的宿主（`mn_tag.host_type`，值域同 E08/E10）。一行只能一个宿主，故不是多选 */
+export const configHostField = z.enum(HOST_TYPES);
 
 /**
  * 接口吐出的一行（前后端同一份）。
@@ -311,6 +316,7 @@ export function configCreateSchema(kind: WritableConfigKind) {
   };
   if (f.needsCode) shape.code = configCodeField;
   if (f.hasColor) shape.color = configColorField.default("");
+  if (f.needsHost) shape.hostType = configHostField;
   return z.object(shape).strict();
 }
 
@@ -324,6 +330,7 @@ export function configUpdateSchema(kind: WritableConfigKind) {
   };
   if (f.hasColor) shape.color = configColorField.optional();
   if (f.hasSemantics) shape.semantics = z.enum(STATUS_SEMANTICS).optional();
+  if (f.needsHost) shape.hostType = configHostField.optional();
   return z.object(shape).strict();
 }
 
