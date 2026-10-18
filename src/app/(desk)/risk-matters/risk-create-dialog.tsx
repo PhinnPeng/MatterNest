@@ -2,19 +2,7 @@
 
 import { useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Alert,
-  Button,
-  Col,
-  DatePicker,
-  Form,
-  Input,
-  Modal,
-  Result,
-  Row,
-  Select,
-  Space,
-} from "antd";
+import { Alert, Button, Col, DatePicker, Form, Input, Modal, Row, Select } from "antd";
 import type { Dayjs } from "dayjs";
 
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
@@ -91,8 +79,9 @@ export function RiskCreateDialog({
         open={open}
         onCancel={() => onOpenChange(false)}
         title="事项已报备"
+        width={520}
         footer={
-          <Space>
+          <div className="rowflex" style={{ justifyContent: "space-between" }}>
             <Button
               onClick={() => {
                 form.resetFields();
@@ -104,14 +93,20 @@ export function RiskCreateDialog({
             <Button type="primary" onClick={() => onOpenChange(false)}>
               完成
             </Button>
-          </Space>
+          </div>
         }
       >
-        <Result
-          status="success"
-          title={<span className="num">{created.code}</span>}
-          subTitle="编号由数据库取号生成；之后转案件时两本台账靠外键连着。"
-        />
+        {/* canon 的成功态（canon-spec §31）：状态行（点 + 词）+ 编号 + 一行事实 */}
+        <div className="pill ok" style={{ marginBottom: 10 }}>
+          <i />
+          待评估
+        </div>
+        <div className="num" style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>
+          {created.code}
+        </div>
+        <div className="mut" style={{ fontSize: 12, marginTop: 8 }}>
+          编号由数据库取号；之后转案件时两本台账靠外键连着。
+        </div>
       </Modal>
     );
   }
@@ -121,7 +116,7 @@ export function RiskCreateDialog({
       open={open}
       onCancel={() => onOpenChange(false)}
       title="新建事项"
-      width={680}
+      width={520}
       okText="报备"
       confirmLoading={mut.isPending}
       // 富文本编辑器只在挂载时读一次初值；关闭即销毁，重开才拿到干净的空白草稿
@@ -143,18 +138,22 @@ export function RiskCreateDialog({
         scrollToFirstError={{ block: "center", behavior: "smooth" }}
         initialValues={{ amount: "", source: "" }}
       >
-        <Row gutter={12}>
+        {/* 三个分区（canon `.fsec`）与字段顺序按 canon-spec §30 的逻辑配对：
+            事项名称 → 风险类型/等级 → 来源/发现日期 → 预估影响 → 描述（富文本）→ 已采取措施
+            → 处理人/关注人。**每行最多两个字段**（原为此前 span8 三格一行，违反契约）。 */}
+        <div className="fsec">基本信息</div>
+        <Row gutter={[16, 0]}>
           <Col span={24}>
             <Form.Item label="事项名称" name="name" rules={rulesFor(riskCreateSchema, ["name"])}>
               <Input />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col span={12}>
             <Form.Item label="风险类型" name="type" rules={rulesFor(riskCreateSchema, ["type"])}>
               <Select placeholder="请选择" options={meta ? toOptions(meta.enums.riskTypes) : []} />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col span={12}>
             <Form.Item label="风险等级" name="level" rules={rulesFor(riskCreateSchema, ["level"])}>
               <Select
                 placeholder="请选择"
@@ -162,7 +161,7 @@ export function RiskCreateDialog({
               />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col span={12}>
             <Form.Item
               label="来源"
               name="source"
@@ -176,7 +175,12 @@ export function RiskCreateDialog({
               />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col span={12}>
+            <Form.Item label="发现日期" name="discoverDate" extra="留空按今天记">
+              <DatePicker style={{ width: "100%" }} />
+            </Form.Item>
+          </Col>
+          <Col span={24}>
             <Form.Item
               label="预估影响（元）"
               name="amount"
@@ -185,11 +189,10 @@ export function RiskCreateDialog({
               <Input placeholder="最多两位小数" />
             </Form.Item>
           </Col>
-          <Col span={8}>
-            <Form.Item label="发现日期" name="discoverDate" extra="留空按今天记">
-              <DatePicker style={{ width: "100%" }} />
-            </Form.Item>
-          </Col>
+        </Row>
+
+        <div className="fsec">情况与处置</div>
+        <Row gutter={[16, 0]}>
           <Col span={24}>
             {/* 描述是富文本（MATT-57 / ADR-0002）：markdown 存储，BlockNote 编辑。
                 仍是 `Form.Item name + rules` —— 校验单一来源不破（Zod 经 zod-rules 推导）。
@@ -214,12 +217,16 @@ export function RiskCreateDialog({
               <Input.TextArea rows={2} maxLength={5000} />
             </Form.Item>
           </Col>
+        </Row>
+
+        <div className="fsec">办理与关注</div>
+        <Row gutter={[16, 0]}>
           {/* 处理人与关注人（MATT-49 / IQ-5 / IQ-14）：选人面走创建期例外，
               见 people-fields.tsx 的文件头注（与详情页那个选择面不是同一个数据源）。 */}
-          <Col span={8}>
+          <Col span={12}>
             <OwnerField options={people} />
           </Col>
-          <Col span={16}>
+          <Col span={12}>
             <FollowersField options={people} />
           </Col>
           <Col span={24}>
