@@ -235,13 +235,16 @@ function MemberCard({ role }: { role: RoleDetail }) {
       <div className="card-h">
         <h3>成员</h3>
         <span style={{ flex: 1 }} />
-        {/* 授予在用户管理页做；本页不给编辑按钮。无 canManageUser 者看不到名单，
-            所以也不给这个会 403 的指路链接（不给必被拒的入口）。 */}
-        {role.members !== null ? (
-          <Link href="/users" style={{ fontSize: 12 }}>
-            去用户管理授予
-          </Link>
-        ) : null}
+        {/*
+          授予在用户管理页做；本页不给编辑按钮（只读）。
+          链接**不按权限隐藏**：`/users` 无权限时给的是「这个页面需要『管理账号』权限」
+          这句解释，而不是一个拒绝——与导航里「用户管理」不隐藏同一条口径
+          （菜单项消失会让人以为系统没有这个功能）。隐藏它反而让无权限者
+          以为"角色没法授予"。徽标/菜单可见性从来不是权限，服务端才是。
+        */}
+        <Link href="/users" style={{ fontSize: 12 }}>
+          去用户管理授予
+        </Link>
       </div>
       <div className="card-b" style={{ padding: role.members && role.members.length ? 0 : 16 }}>
         {role.members === null ? (
