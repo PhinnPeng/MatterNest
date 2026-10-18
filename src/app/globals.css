@@ -1,3 +1,23 @@
+/*
+ * 层的**优先顺序必须先声明**，而且必须在这条 `@import` **之前**。
+ *
+ * 两个理由叠在一起：
+ *   ① `@layer` 按**首次出现**的顺序决定谁压谁，后声明的层赢；
+ *   ② `@import "tailwindcss"` 自己会声明 `properties, theme, base, components, utilities`
+ *      这一串 —— 若本行排在它后面，`base`/`components` 早已存在（沿用原位），
+ *      而 `antd` 是**新名字**，会被**追加到最末**，于是照样压过 components。
+ *      实测过：把本行放在 import 之后，深色导航项仍是 antd 的链接蓝 `rgb(57,118,216)`。
+ *
+ * `antd` 的样式由 cssinjs 在运行时注入（`providers.tsx` 的 `StyleProvider layer`），
+ * 在 `<head>` 里排在这份 CSS 后面；不先声明顺序，它天然压过 `components`，
+ * 本文件里所有"覆盖 antd"的规则全部失效。症状：深色下九个导航项渲染成 antd 链接蓝，
+ * `--nav-ink`(#C3C8CE) / `--nav-on-ink`(#8AB4F8) 一个都没生效，对比度 4.12 < 4.5。
+ *
+ * ⇒ 把 `antd` 钉在最前（最低优先），base 与 components 依次压过它。
+ * 这一行与 `providers.tsx` 那条 `StyleProvider layer` 是一对，改一处要想着另一处。
+ */
+@layer antd, base, components;
+
 @import "tailwindcss";
 
 /*

@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
+import { StyleProvider } from "@ant-design/cssinjs";
 import { App, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import dayjs from "dayjs";
@@ -70,10 +71,31 @@ export function Providers({ children }: { children: ReactNode }) {
 function ThemedApp({ children }: { children: ReactNode }) {
   const { appearance } = useAppearance();
   return (
-    <ConfigProvider locale={zhCN} theme={antdThemeConfig(appearance)}>
-      {/* `App` 提供 message/notification/modal 的 context 版实例——
-          静态方法在 React 19 + 严格模式下读不到主题与 locale，官方就是用它替代 */}
-      <App>{children}</App>
-    </ConfigProvider>
+    /*
+     * `StyleProvider layer` 把 antd 自己注入的样式（含它的 reset：`:where(...) a{color:var(--ant-color-link)}`）
+     * 包进 `@layer antd`。**这是本仓样式取胜的关键一条，别删**。
+     *
+     * 为什么必须包：CSS 的层叠顺序里 **未分层（unlayered）的规则永远胜过任何 `@layer` 里的规则**，
+     * 与特异度无关。所以只要 antd 的 reset 留在层外，它那条 `a{color:…}` 就会盖掉
+     * `globals.css` 里 `@layer components` 的 `.nav .it{color:var(--nav-ink)}` ——
+     * 实测症状：**深色下九个导航项全渲染成 antd 的链接蓝 `rgb(57,118,216)`**，
+     * 而 `--nav-ink`(#C3C8CE) 与 `--nav-on-ink`(#8AB4F8) 两个令牌一个都没生效，
+     * 对比度只有 4.12（低于正文 4.5）。它是靠真页视觉冒烟（`agent-work/smoke-visual.mjs`）
+     * 量出来的，`pnpm verify` 全绿也照样存在。
+     *
+     * 包进层之后，antd 的样式照旧生效（它整层都在），但**我们分层的规则可以按正常层叠压过它** ——
+     * 这比"给每条自己的规则加特异度"干净：后者会让 globals.css 里出现一堆 `.nav .it.it`
+     * 之类的补丁，而病因（层外打败层内）还在。
+     *
+     * ⚠ 反过来说：**globals.css 里凡是用来覆盖 antd 的规则，必须写在 `@layer` 里**。
+     * 层外写一条"覆盖 antd"的规则会反过来打败全部 antd 样式（不只是它想覆盖的那条）。
+     */
+    <StyleProvider layer>
+      <ConfigProvider locale={zhCN} theme={antdThemeConfig(appearance)}>
+        {/* `App` 提供 message/notification/modal 的 context 版实例——
+            静态方法在 React 19 + 严格模式下读不到主题与 locale，官方就是用它替代 */}
+        <App>{children}</App>
+      </ConfigProvider>
+    </StyleProvider>
   );
 }
