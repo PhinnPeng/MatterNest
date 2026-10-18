@@ -319,19 +319,19 @@ components:
 
 ---
 
-## 落地状态（迁移中，读这份文件的人必看）
+## 落地状态（迁移已落，读这份文件的人必看）
 
-**这份契约目前住在原型里**（`.impeccable/mocks/pages/canon.css`），**`src/` 真页尚未迁移**。两者的落差是已知的、正在消除的：
+**这份契约已从原型落进 `src/`**（批次一 / 批次二完成）。原型 `.impeccable/mocks/pages/canon.css` 仍是目标态的唯一实现，但**真页已与它同源**：
 
-| | 原型 canon（**本文件描述的目标态**） | `src/`（当前实现） |
-|---|---|---|
-| 主色 | `#2563EB` | `#2f5fe0` |
-| 纸色 | `#F5F6F8` | `#f7f8fa` |
-| 深色模式 | 一等外观（内容区也深） | **不存在**（`theme/antd.ts` 里还留着「深色内容区没需求（P1-17）」的注释） |
-| 导航 | 3 组 9 项 | 8 项（`配置字典` / `用户与角色` 未拆） |
-| 角色权限页 | 主从布局、只读 | **页面不存在** |
-| 功能配置 | 5 卡 14 细项、弹层 CRUD | 只读字典页 |
+| | 现状 |
+|---|---|
+| 令牌 | `src/app/theme/brand.ts` 是**唯一色值源**，明暗两组**同名键**（浅色 `:root` / 深色 `html.dark` 由 `tokensCss()` 注入），与 canon.css 逐值同源，`brand.spec.ts` 是闸门（禁令⑦） |
+| 主色 | `#2563EB`（`#2f5fe0` 已不在任何地方） |
+| 深色模式 | **一等外观**：`theme/antd.ts` 的 `algorithm` 随外观在 `defaultAlgorithm` / `darkAlgorithm` 间切换，见 `docs/adr/0006-dark-mode-first-class.md` |
+| 导航 | 3 组 9 项（概要 / 业务 / 系统）。「我关注的」收在身份区下拉、`/config/import` 从导航移除 |
+| 角色权限页 | `/roles` 已存在（主从布局、只读） |
+| 功能配置 | `/config/[kind]` 一个带参数的路由收 14 个细项；5 个可写项走弹层 CRUD（`/api/config/[kind]`） |
 
-落真页时的口径：**canon.css 的令牌值转写进 `src/app/theme/brand.ts`**（色值单源，禁令⑦），`theme/antd.ts` 映射 antd token，`globals.css` 只留 CSS 侧无法 import 的那几处。**本文件与 `brand.ts` 必须同值**——改一处就得改另一处，`brand.spec.ts` 是这道闸门。
+口径未变：**canon.css 的令牌值转写进 `brand.ts`**（色值单源，禁令⑦），`theme/antd.ts` 映射 antd token，`globals.css` 只留 CSS 侧无法 import 的那几处。**本文件与 `brand.ts` 必须同值**——改一处就得改另一处，`brand.spec.ts` 是这道闸门。
 
 施工细则（逐页内容要求、弹层与表单的写法）见 `.impeccable/mocks/canon-spec.md`。
