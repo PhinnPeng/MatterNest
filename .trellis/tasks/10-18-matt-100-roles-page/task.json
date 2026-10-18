@@ -1,0 +1,28 @@
+{
+  "id": "matt-100-roles-page",
+  "name": "matt-100-roles-page",
+  "title": "视觉重构 ③ 角色权限页 + GET /api/roles（只读）",
+  "description": "Paca MATT-100。/roles 路由今天不存在。建只读角色权限页 + 只读接口。接口返回 5 内置角色的 code/name/dataScope/四项特权/持有人数与成员摘要，范围标签用 DATA_SCOPE_LABELS。⚠ 权限门需先点头：建议登录即可读角色定义、成员清单按 canManageUser 收窄。页面主从布局 264px + 1fr，两栏等高照 research-master-detail-equal-height.md（不写 align-items:start、不写死高度）。数据源 mn_role + mn_role_join；库里只有 admin 一人（截图里其他人是原型编的，以库为准）。不做角色编辑能力。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "phinnpeng",
+  "assignee": "phinnpeng",
+  "createdAt": "2026-10-18",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "paca_task": "100"
+  }
+}

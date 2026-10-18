@@ -1,0 +1,28 @@
+{
+  "id": "matt-98-visual-foundation",
+  "name": "matt-98-visual-foundation",
+  "title": "视觉重构 ① 地基：canon 令牌转写 · 明暗主题可切 · 3 组 9 项导航 · 内容区撑满视口",
+  "description": "Paca MATT-98。把 canon 原型的令牌/主题/外壳/页容器搬进 src/，不迁具体页面。权威：DESIGN.md、.impeccable/mocks/pages/canon.css、canon-spec.md、docs/adr/0006。brand.ts 转成明暗两组同名色 + brand.spec.ts 守键集合相等；antd.ts 的 algorithm 可切；globals.css 三处写死色收敛成变量；导航 3 组 9 项（批量导入移出）；页容器撑满视口（判据 ≤40px）。不做：具体页面、服务层口径、响应式。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "phinnpeng",
+  "assignee": "phinnpeng",
+  "createdAt": "2026-10-18",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "paca_task": "98"
+  }
+}
