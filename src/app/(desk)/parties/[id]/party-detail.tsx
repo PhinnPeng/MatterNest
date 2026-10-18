@@ -1,27 +1,10 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Alert,
-  App as AntdApp,
-  Button,
-  Card,
-  Descriptions,
-  Flex,
-  Form,
-  Input,
-  Modal,
-  Radio,
-  Select,
-  Space,
-  Table,
-  Typography,
-} from "antd";
-import { MergeCellsOutlined } from "@ant-design/icons";
+import { Alert, App as AntdApp, Form, Input, Modal, Radio, Select, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
@@ -34,7 +17,7 @@ import {
   type PartyMergeResult,
 } from "@/app/lib/client/api-parties";
 import { dateTime, fromNow } from "@/app/lib/client/format";
-import { PageHeader, SectionTitle } from "@/app/components/page-header";
+import { PageHeader } from "@/app/components/page-header";
 import { FlagMark, StatusMark } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { applyServerIssues } from "@/app/components/form/zod-rules";
@@ -81,28 +64,27 @@ export function PartyDetail({ id }: { id: string }) {
   };
 
   if (isPending) {
-    return <Card size="small" loading style={{ maxWidth: 1180, margin: "0 auto" }} />;
+    return <div className="card" style={{ minHeight: 320 }} />;
   }
   // 404 走"不可见或不存在"这一句措辞：服务层对两者都给 404（元规则 3），界面不许替它区分
   if (isError) {
     return (
-      <Card size="small" style={{ maxWidth: 640, margin: "40px auto" }}>
-        <StateBlock
-          tone="denied"
-          title="看不到这份档案"
-          hint={
-            error instanceof ApiFailure && error.status === 404
-              ? "它不存在，或你没有查看它的权限。"
-              : "加载失败，请重试。"
-          }
-        />
-      </Card>
+      <StateBlock
+        tone="denied"
+        title="看不到这份档案"
+        hint={
+          error instanceof ApiFailure && error.status === 404
+            ? "它不存在，或你没有查看它的权限。"
+            : "加载失败，请重试。"
+        }
+      />
     );
   }
   if (!data) return null;
 
   const p = data;
 
+  /** 详情页内嵌表：canon `.tb` + 显式列宽，分页外移（详情页只列前 10 条，超出提示） */
   const matterColumns: TableColumnsType<PartyInvolvedMatterDto> = [
     {
       key: "code",
@@ -159,7 +141,9 @@ export function PartyDetail({ id }: { id: string }) {
       width: 76,
       ellipsis: true,
       render: (_, r) => (
-        <span style={{ fontSize: 12, color: INK.muted }}>{fromNow(r.updatedAt)}</span>
+        <span className="mut3" style={{ fontSize: 12 }}>
+          {fromNow(r.updatedAt)}
+        </span>
       ),
     },
   ];
@@ -213,13 +197,15 @@ export function PartyDetail({ id }: { id: string }) {
       width: 76,
       ellipsis: true,
       render: (_, r) => (
-        <span style={{ fontSize: 12, color: INK.muted }}>{fromNow(r.updatedAt)}</span>
+        <span className="mut3" style={{ fontSize: 12 }}>
+          {fromNow(r.updatedAt)}
+        </span>
       ),
     },
   ];
 
   return (
-    <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+    <div className="stack">
       <PageHeader
         title={p.name}
         flags={
@@ -230,127 +216,143 @@ export function PartyDetail({ id }: { id: string }) {
           ) : null
         }
         actions={
-          <Space size={8}>
-            <Button size="small" onClick={() => setEditOpen(true)}>
+          <>
+            <button type="button" className="btn" onClick={() => setEditOpen(true)}>
               编辑
-            </Button>
-            <Button size="small" icon={<MergeCellsOutlined />} onClick={() => setMergeOpen(true)}>
+            </button>
+            <button type="button" className="btn danger" onClick={() => setMergeOpen(true)}>
               合并重复档案
-            </Button>
-          </Space>
+            </button>
+          </>
         }
       />
 
-      <Card size="small" title="登记信息" style={{ marginBottom: 12 }}>
-        <Descriptions
-          size="small"
-          column={{ xs: 1, sm: 2, lg: 3 }}
-          items={[
-            {
-              key: "type",
-              label: "类型",
-              children: meta?.enums.partyTypes[p.type] ?? p.type,
-            },
-            {
-              key: "id_type",
-              label: "证件类型",
-              children: p.idType ? (meta?.enums.idTypes[p.idType] ?? p.idType) : "—",
-            },
-            {
-              key: "id_number",
-              label: "证件号",
-              children: p.idNumber ? <span className="num">{p.idNumber}</span> : "—",
-            },
-            {
-              key: "contact",
-              label: "联系方式",
-              children: p.contact ? <span className="num">{p.contact}</span> : "—",
-            },
-            { key: "created_by", label: "登记人", children: p.createdByName ?? "—" },
-            { key: "created_at", label: "登记时间", children: dateTime(p.createdAt) },
-            { key: "updated_at", label: "更新时间", children: dateTime(p.updatedAt) },
-            {
-              key: "remark",
-              label: "备注",
-              span: 3,
-              children: p.remark ?? "—",
-            },
-          ]}
-        />
-      </Card>
+      <div className="card">
+        <div className="card-h">
+          <h2>登记信息</h2>
+        </div>
+        <div className="card-b">
+          <dl className="dl">
+            <dt>类型</dt>
+            <dd>{meta?.enums.partyTypes[p.type] ?? p.type}</dd>
+            <dt>证件类型</dt>
+            <dd>
+              {p.idType ? (
+                (meta?.enums.idTypes[p.idType] ?? p.idType)
+              ) : (
+                <span className="ph">—</span>
+              )}
+            </dd>
+            <dt>证件号</dt>
+            <dd>
+              {p.idNumber ? (
+                <span className="num">{p.idNumber}</span>
+              ) : (
+                <span className="ph">—</span>
+              )}
+            </dd>
+            <dt>联系方式</dt>
+            <dd>
+              {p.contact ? <span className="num">{p.contact}</span> : <span className="ph">—</span>}
+            </dd>
+            <dt>登记人</dt>
+            <dd>{p.createdByName ?? <span className="ph">—</span>}</dd>
+            <dt>登记时间</dt>
+            <dd className="num">{dateTime(p.createdAt)}</dd>
+            <dt>更新时间</dt>
+            <dd className="num">{dateTime(p.updatedAt)}</dd>
+            <dt>备注</dt>
+            <dd className="span2">{p.remark ?? <span className="ph">—</span>}</dd>
+          </dl>
+        </div>
+      </div>
 
-      <Card size="small" style={{ marginBottom: 12 }}>
-        <SectionTitle count={p.matters.length}>涉及案件</SectionTitle>
-        {p.hidden.matters > 0 || p.truncated.matters ? (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 8 }}
-            message={`部分结果因权限未显示${
-              p.hidden.matters > 0 ? `：另有 ${p.hidden.matters} 个案件不在你的数据范围内` : ""
-            }`}
+      <div className="card">
+        <div className="card-h">
+          <h2>涉及案件</h2>
+          <span className="num mut3" style={{ fontSize: 12 }}>
+            {p.matters.length}
+          </span>
+        </div>
+        <div className="card-b" style={{ padding: 0 }}>
+          {/* 权限提示：库里有、但范围看不到的那部分必须说出来（§7.2） */}
+          {p.hidden.matters > 0 || p.truncated.matters ? (
+            <div className="tool" style={{ background: "var(--accent-weak)" }}>
+              部分结果因权限未显示
+              {p.hidden.matters > 0 ? `：另有 ${p.hidden.matters} 个案件不在你的数据范围内` : ""}
+            </div>
+          ) : null}
+          <Table<PartyInvolvedMatterDto>
+            size="small"
+            rowKey={(r) => r.id}
+            columns={matterColumns}
+            dataSource={p.matters}
+            pagination={{ pageSize: 10, size: "small", hideOnSinglePage: true }}
+            locale={{
+              emptyText: (
+                <span className="mut" style={{ fontSize: 12 }}>
+                  这份档案还没有关联任何案件。建案时在「当事人」一栏选它即可挂上。
+                </span>
+              ),
+            }}
           />
-        ) : null}
-        <Table<PartyInvolvedMatterDto>
-          size="small"
-          rowKey={(r) => r.id}
-          columns={matterColumns}
-          dataSource={p.matters}
-          pagination={{ pageSize: 10, size: "small", hideOnSinglePage: true }}
-          locale={{
-            emptyText: (
-              <Typography.Text style={{ fontSize: 12 }}>
-                这份档案还没有关联任何案件。建案时在「当事人」一栏选它即可挂上。
-              </Typography.Text>
-            ),
-          }}
-        />
-      </Card>
+        </div>
+      </div>
 
-      <Card size="small" style={{ marginBottom: 12 }}>
-        <SectionTitle count={p.risks.length}>涉及事项</SectionTitle>
-        {p.hidden.risks > 0 || p.truncated.risks ? (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 8 }}
-            message={`部分结果因权限未显示${
-              p.hidden.risks > 0 ? `：另有 ${p.hidden.risks} 条事项不在你的数据范围内` : ""
-            }`}
+      <div className="card">
+        <div className="card-h">
+          <h2>涉及事项</h2>
+          <span className="num mut3" style={{ fontSize: 12 }}>
+            {p.risks.length}
+          </span>
+        </div>
+        <div className="card-b" style={{ padding: 0 }}>
+          {p.hidden.risks > 0 || p.truncated.risks ? (
+            <div className="tool" style={{ background: "var(--accent-weak)" }}>
+              部分结果因权限未显示
+              {p.hidden.risks > 0 ? `：另有 ${p.hidden.risks} 条事项不在你的数据范围内` : ""}
+            </div>
+          ) : null}
+          <Table<PartyInvolvedRiskDto>
+            size="small"
+            rowKey={(r) => r.id}
+            columns={riskColumns}
+            dataSource={p.risks}
+            pagination={{ pageSize: 10, size: "small", hideOnSinglePage: true }}
+            locale={{
+              emptyText: (
+                <span className="mut" style={{ fontSize: 12 }}>
+                  这份档案还没有关联任何事项。建事项或转案件时选它即可挂上。
+                </span>
+              ),
+            }}
           />
-        ) : null}
-        <Table<PartyInvolvedRiskDto>
-          size="small"
-          rowKey={(r) => r.id}
-          columns={riskColumns}
-          dataSource={p.risks}
-          pagination={{ pageSize: 10, size: "small", hideOnSinglePage: true }}
-          locale={{
-            emptyText: (
-              <Typography.Text style={{ fontSize: 12 }}>
-                这份档案还没有关联任何事项。建事项或转案件时选它即可挂上。
-              </Typography.Text>
-            ),
-          }}
-        />
-      </Card>
+        </div>
+      </div>
 
       {p.mergedIn.length > 0 ? (
-        <Card size="small">
-          <SectionTitle count={p.mergedIn.length}>已并入本档案</SectionTitle>
-          {/* 名字**不做链接**：被并方是软删行，接口对它给 404（B8「仅软删、无回收站 UI」），
-              链过去只会得到一个"看不到这份档案"。去向在这一行文字里已经说完了。 */}
-          <Flex vertical gap={4}>
-            {p.mergedIn.map((m) => (
-              <span key={m.id} style={{ fontSize: 13 }}>
-                {m.name}
-                <span style={{ color: INK.muted, fontSize: 12, marginLeft: 8 }}>
-                  {dateTime(m.mergedAt)}
-                </span>
-              </span>
-            ))}
-          </Flex>
-        </Card>
+        <div className="card">
+          <div className="card-h">
+            <h2>已并入本档案</h2>
+            <span className="num mut3" style={{ fontSize: 12 }}>
+              {p.mergedIn.length}
+            </span>
+          </div>
+          <div className="card-b">
+            {/* 名字**不做链接**：被并方是软删行，接口对它给 404（B8「仅软删、无回收站 UI」），
+                链过去只会得到一个"看不到这份档案"。去向在这一行文字里已经说完了。 */}
+            <ul className="tl">
+              {p.mergedIn.map((m) => (
+                <li key={m.id}>
+                  <div>{m.name}</div>
+                  <div className="mut3 num" style={{ fontSize: 12 }}>
+                    {dateTime(m.mergedAt)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       ) : null}
 
       <PartyEditDialog

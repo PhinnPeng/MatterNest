@@ -1,6 +1,5 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -131,21 +130,20 @@ export function RiskDetail({ id }: { id: string }) {
   });
 
   if (isPending) {
-    return <Card size="small" loading style={{ maxWidth: 1180, margin: "0 auto" }} />;
+    return <div className="card" style={{ minHeight: 320 }} />;
   }
   // 404 走"不可见或不存在"这一句措辞，不写"事项不存在"——服务层对两者都给 404
   if (isError) {
     return (
-      <Card size="small" style={{ maxWidth: 640, margin: "40px auto" }}>
-        <StateBlock
-          title="看不到这条事项"
-          hint={
-            error instanceof ApiFailure && error.status === 404
-              ? "它不存在，或你没有查看它的权限。"
-              : "加载失败，请重试。"
-          }
-        />
-      </Card>
+      <StateBlock
+        tone="denied"
+        title="看不到这条事项"
+        hint={
+          error instanceof ApiFailure && error.status === 404
+            ? "它不存在，或你没有查看它的权限。"
+            : "加载失败，请重试。"
+        }
+      />
     );
   }
   if (!data) return null;
@@ -188,7 +186,7 @@ export function RiskDetail({ id }: { id: string }) {
             <Flex justify="space-between" align="flex-start" gap={20} wrap>
               <div style={{ minWidth: 0 }}>
                 <Space size={8} wrap style={{ marginBottom: 6 }}>
-                  <Typography.Text className="num" style={{ fontSize: 12, color: INK.muted }}>
+                  <Typography.Text className="num mut3" style={{ fontSize: 12 }}>
                     {risk.code}
                   </Typography.Text>
                   <StatusMark host="risk_matter" code={risk.status} />
@@ -201,20 +199,26 @@ export function RiskDetail({ id }: { id: string }) {
                     {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
                   </FlagMark>
                 </Space>
-                <Typography.Title
-                  level={2}
-                  style={{ margin: 0, fontSize: 19, lineHeight: "28px", fontWeight: 600 }}
+                {/* 层级归位：顶栏 h1 是页名，这里是页面主区块标题 → h2（19px，与 canon .pagehead h2 同值） */}
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 19,
+                    lineHeight: "28px",
+                    fontWeight: 600,
+                    letterSpacing: "-0.01em",
+                  }}
                 >
                   {risk.name}
-                </Typography.Title>
+                </h2>
               </div>
 
               <Space size={8} wrap style={{ flex: "none" }}>
                 {/* 「撤销归档」不单设按钮：它就是一条状态迁移，走同一个「变更状态」
                     （archive-view.tsx 的注释写的也是这条）。单设按钮会造出第二条到同一状态的路。 */}
-                <Button type="primary" onClick={() => setStatusOpen(true)}>
+                <button type="button" className="btn pri" onClick={() => setStatusOpen(true)}>
                   变更状态
-                </Button>
+                </button>
                 {/* ⭐（MATT-63 / F1-13）：私人收藏。**刻意与右边的 `FollowGroup` 分开**——
                     那个是「眼睛 + n 人关注」的公开名单，收藏不进名单、别人看不见。 */}
                 <FavoriteButton host="risk_matter" hostId={risk.id} favorited={risk.favorited} />
@@ -222,8 +226,16 @@ export function RiskDetail({ id }: { id: string }) {
                 <ExportFileButton host="risk_matter" hostId={risk.id} code={risk.code} />
                 {/* 转案件是建案入口之一（IQ-3），详情页与列表页都要能发起（T2 验收原文）。
                     归档态不给：归档是终态，服务层会 422 archived。 */}
-                {!risk.isArchived && <Button onClick={() => setConvertOpen(true)}>转案件</Button>}
-                {!risk.isArchived && <Button onClick={() => setOwnerOpen(true)}>变更经办人</Button>}
+                {!risk.isArchived && (
+                  <button type="button" className="btn" onClick={() => setConvertOpen(true)}>
+                    转案件
+                  </button>
+                )}
+                {!risk.isArchived && (
+                  <button type="button" className="btn" onClick={() => setOwnerOpen(true)}>
+                    变更经办人
+                  </button>
+                )}
                 <FollowGroup risk={risk} onDone={invalidate} />
                 {!risk.isArchived && (
                   <Popconfirm
@@ -233,9 +245,9 @@ export function RiskDetail({ id }: { id: string }) {
                     cancelText="取消"
                     onConfirm={() => softDelete.mutate()}
                   >
-                    <Button danger loading={softDelete.isPending}>
+                    <button type="button" className="btn danger" disabled={softDelete.isPending}>
                       删除
-                    </Button>
+                    </button>
                   </Popconfirm>
                 )}
               </Space>
@@ -247,7 +259,7 @@ export function RiskDetail({ id }: { id: string }) {
                 处置措施仍是纯文本（票面只改描述；measure 不动）。 */}
             <div style={{ marginTop: 13 }}>
               <Flex align="center" justify="space-between" style={{ marginBottom: 5 }}>
-                <span style={{ fontSize: 12, color: INK.muted }}>描述</span>
+                <span style={{ fontSize: 12, color: "var(--ink3)" }}>描述</span>
                 {canEditBody && (
                   <Button size="small" type="link" onClick={() => setDescOpen(true)}>
                     编辑
@@ -263,14 +275,14 @@ export function RiskDetail({ id }: { id: string }) {
               )}
             </div>
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 12, color: INK.muted, marginBottom: 5 }}>处置措施</div>
+              <div style={{ fontSize: 12, color: "var(--ink3)", marginBottom: 5 }}>处置措施</div>
               {risk.measure ? (
                 <Typography.Paragraph
                   style={{
                     margin: 0,
                     fontSize: 13.5,
                     lineHeight: 1.72,
-                    color: INK.secondary,
+                    color: "var(--ink2)",
                     maxWidth: "74ch",
                   }}
                 >
@@ -289,7 +301,7 @@ export function RiskDetail({ id }: { id: string }) {
               style={{
                 marginTop: 13,
                 paddingTop: 12,
-                borderTop: `1px solid ${INK.line}`,
+                borderTop: "1px solid var(--line)",
                 fontSize: 12.5,
               }}
             >
@@ -332,7 +344,7 @@ export function RiskDetail({ id }: { id: string }) {
                     <span
                       style={{
                         cursor: "default",
-                        borderBottom: `1px dashed ${INK.rail}`,
+                        borderBottom: "1px dashed var(--control-line)",
                       }}
                     >
                       {risk.convertedCases.length} 件
@@ -470,7 +482,7 @@ export function RiskDetail({ id }: { id: string }) {
                           children: (
                             <Space orientation="vertical" size={0}>
                               <span>{meta?.enums.auditActions[a.action] ?? a.action}</span>
-                              <span style={{ color: INK.muted, fontSize: 12 }}>
+                              <span style={{ color: "var(--ink3)", fontSize: 12 }}>
                                 {dateTime(a.createdAt)}
                               </span>
                             </Space>
@@ -660,13 +672,13 @@ function NodeRow({
             {label}
           </Tag>
         </Space>
-        <span style={{ color: INK.muted, fontSize: 12 }}>
+        <span style={{ color: "var(--ink3)", fontSize: 12 }}>
           {/* 事项节点只有时间点：没有「起止」，也就没有「这段时间内」这种表达 */}
           {node.startTime ? calDate(node.startTime) : "时间待定"}
           {!node.isTimeConfirmed && node.startTime && " · 未确认"}
         </span>
         {node.cancelReason && (
-          <span style={{ color: INK.secondary, fontSize: 12 }}>取消原因：{node.cancelReason}</span>
+          <span style={{ color: "var(--ink2)", fontSize: 12 }}>取消原因：{node.cancelReason}</span>
         )}
         {!readOnly && (
           <Space size={4} wrap>
@@ -746,8 +758,10 @@ function CommentList({
               <Space orientation="vertical" size={4} style={{ width: "100%" }}>
                 <Space size={8} align="baseline" wrap>
                   <Typography.Text strong>{c.authorName}</Typography.Text>
-                  <span style={{ color: INK.muted, fontSize: 12 }}>{fromNow(c.createdAt)}</span>
-                  {c.isEdited && <span style={{ color: INK.muted, fontSize: 12 }}>（已编辑）</span>}
+                  <span style={{ color: "var(--ink3)", fontSize: 12 }}>{fromNow(c.createdAt)}</span>
+                  {c.isEdited && (
+                    <span style={{ color: "var(--ink3)", fontSize: 12 }}>（已编辑）</span>
+                  )}
                 </Space>
                 {editing === c.id ? (
                   <Space orientation="vertical" size={6} style={{ width: "100%" }}>
@@ -796,7 +810,7 @@ function CommentList({
         )}
       </div>
       {!readOnly && (
-        <div style={{ borderTop: `1px solid ${INK.line}`, paddingTop: 10, marginTop: 10 }}>
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, marginTop: 10 }}>
           <Space.Compact style={{ width: "100%" }}>
             <Input.TextArea
               autoSize={{ minRows: 2, maxRows: 6 }}
@@ -1031,7 +1045,7 @@ function FollowGroup({ risk, onDone }: { risk: Risk; onDone: () => void }) {
   const roster = (
     <div style={{ minWidth: 200 }}>
       {followers.length === 0 ? (
-        <div style={{ padding: "2px 10px 8px", fontSize: 12, color: INK.muted }}>
+        <div style={{ padding: "2px 10px 8px", fontSize: 12, color: "var(--ink3)" }}>
           还没有关注人。
         </div>
       ) : (
@@ -1074,7 +1088,7 @@ function FollowGroup({ risk, onDone }: { risk: Risk; onDone: () => void }) {
           >
             添加关注人
           </Button>
-          <div style={{ borderTop: `1px solid ${INK.line}`, margin: "4px 0" }} />
+          <div style={{ borderTop: "1px solid var(--line)", margin: "4px 0" }} />
         </>
       )}
       {roster}
@@ -1083,7 +1097,7 @@ function FollowGroup({ risk, onDone }: { risk: Risk; onDone: () => void }) {
 
   if (risk.isArchived) {
     return (
-      <span style={{ fontSize: 12.5, color: INK.muted }}>
+      <span style={{ fontSize: 12.5, color: "var(--ink3)" }}>
         <EyeOutlined style={{ marginRight: 4 }} />
         {followers.length} 人关注
       </span>
@@ -1190,7 +1204,7 @@ function AddFollowersDialog({
 function DetailBlock({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div style={{ color: INK.muted, fontSize: 12, marginBottom: 4 }}>{title}</div>
+      <div style={{ color: "var(--ink3)", fontSize: 12, marginBottom: 4 }}>{title}</div>
       <div>{children}</div>
     </div>
   );

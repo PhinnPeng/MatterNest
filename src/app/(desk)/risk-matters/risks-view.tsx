@@ -1,23 +1,10 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Alert,
-  App as AntdApp,
-  Button,
-  Checkbox,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Space,
-  Typography,
-} from "antd";
-import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
+import { App as AntdApp, Checkbox, Form, Input, Modal, Select } from "antd";
 import type { TableColumnsType } from "antd";
 
 import { api, ApiFailure, useMeta, type Meta } from "@/app/lib/client/api";
@@ -156,7 +143,7 @@ export function RisksView() {
         sorter: true,
         sortOrder: sortOrderOf("code", state.sortBy, state.sortDir),
         render: (_, r) => (
-          <span className="num" style={{ fontSize: 12, color: INK.secondary }}>
+          <span className="num mut" style={{ fontSize: 12 }}>
             {r.code}
           </span>
         ),
@@ -220,7 +207,9 @@ export function RisksView() {
               已转 · {r.convertedCaseCount}
             </FlagMark>
           ) : (
-            <span style={{ fontSize: 12, color: INK.muted }}>未转</span>
+            <span className="mut3" style={{ fontSize: 12 }}>
+              未转
+            </span>
           ),
       },
       {
@@ -259,7 +248,9 @@ export function RisksView() {
           r.ownerName ? (
             r.ownerName
           ) : (
-            <span style={{ color: INK.faint, fontSize: 12 }}>未指派</span>
+            <span className="mut3" style={{ fontSize: 12 }}>
+              未指派
+            </span>
           ),
       },
       {
@@ -270,7 +261,9 @@ export function RisksView() {
         sorter: true,
         sortOrder: sortOrderOf("updated_at", state.sortBy, state.sortDir),
         render: (_, r) => (
-          <span style={{ fontSize: 12, color: INK.muted }}>{fromNow(r.updatedAt)}</span>
+          <span className="mut3" style={{ fontSize: 12 }}>
+            {fromNow(r.updatedAt)}
+          </span>
         ),
       },
       {
@@ -279,15 +272,16 @@ export function RisksView() {
         width: 72,
         fixed: "right",
         render: (_, r) => (
-          <Button
-            size="small"
+          <button
+            type="button"
+            className="btn link"
             onClick={(e) => {
               e.stopPropagation();
               setConverting(r);
             }}
           >
             转案件
-          </Button>
+          </button>
         ),
       },
     ],
@@ -301,16 +295,16 @@ export function RisksView() {
         title="事项列表读不到"
         hint={error instanceof Error ? error.message : "未知错误"}
         action={
-          <Button size="small" onClick={() => push({})}>
+          <button type="button" className="btn sm" onClick={() => push({})}>
             重试
-          </Button>
+          </button>
         }
       />
     );
   }
 
   return (
-    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+    <div className="stack">
       <QueryFilter onSearch={submit} onReset={reset} busy={isFetching}>
         <FilterField label="关键词" htmlFor="risk-keyword" width={280}>
           <Input
@@ -351,14 +345,9 @@ export function RisksView() {
       <ReportCards host="risk_matter" filters={state} />
 
       {batchResult ? (
-        <Alert
-          type={batchResult.summary.skipped.length ? "warning" : "success"}
-          showIcon
-          closable
-          onClose={() => setBatchResult(null)}
-          style={{ marginBottom: 12 }}
-          message={
-            <>
+        <div role="status" className="card" style={{ padding: "12px 16px", fontSize: 13 }}>
+          <div className="rowflex">
+            <span>
               批量动作完成：成功 <span className="num">{batchResult.summary.applied}</span> 条
               {batchResult.summary.skipped.length ? (
                 <>
@@ -366,27 +355,29 @@ export function RisksView() {
                   · 跳过 <span className="num">{batchResult.summary.skipped.length}</span> 条
                 </>
               ) : null}
-            </>
-          }
-          description={
-            batchResult.summary.skipped.length ? (
-              <Space orientation="vertical" size={2}>
-                {batchResult.summary.skipped.map((s) => (
-                  <Typography.Text key={s.id} style={{ fontSize: 12 }}>
-                    <span className="num">{batchResult.labels[s.id] ?? s.id}</span> —{" "}
-                    {BATCH_SKIP_REASON_LABELS[s.reason]}
-                  </Typography.Text>
-                ))}
-              </Space>
-            ) : undefined
-          }
-        />
+            </span>
+            <span style={{ flex: 1 }} />
+            <button type="button" className="btn link" onClick={() => setBatchResult(null)}>
+              关闭
+            </button>
+          </div>
+          {batchResult.summary.skipped.length ? (
+            <ul className="tl" style={{ marginTop: 8 }}>
+              {batchResult.summary.skipped.map((s) => (
+                <li key={s.id} style={{ paddingBottom: 4 }}>
+                  <span className="num">{batchResult.labels[s.id] ?? s.id}</span> —{" "}
+                  {BATCH_SKIP_REASON_LABELS[s.reason]}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
 
       <DataTable<RiskRow>
         title="事项列表"
         tools={
-          <Space size={8}>
+          <>
             {/*
               选中集合的入口就在三个动作按钮旁边：`DataTable` 不支持逐行勾选（见上面 `selected`
               的注释），所以这里必须把"选了多少条"说出来——否则用户是按了按钮才知道作用范围的。
@@ -403,34 +394,53 @@ export function RisksView() {
               全选当前页
             </Checkbox>
             {pageIds.length > MAX_BATCH_IDS ? (
-              <Typography.Text style={{ fontSize: 12, color: INK.muted }}>
+              <span className="mut3" style={{ fontSize: 12 }}>
                 当前页 <span className="num">{pageIds.length}</span> 条，超过一次批量的上限{" "}
                 <span className="num">{MAX_BATCH_IDS}</span> 条
-              </Typography.Text>
+              </span>
             ) : null}
             {selected.length ? (
-              <Typography.Text style={{ fontSize: 12, color: INK.secondary }}>
+              <span className="mut" style={{ fontSize: 12 }}>
                 已选 <span className="num">{selected.length}</span> 条
-              </Typography.Text>
+              </span>
             ) : null}
-            <Button size="small" disabled={!selected.length} onClick={() => setBatch("status")}>
+            <button
+              type="button"
+              className="btn sm"
+              disabled={!selected.length}
+              onClick={() => setBatch("status")}
+            >
               改状态
-            </Button>
-            <Button size="small" disabled={!selected.length} onClick={() => setBatch("archive")}>
+            </button>
+            <button
+              type="button"
+              className="btn sm"
+              disabled={!selected.length}
+              onClick={() => setBatch("archive")}
+            >
               归档
-            </Button>
-            <Button size="small" disabled={!selected.length} onClick={() => setBatch("tag")}>
+            </button>
+            <button
+              type="button"
+              className="btn sm"
+              disabled={!selected.length}
+              onClick={() => setBatch("tag")}
+            >
               加标签
-            </Button>
-            <Button
-              icon={<ReloadOutlined />}
+            </button>
+
+            <button
+              type="button"
+              className="btn sm"
               onClick={() => {
                 void refetch();
                 // 统计卡是同一页的另一份读数：只刷列表会让"列表 21 行、卡片 20"同时成立
                 // （工作台的刷新也是这个口径：一次刷掉本页所有读数）
                 void qc.invalidateQueries({ queryKey: ["reports"] });
               }}
-            />
+            >
+              刷新
+            </button>
             {/* 导出吃的是**当前筛选**（含「未指派」那一档）：`state` 自己进控件 */}
             <ExportListButton path="/api/risk-matters/export" fileBase="事项列表" state={state} />
             {/*
@@ -438,11 +448,13 @@ export function RisksView() {
               类型由**本页**锁定为 `risk_matter`（弹层里不给类型选择器）。
               `canImport` 由服务端每个端点判（403），前端不镜像谓词（见 ImportDialog 文件头）。
             */}
-            <Button onClick={() => setImporting(true)}>批量导入</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
+            <button type="button" className="btn sm" onClick={() => setImporting(true)}>
+              批量导入
+            </button>
+            <button type="button" className="btn pri sm" onClick={() => setCreating(true)}>
               新建事项
-            </Button>
-          </Space>
+            </button>
+          </>
         }
         columns={columns}
         rows={pageRows}
@@ -458,11 +470,14 @@ export function RisksView() {
           { key: "discover", title: "发现日" },
         ]}
         empty={
-          <Typography.Text style={{ fontSize: 12 }}>
-            {state.keyword || state.status
-              ? "当前筛选下没有可见事项。清掉条件再看一次；范围不同看到的条数就不同。"
-              : "还没有在办事项。点右上「新建事项」报备一条。"}
-          </Typography.Text>
+          <StateBlock
+            title={state.keyword || state.status ? "当前筛选下没有可见事项" : "还没有在办事项"}
+            hint={
+              state.keyword || state.status
+                ? "清掉条件再看一次；范围不同看到的条数就不同。"
+                : "点右上「新建事项」报备一条。"
+            }
+          />
         }
       />
 
@@ -611,7 +626,7 @@ function BatchDialog({
       title={mode === "status" ? "批量改状态" : mode === "archive" ? "批量归档" : "批量加标签"}
       width={460}
     >
-      <p style={{ fontSize: 12, color: INK.muted, margin: "4px 0 14px" }}>
+      <p className="mut3" style={{ fontSize: 12, margin: "4px 0 14px" }}>
         已选 <span className="num">{rows.length}</span> 条
         {rows.length > 0 && rows.length <= 3 ? `：${rows.map((r) => r.code).join("、")}` : ""}
       </p>

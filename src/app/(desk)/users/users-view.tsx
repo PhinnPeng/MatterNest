@@ -2,22 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  App as AntdApp,
-  Button,
-  Card,
-  Checkbox,
-  Flex,
-  Form,
-  Input,
-  Modal,
-  Popconfirm,
-  Space,
-  Tag,
-  Tooltip,
-  Typography,
-} from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { App as AntdApp, Checkbox, Form, Input, Modal, Popconfirm, Tooltip } from "antd";
 import type { TableColumnsType } from "antd";
 
 import { api, ApiFailure, useActor } from "@/app/lib/client/api";
@@ -130,7 +115,7 @@ export function UsersView() {
   });
 
   if (q.isPending) {
-    return <Card size="small" loading style={{ maxWidth: 1180, margin: "0 auto" }} />;
+    return <div className="card" style={{ minHeight: 320 }} />;
   }
   if (q.isError) {
     const e = q.error;
@@ -148,9 +133,9 @@ export function UsersView() {
         }
         action={
           denied ? undefined : (
-            <Button size="small" onClick={() => void q.refetch()}>
+            <button type="button" className="btn sm" onClick={() => void q.refetch()}>
               重试
-            </Button>
+            </button>
           )
         }
       />
@@ -171,14 +156,14 @@ export function UsersView() {
       dataIndex: "username",
       width: 190,
       render: (_v, r) => (
-        <Space size={6} wrap>
+        <span className="rowflex" style={{ flexWrap: "wrap", gap: 6 }}>
           <span className="num">{r.username}</span>
           {r.isSystemOwner ? <FlagMark tone="info">系统所有者</FlagMark> : null}
           {r.isAdmin ? <FlagMark tone="warn">逃生口</FlagMark> : null}
-        </Space>
+        </span>
       ),
     },
-    { key: "displayName", title: "显示名", dataIndex: "displayName", width: 140 },
+    { key: "displayName", title: "显示名", dataIndex: "displayName", width: 140, ellipsis: true },
     {
       key: "roles",
       title: "角色",
@@ -188,13 +173,13 @@ export function UsersView() {
         r.roleCodes.length === 0 ? (
           <FlagMark tone="warn">无角色</FlagMark>
         ) : (
-          <Space size={4} wrap>
+          <span className="rowflex" style={{ flexWrap: "wrap", gap: 4 }}>
             {r.roleCodes.map((c) => (
-              <Tag key={c} variant="filled">
+              <span key={c} className="tag">
                 {roleName(c)}
-              </Tag>
+              </span>
             ))}
-          </Space>
+          </span>
         ),
     },
     {
@@ -203,14 +188,22 @@ export function UsersView() {
       dataIndex: "isEnabled",
       width: 150,
       render: (_v, r) => (
-        <Space size={6}>
-          <Tag color={r.isEnabled ? "green" : "red"} variant="filled">
-            {r.isEnabled ? "启用" : "停用"}
-          </Tag>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        <span className="rowflex" style={{ gap: 6 }}>
+          {r.isEnabled ? (
+            <span className="pill ok">
+              <i />
+              启用
+            </span>
+          ) : (
+            <span className="pill over">
+              <i />
+              停用
+            </span>
+          )}
+          <span className="mut3" style={{ fontSize: 12 }}>
             {ACTIVATION_LABELS[r.activationStatus] ?? r.activationStatus}
-          </Typography.Text>
-        </Space>
+          </span>
+        </span>
       ),
     },
     {
@@ -219,9 +212,12 @@ export function UsersView() {
       dataIndex: "hasCredential",
       width: 90,
       render: (_v, r) => (
-        <Typography.Text type={r.hasCredential ? undefined : "warning"} style={{ fontSize: 12 }}>
+        <span
+          className={r.hasCredential ? undefined : "hint warn"}
+          style={{ margin: 0, fontSize: 12 }}
+        >
           {r.hasCredential ? "已设" : "未设"}
-        </Typography.Text>
+        </span>
       ),
     },
     {
@@ -230,7 +226,11 @@ export function UsersView() {
       dataIndex: "lastLoginAt",
       width: 110,
       // 相对时间：列表里"3 天前"比"2026年9月24日 14:02"更适合扫读（format.ts 的口径）
-      render: (v: string | null) => <span style={{ fontSize: 12 }}>{v ? fromNow(v) : "从未"}</span>,
+      render: (v: string | null) => (
+        <span className="mut3" style={{ fontSize: 12 }}>
+          {v ? fromNow(v) : "从未"}
+        </span>
+      ),
     },
     {
       key: "actions",
@@ -240,12 +240,17 @@ export function UsersView() {
       render: (_v, r) => {
         const isMe = r.id === me;
         return (
-          <Space size={4} wrap>
+          <span className="rowflex" style={{ flexWrap: "wrap", gap: 4 }}>
             {/* 改自己的角色服务端必拒（self_escalation），所以这里不摆按钮 */}
             <Tooltip title={isMe ? "不能改自己的角色：请让另一位管理员来改" : undefined}>
-              <Button size="small" disabled={isMe} onClick={() => setRoleTarget(r)}>
+              <button
+                type="button"
+                className="btn sm"
+                disabled={isMe}
+                onClick={() => setRoleTarget(r)}
+              >
                 改角色
-              </Button>
+              </button>
             </Tooltip>
             <Tooltip
               title={
@@ -256,21 +261,20 @@ export function UsersView() {
                     : undefined
               }
             >
-              <Button
-                size="small"
-                danger={r.isEnabled}
+              <button
+                type="button"
+                className={r.isEnabled ? "btn sm danger" : "btn sm"}
                 disabled={isMe || (r.isSystemOwner && r.isEnabled)}
-                loading={toggle.isPending && toggle.variables?.id === r.id}
                 onClick={() => toggle.mutate({ id: r.id, enabled: !r.isEnabled })}
               >
                 {r.isEnabled ? "停用" : "启用"}
-              </Button>
+              </button>
             </Tooltip>
             {/* 凭据入口只对系统所有者出现（F6-9；服务端判定，这里只是不摆必被拒的按钮） */}
             {iAmOwner ? (
-              <Button size="small" onClick={() => setCredTarget(r)}>
+              <button type="button" className="btn sm" onClick={() => setCredTarget(r)}>
                 {r.hasCredential ? "重置口令" : "设口令"}
-              </Button>
+              </button>
             ) : null}
             {/* 移交所有权：只在"我是当前所有者、且这行不是所有者"时出现。
                 它是「不可停用」那条守卫的**唯一出路**——只堵不移交，所有者这个位置
@@ -283,49 +287,43 @@ export function UsersView() {
                 cancelText="取消"
                 onConfirm={() => transfer.mutate(r.id)}
               >
-                <Button size="small" loading={transfer.isPending && transfer.variables === r.id}>
+                <button type="button" className="btn sm">
                   移交所有权
-                </Button>
+                </button>
               </Popconfirm>
             ) : null}
-          </Space>
+          </span>
         );
       },
     },
   ];
 
   return (
-    <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+    <div className="stack">
       {pending.length > 0 ? (
-        <Card
-          size="small"
-          style={{ marginBottom: 12 }}
-          title={
-            <Space size={8}>
-              <span>待开通</span>
-              <Tag color="orange" variant="filled">
-                {pending.length}
-              </Tag>
-            </Space>
-          }
-        >
-          <Space orientation="vertical" size={8} style={{ width: "100%" }}>
+        <div className="card">
+          <div className="card-h">
+            <h2>待开通</h2>
+            <span className="tag amber">{pending.length}</span>
+          </div>
+          <div className="card-b">
             {pending.map((u) => (
-              <Flex key={u.id} align="center" justify="space-between" gap={12} wrap>
-                <Space size={8} wrap>
+              <div
+                key={u.id}
+                className="rowflex"
+                style={{ justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}
+              >
+                <span className="rowflex" style={{ flexWrap: "wrap", gap: 8 }}>
                   <span className="num">{u.username}</span>
                   <span>{u.displayName}</span>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    批准时要当场指定角色——不指定的话他登进来什么都看不到。
-                  </Typography.Text>
-                </Space>
-                <Button size="small" type="primary" onClick={() => setApproveTarget(u)}>
+                </span>
+                <button type="button" className="btn pri sm" onClick={() => setApproveTarget(u)}>
                   批准并指定角色
-                </Button>
-              </Flex>
+                </button>
+              </div>
             ))}
-          </Space>
-        </Card>
+          </div>
+        </div>
       ) : null}
 
       <DataTable<UserRow>
@@ -344,8 +342,12 @@ export function UsersView() {
           { key: "credential", title: "凭据" },
           { key: "lastLoginAt", title: "最后登录" },
         ]}
-        tools={<Button icon={<ReloadOutlined />} onClick={() => void q.refetch()} />}
-        empty={<Typography.Text style={{ fontSize: 12 }}>企业内还没有账号。</Typography.Text>}
+        tools={
+          <button type="button" className="btn sm" onClick={() => void q.refetch()}>
+            刷新
+          </button>
+        }
+        empty={<StateBlock title="企业内还没有账号" />}
       />
 
       <RoleDialog
@@ -418,9 +420,9 @@ function RoleDialog({
       >
         {roles.map((r) => (
           <Checkbox key={r.id} value={r.id}>
-            <Space size={6} wrap>
+            <span className="rowflex" style={{ flexWrap: "wrap", gap: 6 }}>
               <span>{r.name}</span>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              <span className="mut3" style={{ fontSize: 12 }}>
                 {r.code} · 范围{" "}
                 {r.dataScope === "all"
                   ? "全部记录"
@@ -429,15 +431,15 @@ function RoleDialog({
                     : "仅自己相关"}
                 {r.canManageUser ? " · 可管账号" : ""}
                 {r.canManageConfig ? " · 可管配置" : ""}
-              </Typography.Text>
-            </Space>
+              </span>
+            </span>
           </Checkbox>
         ))}
       </Checkbox.Group>
       {picked.length === 0 ? (
-        <Typography.Text type="warning" style={{ fontSize: 12, display: "block", marginTop: 10 }}>
+        <div className="hint warn">
           一个角色都不给的话，他下次请求会拿到 401——不是"只读"，是登不进。
-        </Typography.Text>
+        </div>
       ) : null}
     </Modal>
   );

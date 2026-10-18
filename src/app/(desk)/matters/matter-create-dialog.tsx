@@ -12,7 +12,6 @@ import {
   Form,
   Input,
   Modal,
-  Result,
   Row,
   Select,
   Space,
@@ -201,8 +200,9 @@ export function MatterCreateDialog({
         open={open}
         onCancel={() => onOpenChange(false)}
         title="案件已建"
+        width={520}
         footer={
-          <Space>
+          <div className="rowflex" style={{ justifyContent: "space-between" }}>
             <Button
               onClick={() => {
                 form.resetFields();
@@ -214,27 +214,32 @@ export function MatterCreateDialog({
             <Link href={`/matters/${created.id}`}>
               <Button type="primary">打开案件</Button>
             </Link>
-          </Space>
+          </div>
         }
       >
-        <Result
-          status="success"
-          title={<span className="num">{created.internalCode}</span>}
-          subTitle="内部编号由数据库取号生成，不可编辑。案号留空时先用它占位，正式立案后回详情改。"
-        />
+        {/* canon 的成功态：状态行（点 + 词）+ 大号编号（那串码是这一屏唯一主角）+
+            一行事实。编号口径见 canon-spec §29：**不写「提交后生成」那类旁白**，
+            成功页出现编号本身就是事实。 */}
+        <div className="pill ok" style={{ marginBottom: 10 }}>
+          <i />
+          已受理
+        </div>
+        <div className="num" style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>
+          {created.internalCode}
+        </div>
+        <div className="mut" style={{ fontSize: 12, marginTop: 8 }}>
+          内部编号由数据库取号，不可编辑。正式案号留空时先用它占位，立案后回详情改。
+        </div>
         {/*
           同名当事人不自动合并（`services/parties.ts` 判定 4），但"没合并"这件事必须让人看见：
           库里已有同名行还新建一行，正是当事人详情页"涉及案件"少一半的成因。
-          建案已经成功，所以这是**提示**而不是错误，放在 Result 下面而不是挡在提交前。
+          建案已经成功，所以这是**提示**而不是错误，放在编号下面而不是挡在提交前（`.hint.warn`）。
         */}
         {created.nameConflicts && created.nameConflicts.length > 0 ? (
-          <Alert
-            type="warning"
-            showIcon
-            message={`库里已有同名当事人：${created.nameConflicts
-              .map((c) => c.name)
-              .join("、")}。本案按新建一行登记；确认是同一家请到当事人页合并引用。`}
-          />
+          <div className="hint warn">
+            库里已有同名当事人：{created.nameConflicts.map((c) => c.name).join("、")}
+            。本案按新建一行登记；确认是同一家请到当事人页合并引用。
+          </div>
         ) : null}
       </Modal>
     );
@@ -267,7 +272,11 @@ export function MatterCreateDialog({
           />
         ) : null}
 
-        <Row gutter={12}>
+        {/* 分区标题（canon `.fsec`）与字段顺序按 canon-spec §28 的逻辑配对：
+            案名 → 案由/类型 → 我方地位/程序 → 法院/案号 → 立案/风险等级 → 标的额 → 当事人
+            → 办理与关注 → 基本情况。**每行最多两个字段**（span 12 或 24），不再用三格一行。 */}
+        <div className="fsec">基本信息</div>
+        <Row gutter={[16, 0]}>
           <Col span={24}>
             <Form.Item label="案件名称" name="name" rules={rulesFor(matterCreateSchema, ["name"])}>
               <Input placeholder="例：甲公司诉乙公司买卖合同纠纷" />
@@ -287,7 +296,7 @@ export function MatterCreateDialog({
               <Select placeholder="请选择" options={meta ? toOptions(meta.enums.caseTypes) : []} />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col span={12}>
             <Form.Item
               label="审级 / 程序"
               name="procedure"
@@ -296,7 +305,7 @@ export function MatterCreateDialog({
               <Select placeholder="请选择" options={meta ? toOptions(meta.enums.procedures) : []} />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col span={12}>
             <Form.Item
               label="我方诉讼地位"
               name="litigationRole"
@@ -308,7 +317,7 @@ export function MatterCreateDialog({
               />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col span={12}>
             <Form.Item
               label="受理法院"
               name="court"
@@ -317,7 +326,21 @@ export function MatterCreateDialog({
               <Input />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col span={12}>
+            <Form.Item
+              label="正式案号"
+              name="caseNo"
+              rules={rulesFor(matterCreateSchema, ["caseNo"])}
+            >
+              <Input placeholder="留空先用内部编号" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="立案日期" name="filingDate">
+              <DatePicker style={{ width: "100%" }} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
             <Form.Item
               label="风险等级"
               name="level"
@@ -331,7 +354,7 @@ export function MatterCreateDialog({
               />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col span={12}>
             <Form.Item
               label="标的额（元）"
               name="amount"
@@ -339,40 +362,6 @@ export function MatterCreateDialog({
             >
               <Input placeholder="最多两位小数" />
             </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              label="正式案号"
-              name="caseNo"
-              rules={rulesFor(matterCreateSchema, ["caseNo"])}
-            >
-              <Input placeholder="留空先用内部编号" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item label="立案日期" name="filingDate">
-              <DatePicker style={{ width: "100%" }} />
-            </Form.Item>
-          </Col>
-          <Col span={24}>
-            <Form.Item
-              label="基本情况"
-              name="description"
-              rules={rulesFor(matterCreateSchema, ["description"])}
-            >
-              <Input.TextArea rows={3} maxLength={5000} showCount />
-            </Form.Item>
-          </Col>
-          {/* 处理人与关注人（MATT-49 / IQ-5 / IQ-14）：选人面走创建期例外，
-              见 people-fields.tsx 的文件头注（与详情页那个选择面不是同一个数据源）。 */}
-          <Col span={8}>
-            <OwnerField options={people} />
-          </Col>
-          <Col span={16}>
-            <FollowersField options={people} />
-          </Col>
-          <Col span={24}>
-            <PeopleLoadHint isError={peopleQ.isError} isPending={peopleQ.isPending} />
           </Col>
         </Row>
 
@@ -449,6 +438,34 @@ export function MatterCreateDialog({
             </Form.Item>
           )}
         </Form.List>
+
+        <div className="fsec">办理与关注</div>
+        <Row gutter={[16, 0]}>
+          {/* 处理人与关注人（MATT-49 / IQ-5 / IQ-14）：选人面走创建期例外，
+              见 people-fields.tsx 的文件头注（与详情页那个选择面不是同一个数据源）。 */}
+          <Col span={12}>
+            <OwnerField options={people} />
+          </Col>
+          <Col span={12}>
+            <FollowersField options={people} />
+          </Col>
+          <Col span={24}>
+            <PeopleLoadHint isError={peopleQ.isError} isPending={peopleQ.isPending} />
+          </Col>
+        </Row>
+
+        <div className="fsec">其他</div>
+        <Row gutter={[16, 0]}>
+          <Col span={24}>
+            <Form.Item
+              label="基本情况"
+              name="description"
+              rules={rulesFor(matterCreateSchema, ["description"])}
+            >
+              <Input.TextArea rows={3} maxLength={5000} showCount />
+            </Form.Item>
+          </Col>
+        </Row>
       </Form>
     </Modal>
   );

@@ -2,10 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App as AntdApp, Badge, Button, Flex, Switch, Tag, Typography } from "antd";
+import { App as AntdApp } from "antd";
 import type { TableColumnsType } from "antd";
 
-import { INK } from "@/app/theme/brand";
 import { DataTable } from "@/app/components/ui/data-table/DataTable";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { DEFAULT_PAGE_SIZE } from "@/shared/schema/list-query";
@@ -36,6 +35,14 @@ import {
  * 列表页的惯例是"状态落 URL"（刷新、后退、发链接给同事对得上同一视图）。
  * 通知中心是**个人收件箱**：把"我的通知第 2 页"发给同事没有意义（他看到的永远是他自己的），
  * 所以这里用组件态。真要分享的是**某一条通知指向的记录**，那走行点击的跳转。
+ *
+ * ## 2026-10-18（MATT-99）：换 canon
+ *
+ * 「未读 / 全部」从 Switch 换成原型 `.seg` 两档（同一件事：`unreadOnly` 过滤，
+ * 只是形态从"开关 + 徽标"改成"分段 + 计数"）；页头右侧 `.btn` 全部已读；
+ * 表格与分页走 `DataTable`（canon `.tb` / `.pager`）。
+ * 「刷新」不再单独放：`DataTable` 没有任何刷新插槽之外的理由，而列表在窗口重新聚焦时
+ * 由 react-query 自动重取——原型页头也只有「全部已读」一个动作。
  */
 export function NotificationsView() {
   const router = useRouter();
@@ -46,141 +53,199 @@ export function NotificationsView() {
   const markRead = useMarkRead();
 
   const items = q.data?.items ?? [];
+  const unread = q.data?.unread ?? 0;
+  const total = q.data?.total ?? 0;
+
   const columns = useMemo<TableColumnsType<NotificationItem>>(
     () => [
       {
+        key: "title",
+        title: "通知",
+        render: (_v, r) => (
+          <div style={{ minWidth: 0 }}>
+            <div
+              className={r.isRead ? "mut" : undefined}
+              style={{ fontWeight: r.isRead ? 400 : 500 }}
+            >
+              {r.title}
+            </div>
+            {/* 占位行的 body 是 null，这一支自然不渲染 —— 摘要字段一个都不发 */}
+            {r.body ? (
+              <div className="mut3 ellip" style={{ fontSize: 12 }} title={r.body}>
+                {r.body}
+              </div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        key: "kind",
+        title: "类型",
+        width: 104,
+        render: (_v, r) =>
+          r.visible ? (
+            <span className="tag">{r.eventTypeLabel}</span>
+          ) : (
+            <span className="tag">不可见</span>
+          ),
+      },
+      {
+        key: "host",
+        title: "关联对象",
+        width: 400,
+        ellipsis: true,
+        render: (_v, r) => {
+          const href = hostHref(r);
+          if (!href) {
+            // 降级行：对象超出数据范围。事实句，不解释原因（canon-spec 的边界呈现）
+            return <span className="ph">对象超出你的数据范围</span>;
+          }
+          // DTO 只带宿主 kind/id，没有编号与名称，所以这里给的是"去哪看"而不是"是哪条"
+          return (
+            <a
+              className="btn link"
+              href={href}
+              onClick={(e) => {
+                e.preventDefault();
+                router.push(href);
+              }}
+            >
+              {r.hostKind === "risk_matter" ? "查看事项" : "查看案件"}
+            </a>
+          );
+        },
+      },
+      {
         key: "created_at",
         title: "时间",
-        width: 150,
+        width: 120,
         render: (_v, r) => (
-          <span className="num" style={{ fontSize: 12, color: INK.muted }}>
+          <span className="num mut3" style={{ fontSize: 12 }}>
             {formatBusinessTime(r.createdAt)}
           </span>
         ),
       },
       {
-        key: "title",
-        title: "通知",
-        render: (_v, r) => (
-          <Flex vertical gap={2} style={{ minWidth: 0 }}>
-            <Typography.Text
-              strong={!r.isRead}
-              style={{ fontSize: 13, color: r.visible ? undefined : INK.muted }}
-            >
-              {r.title}
-            </Typography.Text>
-            {/* 占位行的 body 是 null，这一支自然不渲染 —— 摘要字段一个都不发 */}
-            {r.body ? (
-              <Typography.Text style={{ fontSize: 12, color: INK.secondary }}>
-                {r.body}
-              </Typography.Text>
-            ) : null}
-          </Flex>
-        ),
-      },
-      {
-        key: "kind",
-        title: "类别",
-        width: 110,
+        key: "read",
+        title: "状态",
+        width: 88,
         render: (_v, r) =>
-          r.visible ? (
-            <Tag variant="filled" style={{ fontSize: 11, marginInlineEnd: 0 }}>
-              {r.eventTypeLabel}
-            </Tag>
+          r.isRead ? (
+            <span className="pill gray">
+              <i />
+              已读
+            </span>
           ) : (
-            <Tag variant="filled" color="default" style={{ fontSize: 11, marginInlineEnd: 0 }}>
-              不可见
-            </Tag>
+            <span className="pill due">
+              <i />
+              未读
+            </span>
           ),
       },
       {
-        key: "read",
-        title: "状态",
-        width: 72,
+        key: "action",
+        title: "操作",
+        width: 104,
         render: (_v, r) =>
           r.isRead ? (
-            <span style={{ fontSize: 12, color: INK.muted }}>已读</span>
+            <span className="mut3" style={{ fontSize: 12 }}>
+              —
+            </span>
           ) : (
-            <Badge status="processing" text={<span style={{ fontSize: 12 }}>未读</span>} />
+            <button
+              type="button"
+              className="btn link"
+              onClick={() =>
+                markRead.mutate(
+                  { ids: [r.id] },
+                  { onSuccess: () => message.success("已标记为已读") },
+                )
+              }
+            >
+              标记已读
+            </button>
           ),
       },
     ],
-    [],
+    [markRead, message, router],
   );
 
   return (
-    <DataTable<NotificationItem>
-      title="通知"
-      columns={columns}
-      rows={items}
-      rowKey={(r) => r.id}
-      total={q.data?.total ?? 0}
-      page={q.data?.page ?? page}
-      pageSize={q.data?.pageSize ?? DEFAULT_PAGE_SIZE}
-      loading={q.isLoading}
-      onPageChange={setPage}
-      onSortChange={() => undefined}
-      onRowOpen={(r) => {
-        const href = hostHref(r);
-        if (href) router.push(href);
-      }}
-      empty={
-        q.isError ? (
-          <StateBlock
-            tone="error"
-            title="通知读取出错"
-            hint={q.error instanceof Error ? q.error.message : undefined}
-            action={
-              <Button size="small" onClick={() => q.refetch()}>
-                重试
-              </Button>
-            }
-          />
-        ) : (
-          <StateBlock
-            title={unreadOnly ? "没有未读通知" : "还没有通知"}
-            hint={
-              unreadOnly
-                ? "关掉「只看未读」可以看到全部通知。"
-                : "事项的状态变更、新评论会推给关注人与创建人。"
-            }
-          />
-        )
-      }
-      tools={
-        <Flex align="center" gap={10}>
-          <Badge count={q.data?.unread ?? 0} size="small" overflowCount={99}>
-            <span style={{ fontSize: 12, color: INK.secondary }}>未读</span>
-          </Badge>
-          <Flex align="center" gap={4}>
-            <Switch
-              size="small"
-              checked={unreadOnly}
-              onChange={(v) => {
-                setUnreadOnly(v);
-                setPage(1);
-              }}
-            />
-            <span style={{ fontSize: 12, color: INK.secondary }}>只看未读</span>
-          </Flex>
-          <Button size="small" loading={q.isFetching} onClick={() => q.refetch()}>
-            刷新
-          </Button>
-          <Button
-            size="small"
-            disabled={(q.data?.unread ?? 0) === 0}
-            loading={markRead.isPending}
-            onClick={() =>
-              markRead.mutate(
-                { all: true },
-                { onSuccess: (r) => message.success(`已标记 ${r.updated} 条为已读`) },
-              )
-            }
+    <div className="stack">
+      <div className="pagehead">
+        <span className="seg">
+          <button
+            type="button"
+            className={unreadOnly ? "on" : undefined}
+            onClick={() => {
+              setUnreadOnly(true);
+              setPage(1);
+            }}
           >
-            全部已读
-          </Button>
-        </Flex>
-      }
-    />
+            未读 {unread}
+          </button>
+          <button
+            type="button"
+            className={unreadOnly ? undefined : "on"}
+            onClick={() => {
+              setUnreadOnly(false);
+              setPage(1);
+            }}
+          >
+            全部
+          </button>
+        </span>
+        <span className="sp" />
+        <button
+          type="button"
+          className="btn"
+          disabled={unread === 0 || markRead.isPending}
+          onClick={() =>
+            markRead.mutate(
+              { all: true },
+              { onSuccess: (r) => message.success(`已标记 ${r.updated} 条为已读`) },
+            )
+          }
+        >
+          全部已读
+        </button>
+      </div>
+
+      <DataTable<NotificationItem>
+        title="通知"
+        columns={columns}
+        rows={items}
+        rowKey={(r) => r.id}
+        total={total}
+        page={q.data?.page ?? page}
+        pageSize={q.data?.pageSize ?? DEFAULT_PAGE_SIZE}
+        loading={q.isLoading}
+        onPageChange={setPage}
+        onSortChange={() => undefined}
+        empty={
+          q.isError ? (
+            <StateBlock
+              tone="error"
+              title="通知读取出错"
+              hint={q.error instanceof Error ? q.error.message : undefined}
+              action={
+                <button type="button" className="btn sm" onClick={() => q.refetch()}>
+                  重试
+                </button>
+              }
+            />
+          ) : (
+            <StateBlock
+              title={unreadOnly ? "没有未读通知" : "还没有通知"}
+              hint={
+                unreadOnly
+                  ? "切到「全部」可以看到全部通知。"
+                  : "事项的状态变更、新评论会推给关注人与创建人。"
+              }
+            />
+          )
+        }
+      />
+    </div>
   );
 }

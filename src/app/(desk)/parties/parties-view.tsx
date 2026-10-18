@@ -1,24 +1,10 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Alert,
-  App as AntdApp,
-  Button,
-  Dropdown,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Space,
-  Tooltip,
-  Typography,
-} from "antd";
-import { DownloadOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Alert, App as AntdApp, Dropdown, Form, Input, Modal, Select, Tooltip } from "antd";
 import type { TableColumnsType } from "antd";
 
 // `downloadCsv` 随 MATT-47 搬到 `api.ts`（当事人导出与整卷导出共用同一个下载实现）
@@ -130,7 +116,9 @@ export function PartiesView() {
               {r.idNumber}
             </span>
           ) : (
-            <span style={{ color: INK.faint, fontSize: 12 }}>未登记</span>
+            <span className="ph" style={{ fontSize: 12 }}>
+              未登记
+            </span>
           ),
       },
       {
@@ -144,7 +132,9 @@ export function PartiesView() {
               {r.contact}
             </span>
           ) : (
-            <span style={{ color: INK.faint, fontSize: 12 }}>—</span>
+            <span className="ph" style={{ fontSize: 12 }}>
+              —
+            </span>
           ),
       },
       {
@@ -179,7 +169,9 @@ export function PartiesView() {
         sorter: true,
         sortOrder: sortOrderOf("updated_at", state.sortBy, state.sortDir),
         render: (_, r) => (
-          <span style={{ fontSize: 12, color: INK.muted }}>{fromNow(r.updatedAt)}</span>
+          <span className="mut3" style={{ fontSize: 12 }}>
+            {fromNow(r.updatedAt)}
+          </span>
         ),
       },
     ],
@@ -193,16 +185,16 @@ export function PartiesView() {
         title="当事人列表读不到"
         hint={error instanceof Error ? error.message : "未知错误"}
         action={
-          <Button size="small" onClick={() => void refetch()}>
+          <button type="button" className="btn sm" onClick={() => void refetch()}>
             重试
-          </Button>
+          </button>
         }
       />
     );
   }
 
   return (
-    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+    <div className="stack">
       <QueryFilter
         onSearch={() => push({ keyword: kw.trim() })}
         onReset={() => {
@@ -226,8 +218,7 @@ export function PartiesView() {
       <DataTable<PartyRow>
         title="当事人档案"
         tools={
-          <Space size={8}>
-            <Button icon={<ReloadOutlined />} onClick={() => void refetch()} />
+          <>
             <Dropdown
               trigger={["click"]}
               menu={{
@@ -235,21 +226,29 @@ export function PartiesView() {
                   { key: "masked", label: "导出（脱敏）" },
                   {
                     key: "plain",
-                    label: "导出（含明文证件号）",
+                    label: "导出明文",
+                    // 权限判定在服务端（requirePrivilege），这里禁用只是省一次必然 403 的往返
                     disabled: !actor?.privileges.canReadPlain,
                   },
                 ],
                 onClick: ({ key }) => exportMut.mutate(key === "plain"),
               }}
             >
-              <Button icon={<DownloadOutlined />} loading={exportMut.isPending}>
+              <button type="button" className="btn sm" disabled={exportMut.isPending}>
                 导出
-              </Button>
+              </button>
             </Dropdown>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
-              新建当事人
-            </Button>
-          </Space>
+            {/* 权限是一句事实，不是解释（canon-spec §07：明文导出仅全局管理可用） */}
+            <span className="mut3 nowrap" style={{ fontSize: 12 }}>
+              明文导出仅全局管理可用
+            </span>
+            <button type="button" className="btn sm" onClick={() => void refetch()}>
+              刷新
+            </button>
+            <button type="button" className="btn pri sm" onClick={() => setCreating(true)}>
+              新增当事人
+            </button>
+          </>
         }
         columns={columns}
         rows={data?.items ?? []}
@@ -267,11 +266,14 @@ export function PartiesView() {
           { key: "risks", title: "涉及事项" },
         ]}
         empty={
-          <Typography.Text style={{ fontSize: 12 }}>
-            {state.keyword
-              ? "当前筛选下没有可见档案。清掉关键词再看一次；数据范围不同，看到的条数就不同。"
-              : "还没有对手方档案。建案或建事项时在当事人一栏输入名称即可建档，也可以点右上「新建当事人」。"}
-          </Typography.Text>
+          <StateBlock
+            title={state.keyword ? "当前筛选下没有可见档案" : "还没有对手方档案"}
+            hint={
+              state.keyword
+                ? "清掉关键词再看一次；数据范围不同，看到的条数就不同。"
+                : "建案或建事项时在当事人一栏输入名称即可建档，也可以点右上「新增当事人」。"
+            }
+          />
         }
       />
 

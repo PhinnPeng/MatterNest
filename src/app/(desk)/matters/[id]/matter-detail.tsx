@@ -1,6 +1,5 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -164,7 +163,11 @@ export function MatterDetail({ id }: { id: string }) {
       render: (_, n) => (
         <>
           <div style={{ fontSize: 13 }}>{n.name}</div>
-          {n.remark ? <div style={{ fontSize: 11, color: INK.muted }}>{n.remark}</div> : null}
+          {n.remark ? (
+            <div className="mut3" style={{ fontSize: 11 }}>
+              {n.remark}
+            </div>
+          ) : null}
         </>
       ),
     },
@@ -172,7 +175,11 @@ export function MatterDetail({ id }: { id: string }) {
       title: "类型",
       dataIndex: "nodeType",
       width: 96,
-      render: (v: string) => <span style={{ fontSize: 12, color: INK.secondary }}>{v}</span>,
+      render: (v: string) => (
+        <span className="mut" style={{ fontSize: 12 }}>
+          {v}
+        </span>
+      ),
     },
     {
       title: "时间",
@@ -184,7 +191,9 @@ export function MatterDetail({ id }: { id: string }) {
             {n.timeType === "range" ? ` → ${dateTime(n.endTime)}` : ""}
           </span>
         ) : (
-          <span style={{ fontSize: 12, color: INK.muted }}>时间未确认</span>
+          <span className="mut3" style={{ fontSize: 12 }}>
+            时间未确认
+          </span>
         ),
     },
     {
@@ -194,7 +203,7 @@ export function MatterDetail({ id }: { id: string }) {
         n.status === "not_started" || n.status === "in_progress" ? (
           <DeadlineMark iso={n.deadlineTime} />
         ) : (
-          <span style={{ color: INK.faint }}>—</span>
+          <span className="mut3">—</span>
         ),
     },
     {
@@ -208,9 +217,9 @@ export function MatterDetail({ id }: { id: string }) {
       render: (_, n) => (
         <Space size={4}>
           <span
+            className={n.status === "cancelled" ? "mut3" : undefined}
             style={{
               fontSize: 12,
-              color: n.status === "cancelled" ? INK.faint : undefined,
               textDecoration: n.status === "cancelled" ? "line-through" : undefined,
             }}
           >
@@ -236,7 +245,7 @@ export function MatterDetail({ id }: { id: string }) {
   ];
 
   return (
-    <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+    <div className="stack">
       <PageHeader
         title={m.name}
         status={<StatusMark host="matter" code={m.status} />}
@@ -247,12 +256,14 @@ export function MatterDetail({ id }: { id: string }) {
           </>
         }
         actions={
-          <Space size={8}>
+          <>
             {/* ⭐（MATT-63 / F1-13）：私人收藏，与下面「参与人」页签里的关注人名单**不是一回事**
                 （收藏别人看不见；关注是公开名单）。放在操作区最左——它是个人标记，不是业务动作。 */}
             <FavoriteButton host="matter" hostId={m.id} favorited={m.favorited} />
             <ExportFileButton host="matter" hostId={m.id} code={m.internalCode} />
-            <Button onClick={() => setStatusOpen(true)}>变更状态</Button>
+            <button type="button" className="btn" onClick={() => setStatusOpen(true)}>
+              变更状态
+            </button>
             {/* 删除（MATT-62 / F2-5）：文案与事项详情页逐字相同。
                 归档态**也摆** —— 与「转案件 / 变更经办人」那几个按钮不同，
                 删除不要求先撤归档（裁定见 deleteMatter 的注释）。 */}
@@ -263,138 +274,147 @@ export function MatterDetail({ id }: { id: string }) {
               cancelText="取消"
               onConfirm={() => softDelete.mutate()}
             >
-              <Button danger loading={softDelete.isPending}>
+              <button type="button" className="btn danger" disabled={softDelete.isPending}>
                 删除
-              </Button>
+              </button>
             </Popconfirm>
-          </Space>
+          </>
         }
       />
 
-      <Card size="small" styles={{ body: { padding: "0 12px 12px" } }}>
-        <Tabs
-          activeKey={tab}
-          onChange={setTab}
-          items={[
-            {
-              key: "basic",
-              label: "基本信息",
-              children: (
-                <>
-                  {/* 「归档就绪」三项（F2-26）。**服务端算好给**（详情 DTO 的
+      <div className="card">
+        <div className="card-b">
+          <Tabs
+            activeKey={tab}
+            onChange={setTab}
+            items={[
+              {
+                key: "basic",
+                label: "基本信息",
+                children: (
+                  <>
+                    {/* 「归档就绪」三项（F2-26）。**服务端算好给**（详情 DTO 的
                       archiveReadiness），前端不重算——判定只实现一次，
                       列表的「已结案缺材料」筛选是它的另一个出口。
                       点一项跳到该补录的页签（READINESS_TAB）。 */}
-                  {m.archiveReadiness ? (
-                    <Card
-                      size="small"
-                      title="归档就绪"
-                      style={{ marginBottom: 12 }}
-                      extra={
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {/* 口径与归档弹窗共用同一对常量：两个显示面各写一句就会出现
+                    {m.archiveReadiness ? (
+                      <Card
+                        size="small"
+                        title="归档就绪"
+                        style={{ marginBottom: 12 }}
+                        extra={
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {/* 口径与归档弹窗共用同一对常量：两个显示面各写一句就会出现
                               "卡片说缺项、弹窗说齐备"（检查子代理抓到过）。 */}
-                          {m.archiveReadiness.missing.length === 0 ? READY_TEXT : NOT_READY_TEXT}
-                        </Typography.Text>
-                      }
+                            {m.archiveReadiness.missing.length === 0 ? READY_TEXT : NOT_READY_TEXT}
+                          </Typography.Text>
+                        }
+                      >
+                        <Space size={8} wrap>
+                          {m.archiveReadiness.checks.map((c) => {
+                            const tab = READINESS_TAB[c.key];
+                            return (
+                              <Tag
+                                key={c.key}
+                                color={STATE_COLOR[c.state]}
+                                variant="filled"
+                                style={{
+                                  marginInlineEnd: 0,
+                                  // 没有可补录的页签时不装成可点（`judgment` 就是这种：
+                                  // 附件页签不存在，点进去也无处补录）
+                                  cursor: tab ? "pointer" : "default",
+                                }}
+                                onClick={tab ? () => setTab(tab) : undefined}
+                              >
+                                {READINESS_LABELS[c.key]}
+                                {" · "}
+                                {STATE_LABEL[c.state]}
+                                {c.state === "missing" && c.count
+                                  ? `（${c.count} 个未决节点）`
+                                  : ""}
+                              </Tag>
+                            );
+                          })}
+                        </Space>
+                        {m.archiveReadiness.unavailable.length ? (
+                          <Typography.Text
+                            type="secondary"
+                            style={{ fontSize: 12, display: "block", marginTop: 6 }}
+                          >
+                            {UNAVAILABLE_HINT.attachment_not_built}
+                            ——所以上面那句话只覆盖已判的两项。
+                          </Typography.Text>
+                        ) : null}
+                      </Card>
+                    ) : null}
+                    <Descriptions
+                      size="small"
+                      column={{ xs: 1, sm: 2, lg: 3 }}
+                      items={[
+                        {
+                          key: "code",
+                          label: "内部编号",
+                          children: <span className="num">{m.internalCode}</span>,
+                        },
+                        {
+                          key: "caseNo",
+                          label: "正式案号",
+                          children: <span className="num">{m.caseNo}</span>,
+                        },
+                        {
+                          key: "type",
+                          label: "案件类型",
+                          children: meta?.enums.caseTypes[m.caseType] ?? m.caseType,
+                        },
+                        {
+                          key: "role",
+                          label: "我方诉讼地位",
+                          children:
+                            meta?.enums.litigationRoles[m.litigationRole] ?? m.litigationRole,
+                        },
+                        { key: "court", label: "受理法院", children: m.court ?? "—" },
+                        { key: "currency", label: "币种", children: m.currency },
+                        { key: "closing", label: "结案日期", children: calDate(m.closingDate) },
+                        { key: "archived", label: "归档时间", children: dateTime(m.archivedAt) },
+                        {
+                          key: "progress",
+                          label: "最近进展",
+                          children: dateTime(m.lastProgressAt),
+                        },
+                        // 2026-10-12 从页头 `meta` 搬来：页头不再有第二行说明的位置。
+                        // 这几项同屏已各有来源（内部编号/正式案号见上），再在页头写一遍就是
+                        // 两处同一个值，将来必然不同步。搬进来后 15 项，lg 下 5 行。
+                        { key: "cause", label: "案由", children: m.cause },
+                        {
+                          key: "procedure",
+                          label: "程序",
+                          children: meta?.enums.procedures[m.procedure] ?? m.procedure,
+                        },
+                        { key: "level", label: "等级", children: level },
+                        {
+                          key: "amount",
+                          label: "标的额",
+                          children: (
+                            <>
+                              <span className="num">{money(m.amount)}</span> 元
+                            </>
+                          ),
+                        },
+                        { key: "filing", label: "立案", children: calDate(m.filingDate) },
+                        {
+                          key: "updatedAt",
+                          label: "更新",
+                          children: dateTime(m.updatedAt),
+                        },
+                      ]}
+                    />
+                    <Typography.Paragraph
+                      style={{ fontSize: 13, whiteSpace: "pre-wrap", marginBottom: 0 }}
                     >
-                      <Space size={8} wrap>
-                        {m.archiveReadiness.checks.map((c) => {
-                          const tab = READINESS_TAB[c.key];
-                          return (
-                            <Tag
-                              key={c.key}
-                              color={STATE_COLOR[c.state]}
-                              variant="filled"
-                              style={{
-                                marginInlineEnd: 0,
-                                // 没有可补录的页签时不装成可点（`judgment` 就是这种：
-                                // 附件页签不存在，点进去也无处补录）
-                                cursor: tab ? "pointer" : "default",
-                              }}
-                              onClick={tab ? () => setTab(tab) : undefined}
-                            >
-                              {READINESS_LABELS[c.key]}
-                              {" · "}
-                              {STATE_LABEL[c.state]}
-                              {c.state === "missing" && c.count ? `（${c.count} 个未决节点）` : ""}
-                            </Tag>
-                          );
-                        })}
-                      </Space>
-                      {m.archiveReadiness.unavailable.length ? (
-                        <Typography.Text
-                          type="secondary"
-                          style={{ fontSize: 12, display: "block", marginTop: 6 }}
-                        >
-                          {UNAVAILABLE_HINT.attachment_not_built}——所以上面那句话只覆盖已判的两项。
-                        </Typography.Text>
-                      ) : null}
-                    </Card>
-                  ) : null}
-                  <Descriptions
-                    size="small"
-                    column={{ xs: 1, sm: 2, lg: 3 }}
-                    items={[
-                      {
-                        key: "code",
-                        label: "内部编号",
-                        children: <span className="num">{m.internalCode}</span>,
-                      },
-                      {
-                        key: "caseNo",
-                        label: "正式案号",
-                        children: <span className="num">{m.caseNo}</span>,
-                      },
-                      {
-                        key: "type",
-                        label: "案件类型",
-                        children: meta?.enums.caseTypes[m.caseType] ?? m.caseType,
-                      },
-                      {
-                        key: "role",
-                        label: "我方诉讼地位",
-                        children: meta?.enums.litigationRoles[m.litigationRole] ?? m.litigationRole,
-                      },
-                      { key: "court", label: "受理法院", children: m.court ?? "—" },
-                      { key: "currency", label: "币种", children: m.currency },
-                      { key: "closing", label: "结案日期", children: calDate(m.closingDate) },
-                      { key: "archived", label: "归档时间", children: dateTime(m.archivedAt) },
-                      { key: "progress", label: "最近进展", children: dateTime(m.lastProgressAt) },
-                      // 2026-10-12 从页头 `meta` 搬来：页头不再有第二行说明的位置。
-                      // 这几项同屏已各有来源（内部编号/正式案号见上），再在页头写一遍就是
-                      // 两处同一个值，将来必然不同步。搬进来后 15 项，lg 下 5 行。
-                      { key: "cause", label: "案由", children: m.cause },
-                      {
-                        key: "procedure",
-                        label: "程序",
-                        children: meta?.enums.procedures[m.procedure] ?? m.procedure,
-                      },
-                      { key: "level", label: "等级", children: level },
-                      {
-                        key: "amount",
-                        label: "标的额",
-                        children: (
-                          <>
-                            <span className="num">{money(m.amount)}</span> 元
-                          </>
-                        ),
-                      },
-                      { key: "filing", label: "立案", children: calDate(m.filingDate) },
-                      {
-                        key: "updatedAt",
-                        label: "更新",
-                        children: dateTime(m.updatedAt),
-                      },
-                    ]}
-                  />
-                  <Typography.Paragraph
-                    style={{ fontSize: 13, whiteSpace: "pre-wrap", marginBottom: 0 }}
-                  >
-                    {m.description?.trim() ? m.description : "没有填写基本情况。"}
-                  </Typography.Paragraph>
+                      {m.description?.trim() ? m.description : "没有填写基本情况。"}
+                    </Typography.Paragraph>
 
-                  {/*
+                    {/*
                     来源风险卡片（MATT-65 / F2-22）—— 与事项详情页那张「已转案件」卡
                     **互为镜像**（那边是事项反查案件，这边是案件反查事项）。
 
@@ -409,217 +429,217 @@ export function MatterDetail({ id }: { id: string }) {
                     （服务层按范围谓词过滤掉了），给了链接点进去也是 404 ——
                     那不是"礼貌的占位"，是把越权入口摆在界面上。
                   */}
-                  {m.sourceRisks.length > 0 || m.sourceRisksHidden > 0 ? (
+                    {m.sourceRisks.length > 0 || m.sourceRisksHidden > 0 ? (
+                      <Card
+                        size="small"
+                        title={`来源风险 (${m.sourceRisks.length})`}
+                        style={{ marginTop: 12 }}
+                      >
+                        {m.sourceRisks.length > 0 ? (
+                          <Listy
+                            items={m.sourceRisks}
+                            rowKey={(s) => s.id}
+                            itemRender={(s) => (
+                              <Flex justify="space-between" align="center" gap={8}>
+                                <Space size={6}>
+                                  <Tag style={{ marginInlineEnd: 0 }}>{s.code}</Tag>
+                                  <span style={{ fontSize: 13 }}>{s.name}</span>
+                                  <span className="mut3" style={{ fontSize: 12 }}>
+                                    {meta?.enums.riskTypes?.[s.type] ?? s.type}
+                                  </span>
+                                  {s.isArchived ? (
+                                    <span className="mut3" style={{ fontSize: 12 }}>
+                                      （已归档）
+                                    </span>
+                                  ) : null}
+                                </Space>
+                                <Link href={`/risk-matters/${s.id}`}>
+                                  <Button type="link" size="small" style={{ padding: 0 }}>
+                                    查看
+                                  </Button>
+                                </Link>
+                              </Flex>
+                            )}
+                          />
+                        ) : null}
+                        {m.sourceRisks.length === 0 && m.sourceRisksHidden > 0 ? (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            这条案件有 {m.sourceRisksHidden} 条来源风险，但它们不在你的数据范围内，
+                            因此不显示名称与编号。
+                          </Typography.Text>
+                        ) : null}
+                      </Card>
+                    ) : null}
+                  </>
+                ),
+              },
+              {
+                key: "nodes",
+                label: `工作节点 (${m.nodes.length})`,
+                children: m.nodes.length ? (
+                  <Table<Node>
+                    size="small"
+                    rowKey={(n) => n.id}
+                    columns={nodeColumns}
+                    dataSource={m.nodes}
+                    pagination={false}
+                  />
+                ) : (
+                  <StateBlock
+                    title="还没有工作节点"
+                    hint="节点是提醒的唯一入口：确认时间并设了期限，才会进工作台的到期清单。"
+                  />
+                ),
+              },
+              {
+                key: "people",
+                label: `参与人 (${m.staff.length + m.parties.length})`,
+                children: (
+                  <Flex gap={16} wrap align="flex-start">
                     <Card
                       size="small"
-                      title={`来源风险 (${m.sourceRisks.length})`}
-                      style={{ marginTop: 12 }}
+                      title={`承办与协办 (${m.staff.length})`}
+                      style={{ flex: "1 1 320px" }}
+                      extra={
+                        <Space size={4}>
+                          <StaffPicker
+                            matterId={id}
+                            staffRole="co_owner"
+                            label="加协办"
+                            existingUserIds={m.staff.map((s) => s.userId)}
+                            onDone={refetchDetail}
+                          />
+                          <StaffPicker
+                            matterId={id}
+                            staffRole="follower"
+                            label="加关注"
+                            existingUserIds={m.staff.map((s) => s.userId)}
+                            onDone={refetchDetail}
+                          />
+                        </Space>
+                      }
                     >
-                      {m.sourceRisks.length > 0 ? (
+                      {m.staff.length ? (
                         <Listy
-                          items={m.sourceRisks}
-                          rowKey={(s) => s.id}
+                          items={m.staff}
+                          // ⚠ 不能只用 `userId`：同一个人可以**两种身份**都在名单里（案 7001 就是
+                          // owner + co_owner 各一行）。老 `List` 没传 `rowKey`，key 取的是下标，
+                          // 所以这个重复一直藏着；迁移后按 `userId` 取 key 立刻变成 React 的
+                          // "two children with the same key" 报错。唯一键照库里的
+                          // `uk_mn_matter_staff_triple (matter_id, user_id, staff_role)`：二元组足矣。
+                          rowKey={(s) => `${s.userId}-${s.staffRole}`}
                           itemRender={(s) => (
                             <Flex justify="space-between" align="center" gap={8}>
                               <Space size={6}>
-                                <Tag style={{ marginInlineEnd: 0 }}>{s.code}</Tag>
-                                <span style={{ fontSize: 13 }}>{s.name}</span>
-                                <span style={{ fontSize: 12, color: INK.muted }}>
-                                  {meta?.enums.riskTypes?.[s.type] ?? s.type}
-                                </span>
-                                {s.isArchived ? (
-                                  <span style={{ fontSize: 12, color: INK.faint }}>（已归档）</span>
-                                ) : null}
+                                <Avatar size={20} style={{ fontSize: 11 }}>
+                                  {s.displayName.slice(0, 1)}
+                                </Avatar>
+                                <span style={{ fontSize: 13 }}>{s.displayName}</span>
                               </Space>
-                              <Link href={`/risk-matters/${s.id}`}>
-                                <Button type="link" size="small" style={{ padding: 0 }}>
-                                  查看
-                                </Button>
-                              </Link>
+                              <Space size={4}>
+                                <span className="mut3" style={{ fontSize: 12 }}>
+                                  {meta?.enums.staffRoles[s.staffRole] ?? s.staffRole}
+                                </span>
+                                {/* 经办人摘不掉（服务端 403 owner_protected）——所以这里不摆按钮。
+                                  换负责人是「负责人」字段的事，不是名单的事。 */}
+                                {s.staffRole === "owner" ? null : (
+                                  <Popconfirm
+                                    title="把这位同事移出名单？"
+                                    okText="移出"
+                                    cancelText="取消"
+                                    onConfirm={() => removeStaff.mutate(s.userId)}
+                                  >
+                                    <Button type="link" size="small" danger>
+                                      移出
+                                    </Button>
+                                  </Popconfirm>
+                                )}
+                              </Space>
                             </Flex>
                           )}
                         />
-                      ) : null}
-                      {m.sourceRisks.length === 0 && m.sourceRisksHidden > 0 ? (
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          这条案件有 {m.sourceRisksHidden} 条来源风险，但它们不在你的数据范围内，
-                          因此不显示名称与编号。
-                        </Typography.Text>
-                      ) : null}
+                      ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有参与人" />
+                      )}
                     </Card>
-                  ) : null}
-                </>
-              ),
-            },
-            {
-              key: "nodes",
-              label: `工作节点 (${m.nodes.length})`,
-              children: m.nodes.length ? (
-                <Table<Node>
-                  size="small"
-                  rowKey={(n) => n.id}
-                  columns={nodeColumns}
-                  dataSource={m.nodes}
-                  pagination={false}
-                />
-              ) : (
-                <StateBlock
-                  title="还没有工作节点"
-                  hint="节点是提醒的唯一入口：确认时间并设了期限，才会进工作台的到期清单。"
-                />
-              ),
-            },
-            {
-              key: "people",
-              label: `参与人 (${m.staff.length + m.parties.length})`,
-              children: (
-                <Flex gap={16} wrap align="flex-start">
-                  <Card
-                    size="small"
-                    title={`承办与协办 (${m.staff.length})`}
-                    style={{ flex: "1 1 320px" }}
-                    extra={
-                      <Space size={4}>
-                        <StaffPicker
-                          matterId={id}
-                          staffRole="co_owner"
-                          label="加协办"
-                          existingUserIds={m.staff.map((s) => s.userId)}
-                          onDone={refetchDetail}
-                        />
-                        <StaffPicker
-                          matterId={id}
-                          staffRole="follower"
-                          label="加关注"
-                          existingUserIds={m.staff.map((s) => s.userId)}
-                          onDone={refetchDetail}
-                        />
-                      </Space>
-                    }
-                  >
-                    {m.staff.length ? (
-                      <Listy
-                        items={m.staff}
-                        // ⚠ 不能只用 `userId`：同一个人可以**两种身份**都在名单里（案 7001 就是
-                        // owner + co_owner 各一行）。老 `List` 没传 `rowKey`，key 取的是下标，
-                        // 所以这个重复一直藏着；迁移后按 `userId` 取 key 立刻变成 React 的
-                        // "two children with the same key" 报错。唯一键照库里的
-                        // `uk_mn_matter_staff_triple (matter_id, user_id, staff_role)`：二元组足矣。
-                        rowKey={(s) => `${s.userId}-${s.staffRole}`}
-                        itemRender={(s) => (
-                          <Flex justify="space-between" align="center" gap={8}>
-                            <Space size={6}>
-                              <Avatar size={20} style={{ fontSize: 11 }}>
-                                {s.displayName.slice(0, 1)}
-                              </Avatar>
-                              <span style={{ fontSize: 13 }}>{s.displayName}</span>
-                            </Space>
-                            <Space size={4}>
-                              <span style={{ fontSize: 12, color: INK.muted }}>
-                                {meta?.enums.staffRoles[s.staffRole] ?? s.staffRole}
+                    <Card
+                      size="small"
+                      title={`当事人 (${m.parties.length})`}
+                      style={{ flex: "1 1 320px" }}
+                    >
+                      {m.parties.length ? (
+                        <Listy
+                          items={m.parties}
+                          rowKey={(p) => p.id}
+                          itemRender={(p) => (
+                            // ⚠ 老 `List.Item` 是 `display:flex` + `space-between`：迁移前的三块（名称 /
+                            // 类型·证件号 / 角色）就是**横排**的。这里保持同形，改不改是另一个决定。
+                            <Flex justify="space-between" align="center" gap={8}>
+                              <div style={{ fontSize: 13 }}>{p.name}</div>
+                              <div className="mut3" style={{ fontSize: 11 }}>
+                                {meta?.enums.partyTypes[p.type] ?? p.type}
+                                {p.idNumber ? ` · ${p.idNumber}` : ""}
+                              </div>
+                              <span className="mut3" style={{ fontSize: 12 }}>
+                                {meta?.enums.litigationRoles[p.partyRole] ?? p.partyRole}
                               </span>
-                              {/* 经办人摘不掉（服务端 403 owner_protected）——所以这里不摆按钮。
-                                  换负责人是「负责人」字段的事，不是名单的事。 */}
-                              {s.staffRole === "owner" ? null : (
-                                <Popconfirm
-                                  title="把这位同事移出名单？"
-                                  okText="移出"
-                                  cancelText="取消"
-                                  onConfirm={() => removeStaff.mutate(s.userId)}
-                                >
-                                  <Button type="link" size="small" danger>
-                                    移出
-                                  </Button>
-                                </Popconfirm>
-                              )}
-                            </Space>
-                          </Flex>
-                        )}
-                      />
-                    ) : (
-                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有参与人" />
+                            </Flex>
+                          )}
+                        />
+                      ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有当事人" />
+                      )}
+                    </Card>
+                  </Flex>
+                ),
+              },
+              {
+                key: "expenses",
+                label: "费用",
+                children: <ExpensePanel host="matter" hostId={m.id} archived={m.isArchived} />,
+              },
+              {
+                key: "log",
+                label: `过程记录 (${m.progress.length + m.comments.length})`,
+                children: (
+                  <LogTab
+                    matterId={m.id}
+                    progress={m.progress}
+                    comments={m.comments}
+                    onDone={invalidate}
+                  />
+                ),
+              },
+              {
+                key: "activity",
+                label: `活动日志 (${m.activity.length})`,
+                children: m.activity.length ? (
+                  <Listy
+                    items={m.activity}
+                    rowKey={(a) => a.id}
+                    itemRender={(a) => (
+                      <Flex gap={12} align="baseline" wrap>
+                        <span className="num mut3" style={{ fontSize: 12, minWidth: 148 }}>
+                          {dateTime(a.createdAt)}
+                        </span>
+                        <Tag variant="filled" style={{ fontSize: 11 }}>
+                          {meta?.enums.auditActions[a.action] ?? a.action}
+                        </Tag>
+                        <span style={{ fontSize: 13 }}>
+                          {a.operator}
+                          {a.reason ? <span className="mut3"> · {a.reason}</span> : ""}
+                        </span>
+                      </Flex>
                     )}
-                  </Card>
-                  <Card
-                    size="small"
-                    title={`当事人 (${m.parties.length})`}
-                    style={{ flex: "1 1 320px" }}
-                  >
-                    {m.parties.length ? (
-                      <Listy
-                        items={m.parties}
-                        rowKey={(p) => p.id}
-                        itemRender={(p) => (
-                          // ⚠ 老 `List.Item` 是 `display:flex` + `space-between`：迁移前的三块（名称 /
-                          // 类型·证件号 / 角色）就是**横排**的。这里保持同形，改不改是另一个决定。
-                          <Flex justify="space-between" align="center" gap={8}>
-                            <div style={{ fontSize: 13 }}>{p.name}</div>
-                            <div style={{ fontSize: 11, color: INK.muted }}>
-                              {meta?.enums.partyTypes[p.type] ?? p.type}
-                              {p.idNumber ? ` · ${p.idNumber}` : ""}
-                            </div>
-                            <span style={{ fontSize: 12, color: INK.muted }}>
-                              {meta?.enums.litigationRoles[p.partyRole] ?? p.partyRole}
-                            </span>
-                          </Flex>
-                        )}
-                      />
-                    ) : (
-                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有当事人" />
-                    )}
-                  </Card>
-                </Flex>
-              ),
-            },
-            {
-              key: "expenses",
-              label: "费用",
-              children: <ExpensePanel host="matter" hostId={m.id} archived={m.isArchived} />,
-            },
-            {
-              key: "log",
-              label: `过程记录 (${m.progress.length + m.comments.length})`,
-              children: (
-                <LogTab
-                  matterId={m.id}
-                  progress={m.progress}
-                  comments={m.comments}
-                  onDone={invalidate}
-                />
-              ),
-            },
-            {
-              key: "activity",
-              label: `活动日志 (${m.activity.length})`,
-              children: m.activity.length ? (
-                <Listy
-                  items={m.activity}
-                  rowKey={(a) => a.id}
-                  itemRender={(a) => (
-                    <Flex gap={12} align="baseline" wrap>
-                      <span
-                        className="num"
-                        style={{ fontSize: 12, color: INK.muted, minWidth: 148 }}
-                      >
-                        {dateTime(a.createdAt)}
-                      </span>
-                      <Tag variant="filled" style={{ fontSize: 11 }}>
-                        {meta?.enums.auditActions[a.action] ?? a.action}
-                      </Tag>
-                      <span style={{ fontSize: 13 }}>
-                        {a.operator}
-                        {a.reason ? <span style={{ color: INK.muted }}> · {a.reason}</span> : ""}
-                      </span>
-                    </Flex>
-                  )}
-                />
-              ) : (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有活动记录" />
-              ),
-            },
-          ]}
-        />
-      </Card>
+                  />
+                ) : (
+                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有活动记录" />
+                ),
+              },
+            ]}
+          />
+        </div>
+      </div>
 
       <StatusDialog
         target={target}
@@ -807,7 +827,7 @@ function LogTab({
                 // ⚠ 老 `List.Item` 是 `display:flex` + `space-between`，所以这两块一直是**横排**的：
                 // 迁移**保持同形**（`Listy` 的 item 是块级，不套 Flex 就会静默变成纵排）。
                 <Flex justify="space-between" align="center" gap={8}>
-                  <div style={{ fontSize: 11, color: INK.muted }}>
+                  <div className="mut3" style={{ fontSize: 11 }}>
                     {c.author} · {fromNow(c.createdAt)}
                   </div>
                   <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>
@@ -836,18 +856,22 @@ function LogTab({
                 // 同「评论」：老 `List.Item` 是 flex 行，几个 div 一直是**横排**的，这里保持同形
                 <Flex justify="space-between" align="center" gap={8}>
                   <Flex justify="space-between" gap={8} style={{ flex: 1 }}>
-                    <span style={{ fontSize: 12, color: INK.secondary }}>
+                    <span className="mut" style={{ fontSize: 12 }}>
                       {meta?.enums.progressTypes[p.progressType] ?? p.progressType}
                     </span>
-                    <span className="num" style={{ fontSize: 12, color: INK.muted }}>
+                    <span className="num mut3" style={{ fontSize: 12 }}>
                       {calDate(p.progressDate)}
                     </span>
                   </Flex>
                   <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{p.content}</div>
                   {p.nextPlan ? (
-                    <div style={{ fontSize: 12, color: INK.muted }}>下一步：{p.nextPlan}</div>
+                    <div className="mut3" style={{ fontSize: 12 }}>
+                      下一步：{p.nextPlan}
+                    </div>
                   ) : null}
-                  <div style={{ fontSize: 11, color: INK.faint }}>{p.author}</div>
+                  <div className="mut3" style={{ fontSize: 11 }}>
+                    {p.author}
+                  </div>
                 </Flex>
               )}
             />

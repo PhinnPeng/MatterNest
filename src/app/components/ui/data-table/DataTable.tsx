@@ -1,37 +1,55 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Card, Checkbox, Dropdown, Flex, Pagination, Space, Table, Typography } from "antd";
+import { Checkbox, Dropdown } from "antd";
 import type { TableColumnsType } from "antd";
 
-import { INK } from "@/app/theme/brand";
 import { MAX_PAGE_SIZE } from "@/shared/schema/list-query";
 
 /**
  * `DataTable` —— 全站唯一的数据表入口（禁令⑧），同时是"表格区卡片"这层壳。
  *
- * `@ant-design/pro-components` 的 peer 是 `antd ^4.24 || ^5.11`，**不含 antd 6**，
- * 装上会把样式拉回 v5 运行时，所以 ProTable 那层（查询区 + 工具栏 + 服务端分页表）
- * 在这里自己写。它本来就是薄封装，不可替代的能力没有丢：丢的是"少写 80 行"。
+ * ## 2026-10-18（MATT-99）：表格换成 canon 的 `<table class="tb">`
  *
- * 布局按 ProTable 的表格区组织：**卡片头 = 标题（页面 h1）+ 计数 + 列设置/工具**，
- * 卡片体是表，卡片底是分页。查询区是同级的另一张卡（见 `components/query-filter`）。
+ * 原型 `.impeccable/mocks/pages/canon.css` 的表格是**朴素 table**：行高 40、
+ * 表头 `--th` 底、`<colgroup>` 显式列宽、可伸缩列挂 `.ellip`、分页是 `.pager` 一行。
+ * antd `Table` 自带的表头底、行高（由 `cellPaddingBlockSM` 推）、分页器都是**另一套尺寸**，
+ * 与 canon 的密度刻度对不齐 —— 所以这里不再把 antd `Table` 当渲染器，改为直接铺
+ * canon 的语义标签。**列的声明形状不变**（仍然是 antd 的 `TableColumnsType`），
+ * 于是六个列表页的列定义一个字都不用改。
  *
- * 五条不变的东西（换库前后同口径）：
+ * 仍然由本组件承担、换渲染器不能丢的四条：
  *   1. **受控**：`page / pageSize / sortBy / sortDir` 由调用方给，本组件不自己维护态
  *      ——状态落在 URL 上（`use-list-state`），刷新、后退、发链接给同事才对得上同一视图；
- *   2. **只声明可排序，不在前端排**：列上给 `sorter: true` 就够了，
- *      **绝不给函数形态的 `sorter`**——那是客户端全量排序，而禁令⑧ 的理由是权限不是性能
- *      （客户端全量筛＝绕过 `scopedWhere`，见 spec/backend）；
- *   3. `pageSize > MAX_PAGE_SIZE` **直接抛**，不静默夹小：静默夹小会让调用方以为已经拉全了；
- *   4. 空态交给 antd 的 `emptyText` 渲染在表体里，但**没有数据时不画合计行**，
- *      避免出现"合计 0 / 共 0 条"这种看起来像算错了的行；
- *   5. **标题是页面主标题**：列表页不再单独渲染 PageHeader，h1 由这里的卡片头承担，
- *      所以读屏拿到的标题层级与视觉层级是同一个。
+ *   2. **只声明可排序，不在前端排**：列上给 `sorter: true` 就够，点击表头只把
+ *      `key + dir` 交回调用方（`onSortChange`）。
+ *      **绝不做客户端排序**——那是绕过 `scopedWhere`（禁令⑧ 的理由是权限不是性能）；
+ *   3. `pageSize > MAX_PAGE_SIZE` **直接抛**，不静默夹小；
+ *   4. **标题是页面主标题**：列表页不再单独渲染 PageHeader，`h2` 由这里的卡片头承担
+ *      （canon 的结构是顶栏 `h1` 页名 → 页面内 `.pagehead h2` / 卡片头 `h2`）。
  *
- * 列宽这次是真的生效：给了 `width` + `scroll.x` 之后 antd 走 `table-layout: fixed`。
- * 上一轮在 shadcn 那边就是栽在这——列定义里的 `size` 只是 TanStack 的元数据，没人消费它。
+ * ## 列宽预算 ≤1100 @1366
+ *
+ * `<colgroup>` 里逐列给 `<col style="width">`；没给 `width` 的列就是**可伸缩列**，
+ * 它的单元格加 `.ellip`（`white-space:nowrap + overflow:hidden + text-overflow:ellipsis`），
+ * 窄屏也不撑破布局。`align` 映射到 canon 的 `.r` / `.c`。
  */
+
+type Align = "left" | "right" | "center";
+
+/** 本组件真正读的那几个列字段（`TableColumnsType` 是它的超集）。 */
+type ColumnLike<T> = {
+  key?: string;
+  title?: React.ReactNode;
+  dataIndex?: string;
+  width?: number;
+  align?: Align;
+  ellipsis?: boolean;
+  render?: (value: unknown, record: T, index: number) => React.ReactNode;
+  sorter?: boolean | unknown;
+  sortOrder?: "ascend" | "descend" | null;
+};
+
 export type DataTableProps<T> = {
   columns: TableColumnsType<T>;
   /** **只当页数据**。传全量进来就是误用。 */
@@ -44,7 +62,7 @@ export type DataTableProps<T> = {
   onPageChange: (page: number) => void;
   onSortChange: (key: string, dir: "asc" | "desc") => void;
   onRowOpen?: (row: T) => void;
-  /** 卡片头主标题（承担页面的 h1） */
+  /** 卡片头主标题（承担页面主区块的 h2） */
   title: React.ReactNode;
   /** 卡片头右侧工具：刷新 / 新建 等。列设置由本组件自己渲染在最前 */
   tools?: React.ReactNode;
@@ -80,125 +98,193 @@ export function DataTable<T extends object>({
   }
 
   const shown = useMemo(
-    () => columns.filter((c) => !hidden.includes(String((c as { key?: string }).key ?? ""))),
+    () =>
+      (columns as ColumnLike<T>[]).filter(
+        (c) => !hidden.includes(String(c.key ?? c.dataIndex ?? "")),
+      ),
     [columns, hidden],
   );
-  const sumWidth = shown.reduce(
-    (acc, c) => acc + (Number((c as { width?: number }).width) || 120),
-    0,
-  );
+
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const canPrev = page > 1;
+  const canNext = page < pageCount;
 
   return (
-    <Card
-      size="small"
-      variant="outlined"
-      styles={{ body: { padding: 0 } }}
-      title={
-        <Flex align="baseline" gap={8} style={{ minWidth: 0 }}>
-          <Typography.Title
-            level={1}
-            style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "24px" }}
+    <div className="card">
+      <div className="card-h">
+        <h2>{title}</h2>
+        <span className="sp" />
+        {hideable?.length ? (
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: hideable.map((h) => ({
+                key: h.key,
+                // Checkbox 在 menu item 里要点两下才生效，所以让 Dropdown 的 onClick 关菜单
+                label: (
+                  <Checkbox
+                    checked={!hidden.includes(h.key)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) =>
+                      setHidden((prev) =>
+                        e.target.checked ? prev.filter((k) => k !== h.key) : [...prev, h.key],
+                      )
+                    }
+                  >
+                    {h.title}
+                  </Checkbox>
+                ),
+              })),
+            }}
           >
-            {title}
-          </Typography.Title>
-          <Typography.Text style={{ fontSize: 12, color: INK.muted, fontWeight: 400 }}>
-            共 <span className="num">{total}</span> 条
-          </Typography.Text>
-        </Flex>
-      }
-      extra={
-        <Space size={8}>
-          {hideable?.length ? (
-            <Dropdown
-              trigger={["click"]}
-              menu={{
-                items: hideable.map((h) => ({
-                  key: h.key,
-                  // Checkbox 在 menu item 里要点两下才生效，所以让 Dropdown 的 onClick 关菜单
-                  label: (
-                    <Checkbox
-                      checked={!hidden.includes(h.key)}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) =>
-                        setHidden((prev) =>
-                          e.target.checked ? prev.filter((k) => k !== h.key) : [...prev, h.key],
-                        )
-                      }
-                    >
-                      {h.title}
-                    </Checkbox>
-                  ),
-                })),
-              }}
-            >
-              <Button size="small">列设置</Button>
-            </Dropdown>
-          ) : null}
-          {tools}
-        </Space>
-      }
-    >
-      <Table<T>
-        size="small"
-        rowKey={(r) => rowKey(r)}
-        columns={shown}
-        dataSource={rows}
-        loading={loading}
-        pagination={false}
-        tableLayout="fixed"
-        scroll={{ x: sumWidth }}
-        locale={empty ? { emptyText: empty } : undefined}
-        onChange={(_p, _f, sorter) => {
-          const s = Array.isArray(sorter) ? sorter[0] : sorter;
-          if (!s?.columnKey || s.order == null) return;
-          onSortChange(String(s.columnKey), s.order === "ascend" ? "asc" : "desc");
-        }}
-        onRow={
-          onRowOpen
-            ? (record) => ({ onClick: () => onRowOpen(record), style: { cursor: "pointer" } })
-            : undefined
-        }
-        summary={
-          footer && rows.length
-            ? () => (
-                <Table.Summary.Row>
-                  <Table.Summary.Cell colSpan={shown.length} index={0}>
-                    <span style={{ fontSize: 12 }}>{footer}</span>
-                  </Table.Summary.Cell>
-                </Table.Summary.Row>
-              )
-            : undefined
-        }
-      />
+            <button type="button" className="btn sm">
+              列设置
+            </button>
+          </Dropdown>
+        ) : null}
+        {tools}
+      </div>
 
-      {total > pageSize ? (
-        <Flex
-          align="center"
-          justify="space-between"
-          gap={12}
-          style={{
-            borderTop: `1px solid ${INK.line}`,
-            padding: "10px 12px",
-          }}
+      <table className="tb" aria-busy={loading || undefined}>
+        <colgroup>
+          {shown.map((c, i) => (
+            <col
+              key={String(c.key ?? c.dataIndex ?? i)}
+              style={c.width ? { width: c.width } : undefined}
+            />
+          ))}
+        </colgroup>
+        <thead>
+          <tr>
+            {shown.map((c, i) => {
+              const key = String(c.key ?? c.dataIndex ?? i);
+              const sortable = Boolean(c.sorter);
+              const order = c.sortOrder;
+              return (
+                <th
+                  key={key}
+                  className={alignClass(c.align)}
+                  aria-sort={
+                    order === "ascend"
+                      ? "ascending"
+                      : order === "descend"
+                        ? "descending"
+                        : undefined
+                  }
+                >
+                  {sortable ? (
+                    <button
+                      type="button"
+                      onClick={() => onSortChange(key, order === "ascend" ? "desc" : "asc")}
+                      style={{
+                        font: "inherit",
+                        color: "inherit",
+                        background: "none",
+                        border: "none",
+                        padding: 0,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      {c.title as React.ReactNode}
+                      {/* 排序指示：词 + 字形双通道（色不作唯一通道），无排序时留一个淡的 ⇅ */}
+                      <span aria-hidden="true" className={order ? undefined : "mut3"}>
+                        {order === "ascend" ? "▲" : order === "descend" ? "▼" : "⇅"}
+                      </span>
+                    </button>
+                  ) : (
+                    (c.title as React.ReactNode)
+                  )}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              {/* 调用方给的 `empty` 自带 `.empty` 外壳（StateBlock 的空态）；没给就兜一句 */}
+              <td colSpan={shown.length}>{empty ?? <div className="empty">暂无数据</div>}</td>
+            </tr>
+          ) : (
+            rows.map((r) => (
+              <tr
+                key={rowKey(r)}
+                onClick={onRowOpen ? () => onRowOpen(r) : undefined}
+                style={onRowOpen ? { cursor: "pointer" } : undefined}
+              >
+                {shown.map((c, i) => {
+                  const key = String(c.key ?? c.dataIndex ?? i);
+                  const value =
+                    c.dataIndex != null ? (r as Record<string, unknown>)[c.dataIndex] : undefined;
+                  const content = c.render
+                    ? c.render(value, r, i)
+                    : ((value ?? null) as React.ReactNode);
+                  return (
+                    <td key={key} className={cellClass(c)} title={undefined}>
+                      {content}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))
+          )}
+        </tbody>
+        {footer && rows.length ? (
+          <tfoot>
+            <tr>
+              <td colSpan={shown.length} className="mut" style={{ fontSize: 12 }}>
+                {footer}
+              </td>
+            </tr>
+          </tfoot>
+        ) : null}
+      </table>
+
+      <div className="pager">
+        <span className="num">共 {total} 条</span>
+        <span className="sp" />
+        <button
+          type="button"
+          className="btn sm"
+          disabled={!canPrev}
+          onClick={() => onPageChange(page - 1)}
         >
-          <Typography.Text style={{ fontSize: 12, color: INK.muted }}>
-            第 <span className="num">{page}</span> /{" "}
-            <span className="num">{Math.ceil(total / pageSize)}</span> 页 · 每页{" "}
-            <span className="num">{pageSize}</span> 条
-          </Typography.Text>
-          {/* showSizeChanger 关掉：每页条数由 URL 参数决定，页内改会让"分享出去的链接"对不上 */}
-          <Pagination
-            size="small"
-            current={page}
-            pageSize={pageSize}
-            total={total}
-            showSizeChanger={false}
-            onChange={(p) => onPageChange(p)}
-          />
-        </Flex>
-      ) : null}
-    </Card>
+          上一页
+        </button>
+        <span className="num">
+          {page} / {pageCount}
+        </span>
+        <button
+          type="button"
+          className="btn sm"
+          disabled={!canNext}
+          onClick={() => onPageChange(page + 1)}
+        >
+          下一页
+        </button>
+      </div>
+    </div>
   );
+}
+
+/** `align` → canon 的对齐类（`.r` 右 / `.c` 居中） */
+function alignClass(align?: Align): string | undefined {
+  if (align === "right") return "r";
+  if (align === "center") return "c";
+  return undefined;
+}
+
+/**
+ * 单元格的类：对齐 + `ellipsis` 映射到 `.ellip`（显式列宽之外的列补省略号）。
+ * `.ellip` 只给声明了 `ellipsis` 的列，不给所有列——把每一格都 nowrap 会让
+ * 需要换行的单元格（备注类）也失去换行，那是另一种越界。
+ */
+function cellClass<T>(c: ColumnLike<T>): string | undefined {
+  const parts = [alignClass(c.align), c.ellipsis ? "ellip" : null].filter(Boolean);
+  return parts.length ? parts.join(" ") : undefined;
 }
 
 /**

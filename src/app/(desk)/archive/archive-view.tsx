@@ -1,11 +1,9 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Input, Segmented, Typography } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { Input, Segmented } from "antd";
 import type { TableColumnsType } from "antd";
 
 import { api, useMeta } from "@/app/lib/client/api";
@@ -100,7 +98,7 @@ export function ArchiveView() {
         sorter: true,
         sortOrder: sortOrderOf("code", state.sortBy, state.sortDir),
         render: (_, r) => (
-          <span className="num" style={{ fontSize: 12, color: INK.secondary }}>
+          <span className="num mut" style={{ fontSize: 12 }}>
             {r.internalCode ?? r.code ?? "—"}
           </span>
         ),
@@ -134,7 +132,7 @@ export function ArchiveView() {
             width: 124,
             ellipsis: true,
             render: (_: unknown, r: ArchiveRow) => (
-              <span title={r.cause ?? ""} style={{ color: INK.secondary }}>
+              <span title={r.cause ?? ""} className="mut">
                 {r.cause}
               </span>
             ),
@@ -180,7 +178,7 @@ export function ArchiveView() {
         width: 120,
         ellipsis: true,
         render: (_, r) => (
-          <span className="num" style={{ fontSize: 12, color: INK.muted }}>
+          <span className="num mut3" style={{ fontSize: 12 }}>
             {calDate(r.archivedAt)}
           </span>
         ),
@@ -195,28 +193,33 @@ export function ArchiveView() {
         title="归档列表读不到"
         hint={error instanceof Error ? error.message : "未知错误"}
         action={
-          <Button size="small" onClick={() => push({})}>
+          <button type="button" className="btn sm" onClick={() => push({})}>
             重试
-          </Button>
+          </button>
         }
       />
     );
   }
 
   return (
-    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <Segmented
-          value={host}
-          onChange={(v) => setHost(v as Host)}
-          options={[
-            { label: "案件", value: "matter" },
-            { label: "事项", value: "risk_matter" },
-          ]}
-        />
-        <Typography.Text style={{ fontSize: 12, color: INK.muted }}>
-          归档是终态：默认不出现在办列表；撤销归档在记录的「变更状态」里做，需专门权限。
-        </Typography.Text>
+    <div className="stack">
+      <div className="pagehead">
+        <span className="seg">
+          <button
+            type="button"
+            className={isMatter ? "on" : undefined}
+            onClick={() => setHost("matter")}
+          >
+            案件
+          </button>
+          <button
+            type="button"
+            className={isMatter ? undefined : "on"}
+            onClick={() => setHost("risk_matter")}
+          >
+            事项
+          </button>
+        </span>
       </div>
 
       <QueryFilter
@@ -256,7 +259,11 @@ export function ArchiveView() {
 
       <DataTable<ArchiveRow>
         title={isMatter ? "已归档案件" : "已归档事项"}
-        tools={<Button icon={<ReloadOutlined />} onClick={() => void refetch()} />}
+        tools={
+          <button type="button" className="btn sm" onClick={() => void refetch()}>
+            刷新
+          </button>
+        }
         columns={columns}
         rows={data?.items ?? []}
         rowKey={(r) => r.id}
@@ -270,13 +277,22 @@ export function ArchiveView() {
         onSortChange={(k, d) => push({ sortBy: k, sortDir: d })}
         hideable={isMatter ? [{ key: "cause", title: "案由" }] : [{ key: "type", title: "类型" }]}
         empty={
-          <Typography.Text style={{ fontSize: 12 }}>
-            {state.keyword
-              ? "当前关键词下没有已归档记录。换个词或清掉关键词再看一次。"
-              : isMatter
-                ? "还没有已归档案件。在办案件走完流程、置为归档后才会出现在这里。"
-                : "还没有已归档事项。"}
-          </Typography.Text>
+          <StateBlock
+            title={
+              state.keyword
+                ? "当前关键词下没有已归档记录"
+                : isMatter
+                  ? "还没有已归档案件"
+                  : "还没有已归档事项"
+            }
+            hint={
+              state.keyword
+                ? "换个词或清掉关键词再看一次。"
+                : isMatter
+                  ? "在办案件走完流程、置为归档后才会出现在这里。"
+                  : undefined
+            }
+          />
         }
       />
     </div>

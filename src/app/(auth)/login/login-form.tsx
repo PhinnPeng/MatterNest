@@ -3,95 +3,119 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Form, Input, Typography } from "antd";
 
 import { api, ApiFailure } from "@/app/lib/client/api";
 import { loginSchema } from "@/shared/schema/hosts";
-import { rulesFor } from "@/app/components/form/zod-rules";
 
 /**
- * 登录表单。
+ * 登录表单（MATT-99：换成 canon 的字段与按钮形态）。
  *
- * 校验规则从 `loginSchema` 里读（`rulesFor`），提交时仍由同一条 schema 兜底——
- * antd 的 rules 只负责即时提示，规则的定义源还是 shared 那一份（禁令⑧）。
+ * 校验规则仍从 `loginSchema` 读（禁令⑧）——提交时由同一条 schema 兜底，
+ * 字段级报错从 `safeParse` 的 issues 里取（不再走 antd 的 `rulesFor`，
+ * 但**规则的定义源还是 shared 那一份**，只是渲染层换成了 canon 的 `.hint.err`）。
  *
  * 服务端对"账号不存在 / 口令错 / 未开通"给同一个 401 文案（防枚举），
  * 所以这里也只显示那一句，不改写成"口令不正确"——客户端文案不能把服务端的防泄露口径打回原形。
- * 曾有一块"演示账号（口令 = 账号，点一下填入）"的提示，只在非生产渲染。
- * 它依赖「seed 的口令 = 用户名」这个前提；F1 把口令摘要从 seed 与库里都清掉之后，
- * 该前提不成立，那块就变成了一个必然 401 的控件（页面上却写着"点一下填入"），
- * 已整块撤除。冒烟改走运行时自建的一次性账号，不依赖仓库里的任何凭据。
  *
- * 2026-10-12 页面优化：① 标题下的副标题（"用公司账号。…"）按产品口径撤除 ——
- * 它原本承担 Title 与表单之间的 22px，撤除后把这个值并回 Title 的 marginBottom，节奏不变；
- * ② 文案口径统一为"密码"：标签、`loginSchema` 的 validation 文案、登录接口的 401 文案
- * 三处一起改。只改标签会让用户在"请输入口令"和"账号或口令不正确"里继续见到旧词，
- * 那不算口径统一。
+ * 原型 `login.html` 有一个「记住我」勾选框，但**后端没有对应的持久化**（会话 Cookie
+ * 由服务端下发，客户端无"记住/不记住"之分）。按「不留点了没反应的控件」的纪律，
+ * 这里不放它——画一个勾了也不影响登录时长的勾选框，是把一件不存在的事画成可操作的。
+ *
+ * 2026-10-12 页面优化：① 标题下的副标题按产品口径撤除；② 文案口径统一为"密码"
+ * （标签、`loginSchema` 的 validation、登录接口 401 文案三处一起改）。
  */
-type FormValues = { username: string; password: string };
-
 export function LoginForm() {
   const router = useRouter();
   const qc = useQueryClient();
-  const [form] = Form.useForm<FormValues>();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<{ username?: string; password?: string }>({});
   const [busy, setBusy] = useState(false);
 
-  async function submit(values: FormValues) {
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
     setServerError(null);
+    const parsed = loginSchema.safeParse({ username, password });
+    if (!parsed.success) {
+      // 字段级报错取 schema 的 message（与后端同一份定义），一次把两个字段的错都收齐
+      const next: { username?: string; password?: string } = {};
+      for (const issue of parsed.error.issues) {
+        const key = issue.path[0];
+        if (key === "username" || key === "password") next[key] ??= issue.message;
+      }
+      setFieldError(next);
+      return;
+    }
+    setFieldError({});
     setBusy(true);
     try {
-      // 先过 schema（长度/去空白），再发请求：与后端用的是同一份定义
-      const parsed = loginSchema.safeParse(values);
-      if (!parsed.success) {
-        setBusy(false);
-        return;
-      }
       // 登录失败与"会话过期"共用一个状态码，所以关掉 api 层的自动跳转（否则整页重载、错误提示被冲掉）
       await api.post("/api/auth/login", parsed.data, { redirectOn401: false });
       // 换人必须清缓存：上一个账号的范围谓词不一样，缓存着的列表会让新用户看见别人的行
       qc.clear();
       router.replace("/");
-    } catch (e) {
-      setServerError(e instanceof ApiFailure ? e.message : "登录失败，请稍后再试");
+    } catch (err) {
+      setServerError(err instanceof ApiFailure ? err.message : "登录失败，请稍后再试");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div>
-      <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 22 }}>
-        登录
-      </Typography.Title>
-
+    <form onSubmit={submit} noValidate>
       {serverError ? (
-        <Alert
-          type="error"
-          showIcon
-          message={serverError}
-          style={{ marginBottom: 16 }}
-          role="alert"
-        />
+        <div className="hint err" role="alert" style={{ marginBottom: 14 }}>
+          {serverError}
+        </div>
       ) : null}
 
-      <Form<FormValues>
-        form={form}
-        layout="vertical"
-        requiredMark={false}
-        onFinish={submit}
-        initialValues={{ username: "", password: "" }}
+      <div className="field" style={{ marginBottom: fieldError.username ? 6 : 14 }}>
+        <label htmlFor="login-username">账号</label>
+        <input
+          id="login-username"
+          className="inp"
+          type="text"
+          autoFocus
+          autoComplete="username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
+      </div>
+      {fieldError.username ? (
+        <div className="hint err" style={{ marginTop: 0, marginBottom: 12 }}>
+          {fieldError.username}
+        </div>
+      ) : null}
+
+      <div className="field" style={{ marginBottom: fieldError.password ? 6 : 16 }}>
+        <label htmlFor="login-password">密码</label>
+        <input
+          id="login-password"
+          className="inp"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+      </div>
+      {fieldError.password ? (
+        <div className="hint err" style={{ marginTop: 0, marginBottom: 12 }}>
+          {fieldError.password}
+        </div>
+      ) : null}
+
+      <button
+        type="submit"
+        className="btn pri"
+        disabled={busy}
+        style={{ width: "100%", justifyContent: "center" }}
       >
-        <Form.Item label="账号" name="username" rules={rulesFor(loginSchema, ["username"])}>
-          <Input size="large" autoFocus autoComplete="username" allowClear />
-        </Form.Item>
-        <Form.Item label="密码" name="password" rules={rulesFor(loginSchema, ["password"])}>
-          <Input.Password size="large" autoComplete="current-password" />
-        </Form.Item>
-        <Button size="large" type="primary" htmlType="submit" block loading={busy}>
-          登录
-        </Button>
-      </Form>
-    </div>
+        {busy ? "登录中…" : "登录"}
+      </button>
+      <div className="mut3" style={{ fontSize: 12, marginTop: 14 }}>
+        仅限内网访问
+      </div>
+    </form>
   );
 }

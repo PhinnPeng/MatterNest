@@ -467,6 +467,786 @@
 }
 
 /*
+ * 组件类（canon.css 的按钮 / 表格 / 标签 / 弹层 / 表单段落逐条转写）。
+ *
+ * 与上面「外壳与页容器」同一份口径：canon.css 是目标态的唯一实现，这里只做逐值转写，
+ * 不重新设计。**原型专用**的那几套（`:target` 开层、`:has()` 主从切换、
+ * `html,body{width:1440px}`、`.mask.static`）不搬——真页靠 React 状态与 antd 的 Modal/Form，
+ * 纯 CSS 演示机制照搬会打架。深色选择器由 canon 的 `body.dark` 改成 `html.dark`
+ * （深色类打在 documentElement 上，见 brand.ts）。
+ */
+@layer components {
+  /* 工具类（`.num` 在文件末尾的 @utility；这里补 canon 同段的其它四个） */
+  .ellip {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .nowrap {
+    white-space: nowrap;
+  }
+  .mut {
+    color: var(--ink2);
+  }
+  .mut3 {
+    color: var(--ink3);
+  }
+  .mono {
+    font-family: Consolas, "DejaVu Sans Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 顶栏里详情页的返回入口与右侧留白（`h1` 已在外壳段落） */
+  .topbar .back {
+    color: var(--ink2);
+    font-size: 13px;
+  }
+  .topbar .sp {
+    flex: 1;
+  }
+
+  /* 页头：`h2` 是页面主区块标题（19px），顶栏 `h1` 是页名，层级由标签承担 */
+  .pagehead {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .pagehead h2 {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .pagehead .sub {
+    font-size: 13px;
+    color: var(--ink2);
+    margin-top: 3px;
+  }
+  .pagehead .sp {
+    flex: 1;
+  }
+  .rowflex {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card-h .sp {
+    flex: 1;
+  }
+
+  /* 两列网格与配置细项行（`.card + .card` 间距已在外壳段） */
+  .grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .grid2 > .card + .card {
+    margin-top: 0;
+  }
+  .cfgrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .cfgrow i {
+    color: var(--ink3);
+    font-style: normal;
+  }
+
+  /* 指标带：数字口径一律来自服务端聚合，前端不按当页数据现算（禁令⑧） */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .metric {
+    padding: 14px 16px;
+    border-right: 1px solid var(--line2);
+  }
+  .metric:last-child {
+    border-right: none;
+  }
+  .metric b {
+    display: block;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 2px;
+  }
+  .metric span {
+    font-size: 12px;
+    color: var(--ink2);
+  }
+  .metric.over b {
+    color: var(--red);
+  }
+  .metric.due b {
+    color: var(--amber);
+  }
+
+  /* 按钮：默认描边、`.pri` 实心（每屏至多一个）、`.danger` 描边红字、`.link` 行内动作 */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 13px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    font-size: 13px;
+    font-family: inherit;
+    white-space: nowrap;
+  }
+  .btn.pri {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 500;
+  }
+  .btn.danger {
+    border-color: var(--accent-line);
+    color: var(--red);
+  }
+  .btn.sm {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+  .btn.link {
+    border: none;
+    background: none;
+    height: auto;
+    padding: 0;
+    color: var(--accent);
+  }
+  .btn[disabled] {
+    color: var(--ink3);
+    background: var(--card-2);
+  }
+
+  /* 表单件：`.field` 标签在上控件在下；`.inp`/`.sel` 高 32 */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .field > label {
+    font-size: 12px;
+    color: var(--ink2);
+  }
+  .inp,
+  .sel {
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--ink);
+    font: 13px/1 inherit;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .inp.ph {
+    color: var(--ink3);
+  }
+  .sel {
+    justify-content: space-between;
+    gap: 14px;
+    min-width: 132px;
+  }
+  .sel i {
+    color: var(--ink3);
+    font-style: normal;
+    font-size: 10px;
+  }
+  .inp.w160 {
+    width: 160px;
+  }
+  .inp.w200 {
+    width: 200px;
+  }
+  .inp.w240 {
+    width: 240px;
+  }
+  .query {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 14px 16px;
+  }
+  /* 分段（未读/全部、案件/事项）：选中项白底 + 描边。
+     真页用 `<button>`（可 Tab、可回车，US 5 对控件的要求），原型是 `<a href>`——两者同貌。 */
+  .seg {
+    display: inline-flex;
+    background: var(--card-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 2px;
+  }
+  .seg a,
+  .seg button {
+    padding: 4px 12px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink2);
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .seg a.on,
+  .seg button.on {
+    background: var(--card);
+    color: var(--ink);
+    font-weight: 500;
+    border: 1px solid var(--line);
+  }
+  /* 页签：选中项 2px 强调色下划线 */
+  .tabs {
+    display: flex;
+    gap: 22px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 18px;
+  }
+  .tabs a,
+  .tabs button {
+    padding: 10px 0;
+    font: inherit;
+    font-size: 13.5px;
+    color: var(--ink2);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+  }
+  .tabs a.on,
+  .tabs button.on {
+    color: var(--ink);
+    font-weight: 500;
+    border-bottom-color: var(--accent);
+  }
+  /* 勾选框与开关：边界用 control-line（交互控件边界 ≥3:1），不用分隔线 */
+  .cb {
+    width: 14px;
+    height: 14px;
+    border: 1px solid var(--control-line);
+    border-radius: 3px;
+    display: inline-block;
+    vertical-align: -2px;
+  }
+  .cb.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-size: 10px;
+    line-height: 13px;
+    text-align: center;
+  }
+  .sw {
+    width: 34px;
+    height: 20px;
+    border-radius: 10px;
+    background: var(--switch-off);
+    display: inline-block;
+    position: relative;
+    vertical-align: -5px;
+  }
+  /* ⚠ 必须带 `:not(.on)`：`html.dark .sw` 的特异性高于 `.sw.on`，不加排除会让深色下所有开关变灰 */
+  html.dark .sw:not(.on) {
+    background: var(--switch-off);
+  }
+  .sw::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+  }
+  .sw.on {
+    background: var(--accent);
+  }
+  .sw.on::after {
+    left: 16px;
+  }
+  .drag {
+    color: var(--ink3);
+    font-size: 13px;
+    letter-spacing: -1px;
+  }
+  /* 色块描边：浅色淡黑影、深色淡白影——同一个 rgba(0,0,0,.1) 在黑底上等于没有边 */
+  .swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    display: inline-block;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    vertical-align: -2px;
+  }
+  html.dark .swatch {
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+
+  /* 表格：行高 40 恒不拉伸，表头 --th 底，行分隔 --line2，悬停 --hover */
+  .tb {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .tb th {
+    height: 40px;
+    padding: 0 12px;
+    text-align: left;
+    font-weight: 500;
+    font-size: 12.5px;
+    color: var(--ink2);
+    background: var(--th);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .tb td {
+    height: 40px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--line2);
+    vertical-align: middle;
+  }
+  .tb tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .tb tr:hover td {
+    background: var(--hover);
+  }
+  .tb .r {
+    text-align: right;
+  }
+  .tb .c {
+    text-align: center;
+  }
+  .tb .ph {
+    color: var(--ink3);
+  }
+  .tool {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--accent-weak);
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .pager {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: flex-end;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--ink2);
+  }
+  .pager .sp {
+    flex: 1;
+  }
+
+  /* 标签与状态：语义 tag 的底用 --card（浅底会把前景压到 4.5 以下），色温由描边承担 */
+  .tag {
+    display: inline-block;
+    font-size: 12px;
+    padding: 1px 7px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    color: var(--ink2);
+  }
+  .tag.blue {
+    border-color: var(--accent-line);
+    background: var(--accent-weak);
+    color: var(--accent);
+  }
+  .tag.green {
+    border-color: var(--tag-edge-green);
+    background: var(--card);
+    color: var(--green);
+  }
+  .tag.red {
+    border-color: var(--tag-edge-red);
+    background: var(--card);
+    color: var(--red);
+  }
+  .tag.amber {
+    border-color: var(--tag-edge-amber);
+    background: var(--card);
+    color: var(--amber);
+  }
+  html.dark .tag.green,
+  html.dark .tag.red,
+  html.dark .tag.amber {
+    background: transparent;
+  }
+  /* 状态点 + 词：颜色不作唯一通道，点和词永远同时出现 */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+  .pill i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    display: inline-block;
+  }
+  .pill.over {
+    color: var(--red);
+  }
+  .pill.due {
+    color: var(--amber);
+  }
+  .pill.ok {
+    color: var(--green);
+  }
+  .pill.gray {
+    color: var(--ink2);
+  }
+  /* 空态 = 事实 + 动作，不铺一段散文 */
+  .empty {
+    padding: 46px 16px;
+    text-align: center;
+    color: var(--ink2);
+    font-size: 13px;
+  }
+
+  /* 详情字段表：104px 标签 + 内容，两对一行；`.wide` 收成一列 */
+  .dl {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr) 104px minmax(0, 1fr);
+    gap: 12px 18px;
+  }
+  .dl.wide {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+  .dl dt {
+    font-size: 12.5px;
+    color: var(--ink2);
+  }
+  .dl dd {
+    font-size: 13px;
+    min-width: 0;
+  }
+  .dl .span2 {
+    grid-column: span 3;
+  }
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 356px;
+    gap: 16px;
+    align-items: start;
+  }
+  /* 权限陈述 / 分组说明：一行一个「能不能」，词恒在中性墨色 */
+  .cap {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 9px 14px;
+    font-size: 13px;
+  }
+  .cap dt {
+    color: var(--ink2);
+    font-size: 12.5px;
+  }
+  .cap dd {
+    min-width: 0;
+  }
+  /* 时间线：一条竖线 + 每项一个点 */
+  .tl {
+    position: relative;
+    padding-left: 16px;
+  }
+  .tl::before {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 6px;
+    bottom: 6px;
+    width: 1px;
+    background: var(--line);
+  }
+  .tl > li {
+    position: relative;
+    list-style: none;
+    padding: 0 0 16px;
+  }
+  .tl > li::before {
+    content: "";
+    position: absolute;
+    left: -16px;
+    top: 5px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ink3);
+    border: 1px solid var(--card);
+  }
+
+  /* 登录：整页居中一张 400 卡片，无 nav 无顶栏 */
+  .login {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .login .card {
+    width: 400px;
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+  }
+  html.dark .login .card {
+    box-shadow: none;
+    border-color: var(--line);
+  }
+
+  /* 弹层：遮罩 + 面板（780 / `.narrow` 520 / `.wide` 900），头与底栏钉住、只滚 `.modal-b` */
+  .mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(16, 24, 40, 0.45);
+    align-items: center;
+    justify-content: center;
+    z-index: 9;
+    display: none;
+  }
+  .mask.static,
+  .mask:target {
+    display: flex;
+  }
+  html.dark .mask {
+    background: rgba(0, 0, 0, 0.6);
+  }
+  .modal {
+    width: 780px;
+    max-height: 86vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 16px 48px -12px rgba(16, 24, 40, 0.32);
+  }
+  html.dark .modal {
+    box-shadow: none;
+  }
+  .modal.narrow {
+    width: 520px;
+  }
+  .modal.wide {
+    width: 900px;
+  }
+  .modal-h {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line2);
+  }
+  .modal-h h3 {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .modal-h .sp {
+    flex: 1;
+  }
+  .modal-h .x {
+    border: none;
+    background: none;
+    color: var(--ink3);
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+  }
+  .modal-b {
+    padding: 18px 20px;
+    overflow: auto;
+  }
+  .modal-f {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--line2);
+  }
+  .modal-f .sp {
+    flex: 1;
+  }
+
+  /* 表单网格：12 列，每行最多两个字段（常规 span6，整行 span12，不用 span4 拼三格一行） */
+  .fgrid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .fgrid > .span2 {
+    grid-column: span 2;
+  }
+  .fgrid > .span3 {
+    grid-column: span 3;
+  }
+  .fgrid > .span4 {
+    grid-column: span 4;
+  }
+  .fgrid > .span5 {
+    grid-column: span 5;
+  }
+  .fgrid > .span6 {
+    grid-column: span 6;
+  }
+  .fgrid > .span7 {
+    grid-column: span 7;
+  }
+  .fgrid > .span8 {
+    grid-column: span 8;
+  }
+  .fgrid > .span9 {
+    grid-column: span 9;
+  }
+  .fgrid > .span10 {
+    grid-column: span 10;
+  }
+  .fgrid > .span12 {
+    grid-column: span 12;
+  }
+  .fgrid .field > label {
+    color: var(--ink2);
+  }
+  .fgrid .field > label b {
+    color: var(--red);
+    font-weight: 400;
+    margin-left: 2px;
+  }
+  .fsec {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: 0.01em;
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--line2);
+  }
+  .fsec:not(:first-child) {
+    margin-top: 6px;
+  }
+  .ta {
+    min-height: 70px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--ink);
+    font: 13px/1.6 inherit;
+    resize: vertical;
+  }
+  .ta.ph {
+    color: var(--ink3);
+  }
+  /* 富文本编辑器：只画形态（工具栏 + 编辑区），真页由 BlockNote 承担 */
+  .rt {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    overflow: hidden;
+  }
+  .rt-bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--line2);
+    background: var(--card-2);
+  }
+  .rt-bar b {
+    font-weight: 400;
+    font-size: 12.5px;
+    color: var(--ink2);
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+  .rt-bar b.on {
+    background: var(--nav-on);
+    color: var(--nav-on-ink);
+  }
+  .rt-bar i {
+    width: 1px;
+    height: 14px;
+    background: var(--line);
+    margin: 0 4px;
+  }
+  .rt-b {
+    padding: 10px 12px;
+    min-height: 96px;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .rt-b .ph {
+    color: var(--ink3);
+  }
+  .rt-b ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+  }
+  .rt-b li {
+    list-style: disc;
+  }
+  /* 字段说明（落点②）：不铺成卡片里的一行散文 */
+  .hint {
+    font-size: 12px;
+    color: var(--ink2);
+    margin-top: 5px;
+  }
+  .hint.warn {
+    color: var(--amber);
+  }
+  .hint.err {
+    color: var(--red);
+  }
+  /* 当事人块：一块一个当事人，内部仍走 `.fgrid`（每行 ≤2 字段） */
+  .pcard {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .pcard + .pcard {
+    margin-top: 10px;
+  }
+  .pcard-h {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .pcard-h .nm {
+    font-size: 12px;
+    color: var(--ink2);
+  }
+  .pcard-h .sp {
+    flex: 1;
+  }
+}
+
+/*
  * 项目级工具类。**只留这一个**：数字与编号用等宽 + 表格数字，
  * 否则同一列里"8,420,000.00 / 760,000.00"数位对不齐，扫读要靠字符宽度猜。
  * antd 没有提供这个（它的 `Statistic` 只管数字本身），所以这是唯一值得留的自定义类。
