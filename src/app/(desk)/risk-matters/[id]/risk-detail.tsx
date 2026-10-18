@@ -130,21 +130,20 @@ export function RiskDetail({ id }: { id: string }) {
   });
 
   if (isPending) {
-    return <Card size="small" loading style={{ maxWidth: 1180, margin: "0 auto" }} />;
+    return <div className="card" style={{ minHeight: 320 }} />;
   }
   // 404 走"不可见或不存在"这一句措辞，不写"事项不存在"——服务层对两者都给 404
   if (isError) {
     return (
-      <Card size="small" style={{ maxWidth: 640, margin: "40px auto" }}>
-        <StateBlock
-          title="看不到这条事项"
-          hint={
-            error instanceof ApiFailure && error.status === 404
-              ? "它不存在，或你没有查看它的权限。"
-              : "加载失败，请重试。"
-          }
-        />
-      </Card>
+      <StateBlock
+        tone="denied"
+        title="看不到这条事项"
+        hint={
+          error instanceof ApiFailure && error.status === 404
+            ? "它不存在，或你没有查看它的权限。"
+            : "加载失败，请重试。"
+        }
+      />
     );
   }
   if (!data) return null;
@@ -200,20 +199,26 @@ export function RiskDetail({ id }: { id: string }) {
                     {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
                   </FlagMark>
                 </Space>
-                <Typography.Title
-                  level={2}
-                  style={{ margin: 0, fontSize: 19, lineHeight: "28px", fontWeight: 600 }}
+                {/* 层级归位：顶栏 h1 是页名，这里是页面主区块标题 → h2（19px，与 canon .pagehead h2 同值） */}
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 19,
+                    lineHeight: "28px",
+                    fontWeight: 600,
+                    letterSpacing: "-0.01em",
+                  }}
                 >
                   {risk.name}
-                </Typography.Title>
+                </h2>
               </div>
 
               <Space size={8} wrap style={{ flex: "none" }}>
                 {/* 「撤销归档」不单设按钮：它就是一条状态迁移，走同一个「变更状态」
                     （archive-view.tsx 的注释写的也是这条）。单设按钮会造出第二条到同一状态的路。 */}
-                <Button type="primary" onClick={() => setStatusOpen(true)}>
+                <button type="button" className="btn pri" onClick={() => setStatusOpen(true)}>
                   变更状态
-                </Button>
+                </button>
                 {/* ⭐（MATT-63 / F1-13）：私人收藏。**刻意与右边的 `FollowGroup` 分开**——
                     那个是「眼睛 + n 人关注」的公开名单，收藏不进名单、别人看不见。 */}
                 <FavoriteButton host="risk_matter" hostId={risk.id} favorited={risk.favorited} />
@@ -221,8 +226,16 @@ export function RiskDetail({ id }: { id: string }) {
                 <ExportFileButton host="risk_matter" hostId={risk.id} code={risk.code} />
                 {/* 转案件是建案入口之一（IQ-3），详情页与列表页都要能发起（T2 验收原文）。
                     归档态不给：归档是终态，服务层会 422 archived。 */}
-                {!risk.isArchived && <Button onClick={() => setConvertOpen(true)}>转案件</Button>}
-                {!risk.isArchived && <Button onClick={() => setOwnerOpen(true)}>变更经办人</Button>}
+                {!risk.isArchived && (
+                  <button type="button" className="btn" onClick={() => setConvertOpen(true)}>
+                    转案件
+                  </button>
+                )}
+                {!risk.isArchived && (
+                  <button type="button" className="btn" onClick={() => setOwnerOpen(true)}>
+                    变更经办人
+                  </button>
+                )}
                 <FollowGroup risk={risk} onDone={invalidate} />
                 {!risk.isArchived && (
                   <Popconfirm
@@ -232,9 +245,9 @@ export function RiskDetail({ id }: { id: string }) {
                     cancelText="取消"
                     onConfirm={() => softDelete.mutate()}
                   >
-                    <Button danger loading={softDelete.isPending}>
+                    <button type="button" className="btn danger" disabled={softDelete.isPending}>
                       删除
-                    </Button>
+                    </button>
                   </Popconfirm>
                 )}
               </Space>
