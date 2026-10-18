@@ -17,8 +17,8 @@ export const metadata: Metadata = { title: "批量导入 · MatterNest" };
  *
  * MATT-44 的范围外发现 1 记过这条错位，本票按**代码事实**裁定：
  *   · `AppShell`（左侧主菜单 + 顶栏）只挂在 `(desk)/layout.tsx` 上；顶层 `src/app/settings/`
- *     **不在 (desk) 组内**，拿不到导航壳；
- *   · 系统设置面在代码里就是 `(desk)/config` 与 `(desk)/users`，
+ *     **不在 (desk) 组内**，拿不到导航壳、菜单也不会高亮；
+ *   · 系统设置面在代码里就是 `(desk)/config`（功能配置：入口 + 14 细项页）与 `(desk)/users`，
  *     spec §4.2 里那列 `/settings/*` 是**建议值，从未落地**。
  * 所以导入页落在 `(desk)/config/import`，URL 是 `/config/import`。
  */

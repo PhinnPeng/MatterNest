@@ -1,149 +1,70 @@
 "use client";
 
-import { Card, Col, Flex, Row, Space, Table, Tag, Typography } from "antd";
+import Link from "next/link";
 
-import { useMeta } from "@/app/lib/client/api";
+import { INK } from "@/app/theme/brand";
 import { PageHeader } from "@/app/components/page-header";
-import { StateBlock } from "@/app/components/ui/state-block";
+import { CONFIG_GROUPS, CONFIG_KIND_META, configKindPath } from "@/shared/schema/config";
 
 /**
- * 配置字典（**只读**）。
+ * 功能配置（入口页）。
  *
- * 这张页存在的理由是 W0-3 那条裁定要能被看见：值域分两类——
- *   · 配置驱动（状态、风险等级、标签）→ 存在库里，运营可改，所以两张宿主各一份；
- *   · 闭集枚举（案件类型、审级、诉讼地位、节点状态…）→ 写在 `@/shared/enums`，
- *     与迁移里的 `CHECK` 由 `enum-check.spec.ts` 双向核对。
- * 并排列出来，"为什么这个能改那个不能改"就不用口头解释。
+ * ## 这一页是"导航到细项"，不是"读配置"
  *
- * 一期不做配置编辑（`can_manage_config` 目前只用于读），所以这里明写"只读"，
- * 而不是摆一排禁用按钮。
+ * 原先（149 行）它把状态/风险等级/闭集枚举**并排列在同一页**当只读字典读，理由是
+ * "并排列出来，'为什么这个能改那个不能改'就不用口头解释"。本票给它真实的编辑能力后，
+ * 那个理由不再成立：**能做/不能做的边界移到了各细项页上**（能改的给弹层，不能改的写
+ * 「改动要走迁移」），入口页只承担分诊 —— 五张卡片指向 14 个细项。
+ *
+ * `can_manage_config` 曾经只用于读（旧注如此）；今天它是 `/api/config/[kind]` 的写门，
+ * 细项页据此决定给不给「新增」与编辑入口。
+ *
+ * ## 为什么卡片分组成五张（照 canon-spec 第 10 节）
+ *
+ * 分组是**界面语汇**（事项/案件/当事人/风险/通知），不是数据库分组；14 个细项一个不多
+ * 一个不少地落进这五组，顺序即默认阅读顺序。分组与细项清单都是 `shared/schema/config.ts`
+ * 里的 `CONFIG_GROUPS`（接口与页面同源，不在页面里再抄一份）。
+ *
+ * ## 细则行为什么不带项数、不带来源标记
+ *
+ * 原型明写"不带项数、不带来源标记"：项数是库里的行数、会变，标在入口上就是一份要维护的
+ * 第二事实；来源（配置表 vs 闭集枚举）在细项页里有更精确的说法，入口上标它只会让人
+ * 在没打开页面前就先分类。
  */
 export function ConfigView() {
-  const matter = useMeta("matter");
-  const risk = useMeta("risk_matter");
-
-  if (matter.isPending || risk.isPending) {
-    return <Card size="small" loading style={{ maxWidth: 1180, margin: "0 auto" }} />;
-  }
-  if (matter.isError || risk.isError) {
-    return <StateBlock tone="error" title="配置读不到" hint="会话可能已过期，重新登录后再看。" />;
-  }
-
-  const m = matter.data!;
-  const r = risk.data!;
-
-  const statusColumns = [
-    {
-      title: "编码",
-      dataIndex: "code",
-      width: 120,
-      render: (v: string) => <span className="num">{v}</span>,
-    },
-    { title: "名称", dataIndex: "name", width: 120 },
-    {
-      title: "语义（决定系统行为）",
-      dataIndex: "semantics",
-      render: (v: string) => (
-        <Space size={6}>
-          <Tag variant="filled">{m.enums.semantics?.[v] ?? v}</Tag>
-          <Typography.Text type="secondary" className="num" style={{ fontSize: 11 }}>
-            {v}
-          </Typography.Text>
-        </Space>
-      ),
-    },
-  ];
-
   return (
-    <div style={{ maxWidth: 1180, margin: "0 auto" }}>
-      <PageHeader title="配置字典" />
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={12}>
-          <Card size="small" title={`案件状态 (${m.statuses.length})`}>
-            <Table
-              size="small"
-              rowKey="code"
-              pagination={false}
-              dataSource={m.statuses}
-              columns={statusColumns}
-            />
-            {m.tags.length ? (
-              <div style={{ marginTop: 12 }}>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  标签
-                </Typography.Text>
-                <div>
-                  {m.tags.map((t) => (
-                    <Tag key={t.id}>{t.name}</Tag>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card size="small" title={`事项状态 (${r.statuses.length})`}>
-            <Table
-              size="small"
-              rowKey="code"
-              pagination={false}
-              dataSource={r.statuses}
-              columns={statusColumns}
-            />
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={12}>
-          <Card size="small" title="风险等级（两宿主共用一张表）">
-            <Table
-              size="small"
-              rowKey="code"
-              pagination={false}
-              dataSource={m.levels}
-              columns={[
-                {
-                  title: "编码",
-                  dataIndex: "code",
-                  width: 120,
-                  render: (v: string) => <span className="num">{v}</span>,
-                },
-                { title: "名称", dataIndex: "name" },
-              ]}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card size="small" title="闭集枚举（改动要走迁移，不在这里改）">
-            <Flex vertical gap={10}>
-              <EnumBlock title="案件类型" map={m.enums.caseTypes} />
-              <EnumBlock title="审级 / 程序" map={m.enums.procedures} />
-              <EnumBlock title="诉讼地位" map={m.enums.litigationRoles} />
-              <EnumBlock title="当事人类型" map={m.enums.partyTypes} />
-              <EnumBlock title="节点状态" map={m.enums.nodeStatuses} />
-              <EnumBlock title="事项类型" map={r.enums.riskTypes} />
-            </Flex>
-          </Card>
-        </Col>
-      </Row>
-    </div>
-  );
-}
-
-function EnumBlock({ title, map }: { title: string; map?: Record<string, string> }) {
-  const entries = Object.entries(map ?? {});
-  return (
-    <div>
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {title} · {entries.length}
-      </Typography.Text>
-      <div style={{ marginTop: 4 }}>
-        {entries.map(([code, label]) => (
-          <Tag key={code} title={code} style={{ marginBottom: 4 }}>
-            {label}
-          </Tag>
+    <>
+      <PageHeader title="功能配置" />
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          gap: 16,
+        }}
+      >
+        {CONFIG_GROUPS.map((group) => (
+          <div key={group.label} className="card">
+            <div className="card-h">
+              <h2>{group.label}</h2>
+            </div>
+            <div className="card-b" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {group.kinds.map((kind) => (
+                <Link
+                  key={kind}
+                  href={configKindPath(kind)}
+                  className="it"
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+                >
+                  {CONFIG_KIND_META[kind].label}
+                  <i style={{ color: INK.muted, fontStyle: "normal" }} aria-hidden="true">
+                    ›
+                  </i>
+                </Link>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }
