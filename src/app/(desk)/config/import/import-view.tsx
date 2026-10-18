@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { App as AntdApp, Button, Card, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 
+import { ImportDialog } from "@/app/components/import-dialog";
 import { PageHeader } from "@/app/components/page-header";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { INK, BRAND } from "@/app/theme/brand";
@@ -13,26 +15,31 @@ import { fetchReport, useImportBatches } from "@/app/lib/client/api-import";
 import { importKindLabel, isImportDenied, type ImportBatchDto } from "@/app/lib/client/import-ui";
 
 /**
- * 批量导入 · 报告找回（MATT-102 降级后）。
+ * 批量导入 · 当事人入口 + 报告找回（MATT-102 降级后）。
  *
- * ## 这一页现在只说一件事：**最近导入 + 报告在哪里**
+ * ## 这一页现在管两件事：**当事人的导入 + 最近导入与报告在哪里**
  *
- * 导入的入口已经搬到案件页 / 事项页的页头按钮（弹层形式，类型由入口页锁定）。
- * 这一页保留下来只为一件事：用户**关掉弹层之后**，错误报告还得有个地址能回来拿
- * （票面原文：「报告得有个地址能回来拿」）。所以这里只有「最近导入」一张卡，
- * 没有类型选择器、没有上传区、没有变体选择器 —— 那些都是弹层里的形态，页上再来一份
- * 只会让人怀疑哪个才是真的入口。
+ * 案件 / 风险事项的导入入口搬到了各自页头的弹层按钮（类型由入口页锁定）。但
+ * **当事人（`party`）没有宿主页**（`mn_party` 是跨宿主共享实体，F3-1），也就没有
+ * 哪一页能替它挂那个按钮；`/parties` 刻意不放导入按钮（原有设计）。MATT-102 的
+ * 降级把 `TemplateBlock` / `UploadBlock` 整块删掉时，连带把当事人模板与上传也
+ * 一起弄成了不可达 —— 三张模板里少一张，违反了 user story 36「三张模板在弹层里可下载」。
+ *
+ * 所以这里补回当事人那一个入口：页头一个按钮开 `ImportDialog`，`hostType="party"`。
+ * 弹层自己会渲染它所锁 `hostType` 的模板下载，所以「怎么填」与「能不能导」在这一处
+ * 同时有了答案，不需要在页上再铺一份上传区（那会让人怀疑哪个才是真入口）。
  *
  * ## 权限：不镜像 `canImport`
  *
  * 能否导入由服务端每个端点各自判定（`guards.ts#canImport` → 403 `import_forbidden`）。
  * 前端**不写第二份谓词**：客户端的 `Actor` 里根本没有 `isAdmin`，镜像出来的判定会漂。
  * 所以这一页靠**一次真读**换权限面 —— 挂载时拉「最近导入」，非 L1 会当场拿到 403，
- * 页面直接画成明确拒绝，而不是让用户点一次才知道。这不是额外请求：最近导入本来就是
- * 这一页仅剩的内容。
+ * 页面直接画成明确拒绝，而不是让用户点一次才知道。当事人入口按钮与最近导入同屏，
+ * 拒绝态下整页换成 `StateBlock`，按钮不会出现。
  */
 export function ImportView() {
   const { message } = AntdApp.useApp();
+  const [importingParty, setImportingParty] = useState(false);
   const batches = useImportBatches();
   const denied = batches.isError && isImportDenied(batches.error);
 
@@ -57,13 +64,22 @@ export function ImportView() {
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
-      <PageHeader title="批量导入" />
+      <PageHeader
+        title="批量导入"
+        actions={
+          <button type="button" className="btn pri sm" onClick={() => setImportingParty(true)}>
+            导入当事人
+          </button>
+        }
+      />
       <BatchesCard
         items={batches.data?.items ?? []}
         loading={batches.isPending}
         onReport={(r) => downloadReport.mutate(r)}
         onRetry={() => void batches.refetch()}
       />
+      {/* 当事人是唯一没有宿主页的种类，它的入口只能落在这里（见文件头） */}
+      <ImportDialog hostType="party" open={importingParty} onOpenChange={setImportingParty} />
     </div>
   );
 }
@@ -146,7 +162,7 @@ function BatchesCard({
         locale={{
           emptyText: (
             <Typography.Text style={{ fontSize: 12 }}>
-              还没有导入过。入口在案件页 / 事项页的页头「批量导入」按钮。
+              还没有导入过。案件 / 事项的入口在各自页头，当事人在本页页头。
             </Typography.Text>
           ),
         }}
