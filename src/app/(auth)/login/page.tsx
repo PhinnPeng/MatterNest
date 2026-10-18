@@ -1,4 +1,3 @@
-import { alpha, BRAND, INK, PAPER } from "@/app/theme/brand";
 import type { Metadata } from "next";
 import { LoginForm } from "./login-form";
 
@@ -11,101 +10,26 @@ export const metadata: Metadata = { title: "登录 · MatterNest" };
  *
  * ⚠ 这个文件里**一个 antd 组件都不能出现**：antd 的组件全都带 hook，
  * 在 Server Component 里渲染会直接抛错（`Typography.Title` 也不行）。
- * 所以外壳用原生标签 + 内联样式写死，所有交互与 antd 都在 `login-form.tsx` 那侧。
- * 色值仍然走唯一源 `theme/brand.ts`——那个文件不 import antd，就是为了让这里也能用。
+ * 所以外壳用原生标签 + canon 类写死，所有交互与 antd 都在 `login-form.tsx` 那侧。
  *
- * 构图（2026-10-03 改）：**整页纸色底 + 居中一张双栏卡片**，而不是左右满幅分栏。
- * 原因是量出来的：满幅分栏下窗口越宽越空——1892 视口时墨蓝栏占 1492px（79%）而它的文字
- * 只有 520px 宽，白栏 400px 里飘着一个 233px 的表单、上下各 456px 空白。
- * 卡片高度由内容决定，两栏各自承重，1366 与 1920 都不再有空场。
- * 一期只做 PC 宽屏（技术选型 §7 假设 G），所以窄屏只保证不溢出，不做重排。
- * 2026-10-12：左栏底脚（"数据留在公司内网，不外发。"）按产品口径撤除，侧栏改为整组居中。
+ * 构图（2026-10-18，MATT-99）：换成 canon 的目标态——`.login` 整页居中一张 400px `.card`
+ * （`globals.css` 的 `.login`），品牌名 + 副行「内网办公系统」+ 字段 + 主按钮 + 「仅限内网访问」。
+ * 上一版那套"左墨蓝满幅分栏 + 右白栏"随原型一起撤掉：canon 的登录页就是一张卡，
+ * 品牌只需出现一次（两处并列会让人以为是两个东西）。
  */
 export default function LoginPage() {
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "32px 24px",
-        background: PAPER,
-      }}
-    >
-      <div
-        style={{
-          width: "min(1080px, 100%)",
-          minHeight: 420,
-          display: "flex",
-          alignItems: "stretch",
-          borderRadius: 8,
-          overflow: "hidden",
-          // 高度只声明一次：这层用阴影，不再叠 1px 描边（描边 + 大软阴影会糊成"幽灵卡片"）
-          boxShadow: `0 24px 48px -24px ${alpha(INK.body, 0.28)}, 0 2px 6px -2px ${alpha(INK.body, 0.1)}`,
-        }}
-      >
-        <aside
-          style={{
-            flex: "1 1 auto",
-            minWidth: 0,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            padding: "34px 40px 30px",
-            background: `linear-gradient(160deg,${BRAND.sider.bg} 0%,${BRAND.sider.gradient} 100%)`,
-            color: BRAND.sider.item,
-          }}
-        >
-          {/* 字标与主标题合成一组、整组垂直居中（2026-10-12 撤掉底部脚注后改）：
-              脚注在时 space-between 把三样东西摊开；只剩两样再 space-between，
-              字标钉顶边、标题甩底边、中间空一大块 —— 那正是本轮构图要避免的"空场" */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 24, maxWidth: 520 }}>
-            {/* 字标：与全站状态标记同一套"点 + 词"语法，不另起一种品牌表达 */}
-            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-              <span
-                style={{
-                  width: 9,
-                  height: 9,
-                  borderRadius: 2,
-                  background: BRAND.primary,
-                  flex: "0 0 auto",
-                }}
-              />
-              <span style={{ color: "#fff", fontSize: 15, fontWeight: 600, letterSpacing: 0.2 }}>
-                MatterNest
-              </span>
-              <span style={{ fontSize: 11, color: alpha(BRAND.sider.item, 0.62) }}>
-                企业内部系统
-              </span>
-            </div>
-
-            <h1
-              style={{
-                color: "#fff",
-                fontSize: 22,
-                lineHeight: "32px",
-                fontWeight: 600,
-                margin: 0,
-              }}
-            >
-              风险事项与案件全生命周期
-            </h1>
+    <div className="login">
+      <div className="card">
+        <div className="card-b">
+          <div className="brand" style={{ fontSize: 17, padding: "0 0 4px" }}>
+            MatterNest
           </div>
-        </aside>
-
-        <main
-          style={{
-            flex: "0 0 420px",
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            padding: "40px 44px",
-            background: "#fff",
-          }}
-        >
+          <div className="mut" style={{ fontSize: 13, marginBottom: 22 }}>
+            内网办公系统
+          </div>
           <LoginForm />
-        </main>
+        </div>
       </div>
     </div>
   );
