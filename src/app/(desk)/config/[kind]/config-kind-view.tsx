@@ -66,8 +66,8 @@ import {
  * `mn_tag` 没有 `code` 列，`mn_risk_level_config` 没有 `color` 列 —— 都按库出。
  */
 export function ConfigKindView({ kind }: { kind: ConfigKind }) {
-  const meta = CONFIG_KIND_META[kind];
-  if (meta.edit === "crud") return <WritableConfig kind={kind as WritableConfigKind} />;
+  const info = CONFIG_KIND_META[kind];
+  if (info.edit === "crud") return <WritableConfig kind={kind as WritableConfigKind} />;
   return <ReadOnlyConfig kind={kind} />;
 }
 
@@ -93,7 +93,7 @@ function BackToConfig() {
 const kindUrl = (kind: WritableConfigKind) => `/api/config/${kind}`;
 
 function WritableConfig({ kind }: { kind: WritableConfigKind }) {
-  const meta = CONFIG_KIND_META[kind];
+  const info = CONFIG_KIND_META[kind];
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const actor = useActor();
@@ -148,7 +148,7 @@ function WritableConfig({ kind }: { kind: WritableConfigKind }) {
       <div className="pagehead">
         <div>
           <BackToConfig />
-          <h2>{meta.label}</h2>
+          <h2>{info.label}</h2>
         </div>
         <span className="sp" />
         {canWrite ? (
@@ -467,7 +467,7 @@ const ENUM_SOURCE: Partial<Record<ConfigKind, Record<string, string>>> = {
 };
 
 function ReadOnlyConfig({ kind }: { kind: ConfigKind }) {
-  const meta = CONFIG_KIND_META[kind];
+  const info = CONFIG_KIND_META[kind];
   const source = ENUM_SOURCE[kind];
   const rows = source
     ? Object.entries(source).map(([code, name], i) => ({ code, name, seq: i + 1 }))
@@ -478,7 +478,7 @@ function ReadOnlyConfig({ kind }: { kind: ConfigKind }) {
       <div className="pagehead">
         <div>
           <BackToConfig />
-          <h2>{meta.label}</h2>
+          <h2>{info.label}</h2>
         </div>
         <span className="sp" />
       </div>
