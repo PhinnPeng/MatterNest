@@ -119,6 +119,40 @@ jobs:
       - name: pnpm verify（format / lint / typecheck / test / lint-guard / anchors / deploy）
         run: pnpm verify
 
+      # ⚠⚠ 这一步是 2026-10-18 才补上的，而它此前**从没在 CI 里跑过**。
+      #
+      # ## 它防的是什么
+      #
+      # `next.config.ts` 写的是 `output: "standalone"`，`deploy/Dockerfile` 据此把
+      # `.next/standalone` 搬进镜像。而 `pnpm verify` **不含 `next build`**
+      # （verify 是 format/lint/typecheck/test/lint-guard/anchors/deploy，没有构建），
+      # 所以「这份代码能不能构建出可部署产物」在 CI 上**一次都没被验过** ——
+      # 与 2026-10-18 那次 `pickChrome` 红是**同一类缺口**：
+      # 判据存在（Dockerfile 有、compose 有、`pnpm build` 有），但它从没在
+      # 它真正要跑的那条路上跑过。
+      #
+      # ## 为什么放在 `pnpm verify` 之后、起 dev server 之前
+      #
+      # · **在 verify 之后**：verify 更快、失败信息更聚焦，先跑它能让常见错误早报；
+      # · **在 dev server 之前**：`next build` 会重写 `.next`。dev server 起来之后
+      #   再构建，会把正在服务的产物换掉（实测：dev 与 build 分别落 `.next/dev` 与
+      #   `.next/`，所以不会立刻炸，但共享 `.next` 的两个进程互相踩不是可依赖的行为）。
+      #
+      # ## 实测过它不需要任何 env
+      #
+      # 本仓有「启动期自检缺密钥就抛」（`MN_SESSION_PEPPER` 等），但那些自检挂在
+      # **运行时**（`instrumentation-node.ts`），不在构建期。实测：
+      # `env -u MN_* -u PG* NODE_ENV=production next build` **退出码 0**，
+      # 且 `PGPORT=1 PGUSER=nobody PGPASSWORD=wrong MN_*=空` 也照样通过。
+      # ⇒ 本步**刻意不注入任何密钥或库口令** —— 构建不该依赖它们，
+      # 真依赖了就该在这里红，而不是等镜像里才发现。
+      #
+      # 不传 `NODE_ENV`：`next build` 自己会置 `production`；显式传反而与
+      # 本仓 `package.json` 的 `build` 脚本重复。走脚本不手写 `next build`，
+      # 是为了与本地/部署同一个入口。
+      - name: pnpm build（standalone 产物的构建，CI 此前从不跑）
+        run: pnpm build
+
       # ⚠ 必须在**起 dev server 之前**，且在 `pnpm verify` 之后 ——
       # `tools/keys.spec.ts` 会 `gen --force` 跑真工具，而 verify 里的启动期断言
       # （三把互不相同、pepper 长度）依赖这些性质成立。
