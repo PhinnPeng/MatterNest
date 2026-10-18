@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { SEMANTICS_RULES, STATUS_SEMANTICS } from "@/shared/enums/status";
 import { referencingRules, semanticsSlotConflict, type RuleRef } from "./config";
@@ -83,5 +84,54 @@ describe("referencingRules：停用一个被规则引用的状态要能被点出
     // 否则"任意状态变更"这条规则会把每一个状态都锁死。
     expect(rules.some((r) => r.statusCode === null)).toBe(true);
     expect(referencingRules("pending", "matter", rules)).toEqual([]);
+  });
+});
+
+/**
+ * 「改一次显示名，列表/报表/下拉一起变」——票面验收里那条**必须有一条断到**的。
+ *
+ * ## 为什么这一条要写成源码断言
+ *
+ * 这句验收的实质是**数据源单一**：`/api/meta`（下拉）、列表/报表的读出、与
+ * `/api/config/[kind]` 的写出，**必须落在同一批表上**。判定它不需要连库 ——
+ * 只需要证明"写出口没有另起一份表名"：本仓的配置表就那 5 张
+ * （`statusConfig` / `riskLevelConfig` / `tag` / `expenseItemConfig`），
+ * 而 `/api/meta` 的读出口（`hostStatusRows` / `riskLevelConfig` / `tag` / `listExpenseItems`）
+ * 与写出口（本文件）读写的表名集合必须一致。
+ *
+ * 若写出口哪天自己 `sql` 拼一张影子表、或写进一份缓存，这条会当场红；而它一旦漂移，
+ * 失败形态正是票面担心的那个："改了名，列表里还是旧的" —— 而两边都不报错。
+ */
+describe("数据源单一：写出口读写的表 = /api/meta 读的表", () => {
+  const read = (p: string) => readFileSync(p, "utf8");
+
+  it("写出口只碰这 5 张配置表（+ 自动化规则表用于引用判定）", () => {
+    const src = read("src/app/lib/server/services/config.ts");
+    const importLine = /import \{([^}]+)\} from "\.\.\/db\/schema"/.exec(src)?.[1] ?? "";
+    const tables = importLine
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .sort();
+    // 4 张可写配置表（status 表由 statusConfig 代表两宿主）+ mn_tag + automationRule
+    expect(tables).toEqual([
+      "automationRule",
+      "expenseItemConfig",
+      "riskLevelConfig",
+      "statusConfig",
+      "tag",
+    ]);
+  });
+
+  it("`/api/meta` 的读出口读的是同一批表名（改一处名，两处一起变）", () => {
+    const meta = read("src/app/api/meta/route.ts");
+    // 直接 select 的两张：风险等级与标签。
+    for (const name of ["riskLevelConfig", "tag"]) {
+      expect(meta, `/api/meta 不再读 ${name}？那下拉与配置页会分叉`).toContain(`.from(${name})`);
+    }
+    // 状态与费用走服务层（有意的：注释点名了"别在 /api/meta 里另抄一份查询"）——
+    // 状态表的读写都经 `hostStatusRows`/本服务，费用经 `listExpenseItems`。
+    expect(meta, "状态不走服务层就会分叉（is_enabled 过滤只在服务层）").toContain("hostStatusRows");
+    expect(meta, "费用项目不走服务层就会分叉").toContain("listExpenseItems");
   });
 });
