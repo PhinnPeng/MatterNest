@@ -169,25 +169,6 @@ export function isImportDenied(e: unknown): boolean {
   return e instanceof ApiFailure && e.status === 403;
 }
 
-/* ───────────────────────── 变体排列（未定稿） ───────────────────────── */
-
-export type ImportVariant = "A" | "B" | "C";
-
-/**
- * 缺省排列 = **C**（父代理的建议值）。
- *
- * ⚠ 这不是"已定稿"。票面原文：变体选定是用户的决定，选定的那张票未关之前
- * 「可以做外壳与交互，但不要把它当定稿」。所以三种排列都实现、都能通过
- * `?variant=` 打开；这里只决定"没有指定时显示哪一种"。
- */
-export const DEFAULT_IMPORT_VARIANT: ImportVariant = "C";
-
-/** 认 A/B/C（大小写不敏感）；不认识或缺失一律退回缺省，不渲染空页 */
-export function variantOf(raw: string | null | undefined): ImportVariant {
-  const v = (raw ?? "").trim().toUpperCase();
-  return v === "A" || v === "B" || v === "C" ? v : DEFAULT_IMPORT_VARIANT;
-}
-
 /* ───────────────────────── 杂项文案 ───────────────────────── */
 
 /** 文件大小：列表里给"268 KB"而不是 274432 这种字节数 */

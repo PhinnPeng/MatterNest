@@ -20,6 +20,7 @@ import { FlagMark, StatusMark } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { ConvertDialog } from "./convert-dialog";
 import { RiskCreateDialog } from "./risk-create-dialog";
+import { ImportDialog } from "@/app/components/import-dialog";
 
 type RiskRow = {
   id: string;
@@ -59,6 +60,8 @@ export function RisksView() {
   const { data: meta } = useMeta("risk_matter");
   const [converting, setConverting] = useState<RiskRow | null>(null);
   const [creating, setCreating] = useState(false);
+  /** 批量导入弹层（MATT-102）：类型锁定为 `risk_matter`，见页头那个按钮的注释 */
+  const [importing, setImporting] = useState(false);
   /**
    * 批量动作的选中集合（MATT-45）——**受控，且只装当前页的 id**。
    *
@@ -440,6 +443,14 @@ export function RisksView() {
             </button>
             {/* 导出吃的是**当前筛选**（含「未指派」那一档）：`state` 自己进控件 */}
             <ExportListButton path="/api/risk-matters/export" fileBase="事项列表" state={state} />
+            {/*
+              批量导入（MATT-102）：入口从系统组的独立页搬到这里、弹层形式。
+              类型由**本页**锁定为 `risk_matter`（弹层里不给类型选择器）。
+              `canImport` 由服务端每个端点判（403），前端不镜像谓词（见 ImportDialog 文件头）。
+            */}
+            <button type="button" className="btn sm" onClick={() => setImporting(true)}>
+              批量导入
+            </button>
             <button type="button" className="btn pri sm" onClick={() => setCreating(true)}>
               新建事项
             </button>
@@ -490,6 +501,7 @@ export function RisksView() {
         onOpenCase={(cid) => router.push(`/matters/${cid}`)}
       />
       <RiskCreateDialog open={creating} onOpenChange={setCreating} />
+      <ImportDialog hostType="risk_matter" open={importing} onOpenChange={setImporting} />
     </div>
   );
 }

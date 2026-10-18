@@ -1,27 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_IMPORT_VARIANT,
   buildImportPayload,
   checkImportPayload,
   fileSizeLabel,
   importCounts,
   importPayloadError,
   isImportDenied,
-  variantOf,
 } from "./import-ui";
 import { ApiFailure } from "./api";
 
 /**
- * 导入页（P14 / MATT-67）**纯逻辑**那一半的守卫。
+ * 导入（P14 / MATT-67，MATT-102 收敛）**纯逻辑**那一半的守卫。
  *
  * 为什么这些值得离线测（而不是只靠真浏览器探针）：
- *   · 真浏览器探针要真库、真上传、真 81 秒导入，跑一次很贵；而"两个数怎么算出来的"
+ *   · 真浏览器探针要真库、真上传、真 81 秒导入，跑一次很贵；而"三个数怎么算出来的"
  *     "403 怎么识别""提交前那道校验说什么"全是**没有 DOM 也成立**的判断，
  *     放在这里能在毫秒级把口径钉住。
- *   · 探针断的是"页面上的两个数与接口返回一致"（票面第 7 条），
- *     而"页面上的两个数不低于接口返回"这条**恒等式**在这里是逐条钉的 ——
+ *   · 探针断的是"页面上的数与接口返回一致"（票面第 7 条），
+ *     而"页面上的数不低于接口返回"这条**恒等式**在这里是逐条钉的 ——
  *     两者是同一条 AC 的两层，缺一层就会漏。
+ *
+ * ⚠ A/B/C 三变体与 `?variant=` 选择器已随 MATT-102 定稿（= 变体 C）删除，
+ *   所以这里不再有 `variantOf` 那一组断言 —— 留着会让人以为还要选。
  */
 
 describe("importCounts：已导入 / 未导入 两个数", () => {
@@ -99,25 +100,6 @@ describe("isImportDenied：403 的 UI 面", () => {
   it("非 ApiFailure（网络异常）也不算", () => {
     expect(isImportDenied(new Error("fetch failed"))).toBe(false);
     expect(isImportDenied(undefined)).toBe(false);
-  });
-});
-
-describe("variantOf：三变体排列的入口（**未定稿**，只是可切换的外壳）", () => {
-  it("缺省是 C（父代理建议值），但这不是「已定稿」——用户选定前一直可切", () => {
-    expect(DEFAULT_IMPORT_VARIANT).toBe("C");
-    expect(variantOf(undefined)).toBe("C");
-    expect(variantOf(null)).toBe("C");
-  });
-
-  it("认 A/B/C（大小写不敏感）", () => {
-    expect(variantOf("A")).toBe("A");
-    expect(variantOf("b")).toBe("B");
-    expect(variantOf("c")).toBe("C");
-  });
-
-  it("不认识的取值退回缺省，而不是渲染出一个空页", () => {
-    expect(variantOf("Z")).toBe("C");
-    expect(variantOf("")).toBe("C");
   });
 });
 

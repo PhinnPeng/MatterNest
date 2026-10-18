@@ -1,8 +1,9 @@
+import { z } from "zod";
 import { importRequestSchema } from "@/shared/schema/import";
 import { ImportFileError, runImport } from "@/app/lib/server/services/import";
 import { canImport } from "@/app/lib/server/scope/guards";
 import { UnassignableAssigneeError } from "@/app/lib/server/services/selectable-users";
-import { body, fail, importForbidden, json, withActor } from "@/app/lib/server/http";
+import { body, fail, importForbidden, json, query, withActor } from "@/app/lib/server/http";
 
 /**
  * 批量导入（F7-4 / M7 US-M7-1 / MATT-44）。
@@ -23,14 +24,28 @@ import { body, fail, importForbidden, json, withActor } from "@/app/lib/server/h
  *
  * 未预期的错误**故意不兜**：让它 500 冒泡，批次停在 `running`，已提交的行都在，
  * 用户重传即可（内容键会把它们跳过）。把未知错误逐行吞成"错误行"会掩盖真因。
+ *
+ * ## `?dryRun=1` 预检（MATT-102）：同一个端点、同一条实现
+ *
+ * 预检**不另起一条解析路径**：它调的是同一个 `runImport(actor, body, { dryRun: true })`，
+ * 返回同样形状的 `ImportSummary`，只是跳过写库（连幂等判定都照常参与）。
+ * 参数走查询串（`?dryRun=1`，与 PRD 口径一致），用 `query()` 过一遍字符串白名单，
+ * 不放进 body —— body 的形状是 `importRequestSchema` 的 `.strict()` 契约，不该为它改。
  */
+const dryRunQuerySchema = z.object({
+  // 只认 "1"：`?dryRun=0` / 缺省都当真导。字符串形状在 query() 里天然是 string
+  dryRun: z.literal("1").optional(),
+});
+
 export async function POST(req: Request) {
+  const q = await query(req, dryRunQuerySchema);
+  if (!q.ok) return q.res;
   const parsed = await body(req, importRequestSchema);
   if (!parsed.ok) return parsed.res;
   return withActor(async (actor) => {
     if (!canImport(actor)) return importForbidden();
     try {
-      return json(await runImport(actor, parsed.data));
+      return json(await runImport(actor, parsed.data, { dryRun: q.data.dryRun === "1" }));
     } catch (e) {
       if (e instanceof ImportFileError) return fail(400, e.problem.code, e.problem.message);
       // 与建案/建事项同形：被指派者不合格是**可预期**的请求问题，不是 500。

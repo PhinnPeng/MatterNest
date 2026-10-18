@@ -244,7 +244,13 @@ type Db = Awaited<ReturnType<typeof getDb>>;
 /** 事务句柄：与 `services/nodes.ts`、`services/parties.ts` 同一取法（从回调参数上取，别自己拼泛型） */
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
-/** 建事项：编号 `FX-`，`discover_date` 是日历 `date`（§12.2） */
+/**
+ * 建事项：编号 `FX-`，`discover_date` 是日历 `date`（§12.2）。
+ *
+ * `opts.dryRun`（MATT-102）与 `createMatter` 同口径：只跳过取号与写库那个事务，
+ * 事务之前的配置读取与 `assertAssignable` 照常跑 —— 预检与真导共用同一段判据。
+ * 理由与更完整的说明见 `services/matters.ts` 的 `createMatter`。
+ */
 export async function createRiskMatter(
   actor: Actor,
   input: {
@@ -270,9 +276,11 @@ export async function createRiskMatter(
      */
     parties?: readonly PartyLinkInput[];
   },
+  opts: { dryRun?: boolean } = {},
 ) {
   const db = await getDb();
-  const { code } = await nextCode("riskMatter");
+  const dryRun = opts.dryRun === true;
+  const { code } = dryRun ? { code: "" } : await nextCode("riskMatter");
   const id = BigInt(nextId());
   const owner = input.ownerId ? BigInt(input.ownerId) : null;
   // 被指派者必须在册可用（MATT-49）：与案件侧同一句判定（`assertAssignable` 是唯一谓词）。
@@ -296,6 +304,11 @@ export async function createRiskMatter(
   // 裁定否掉的是「塞几个」，不是「可以选什么」。
   // 同样是事务前算好——它要连库查当事人，既不能在事务里做，也要在事务外拿到冲突清单
   const partyPlan = await planPartyLinks(input.parties ?? []);
+
+  // 预检到此为止（MATT-102）：上面的配置读取、`assertAssignable` 与当事人规划都是判据，
+  // 只有下面的事务是写库。与 `createMatter` 同一处落点、同一句口径。
+  if (dryRun) return { id: String(id), code, nameConflicts: partyPlan.nameConflicts };
+
   await db.transaction(async (tx) => {
     await tx.insert(riskMatter).values({
       id,

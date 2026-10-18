@@ -481,7 +481,19 @@ export async function sourcesOfMatter(actor: Actor, matterId: string) {
   return rows;
 }
 
-/** 建案：编号在这里生成，与业务写、活动日志同事务（§12.3 + §7.3） */
+/**
+ * 建案：编号在这里生成，与业务写、活动日志同事务（§12.3 + §7.3）。
+ *
+ * ## `opts.dryRun`（MATT-102）：只跳过**写库**，校验一条不少
+ *
+ * 批量导入的预检（`POST /api/import?dryRun=1`）走的是**同一个** `runImport`，
+ * 逐行也调用**同一个** `createMatter` —— 区别只在这一处：`dryRun` 时不取号、不开事务。
+ * 于是"预检说这一行能导"与"真导时这一行进得去"由**同一段校验代码**保证，
+ * 而不是靠两份会漂的谓词。跳过的只有两类：① 会消耗编号的 `nextCode`（号可跳不可复）；
+ * ② 写业务行 / 参与人 / 当事人 / 活动日志的那个事务。
+ * 事务**之前**的读取与断言（`assertAssignable` / `initialStatusCode` /
+ * `planPresetNodesFor` / `planPartyLinks`）在预检里照常跑 —— 它们才是"能不能导"的判据。
+ */
 export async function createMatter(
   actor: Actor,
   input: {
@@ -502,9 +514,12 @@ export async function createMatter(
     /** 引用既有（`partyId`）或快速新增（名称+类型），见 `services/parties.ts` */
     parties?: PartyLinkInput[];
   },
+  opts: { dryRun?: boolean } = {},
 ) {
   const db = await getDb();
-  const { code } = await nextCode("matter");
+  const dryRun = opts.dryRun === true;
+  // 预检不取号：编号是写库的副作用（`mn_code_seq` 自增），"只跳过写库"就包括它
+  const { code } = dryRun ? { code: "" } : await nextCode("matter");
   const id = BigInt(nextId());
   const owner = BigInt(input.ownerId ?? actor.userId);
   // 被指派者必须在册可用（MATT-49）：创建表单的处理人与关注人走 IQ-14 的创建期例外
@@ -529,6 +544,10 @@ export async function createMatter(
   const presetNodes = await planPresetNodesFor("matter");
   /** 当事人「引用既有」优先于「再建一份」，读取同样全部在事务外（见 `services/parties.ts`） */
   const partyPlan = await planPartyLinks(input.parties ?? []);
+
+  // 预检到此为止：上面每一句都是判据（配置读取 + 三条断言 + 当事人规划），
+  // 只有下面这段事务是"写库"。跳过它，其余一字不改。
+  if (dryRun) return { id: String(id), internalCode: code, nameConflicts: partyPlan.nameConflicts };
 
   await db.transaction(async (tx) => {
     await tx.insert(matter).values({

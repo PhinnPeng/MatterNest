@@ -30,13 +30,23 @@ export function fetchReport(reportRef: string): Promise<ImportCsvDto> {
   return api.get<ImportCsvDto>(`/api/import/report/${encodeURIComponent(reportRef)}`);
 }
 
-/** 提交一次导入。请求体是 JSON `{hostType, fileName, csv}`（不是 multipart，理由见路由文件头） */
-export function runImport(payload: {
-  hostType: ImportKind;
-  fileName: string;
-  csv: string;
-}): Promise<ImportSummaryDto> {
-  return api.post<ImportSummaryDto>("/api/import", payload);
+/**
+ * 提交一次导入。请求体是 JSON `{hostType, fileName, csv}`（不是 multipart，理由见路由文件头）。
+ *
+ * `dryRun` 走查询串 `?dryRun=1`（服务端 `POST /api/import` 的预检开关）：走**同一条**
+ * 解析与校验路径、跳过写库、返回同样形状的 `ImportSummary`。所以预检与真导的响应
+ * 可以被同一段界面代码渲染 —— 这不是巧合，是"同一个实现跑两次"的直接后果。
+ */
+export function runImport(
+  payload: {
+    hostType: ImportKind;
+    fileName: string;
+    csv: string;
+  },
+  opts: { dryRun?: boolean } = {},
+): Promise<ImportSummaryDto> {
+  const qs = opts.dryRun ? "?dryRun=1" : "";
+  return api.post<ImportSummaryDto>(`/api/import${qs}`, payload);
 }
 
 /**
