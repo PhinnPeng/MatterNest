@@ -71,12 +71,27 @@ const NAV: { label: string; items: { href: string; label: string }[] }[] = [
 const NAV_ITEMS = NAV.flatMap((group) => group.items);
 
 /**
+ * 不在导航里、但用户仍走到得到的页面的**顶栏页名**。
+ *
+ * `/watch`（MATT-102 移进身份区下拉）与 `/config/import`（同票降级为报告找回）
+ * 都是"移出导航"而不是"删掉页面"——用户点得到，顶栏就得写得出这一页叫什么。
+ * 这张表**只喂页名**，不进侧栏、不参与高亮：把入口重新塞回导航会与"个人入口不占导航格"
+ * 和"报告页从弹层链接进"两条裁定相反。
+ *
+ * `href.length` 的比较让 `/config/import` 压过 `/config`；这条"长前缀先赢"的顺序约束
+ * 早先住在 NAV 里（那时 `/config/import` 也是导航项，必须排在 `/config` 之前），
+ * 移出导航后搬到这张表——它没有消失，只是换了住处。
+ */
+const EXTRA_TITLES: { href: string; label: string }[] = [
+  { href: "/config/import", label: "批量导入" },
+  { href: "/watch", label: "我关注的" },
+];
+
+/**
  * 当前所在页：取**最长前缀命中**的那一项。
  *
  * 详情页（`/matters/123`）因此落在列表项「案件」上，列表页也一样；
- * `/` 只认全等，否则它会命中所有路径。数字后面还跟过一条顺序依赖的坑：
- * 早先 `/config/import` 也在导航里时，必须排在 `/config` 之前才不会被抢走高亮——
- * 现在它已移出导航，这条顺序约束随之消失。
+ * `/` 只认全等，否则它会命中所有路径。
  */
 function activeHref(pathname: string): string {
   if (pathname === "/") return "/";
@@ -89,6 +104,21 @@ function activeHref(pathname: string): string {
   return best;
 }
 
+/**
+ * 顶栏 `h1` 的页名。**与 `activeHref`（哪个导航项高亮）分开**：有的页面不在导航里
+ * 却仍会被走到（见 `EXTRA_TITLES`），页名若只在 `NAV_ITEMS` 里找，它们就会退回
+ * 「工作台」/「功能配置」——那两句都不是这一页的名字。所以页名多看一张表，
+ * 同样取最长前缀。
+ */
+function pageTitle(pathname: string): string {
+  let best: { href: string; label: string } | undefined;
+  for (const item of [...NAV_ITEMS, ...EXTRA_TITLES]) {
+    const hit = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+    if (hit && (!best || item.href.length > best.href.length)) best = item;
+  }
+  return best?.label ?? "工作台";
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/";
   const router = useRouter();
@@ -97,7 +127,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { appearance, setAppearance } = useAppearance();
 
   const active = activeHref(pathname);
-  const title = NAV_ITEMS.find((item) => item.href === active)?.label ?? "工作台";
+  const title = pageTitle(pathname);
 
   async function logout() {
     await api.post("/api/auth/logout");
