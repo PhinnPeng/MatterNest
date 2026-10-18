@@ -655,7 +655,8 @@
     box-shadow: var(--shadow);
     padding: 14px 16px;
   }
-  /* 分段（未读/全部、案件/事项）：选中项白底 + 描边 */
+  /* 分段（未读/全部、案件/事项）：选中项白底 + 描边。
+     真页用 `<button>`（可 Tab、可回车，US 5 对控件的要求），原型是 `<a href>`——两者同貌。 */
   .seg {
     display: inline-flex;
     background: var(--card-2);
@@ -663,13 +664,19 @@
     border-radius: var(--radius);
     padding: 2px;
   }
-  .seg a {
+  .seg a,
+  .seg button {
     padding: 4px 12px;
+    font: inherit;
     font-size: 13px;
     color: var(--ink2);
+    background: none;
+    border: 1px solid transparent;
     border-radius: 4px;
+    cursor: pointer;
   }
-  .seg a.on {
+  .seg a.on,
+  .seg button.on {
     background: var(--card);
     color: var(--ink);
     font-weight: 500;
@@ -682,14 +689,20 @@
     border-bottom: 1px solid var(--line);
     margin-bottom: 18px;
   }
-  .tabs a {
+  .tabs a,
+  .tabs button {
     padding: 10px 0;
+    font: inherit;
     font-size: 13.5px;
     color: var(--ink2);
+    background: none;
+    border: none;
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
+    cursor: pointer;
   }
-  .tabs a.on {
+  .tabs a.on,
+  .tabs button.on {
     color: var(--ink);
     font-weight: 500;
     border-bottom-color: var(--accent);

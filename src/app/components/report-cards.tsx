@@ -1,8 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Button, Card, Flex, Table, Tooltip } from "antd";
-import type { TableColumnsType } from "antd";
+import { Tooltip } from "antd";
 
 import { StateBlock } from "@/app/components/ui/state-block";
 import { useMeta, type HostKind } from "@/app/lib/client/api";
@@ -10,7 +9,6 @@ import { useReports } from "@/app/lib/client/api-reports";
 import type { MatterMatrix, NodeDeadlineCard, RiskMatrix } from "@/app/lib/client/api-reports";
 import { toReportQuery, type ListState } from "@/app/lib/client/use-list-state";
 import { DEADLINE_TONE } from "@/app/theme/antd";
-import { INK } from "@/app/theme/brand";
 import { LITIGATION_ROLE_LABELS } from "@/shared/enums/business";
 import { HOST_TYPE_LABELS } from "@/shared/enums/targets";
 
@@ -30,9 +28,11 @@ import { HOST_TYPE_LABELS } from "@/shared/enums/targets";
  * `DataTable` 的契约是**受控分页的服务端列表**（`page/pageSize/total/onSortChange`，
  * 页大小 > 100 直接抛）——它存在的理由是禁令⑧：不许"拉全量再本地筛"。
  * 而这两张卡是**固定维度的计数矩阵**：行是状态（× 等级）、列是配置里的几档，
- * 没有分页也没有排序可言，总数就在表尾合计行里。所以照 `(desk)/config/config-view.tsx`
- * 那张只读字典表的写法（`Card` + `pagination={false}` 的小表），
- * 密度契约仍照旧：每列给 `width` 与 `ellipsis`，`scroll.x` = 列宽合计。
+ * 没有分页也没有排序可言，总数就在表尾合计行里。所以直接用 canon 的 `<table class="tb">`
+ * （与 `DataTable` 同一个视觉系统），列宽用 `<colgroup>` 显式给。
+ *
+ * 2026-10-18（MATT-99）：从 antd `Table` 换成 canon 的 `<table class="tb">`；
+ * 卡片外壳换成 `.card` / `.card-h`（`h2`）。
  *
  * ## 口径的落点（副标题纪律）
  *
@@ -62,18 +62,20 @@ export function ReportCards({ host, filters }: { host: HostKind; filters: ListSt
     // 读数失败**只塌掉这两张卡**：下面的列表照常可用（它有自己的错误态），
     // 所以这里不接管整页，也不把列表的错误混进来。
     return (
-      <Card size="small" style={{ marginBottom: 12 }}>
-        <StateBlock
-          tone="error"
-          title="统计卡读数没拿到"
-          hint={error instanceof Error ? error.message : "未知错误"}
-          action={
-            <Button size="small" onClick={() => void refetch()}>
-              重试
-            </Button>
-          }
-        />
-      </Card>
+      <div className="card">
+        <div className="card-b">
+          <StateBlock
+            tone="error"
+            title="统计卡读数没拿到"
+            hint={error instanceof Error ? error.message : "未知错误"}
+            action={
+              <button type="button" className="btn sm" onClick={() => void refetch()}>
+                重试
+              </button>
+            }
+          />
+        </div>
+      </div>
     );
   }
 
@@ -82,10 +84,15 @@ export function ReportCards({ host, filters }: { host: HostKind; filters: ListSt
   const level = (code: string) => levelNames.get(code) ?? code;
 
   return (
-    <Flex vertical gap={12} style={{ marginBottom: 12 }}>
-      <Card size="small" title={cardTitle("总览")} loading={loading}>
-        {data ? (
-          host === "matter" ? (
+    <div className="stack">
+      <div className="card">
+        <div className="card-h">
+          <h2>{cardTitle("总览")}</h2>
+        </div>
+        <div className="card-b" style={{ padding: 0 }}>
+          {loading ? (
+            <div className="empty">…</div>
+          ) : host === "matter" ? (
             <MatterMatrixTable
               m={data.matters}
               name={name}
@@ -99,14 +106,19 @@ export function ReportCards({ host, filters }: { host: HostKind; filters: ListSt
               level={level}
               emptyText={emptyText(filters, data.archivedOnly, "事项")}
             />
-          )
-        ) : null}
-      </Card>
+          )}
+        </div>
+      </div>
 
-      <Card size="small" title={cardTitle("节点到期")} loading={loading}>
-        {data ? <NodeDeadlineTable card={data.nodes} /> : null}
-      </Card>
-    </Flex>
+      <div className="card">
+        <div className="card-h">
+          <h2>{cardTitle("节点到期")}</h2>
+        </div>
+        <div className="card-b" style={{ padding: 0 }}>
+          {loading ? <div className="empty">…</div> : <NodeDeadlineTable card={data.nodes} />}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -136,7 +148,7 @@ function cardTitle(text: string) {
   return (
     <Tooltip title={SCOPE_HINT}>
       {/* 虚线下划线是"这里有一条规则"的既有读法（与列头上的 tooltip 同一个信号） */}
-      <span style={{ borderBottom: `1px dashed ${INK.line}`, cursor: "help" }}>{text}</span>
+      <span style={{ borderBottom: "1px dashed var(--line)", cursor: "help" }}>{text}</span>
     </Tooltip>
   );
 }
@@ -198,84 +210,83 @@ function MatterMatrixTable({
     return spans;
   }, [m.rows]);
 
-  const columns: TableColumnsType<MatterMatrix["rows"][number]> = [
-    {
-      title: "状态",
-      key: "status",
-      width: 120,
-      ellipsis: true,
-      onCell: (row) => ({ rowSpan: rowSpans.get(`${row.status}\u0000${row.level}`) ?? 1 }),
-      render: (_, row) => (
-        <Flex vertical gap={2}>
-          {/* render 包了元素，antd 的 ellipsis 不会再补 title，所以自己写 */}
-          <span title={name(row.status)}>{name(row.status)}</span>
-          <span className="num" style={{ fontSize: 11, color: INK.muted }}>
-            共 {row.statusTotal}
-          </span>
-        </Flex>
-      ),
-    },
-    {
-      title: "等级",
-      key: "level",
-      width: 84,
-      ellipsis: true,
-      render: (_, row) => <span title={level(row.level)}>{level(row.level)}</span>,
-    },
-    ...m.roles.map((role) => ({
-      title: roleName(role.code),
-      key: `role:${role.code}`,
-      width: 84,
-      align: "right" as const,
-      ellipsis: true,
-      render: (_: unknown, row: MatterMatrix["rows"][number]) => (
-        <span className="num">{row.counts[role.code] ?? 0}</span>
-      ),
-    })),
-    {
-      title: "合计",
-      key: "total",
-      width: 84,
-      align: "right" as const,
-      ellipsis: true,
-      render: (_, row) => (
-        <span className="num" style={{ fontWeight: 600 }}>
-          {row.total}
-        </span>
-      ),
-    },
-  ];
-
-  const width = columns.reduce((acc, c) => acc + (Number(c.width) || 84), 0);
-
   return (
-    <Table
-      size="small"
-      rowKey={(r) => `${r.status}\u0000${r.level}`}
-      columns={columns}
-      dataSource={m.rows}
-      pagination={false}
-      tableLayout="fixed"
-      scroll={{ x: width }}
-      locale={{ emptyText }}
-      summary={() => (
-        <Table.Summary.Row>
-          <Table.Summary.Cell index={0} colSpan={2}>
-            合计
-          </Table.Summary.Cell>
-          {m.roles.map((role, i) => (
-            <Table.Summary.Cell key={role.code} index={i + 2} align="right">
-              <span className="num">{role.total}</span>
-            </Table.Summary.Cell>
+    <table className="tb">
+      <colgroup>
+        <col style={{ width: 120 }} />
+        <col style={{ width: 84 }} />
+        {m.roles.map((role) => (
+          <col key={role.code} style={{ width: 84 }} />
+        ))}
+        <col style={{ width: 84 }} />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>状态</th>
+          <th>等级</th>
+          {m.roles.map((role) => (
+            <th key={role.code} className="r">
+              {roleName(role.code)}
+            </th>
           ))}
-          <Table.Summary.Cell index={m.roles.length + 2} align="right">
+          <th className="r">合计</th>
+        </tr>
+      </thead>
+      <tbody>
+        {m.rows.length === 0 ? (
+          <tr>
+            <td colSpan={m.roles.length + 3}>
+              <div className="empty">{emptyText}</div>
+            </td>
+          </tr>
+        ) : (
+          m.rows.map((row) => {
+            const span = rowSpans.get(`${row.status}\u0000${row.level}`) ?? 1;
+            return (
+              <tr key={`${row.status}\u0000${row.level}`}>
+                {span > 0 ? (
+                  <td rowSpan={span}>
+                    <span title={name(row.status)}>{name(row.status)}</span>
+                    {/* 该状态跨等级的小计：与服务端给的 statusTotal 同源 */}
+                    <div className="num mut3" style={{ fontSize: 11 }}>
+                      共 {row.statusTotal}
+                    </div>
+                  </td>
+                ) : null}
+                <td>
+                  <span title={level(row.level)}>{level(row.level)}</span>
+                </td>
+                {m.roles.map((role) => (
+                  <td key={role.code} className="r">
+                    <span className="num">{row.counts[role.code] ?? 0}</span>
+                  </td>
+                ))}
+                <td className="r">
+                  <span className="num" style={{ fontWeight: 600 }}>
+                    {row.total}
+                  </span>
+                </td>
+              </tr>
+            );
+          })
+        )}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colSpan={2}>合计</td>
+          {m.roles.map((role) => (
+            <td key={role.code} className="r">
+              <span className="num">{role.total}</span>
+            </td>
+          ))}
+          <td className="r">
             <span className="num" style={{ fontWeight: 600 }}>
               {m.total}
             </span>
-          </Table.Summary.Cell>
-        </Table.Summary.Row>
-      )}
-    />
+          </td>
+        </tr>
+      </tfoot>
+    </table>
   );
 }
 
@@ -292,66 +303,69 @@ function RiskMatrixTable({
   level: (code: string) => string;
   emptyText: string;
 }) {
-  const columns: TableColumnsType<RiskMatrix["rows"][number]> = [
-    {
-      title: "状态",
-      key: "status",
-      width: 140,
-      ellipsis: true,
-      render: (_, row) => <span title={name(row.status)}>{name(row.status)}</span>,
-    },
-    ...m.levels.map((lv) => ({
-      title: level(lv.code),
-      key: `level:${lv.code}`,
-      width: 84,
-      align: "right" as const,
-      ellipsis: true,
-      render: (_: unknown, row: RiskMatrix["rows"][number]) => (
-        <span className="num">{row.counts[lv.code] ?? 0}</span>
-      ),
-    })),
-    {
-      title: "合计",
-      key: "total",
-      width: 84,
-      align: "right" as const,
-      ellipsis: true,
-      render: (_, row) => (
-        <span className="num" style={{ fontWeight: 600 }}>
-          {row.total}
-        </span>
-      ),
-    },
-  ];
-
-  const width = columns.reduce((acc, c) => acc + (Number(c.width) || 84), 0);
-
   return (
-    <Table
-      size="small"
-      rowKey={(r) => r.status}
-      columns={columns}
-      dataSource={m.rows}
-      pagination={false}
-      tableLayout="fixed"
-      scroll={{ x: width }}
-      locale={{ emptyText }}
-      summary={() => (
-        <Table.Summary.Row>
-          <Table.Summary.Cell index={0}>合计</Table.Summary.Cell>
-          {m.levels.map((lv, i) => (
-            <Table.Summary.Cell key={lv.code} index={i + 1} align="right">
-              <span className="num">{lv.total}</span>
-            </Table.Summary.Cell>
+    <table className="tb">
+      <colgroup>
+        <col style={{ width: 140 }} />
+        {m.levels.map((lv) => (
+          <col key={lv.code} style={{ width: 84 }} />
+        ))}
+        <col style={{ width: 84 }} />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>状态</th>
+          {m.levels.map((lv) => (
+            <th key={lv.code} className="r">
+              {level(lv.code)}
+            </th>
           ))}
-          <Table.Summary.Cell index={m.levels.length + 1} align="right">
+          <th className="r">合计</th>
+        </tr>
+      </thead>
+      <tbody>
+        {m.rows.length === 0 ? (
+          <tr>
+            <td colSpan={m.levels.length + 2}>
+              <div className="empty">{emptyText}</div>
+            </td>
+          </tr>
+        ) : (
+          m.rows.map((row) => (
+            <tr key={row.status}>
+              <td>
+                <span title={name(row.status)}>{name(row.status)}</span>
+              </td>
+              {m.levels.map((lv) => (
+                <td key={lv.code} className="r">
+                  <span className="num">{row.counts[lv.code] ?? 0}</span>
+                </td>
+              ))}
+              <td className="r">
+                <span className="num" style={{ fontWeight: 600 }}>
+                  {row.total}
+                </span>
+              </td>
+            </tr>
+          ))
+        )}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>合计</td>
+          {m.levels.map((lv) => (
+            <td key={lv.code} className="r">
+              <span className="num">{lv.total}</span>
+            </td>
+          ))}
+          <td className="r">
             <span className="num" style={{ fontWeight: 600 }}>
               {m.total}
             </span>
-          </Table.Summary.Cell>
-        </Table.Summary.Row>
-      )}
-    />
+          </td>
+        </tr>
+      </tfoot>
+    </table>
   );
 }
 
@@ -375,82 +389,83 @@ const BUCKET_TONE: Record<string, string> = {
 };
 
 function NodeDeadlineTable({ card }: { card: NodeDeadlineCard }) {
-  const columns: TableColumnsType<NodeDeadlineCard["rows"][number]> = [
-    {
-      title: (
-        <Tooltip title={HOST_HINT}>
-          <span>宿主</span>
-        </Tooltip>
-      ),
-      key: "kind",
-      width: 140,
-      ellipsis: true,
-      render: (_, row) => <span title={hostName(row.kind)}>{hostName(row.kind)}</span>,
-    },
-    ...card.buckets.map((b) => ({
-      title: (
-        <Tooltip title={BUCKET_HINT[b.key]}>
-          <span>{b.label}</span>
-        </Tooltip>
-      ),
-      key: `bucket:${b.key}`,
-      width: 96,
-      align: "right" as const,
-      ellipsis: true,
-      render: (_: unknown, row: NodeDeadlineCard["rows"][number]) => {
-        const n = row.counts[b.key] ?? 0;
-        return (
-          <span
-            className="num"
-            style={{ color: n ? BUCKET_TONE[b.key] : undefined, fontWeight: n ? 600 : 400 }}
-          >
-            {n}
-          </span>
-        );
-      },
-    })),
-    {
-      title: "合计",
-      key: "total",
-      width: 96,
-      align: "right" as const,
-      ellipsis: true,
-      render: (_, row) => (
-        <span className="num" style={{ fontWeight: 600 }}>
-          {row.total}
-        </span>
-      ),
-    },
-  ];
-
-  const width = columns.reduce((acc, c) => acc + (Number(c.width) || 96), 0);
-
   return (
-    <Table
-      size="small"
-      rowKey={(r) => r.kind}
-      columns={columns}
-      dataSource={card.rows}
-      pagination={false}
-      tableLayout="fixed"
-      scroll={{ x: width }}
-      locale={{ emptyText: "这个范围里没有到期节点" }}
-      summary={() => (
-        <Table.Summary.Row>
-          <Table.Summary.Cell index={0}>合计</Table.Summary.Cell>
-          {card.buckets.map((b, i) => (
-            <Table.Summary.Cell key={b.key} index={i + 1} align="right">
-              <span className="num">{card.bucketTotals[b.key] ?? 0}</span>
-            </Table.Summary.Cell>
+    <table className="tb">
+      <colgroup>
+        <col style={{ width: 140 }} />
+        {card.buckets.map((b) => (
+          <col key={b.key} style={{ width: 96 }} />
+        ))}
+        <col style={{ width: 96 }} />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>
+            <Tooltip title={HOST_HINT}>
+              <span>宿主</span>
+            </Tooltip>
+          </th>
+          {card.buckets.map((b) => (
+            <th key={b.key} className="r">
+              <Tooltip title={BUCKET_HINT[b.key]}>
+                <span>{b.label}</span>
+              </Tooltip>
+            </th>
           ))}
-          <Table.Summary.Cell index={card.buckets.length + 1} align="right">
+          <th className="r">合计</th>
+        </tr>
+      </thead>
+      <tbody>
+        {card.rows.length === 0 ? (
+          <tr>
+            <td colSpan={card.buckets.length + 2}>
+              <div className="empty">这个范围里没有到期节点</div>
+            </td>
+          </tr>
+        ) : (
+          card.rows.map((row) => (
+            <tr key={row.kind}>
+              <td>
+                <span title={hostName(row.kind)}>{hostName(row.kind)}</span>
+              </td>
+              {card.buckets.map((b) => {
+                const n = row.counts[b.key] ?? 0;
+                return (
+                  <td key={b.key} className="r">
+                    <span
+                      className="num"
+                      style={{ color: n ? BUCKET_TONE[b.key] : undefined, fontWeight: n ? 600 : 400 }}
+                    >
+                      {n}
+                    </span>
+                  </td>
+                );
+              })}
+              <td className="r">
+                <span className="num" style={{ fontWeight: 600 }}>
+                  {row.total}
+                </span>
+              </td>
+            </tr>
+          ))
+        )}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>合计</td>
+          {card.buckets.map((b) => (
+            <td key={b.key} className="r">
+              <span className="num">{card.bucketTotals[b.key] ?? 0}</span>
+            </td>
+          ))}
+          <td className="r">
             <span className="num" style={{ fontWeight: 600 }}>
               {card.total}
             </span>
-          </Table.Summary.Cell>
-        </Table.Summary.Row>
-      )}
-    />
+          </td>
+        </tr>
+      </tfoot>
+    </table>
   );
 }
 
