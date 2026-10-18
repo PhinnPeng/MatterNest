@@ -54,7 +54,7 @@ export function FavoriteButton({
   });
 
   return (
-    <Tooltip title={favorited ? "取消收藏" : "收藏后可在「我收藏的」快速找到"}>
+    <Tooltip title={favorited ? "取消收藏" : "收藏后可在「我关注的」快速找到"}>
       <Button
         icon={favorited ? <StarFilled /> : <StarOutlined />}
         loading={mut.isPending}

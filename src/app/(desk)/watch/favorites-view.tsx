@@ -10,7 +10,10 @@ import { dateTime } from "@/app/lib/client/format";
 import { StateBlock } from "@/app/components/ui/state-block";
 
 /**
- * 我收藏的（F1-13）。
+ * 我关注的（F1-13）。
+ *
+ * ⚠ 界面词是「关注」，而 `WATCH_TYPE_LABELS.favorite` 的中文仍是「收藏」——勘误第 7 条
+ * 本票不动字典（它同时被通知与筛选消费，面更大），所以这一页的可见文案与字典**刻意不一致**。
  *
  * ## 为什么类型与编号是两列
  *
@@ -20,8 +23,8 @@ import { StateBlock } from "@/app/components/ui/state-block";
  *
  * ## 为什么没有分页、没有筛选
  *
- * 收藏是**用户主动建立**的集合，规模由用户自己的行为决定。加分页等于承认它会大到
- * 需要翻页，而那时该先问「为什么会收藏这么多」。服务端也因此不分页
+ * 关注是**用户主动建立**的集合，规模由用户自己的行为决定。加分页等于承认它会大到
+ * 需要翻页，而那时该先问「为什么会关注这么多」。服务端也因此不分页
  * （见 `api/watch/route.ts` 的注释）。
  */
 export function FavoritesView() {
@@ -64,7 +67,7 @@ export function FavoritesView() {
           >
             {name}
           </Typography.Link>
-          {/* 归档如实标出：收藏是"我还想看这条"，归档恰恰是"它结束了、我可能还要回看"——
+          {/* 归档如实标出：关注是"我还想看这条"，归档恰恰是"它结束了、我可能还要回看"——
               所以归档行**保留**，只是要让人一眼看出它的状态。 */}
           {r.isArchived ? <Tag color="default">已归档</Tag> : null}
         </Space>
@@ -72,7 +75,7 @@ export function FavoritesView() {
     },
     {
       key: "createdAt",
-      title: "收藏于",
+      title: "关注于",
       width: 170,
       render: (_v, r) => <span style={{ fontSize: 12 }}>{dateTime(r.createdAt)}</span>,
     },
@@ -84,10 +87,10 @@ export function FavoritesView() {
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
       <Flex align="center" justify="space-between" style={{ marginBottom: 12 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
-          我收藏的
+          我关注的
         </Typography.Title>
         {/* 一句话说清这个集合的边界：它是**私人的**，与通知是两条线。
-            不写"由你自己收藏"——那是复述标题。 */}
+            不写"由你自己关注"——那是复述标题。 */}
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           只有你自己看得见
         </Typography.Text>
@@ -96,7 +99,7 @@ export function FavoritesView() {
       {isError ? (
         <StateBlock
           tone="error"
-          title="收藏读取出错"
+          title="关注读取出错"
           hint={error instanceof Error ? error.message : undefined}
           action={
             <Button size="small" onClick={() => void refetch()}>
@@ -107,7 +110,7 @@ export function FavoritesView() {
       ) : isPending ? (
         <Card size="small" loading />
       ) : favorites.length === 0 ? (
-        <StateBlock title="还没有收藏" hint="在案件或事项详情页点右上角的 ⭐，就会出现在这里。" />
+        <StateBlock title="还没有关注" hint="在案件或事项详情页点右上角的 ⭐，就会出现在这里。" />
       ) : (
         <Card size="small">
           <Table<FavoriteRow>
