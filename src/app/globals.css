@@ -352,6 +352,66 @@
   .master > div:last-child > .pane > .card:last-child {
     flex: 1 1 auto;
   }
+  /*
+   * 左栏的可点选清单（角色权限页，MATT-100；原型 canon.css 的 `.pick` 转写）。
+   *
+   * 原型这里的选中态靠 `:target` / `:has()` 在纯 CSS 里切（它禁 JS）；真页由 React
+   * 状态决定，所以**只留两种形态**：常态与 `.on`（选中），不需要 `.pick:target`
+   * 与 `:has(.pick:target) …` 那几组互相抵消的规则。
+   *
+   * 元素是 `<button>` 而不是原型的 `<a href="#…">`：选中要能被键盘 Tab 到、回车触发
+   * （US 5 对控件的要求），而 `<a href="#id">` 只是跳锚点。按钮的默认外观必须清掉
+   * （`font: inherit` / `border: none` / `background: none` / 左对齐 / 满宽），
+   * 否则浏览器会给它一套不属于这个设计体系的灰底与居中字。
+   */
+  .pick {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    padding: 9px 12px;
+    border: none;
+    background: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .pick + .pick {
+    margin-top: 2px;
+  }
+  .pick:hover {
+    background: var(--hover);
+  }
+  .pick .t {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: space-between;
+  }
+  .pick .t b {
+    font-weight: 500;
+    font-size: 13px;
+  }
+  .pick .s {
+    font-size: 12px;
+    color: var(--ink2);
+    margin-top: 2px;
+  }
+  .pick.on {
+    background: var(--nav-on);
+  }
+  /* 选中态用「底 + 字色 + 字重」三通道，不只靠底色（色不作唯一通道）——
+     原型同款。`.s` 只换色不加粗：它是副行，加粗会与标题抢层级。 */
+  .pick.on .t b {
+    color: var(--nav-on-ink);
+    font-weight: 500;
+  }
+  .pick.on .s {
+    color: var(--nav-on-ink);
+  }
+  .pick:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
 }
 
 /*
