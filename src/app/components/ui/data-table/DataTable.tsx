@@ -148,7 +148,10 @@ export function DataTable<T extends object>({
       <table className="tb" aria-busy={loading || undefined}>
         <colgroup>
           {shown.map((c, i) => (
-            <col key={String(c.key ?? c.dataIndex ?? i)} style={c.width ? { width: c.width } : undefined} />
+            <col
+              key={String(c.key ?? c.dataIndex ?? i)}
+              style={c.width ? { width: c.width } : undefined}
+            />
           ))}
         </colgroup>
         <thead>
@@ -162,7 +165,11 @@ export function DataTable<T extends object>({
                   key={key}
                   className={alignClass(c.align)}
                   aria-sort={
-                    order === "ascend" ? "ascending" : order === "descend" ? "descending" : undefined
+                    order === "ascend"
+                      ? "ascending"
+                      : order === "descend"
+                        ? "descending"
+                        : undefined
                   }
                 >
                   {sortable ? (
@@ -211,9 +218,7 @@ export function DataTable<T extends object>({
                 {shown.map((c, i) => {
                   const key = String(c.key ?? c.dataIndex ?? i);
                   const value =
-                    c.dataIndex != null
-                      ? (r as Record<string, unknown>)[c.dataIndex]
-                      : undefined;
+                    c.dataIndex != null ? (r as Record<string, unknown>)[c.dataIndex] : undefined;
                   const content = c.render
                     ? c.render(value, r, i)
                     : ((value ?? null) as React.ReactNode);
@@ -241,13 +246,23 @@ export function DataTable<T extends object>({
       <div className="pager">
         <span className="num">共 {total} 条</span>
         <span className="sp" />
-        <button type="button" className="btn sm" disabled={!canPrev} onClick={() => onPageChange(page - 1)}>
+        <button
+          type="button"
+          className="btn sm"
+          disabled={!canPrev}
+          onClick={() => onPageChange(page - 1)}
+        >
           上一页
         </button>
         <span className="num">
           {page} / {pageCount}
         </span>
-        <button type="button" className="btn sm" disabled={!canNext} onClick={() => onPageChange(page + 1)}>
+        <button
+          type="button"
+          className="btn sm"
+          disabled={!canNext}
+          onClick={() => onPageChange(page + 1)}
+        >
           下一页
         </button>
       </div>

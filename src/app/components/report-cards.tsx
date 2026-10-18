@@ -434,7 +434,10 @@ function NodeDeadlineTable({ card }: { card: NodeDeadlineCard }) {
                   <td key={b.key} className="r">
                     <span
                       className="num"
-                      style={{ color: n ? BUCKET_TONE[b.key] : undefined, fontWeight: n ? 600 : 400 }}
+                      style={{
+                        color: n ? BUCKET_TONE[b.key] : undefined,
+                        fontWeight: n ? 600 : 400,
+                      }}
                     >
                       {n}
                     </span>
