@@ -69,6 +69,29 @@ const PAGES = [
   { path: "/users", label: "用户管理", anchor: "table tbody tr" },
   { path: "/config", label: "功能配置", anchor: "h1" },
   { path: "/roles", label: "角色权限", anchor: "h1" },
+  /**
+   * 下面四条是 2026-10-18 补的（Spec 轴复核指出「31 页 × 明暗」这个验收项在本脚本里
+   * 只覆盖了 9 条路由此前的口径）。
+   *
+   * 补的标准不是"把所有路由列一遍"，而是**按形态取代表**：形态不同的页才值得单列一条，
+   * 同一形态再多一条只是让失败信息更长。漏掉的四类形态与它们的代表：
+   *   · `/watch` —— **不依赖任何接口的业务页**（它读 `/api/watch`，但入口在身份区、不在导航，
+   *     所以它此前的"顶栏页名退回工作台"的缺陷正是没有视觉覆盖才漏过去的）；
+   *   · `/config/import` —— **降级为报告找回页**之后的新形态（MATT-102）；
+   *   · `/config/case_status` —— 参数化细项页，**14 个共用一个组件**，
+   *     取一个可写的代表即可；这是 MATT-101 那一票的主交付物；
+   *   · `/login` —— **唯一不需要会话的页**，也是唯一一个自己画 `.login` 居中卡的页。
+   *
+   * 详情页（`/matters/[id]` 等）**不在这个清单里**：它们要真数据 id，而本脚本的夹具账号
+   * 是空账号（只建号、不建业务数据），拿不到可打开的 id。它们由 `smoke-demo.mjs` 等
+   * 带真夹具的脚本覆盖结构，视觉这三条底线（留白/对比度/标题）在**同一批共享件**
+   * （`PageHeader` / `DataTable` / `ReportCards`）上已经量过 —— 详情页用的是同一套。
+   * 真要逐页覆盖，正确做法是给这个脚本加"先建夹具再走详情页"，那是另一件事。
+   */
+  { path: "/watch", label: "我关注的", anchor: "h1" },
+  { path: "/config/import", label: "批量导入", anchor: "h1" },
+  { path: "/config/case_status", label: "配置细项", anchor: "table tbody tr, h1" },
+  { path: "/login", label: "登录", anchor: ".login .card" },
 ];
 
 let pass = 0;
