@@ -21,14 +21,19 @@ is **not** a registered todo.
 
   | 配置落点 | 谁读它 | 状态 |
   |---|---|---|
-  | `.dsh/@wingsky-1/dsh-mcp-manager/mcp.json` | **DSH**（本 harness 的 `ws_mcp_*`） | ✅ 2026-10-12 新建并实测连通 |
-  | 项目 `.qoder/settings.json` | Qoder IDE | 存在，DSH 不读 |
-  | 根 `.mcp.json` / 项目 `opencode.json` | 其它 harness（Claude 系 / opencode CLI） | 存在，DSH 不读服务器定义 |
+  | **`<repo>/.zcode/config.json`** | **ZCode**（`mcp.servers`，本仓首选） | ✅ 2026-10-18 新建并实测连通 |
+  | `.dsh/@wingsky-1/dsh-mcp-manager/mcp.json` | DSH | ✅ 2026-10-12 建 |
+  | 项目 `.qoder/settings.json` | Qoder IDE | 存在，ZCode 不读 |
+  | 根 `.mcp.json` / 项目 `opencode.json` | 其它 harness（Claude 系 / opencode CLI） | 存在，ZCode 不读 |
+
+  **ZCode 的落点是 `<repo>/.zcode/config.json`**，形状 `{"mcp":{"servers":{<名>:{type,command,args,env}}}}`；
+  同 scope 若没有 MCP，才回退 `.agents/mcp.json` 的顶层 `mcpServers`。**同名 server 用户级
+  （`~/.zcode/cli/config.json`）优先于工作区级。**
+  ⚠ 该文件**含真实 API key**，靠 `.gitignore:3` 的 `.zcode/` 挡住（已 `git check-ignore` 验证）。
+  改它之前先看这条。**新会话才生效**（MCP 在会话启动时连接）。
 
   DSH 的 `dsh-mcp-manager` 只吃**它自己**的项目级落点 `<root>/.dsh/@wingsky-1/dsh-mcp-manager/mcp.json`
-  （全局那份在 `~/.dsh/@wingsky-1/…`）；根 `.mcp.json` 在它代码里**只当项目根探测标记**，
-  服务器条目一律不从那里加载。实测反证：`.qoder/settings.json` 与 `.mcp.json` 都在的时候
-  `ws_mcp_list` 报 0 servers，补上 `.dsh/@wingsky-1/…/mcp.json` 才被发现并连上。
+  （全局那份在 `~/.dsh/@wingsky-1/…`）；根 `.mcp.json` 在它代码里**只当项目根探测标记**。
 
   调用形如 `ws_mcp_call(server="@F:\WorkSpace\MatterNest/paca-matternest", tool="list_tasks",
   arguments={projectId: "8c42f9be-…"})` —— **`projectId` 必须显式传**，env 里那个只配置服务器进程；
@@ -44,10 +49,20 @@ is **not** a registered todo.
   （含本图正文），而它存在的前提（MCP 不可用）早已不成立。**REST 兜底路径不再存在，
   也不应重建**——踩着它的每一步都可能静默改写板上内容。
 
-  ⚠ 配置指向的是 **npx 缓存路径**（`_npx/<hash>/node_modules/@paca-ai/paca-mcp/...`），
-  版本为 `0.14.0-rc.1`（npm 最新 `0.19.0`）。缓存清理或哈希变化会让它失效，且没有版本锚定。
-  修法是把依赖**落到 `devDependencies`**（`@paca-ai/paca-mcp@<pin>`），配置指向
-  `node_modules/.bin/paca`。此事已登记，见 MATT-58。
+  ⚠ **「配置指向 npx 缓存路径、修法见 MATT-58」那段已过时（2026-10-18 更正）。**
+  依赖已经落下：`package.json:38` 钉着 `@paca-ai/paca-mcp@0.19.0`，本地入口
+  `node_modules/@paca-ai/paca-mcp/build/index.js` 可跑，`.zcode/config.json` 指的就是它。
+  根 `.mcp.json` 里那条 **npx 缓存路径**（`_npx/<hash>/…`）仍在且能跑，但它绑在缓存哈希上、
+  没有版本锚定 —— **别再照它抄新配置**。
+
+  ⚠ **ZCode 会话的工具面里 `mcp__paca-matternest__*` 是直接可用的**（2026-10-18 实测：
+  `list_task_statuses` / `get_task_by_number` / `update_task` / `add_task_comment` /
+  `search_tasks` / `list_tasks` 全部成功）。**别再说「本会话够不着 Paca」**——
+  断言某类工具不存在之前，先真的调一次。
+
+  ⚠ **`list_tasks` 返回整份 description，极大**（101 票 ≈ 275KB，够撑爆上下文）。
+  看单票用 `get_task_by_number`；取 uuid 用 `search_tasks`（回显紧凑）；
+  非取全板不可时把输出重定向到文件再解析。
 - Project id `8c42f9be-d3f6-4635-951d-0a2cf911a8f7`; 33 tasks, all type `Task`;
   statuses: `Backlog` (default) / `Todo` / `In Progress` / `Done`.
 - Native relationships that exist and are usable:
@@ -99,14 +114,33 @@ list_tasks  (projectId 8c42f9be-d3f6-4635-951d-0a2cf911a8f7)
 python ./.trellis/scripts/task.py list [--status in_progress]
 ```
 
-**分页是实测过的坑（2026-10-12）**：`list_tasks` 一页只回 20 条，而 `offset` 参数
-**被服务端忽略**（传了也返回同一批）。所以「翻页」拿不到全量，**不能据此断言某张票不存在**
-（本会话就因此误判过 MATT-38/39 不存在，实际它们在）。
+⚠ **`list_tasks` 要传 `pageSize`**（默认一页 20 条，`offset` **被服务端忽略** —— 传了也返回同一批，
+所以「翻页」拿不到全量，**不能据此断言某张票不存在**）。实测 `pageSize: 200` 一次回全量 101 条。
+单票用 `get_task_by_number`（不撑上下文）。
 
-缺的取法有两条，都验证过：
+### 板账对账（`pnpm board:drift`）的完整跑法
 
-- 按 `statusId` 过滤，把目标区间捞进第一页（找 #5x 时用的就是这条）；
-- 已知 uuid 时直接 `get_task`（**不接受** `MATT-55` / `55` 这类编号，只吃 uuid）。
+票侧**必须外面喂**：`board-drift.mjs` 读不到票状态（刻意如此，见其头注）。三步：
+
+```bash
+# 1. 取全板，重定向到文件（别直接进上下文：101 票 ≈ 275KB）
+node agent-work/_chk/paca.mjs list_tasks '{"pageSize":200}' > /tmp/board-raw.txt
+#    或用 MCP 的 list_tasks，但同样要把输出落盘，别让它进上下文
+
+# 2. 抽成快照 {capturedAt, tickets:{"MATT-9":{status,title}}}
+#    状态 uuid → 名字的映射见下表；抽取脚本一次写完即可（见 memory 里那份生成器的形状）
+
+# 3. git 侧它自己读
+node tools/board-drift.mjs --board <快照.json>
+```
+
+判据只有一条：**非 Done 且有带票号的提交 = 漂移**（无时间阈值 —— 那条 14 天阈值被真数据推翻过）。
+
+2026-10-18 实跑：101 票 = Done 78 / In Progress 4 / Backlog 18 / Todo 1；漂移 23
+（未见带票号提交 14 + 做完没关 9）。
+
+**抓不到全量时的两条取法**（都验证过）：按 `statusId` 过滤、把目标区间捞进第一页
+（找 #5x 时用的就是这条）；已知 uuid 时直接 `get_task`（**不接受** `MATT-55` / `55` 这类编号，只吃 uuid）。
 
 ### `status_id` ⇄ 状态名（project `8c42f9be-…`，2026-10-17 实测）
 
