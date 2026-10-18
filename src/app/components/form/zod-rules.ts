@@ -19,6 +19,10 @@ import { z } from "zod";
  * **正则不映射**：Zod 4 的 `pattern` 内部是个包装对象而不是 RegExp，
  * 拿不准就不猜——那类字段交给提交时的 `schema.parse` 兜，
  * 表现是"点提交才提示"，而不是"前端提示了但后端仍然拒"（后者才是真麻烦）。
+ *
+ * 另有两个**同源取值**（不是第二套规则，是同一约束喂给另一种机制）：
+ *   · `maxLengthOf` —— 喂 `<Input maxLength>`（拦在键入时，`rulesFor` 管不到）；
+ *   · `numberBoundsOf` —— 喂 `<InputNumber min/max>`（数字边界，`rulesFor` 只管长度）。
  */
 type ZodLike = { check?: string; minimum?: number; maximum?: number };
 
@@ -52,6 +56,59 @@ export function rulesFor(schema: z.ZodTypeAny, path: (string | number)[]): Rule[
   }
 
   return rules;
+}
+
+/**
+ * 取一个字段的**字符数上界**（`max_length`），没有则 `undefined`。
+ *
+ * 为什么除了 `rulesFor` 还要它：两者是**同一件约束在两个时机上**的执行 ——
+ * `rulesFor` 给 antd 的 `{max}` 规则（提交/失焦时提示），`maxLength` 是输入框属性
+ * （**拦在键入时**，用户多打一个字都进不去）。既然约束只有一个来源（禁令⑧），
+ * 这个数也得从 schema 读，不能在 JSX 里写第二份。
+ *
+ * 实测代价（2026-10-18 复核）：`config-kind-view.tsx` 曾把 `maxLength={50}`、
+ * `{32}`、`{20}` 手写在三处；`matter-create-dialog.tsx` 的 `maxLength={5000}`
+ * 也是手抄 schema 的 `max(5000)`。schema 改字长时，这些抄写会留下一个
+ * **更宽或更窄的输入框**，而它不报错 —— 只是允许用户打进一个提交必被拒的值。
+ *
+ * 读的是与 `rulesFor` 同一份内部形状（共用 `dig` / `unwrap` / `checksOf`），
+ * 分开实现迟早有一处跟不上。
+ */
+export function maxLengthOf(schema: z.ZodTypeAny, path: (string | number)[]): number | undefined {
+  const found = dig(schema, path);
+  if (!found) return undefined;
+  for (const raw of checksOf(unwrap(found))) {
+    const def = (raw as { _zod?: { def?: ZodLike } })?._zod?.def;
+    if (def?.check === "max_length" && typeof def.maximum === "number") return def.maximum;
+  }
+  return undefined;
+}
+
+/**
+ * 取一个**数字**字段的上下界（`greater_than` / `less_than`）。
+ *
+ * 与字符串的 `min_length`/`max_length` 是**两套** check：`z.number().min(0)` 落成
+ * `{check:"greater_than", value:0, inclusive:true}`，而 `rulesFor` 只管长度 ——
+ * 所以数字边界此前只能由页面手写（`config-kind-view` 的 `min={0} max={9999}` 就是）。
+ *
+ * 排他边界（`inclusive:false`）**返回 undefined 而不是硬凑 ±1**：那是猜，
+ * 与"正则不映射"同一条纪律 —— 拿不准就交给提交时的 `safeParse` 兜。
+ */
+export function numberBoundsOf(
+  schema: z.ZodTypeAny,
+  path: (string | number)[],
+): { min?: number; max?: number } {
+  const found = dig(schema, path);
+  if (!found) return {};
+  const out: { min?: number; max?: number } = {};
+  for (const raw of checksOf(unwrap(found))) {
+    const def = (raw as { _zod?: { def?: ZodLike & { value?: number; inclusive?: boolean } } })
+      ?._zod?.def;
+    if (!def || def.inclusive !== true || typeof def.value !== "number") continue;
+    if (def.check === "greater_than") out.min = def.value;
+    if (def.check === "less_than") out.max = def.value;
+  }
+  return out;
 }
 
 /**

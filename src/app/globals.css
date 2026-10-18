@@ -438,10 +438,22 @@
  * 组件类（canon.css 的按钮 / 表格 / 标签 / 弹层 / 表单段落逐条转写）。
  *
  * 与上面「外壳与页容器」同一份口径：canon.css 是目标态的唯一实现，这里只做逐值转写，
- * 不重新设计。**原型专用**的那几套（`:target` 开层、`:has()` 主从切换、
- * `html,body{width:1440px}`、`.mask.static`）不搬——真页靠 React 状态与 antd 的 Modal/Form，
- * 纯 CSS 演示机制照搬会打架。深色选择器由 canon 的 `body.dark` 改成 `html.dark`
+ * 不重新设计。深色选择器由 canon 的 `body.dark` 改成 `html.dark`
  * （深色类打在 documentElement 上，见 brand.ts）。
+ *
+ * ## 哪几套**真没搬**、哪几套搬了形态但换了机制
+ *
+ * 这一段原先把四件事一律写成"不搬"，实测不符（2026-10-18 复核）：
+ *   · **没搬**：`:has()` 主从切换、`html,body{width:1440px}` —— 全文件零命中。
+ *   · **搬了形态、但真页走另一条路**：`:target` 开层与 `.mask.static` 的规则**在下面**
+ *     （`.mask.static, .mask:target { display:flex }`），只是真页的弹层由 antd `Modal`
+ *     承担 —— 所以 `.mask` / `.modal*` 整块**当前零消费者**。留着是过渡期的形态参考，
+ *     不是死代码：它逐值是 canon 的口径，将来若要换掉 antd Modal 就是现成的。
+ *
+ * 这条更正的意义不在措辞：一句"不搬"会让后来的人以为下面没有这些规则，
+ * 于是照它去删 `.mask:target` —— 那正是这轮已经栽过一次的形态
+ * （按 grep 零消费者删掉 `canon-spec.md` 要求、而页面尚未采用的类）。
+ * 判据要挂在「规范 vs 实现」上，不是挂在"有没有人 className 用它"上。
  */
 @layer components {
   /* 工具类（`.num` 在文件末尾的 @utility；这里补 canon 同段里真页用得到的几个） */

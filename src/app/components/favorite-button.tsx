@@ -45,7 +45,10 @@ export function FavoriteButton({
         ? api.put<{ watching: boolean }>(`/api/watch/${host}/${hostId}`, { watching: true })
         : api.del<{ watching: boolean }>(`/api/watch/${host}/${hostId}`),
     onSuccess: (_r, next) => {
-      message.success(next ? "已收藏" : "已取消收藏");
+      // 界面词随菜单与页面统一为「关注」（MATT-102）。`WATCH_TYPE_LABELS.favorite`
+      // 的中文仍是「收藏」—— 那是勘误第 7 条留的待裁项（它同时被通知与筛选消费），
+      // 本处是**用户看得见的三处**（提示 / tooltip / 读屏名），不能跟着字典一起留着旧词。
+      message.success(next ? "已关注" : "已取消关注");
       // 详情 DTO 里带 `favorited`，所以失效详情的 key —— 不手写第二份状态。
       // 两个宿主的 key 不同名（`matter` / `risk`），这是既有约定，照抄不另立。
       void qc.invalidateQueries({ queryKey: [host === "matter" ? "matter" : "risk", hostId] });
@@ -54,13 +57,13 @@ export function FavoriteButton({
   });
 
   return (
-    <Tooltip title={favorited ? "取消收藏" : "收藏后可在「我关注的」快速找到"}>
+    <Tooltip title={favorited ? "取消关注" : "关注后可在「我关注的」快速找到"}>
       <Button
         icon={favorited ? <StarFilled /> : <StarOutlined />}
         loading={mut.isPending}
         onClick={() => mut.mutate(!favorited)}
         aria-pressed={favorited}
-        aria-label={favorited ? "取消收藏" : "收藏"}
+        aria-label={favorited ? "取消关注" : "关注"}
       />
     </Tooltip>
   );

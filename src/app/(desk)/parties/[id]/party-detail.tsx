@@ -246,7 +246,10 @@ export function PartyDetail({ id }: { id: string }) {
             <dt>证件号</dt>
             <dd>
               {p.idNumber ? (
-                <span className="num">{p.idNumber}</span>
+                // 与列表页同一字段同一字形：`.mono`（canon-spec:90 指定的就是它）。
+                // 证件号是机器可读的标识而不是参与列对齐的数字 —— 两处各用一套，
+                // 同一份号在列表中与详情里字形不同。
+                <span className="mono">{p.idNumber}</span>
               ) : (
                 <span className="ph">—</span>
               )}

@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { FormInstance, FormRule as Rule } from "antd";
 
-import { rulesFor, setFieldErrors } from "./zod-rules";
+import { maxLengthOf, numberBoundsOf, rulesFor, setFieldErrors } from "./zod-rules";
 import { matterCreateSchema } from "@/shared/schema/hosts";
+import { configCreateSchema } from "@/shared/schema/config";
 
 /**
  * 适配器守卫：证明"antd 表单的规则是从 Zod 读的"，而不是看起来像。
@@ -90,5 +91,49 @@ describe("setFieldErrors：服务端 fieldIssues → 字段 + 定位", () => {
     setFieldErrors(form, []);
     expect(calls.set).toHaveLength(0);
     expect(calls.scroll).toHaveLength(0);
+  });
+});
+
+/**
+ * 两个**同源取值**（不是第二套规则）。
+ *
+ * 它们与 `rulesFor` 读同一份 schema、同一份内部形状，只是喂给**另一种机制**：
+ * `rulesFor` 给 antd 的 `{max}`/`{min}` 规则（失焦/提交时提示），
+ * `maxLengthOf` / `numberBoundsOf` 给输入框属性（**拦在键入时**）。
+ *
+ * 判据与 `rulesFor` 那组一致：用**真实业务 schema**，值必须跟着 schema 动。
+ */
+describe("maxLengthOf / numberBoundsOf：键入时的边界也从 schema 来", () => {
+  it("maxLengthOf 取到字符串上界（matter.name 的 200）", () => {
+    expect(maxLengthOf(matterCreateSchema, ["name"])).toBe(200);
+  });
+
+  it("path 走不通 ⇒ undefined（不猜默认值）", () => {
+    // 猜一个 255/200 之类的兜底，等于在 schema 之外造第二个字长来源
+    expect(maxLengthOf(matterCreateSchema, ["nope"])).toBeUndefined();
+  });
+
+  it("上界不是长度 check 的字段（正则里长着的 code）⇒ undefined，不硬编", () => {
+    // `configCodeField` 的上界在正则 `{0,31}` 里；适配器刻意不映射正则（见文件头），
+    // 所以这里必须是 undefined —— 若哪天「顺手」返回 32，那句话就成了第二份来源。
+    expect(maxLengthOf(configCreateSchema("case_status"), ["code"])).toBeUndefined();
+  });
+
+  it("numberBoundsOf 取到含边界的整数上下界（sort_order 的 0–9999）", () => {
+    expect(numberBoundsOf(configCreateSchema("tag"), ["sortOrder"])).toEqual({
+      min: 0,
+      max: 9999,
+    });
+  });
+
+  it("非数字字段 ⇒ 空对象（不把长度 check 误读成数字边界）", () => {
+    expect(numberBoundsOf(configCreateSchema("tag"), ["name"])).toEqual({});
+  });
+
+  it("与 rulesFor 同源：两处拿到的上界是同一个数", () => {
+    // 这条是"同源"的正面证据：分开实现迟早有一处跟不上，而两者的差会表现成
+    // "输入框让你打进去、提交却被拒"。取同一字段两个出口比对，就能当场看见。
+    const r = pick(rulesFor(matterCreateSchema, ["name"]));
+    expect(r.find((x) => x.max !== undefined)?.max).toBe(maxLengthOf(matterCreateSchema, ["name"]));
   });
 });

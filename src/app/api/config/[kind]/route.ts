@@ -28,7 +28,8 @@ import {
  * 与 `/api/meta`（登录即可读配置，供所有下拉）同一条口径，也与费用那侧
  * （`expenses.ts`：「配置写要 can_manage_config，读不需要」）一致 —— 细项页要显示
  * **含停用的行**，而停用行不出现在 `/api/meta` 的下拉里，所以管理页有独立的读出口。
- * 写路径三道门前各用 `requirePrivilege(actor, "canManageConfig", "管理配置")`。
+ * 写路径的两个方法（`POST` / `PATCH`）各用一次
+ * `requirePrivilege(actor, "canManageConfig", "管理配置")`。
  *
  * ⚠ 这是全仓**第一次**真正使用 `canManageConfig`：此前它只出现在用户管理页的角色列
  * （`users-view.tsx` 的「可管配置」）与 schema 里，`config-view.tsx` 的文件头注还写着

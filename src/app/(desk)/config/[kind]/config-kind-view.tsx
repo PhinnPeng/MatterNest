@@ -22,7 +22,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 
 import { INK } from "@/app/theme/brand";
 import { api, ApiFailure, useActor } from "@/app/lib/client/api";
-import { rulesFor } from "@/app/components/form/zod-rules";
+import { maxLengthOf, numberBoundsOf, rulesFor } from "@/app/components/form/zod-rules";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { STATUS_SEMANTIC_LABELS } from "@/shared/enums/status";
 import { HOST_TYPE_LABELS, type HostType } from "@/shared/enums/targets";
@@ -408,12 +408,22 @@ function ConfigFormModal({
       }}
     >
       <Form form={form} layout="vertical" requiredMark>
+        {/*
+          `maxLength` 与 `min`/`max` 一律从 schema 取，不在 JSX 里写第二份数字。
+          理由：它们与 `rulesFor` 是**同一约束喂给另一种机制**——`rulesFor` 给 antd 的
+          `{max}`/`{min}` 规则（失焦/提交时提示），`maxLength` 与 `<InputNumber>` 的
+          `min`/`max` 是**拦在键入时**。两者不一致时用户能打进一个提交必被拒的值，
+          而 schema 改字长时只有一处会跟着动。
+          `code` 那格例外：它的上界长在正则里（`{0,31}`），适配器刻意不映射正则
+          （见 `zod-rules.ts` 头注），所以那一格没有 `maxLength` —— 超长由提交时的
+          `safeParse` 拒，表现成"点提交才提示"，而不是前端放行后端拒绝。
+        */}
         <Form.Item label="名称" name="name" rules={rulesFor(schema, ["name"])}>
-          <Input placeholder="如 已撤诉" maxLength={50} />
+          <Input placeholder="如 已撤诉" maxLength={maxLengthOf(schema, ["name"])} />
         </Form.Item>
         {isEdit ? null : f.needsCode ? (
           <Form.Item label="编码" name="code" rules={rulesFor(schema, ["code"])}>
-            <Input placeholder="如 withdrawn" maxLength={32} />
+            <Input placeholder="如 withdrawn" />
           </Form.Item>
         ) : null}
         {f.needsHost ? (
@@ -426,7 +436,7 @@ function ConfigFormModal({
         ) : null}
         {f.hasColor ? (
           <Form.Item label="颜色" name="color">
-            <Input placeholder="色名，如 slate" maxLength={20} />
+            <Input placeholder="色名，如 slate" maxLength={maxLengthOf(schema, ["color"])} />
           </Form.Item>
         ) : null}
         {isEdit && f.hasSemantics ? (
@@ -445,7 +455,11 @@ function ConfigFormModal({
           </Form.Item>
         ) : null}
         <Form.Item label="排序" name="sortOrder">
-          <InputNumber min={0} max={9999} style={{ width: "100%" }} placeholder="数字越小越靠前" />
+          <InputNumber
+            {...numberBoundsOf(schema, ["sortOrder"])}
+            style={{ width: "100%" }}
+            placeholder="数字越小越靠前"
+          />
         </Form.Item>
         {isEdit ? null : (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -508,7 +522,10 @@ function ReadOnlyConfig({ kind }: { kind: ConfigKind }) {
                 title: "编码",
                 dataIndex: "code",
                 width: 200,
-                render: (v: string) => <span className="num">{v}</span>,
+                // 与**可写细项**那张表同字形：编码是机器可读的标识，用 `.mono`。
+                // 同一个概念在两张表里各用一套（那里 `.mono`、这里曾 `.num`）会让
+                // 同一份编码的字形随细项变。
+                render: (v: string) => <span className="mono">{v}</span>,
               },
             ]}
           />

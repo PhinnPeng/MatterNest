@@ -222,3 +222,49 @@ VALUES
   ('2026-09-24', 'FX', 1),
   ('2026-09-26', 'FX', 1)
 ON CONFLICT ("day_key", "prefix") DO NOTHING;
+
+-- ── 停用态演示行（user story 28：「每一页至少有一行是停用状态」）────────────
+--
+-- ## 为什么这几行住在**演示** seed 而不是 0000 / 0002 那两份
+--
+-- 那两份是**全环境** seed（生产也跑）：状态集的八行是状态机的定义，往里塞一个停用态
+-- 会让生产也长出一个"不可选"的状态；费用项目同理（`item_id` 是真外键，历史行照常显示）。
+-- 「演示数据里能看到停用态」是**看库时的演示需要**，不是状态机的定义 ——
+-- 所以它属于唯一那份仅 dev 的 seed（本文件头注：生产环境不参与部署）。
+--
+-- ## 两条硬约束（都实测过，不是风格）
+--
+-- 1. **状态行必须 `next_status_codes = '{}'`**：`db:check` 的 C13 断言
+--    「恰好 6 行非空」（8 个内置态里两宿主的归档态留空）。带后继的停用态会让它变 7 而红。
+--    语义上也该如此 —— 停用态不可被选为后继，它不是路径上的一站。
+-- 2. **不能是初始态、也不能碰归档语义**：C11 断言每宿主恰好 1 个初始态 + 1 个归档态，
+--    而两处 partial unique index 分别兜底。这一行取 `semantics='custom'`。
+--
+-- id 用 47xx（4601+ 是费用项目、50xx 标签、60xx+ 演示业务数据），与其余 seed 同一条低号段规矩。
+INSERT INTO "mn_status_config"
+  ("id", "code", "name", "color", "host_type", "semantics", "is_system", "is_initial_status", "next_status_codes", "sort_order", "is_enabled")
+VALUES
+  (4701, 'suspended_demo', '已暂缓', 'gray', 'matter', 'custom', false, false, '{}', 99, false),
+  (4702, 'suspended_demo', '已暂缓', 'gray', 'risk_matter', 'custom', false, false, '{}', 99, false)
+ON CONFLICT ("host_type", "code") DO NOTHING;
+
+-- 费用项目：一个停用项。它不在上面 0004 的九项里，所以 `ON CONFLICT ("code")` 不会撞。
+-- 「可停用、不可删」是那张表的契约（`is_system = true` 保持不变）——停用后新费用选不到它，
+-- 历史行照常显示项目名（这正是"停用而非删除"要保住的东西）。
+INSERT INTO "mn_expense_item_config" ("id", "code", "name", "sort_order", "is_system", "is_enabled")
+VALUES
+  (4660, 'arbitration_fee_demo', '仲裁费', 99, true, false)
+ON CONFLICT ("code") DO NOTHING;
+
+-- 风险等级：一个停用等级（同样只是演示行）。表没有 `color` 列 —— 细项页因此没有颜色列可画，
+-- 与另外四张配置表不同，那是库的形状不是页面的取舍。
+INSERT INTO "mn_risk_level_config" ("id", "code", "name", "sort_order", "is_system", "is_enabled")
+VALUES
+  (3004, 'negligible_demo', '无风险', 99, true, false)
+ON CONFLICT ("code") DO NOTHING;
+
+-- 标签：一个停用标签，供标签细项页看见停用态（同样只是演示行）。
+INSERT INTO "mn_tag" ("id", "name", "host_type", "color", "sort_order", "is_enabled")
+VALUES
+  (5005, '已归档标签', 'matter', 'gray', 99, false)
+ON CONFLICT ("host_type", "name") DO NOTHING;

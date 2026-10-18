@@ -8,6 +8,7 @@ import { LogoutOutlined, StarOutlined } from "@ant-design/icons";
 
 import { api, useActor } from "@/app/lib/client/api";
 import { useAppearance } from "@/app/theme/appearance-provider";
+import { CONFIG_KIND_LABELS, isConfigKind } from "@/shared/schema/config";
 
 /**
  * 应用外壳：左导航 216 + 主区（顶栏 52 + 页容器）。
@@ -61,8 +62,7 @@ const NAV: { label: string; items: { href: string; label: string }[] }[] = [
       // 是"这个页面需要「管理账号」权限"这句话，而不是一个凭空消失的菜单项——
       // 菜单项消失会让人以为"系统没有这个功能"，那是另一件事。
       { href: "/users", label: "用户管理" },
-      // 角色权限页（MATT-100）。**路由今天还不存在**：这一项先指向 `/roles`，
-      // 页面与只读接口由那张票落。不留注释说明"页面做了什么"——那是票里的事。
+      // 角色权限页（MATT-100）。只读页与只读接口都已落（`/roles`）。
       { href: "/roles", label: "角色权限" },
     ],
   },
@@ -109,8 +109,29 @@ function activeHref(pathname: string): string {
  * 却仍会被走到（见 `EXTRA_TITLES`），页名若只在 `NAV_ITEMS` 里找，它们就会退回
  * 「工作台」/「功能配置」——那两句都不是这一页的名字。所以页名多看一张表，
  * 同样取最长前缀。
+ *
+ * ## 带参数的细项页要写**细项名**，不是父页名
+ *
+ * `canon-spec.md` §13.1 规定细项页「顶栏 `h1` = 细项名」（原型 `config-matter-status.html`
+ * 的顶栏就是「案件状态」，不是「功能配置」）。前缀匹配做不到这件事：`/config/case_status`
+ * 只命中 `/config`，于是顶栏写着父页名，而细项名只出现在页内 `h2` ——
+ * 用户从导航点进「功能配置」后再进细项页，顶栏看不出自己换了一页。
+ *
+ * 所以这里显式处理一段动态路径：`/config/<kind>` 取 `CONFIG_KIND_LABELS[kind]`。
+ * 标签来自 `shared/schema/config.ts`（前后端同一份，禁令⑧），**不在这个壳里抄第二份**。
+ * 非法 kind 不落进这一支（`isConfigKind` 判）——那些路径由页面自己 404，顶栏不必替它表态。
  */
+function configKindTitle(pathname: string): string | null {
+  const m = /^\/config\/([^/]+)\/?$/.exec(pathname);
+  if (!m) return null;
+  const kind = m[1];
+  if (!kind || !isConfigKind(kind)) return null;
+  return CONFIG_KIND_LABELS[kind];
+}
+
 function pageTitle(pathname: string): string {
+  const kindTitle = configKindTitle(pathname);
+  if (kindTitle) return kindTitle;
   let best: { href: string; label: string } | undefined;
   for (const item of [...NAV_ITEMS, ...EXTRA_TITLES]) {
     const hit = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
