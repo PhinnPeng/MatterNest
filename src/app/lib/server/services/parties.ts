@@ -819,10 +819,12 @@ export type PartyWriteRejection =
 export async function createParty(
   actor: Actor,
   input: PartyCreateInput,
+  opts: { dryRun?: boolean } = {},
 ): Promise<
   { ok: true; id: string; sameName: { id: string; name: string }[] } | PartyWriteRejection
 > {
   const db = await getDb();
+  const dryRun = opts.dryRun === true;
   const name = input.name.trim();
   if (isOwnCompanyName(name, ownCompanyNames())) return { ok: false, why: "own_company", name };
 
@@ -856,6 +858,15 @@ export async function createParty(
     .limit(5);
 
   const id = BigInt(nextId());
+  // 预检到此为止（MATT-102）：本企业名判定、同证件号命中、同名查询都是判据，
+  // 只有下面的事务是写库。与两条宿主创建服务同一处落点。
+  if (dryRun) {
+    return {
+      ok: true,
+      id: String(id),
+      sameName: sameName.map((s) => ({ id: String(s.id), name: s.name })),
+    };
+  }
   await db.transaction(async (tx) => {
     await tx.insert(party).values({
       id,
