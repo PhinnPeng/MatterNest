@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 事项</title>
+<link rel="stylesheet" href="world.css">
+<style>
+.filter{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card);border:1px solid var(--line);border-radius:3px}
+.filter label{font-size:12px;color:var(--ink2)}
+.mtx{width:100%;border-collapse:collapse;font-size:12.5px}
+.mtx th{font-weight:400;font-size:11.5px;color:var(--ink2);border-bottom:1px solid var(--line);padding:6px 10px;text-align:right}
+.mtx th:first-child{text-align:left}
+.mtx td{padding:7px 10px;border-bottom:1px solid var(--line2);text-align:right;font-variant-numeric:tabular-nums}
+.mtx td:first-child{text-align:left}
+.mtx tr:last-child td{border-bottom:none}
+.sort::after{content:" ⇅";color:var(--mute);font-size:10px}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item on" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">事项</div></header>
+  <div class="content"><div class="wrap">
+    <section class="filter">
+      <label>关键词</label><input class="ipt" style="width:280px" placeholder="编号 / 事项名称 / 描述">
+      <label>状态</label><span class="sel" style="width:160px">全部状态<i></i></span>
+      <label>经办人</label><span class="sel" style="width:150px">全部（含未指派）<i></i></span>
+      <span style="flex:1"></span>
+      <button class="btn">重置</button>
+      <button class="btn pri">查询</button>
+    </section>
+    <section style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px">
+      <div class="card">
+        <div class="chead"><h2>事项分布</h2><em>在办 · 状态 × 等级</em></div>
+        <div style="padding:4px 16px 10px">
+          <table class="mtx">
+            <tr><th>状态</th><th>低</th><th>中</th><th>高</th><th>小计</th></tr>
+            <tr><td>评估中</td><td>1</td><td>1</td><td>1</td><td>3</td></tr>
+            <tr><td>处置中</td><td>0</td><td>2</td><td>1</td><td>3</td></tr>
+            <tr><td>已化解</td><td>1</td><td>0</td><td>0</td><td>1</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="chead"><h2>节点到期分档</h2><em>口径同工作台 · 已确认时间</em></div>
+        <div style="padding:4px 16px 10px">
+          <table class="mtx">
+            <tr><th>分档</th><th>节点数</th></tr>
+            <tr><td class="od">已逾期</td><td>3</td></tr>
+            <tr><td class="soon">7 天内到期</td><td>5</td></tr>
+            <tr><td>更晚到期</td><td>4</td></tr>
+          </table>
+        </div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="chead">
+        <h2>事项列表</h2>
+        <div class="tools">
+          <em>共 11 条</em>
+          <button class="btn sm">列设置</button>
+          <button class="btn sm">批量改状态</button>
+          <button class="btn sm">归档</button>
+          <button class="btn sm">加标签</button>
+          <button class="btn sm">刷新</button>
+          <button class="btn sm pri">新建事项</button>
+        </div>
+      </div>
+      <div class="throw" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px;padding-left:16px">
+        <span>编号</span><span>事项名称</span><span>类型</span><span class="sort">等级</span><span>状态</span><span>转案件</span><span class="r sort">预估影响</span><span>发现日</span><span class="sort">负责人</span><span class="sort">更新</span><span>操作</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20260805-007</span><span class="cut link" style="padding:0 14px">常州天元化工 产品质量索赔风险</span><span class="mut" style="padding-right:14px">产品责任</span><span style="padding-right:14px"><i class="tag od">高</i></span><span ><i class="dot sm"></i><span class="mut"> 处置中</span></span><span style="padding-right:14px"><i class="tag ok">已转·1</i></span><span class="num r" style="padding-right:14px">940,000</span><span class="num mut" style="padding-right:14px">2026-08-05</span><span style="padding-right:14px">李文博</span><span class="num mut" style="padding-right:14px">10-16</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20260915-001</span><span class="cut link" style="padding:0 14px">合肥远航物资 采购合同（未签）</span><span class="mut" style="padding-right:14px">合同风险</span><span style="padding-right:14px"><i class="tag soon">中</i></span><span ><i class="dot sm"></i><span class="mut"> 处置中</span></span><span style="padding-right:14px"><i class="tag mut">未转</i></span><span class="num r" style="padding-right:14px">280,000</span><span class="num mut" style="padding-right:14px">2026-09-15</span><span style="padding-right:14px">周敏</span><span class="num mut" style="padding-right:14px">10-16</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20260928-001</span><span class="cut link" style="padding:0 14px">南通宏泰置业 商品房买卖合同（涉诉前）</span><span class="mut" style="padding-right:14px">合同风险</span><span style="padding-right:14px"><i class="tag soon">中</i></span><span ><i class="dot sm"></i><span class="mut"> 处置中</span></span><span style="padding-right:14px"><i class="tag ok">已转·1</i></span><span class="num r" style="padding-right:14px">620,000</span><span class="num mut" style="padding-right:14px">2026-09-28</span><span style="padding-right:14px">王兆坤</span><span class="num mut" style="padding-right:14px">10-14</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20261001-003</span><span class="cut link" style="padding:0 14px">无锡供应商批量逾期交付风险</span><span class="mut" style="padding-right:14px">履约风险</span><span style="padding-right:14px"><i class="tag soon">中</i></span><span ><i class="dot sm"></i><span class="mut"> 评估中</span></span><span style="padding-right:14px"><i class="tag mut">未转</i></span><span class="num r" style="padding-right:14px">175,000</span><span class="num mut" style="padding-right:14px">2026-10-01</span><span style="padding-right:14px"><span class="mut">未指派</span></span><span class="num mut" style="padding-right:14px">10-13</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20261005-002</span><span class="cut link" style="padding:0 14px">商标被异地抢注风险</span><span class="mut" style="padding-right:14px">知识产权</span><span style="padding-right:14px"><i class="tag od">高</i></span><span ><i class="dot sm"></i><span class="mut"> 评估中</span></span><span style="padding-right:14px"><i class="tag mut">未转</i></span><span class="num r" style="padding-right:14px">—</span><span class="num mut" style="padding-right:14px">2026-10-05</span><span style="padding-right:14px">陈嘉禾</span><span class="num mut" style="padding-right:14px">10-12</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20260920-004</span><span class="cut link" style="padding:0 14px">员工竞业限制线索核查</span><span class="mut" style="padding-right:14px">人事风险</span><span style="padding-right:14px"><i class="tag mut">低</i></span><span ><i class="dot sm ok"></i><span class="ok"> 已化解</span></span><span style="padding-right:14px"><i class="tag mut">未转</i></span><span class="num r" style="padding-right:14px">—</span><span class="num mut" style="padding-right:14px">2026-09-20</span><span style="padding-right:14px">王兆坤</span><span class="num mut" style="padding-right:14px">10-09</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20260910-006</span><span class="cut link" style="padding:0 14px">应收账款集中到期风险</span><span class="mut" style="padding-right:14px">财务风险</span><span style="padding-right:14px"><i class="tag soon">中</i></span><span ><i class="dot sm"></i><span class="mut"> 处置中</span></span><span style="padding-right:14px"><i class="tag mut">未转</i></span><span class="num r" style="padding-right:14px">1,120,000</span><span class="num mut" style="padding-right:14px">2026-09-10</span><span style="padding-right:14px">周敏</span><span class="num mut" style="padding-right:14px">10-08</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20260828-002</span><span class="cut link" style="padding:0 14px">租赁物业拆迁补偿谈判</span><span class="mut" style="padding-right:14px">行政风险</span><span style="padding-right:14px"><i class="tag mut">低</i></span><span ><i class="dot sm"></i><span class="mut"> 评估中</span></span><span style="padding-right:14px"><i class="tag mut">未转</i></span><span class="num r" style="padding-right:14px">300,000</span><span class="num mut" style="padding-right:14px">2026-08-28</span><span style="padding-right:14px">李文博</span><span class="num mut" style="padding-right:14px">10-07</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20260815-005</span><span class="cut link" style="padding:0 14px">经销商串货与授权越界</span><span class="mut" style="padding-right:14px">合同风险</span><span style="padding-right:14px"><i class="tag mut">低</i></span><span ><i class="dot sm"></i><span class="mut"> 处置中</span></span><span style="padding-right:14px"><i class="tag mut">未转</i></span><span class="num r" style="padding-right:14px">90,000</span><span class="num mut" style="padding-right:14px">2026-08-15</span><span style="padding-right:14px">王兆坤</span><span class="num mut" style="padding-right:14px">10-05</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="row" style="grid-template-columns:128px 204px 76px 76px 78px 88px 108px 112px 96px 72px 72px">
+        <span class="num mut" style="padding-left:16px">SX-20260730-001</span><span class="cut link" style="padding:0 14px">数据出境合规自查</span><span class="mut" style="padding-right:14px">合规风险</span><span style="padding-right:14px"><i class="tag soon">中</i></span><span ><i class="dot sm"></i><span class="mut"> 评估中</span></span><span style="padding-right:14px"><i class="tag mut">未转</i></span><span class="num r" style="padding-right:14px">—</span><span class="num mut" style="padding-right:14px">2026-07-30</span><span style="padding-right:14px"><span class="mut">未指派</span></span><span class="num mut" style="padding-right:14px">09-30</span><span class="txtbtn" style="padding-right:14px">转案件</span>
+      </div>
+      <div class="pager"><span>第 1–10 条 · 共 11 条</span><span><i class="on">1</i><i>2</i></span></div>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

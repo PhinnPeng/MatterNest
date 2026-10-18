@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 事项详情</title>
+<link rel="stylesheet" href="world.css">
+<style>
+.head h1{font-size:16px;max-width:560px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.left{display:flex;flex-direction:column;gap:14px;min-width:0}
+.body-md{padding:12px 16px 14px;font-size:13px;line-height:1.75}
+.body-md p{margin-bottom:8px}
+.body-md ul{margin:0 0 0 18px}
+.cmt{display:flex;flex-direction:column;min-height:0}
+.cmt .list{flex:1;overflow:hidden;padding:12px 16px}
+.cmt .who{font-size:12px;color:var(--ink2);margin-bottom:3px}
+.cmt .what{font-size:13px;line-height:1.6}
+.cmt .edited{font-size:11px;color:var(--mute)}
+.cmt .entry{margin-bottom:14px}
+.cmt .input{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);background:var(--panel)}
+.cmt .input .ipt{flex:1}
+.sticky{position:sticky;top:0}
+.tab em{font-style:normal;font-size:11px;color:var(--ink2);margin-left:4px}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item on" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">事项</div></header>
+  <div class="content"><div class="wrap">
+    <div class="cols">
+      <div class="left">
+        <section class="head">
+          <div style="min-width:0">
+            <h1>常州天元化工 产品责任纠纷（涉诉前）</h1>
+            <div class="sub" style="display:flex;align-items:center;gap:10px">
+              <span class="num">SX-20260805-007</span>
+              <span style="display:inline-flex;align-items:center;gap:5px"><i class="dot sm"></i><span class="mut">处置中</span></span>
+              <i class="tag od">高</i>
+            </div>
+          </div>
+          <div class="tools">
+            <button class="btn pri">变更状态</button>
+            <button class="btn">整卷导出</button>
+            <button class="btn">转案件</button>
+            <button class="btn">更多 ▾</button>
+          </div>
+        </section>
+        <section class="card">
+          <div class="chead"><h2>风险描述</h2><button class="txtbtn">编辑</button></div>
+          <div class="body-md">
+            <p>客户索赔函主张批次产品杂质超标，索赔金额 94 万。第三方检测报告下周出具，若确认与我方工艺相关，将升级为正式诉讼。</p>
+            <ul>
+              <li>已封存同批次留样 3 份，待复检；</li>
+              <li>销售端暂缓该客户两笔新订单评审。</li>
+            </ul>
+          </div>
+        </section>
+        <section class="card">
+          <div class="chead"><h2>处置措施</h2></div>
+          <div class="desc" style="padding:10px 16px 4px;grid-template-columns:minmax(0,1fr)">
+            <div class="dl"><b>类型</b><span>产品责任</span></div>
+            <div class="dl"><b>发现日</b><span class="num">2026-08-05</span></div>
+            <div class="dl"><b>来源</b><span>客户索赔函（2026-08-03 收文）</span></div>
+            <div class="dl"><b>经办人</b><span>李文博</span></div>
+            <div class="dl"><b>关注组</b><span>周敏、陈嘉禾</span></div>
+            <div class="dl"><b>已转案件</b><span><span class="link num">AJ-20260912-002</span> <span class="mut" style="font-size:11.5px">常州天元化工 产品责任纠纷 · 1 个案件</span></span></div>
+            <div class="dl"><b>预估影响</b><span class="num">¥940,000</span></div>
+          </div>
+        </section>
+        <section class="alert mut" style="cursor:default">
+          <b style="font-weight:400">▾ 参考材料</b>
+          <span style="flex:1"></span>
+          <span class="mut">当事人 1 · 参与人 2 · 费用 3 · 登记信息</span>
+        </section>
+        <section>
+          <div class="tabs">
+            <span class="tab on">事项节点<em>4</em></span>
+            <span class="tab">活动日志<em>18</em></span>
+          </div>
+          <div class="card" style="border-radius:0 0 3px 3px">
+            <div class="row" style="grid-template-columns:minmax(0,1fr) 90px 170px 140px">
+              <span class="cut" style="padding:0 14px">证据固定完成</span><span style="padding-right:14px"><i class="tag ok">已完成</i></span><span class="num mut" style="padding-right:14px">2026-09-20</span><span style="padding-right:14px"></span>
+            </div>
+            <div class="row" style="grid-template-columns:minmax(0,1fr) 90px 170px 140px">
+              <span class="cut" style="padding:0 14px">委托鉴定机构</span><span style="padding-right:14px"><i class="tag soon">进行中</i></span><span class="num od" style="padding-right:14px;font-weight:600">逾期 3 天</span><span class="txtbtn" style="padding-right:14px">完成 · 取消</span>
+            </div>
+            <div class="row" style="grid-template-columns:minmax(0,1fr) 90px 170px 140px">
+              <span class="cut" style="padding:0 14px">专家论证会</span><span style="padding-right:14px"><i class="tag mut">待定</i></span><span class="mut" style="padding-right:14px">时间未确认</span><span style="padding-right:14px"></span>
+            </div>
+            <div class="row" style="grid-template-columns:minmax(0,1fr) 90px 170px 140px">
+              <span class="cut" style="padding:0 14px">起诉材料准备</span><span style="padding-right:14px"><i class="tag mut">未开始</i></span><span class="num mut" style="padding-right:14px">剩 9 天</span><span class="txtbtn" style="padding-right:14px">开始</span>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="sticky">
+        <section class="card cmt" style="min-height:640px">
+          <div class="chead"><h2>处置记录</h2><em>3 条</em></div>
+          <div class="list">
+            <div class="entry">
+              <div class="who">李文博 · 10-16 09:12</div>
+              <div class="what">检测机构复检排期已确认，下周一取样。</div>
+            </div>
+            <div class="entry">
+              <div class="who">周敏 · 10-15 17:36 <span class="edited">（已编辑）</span></div>
+              <div class="what">索赔函金额与合同约定上限核对完毕，超限部分约 6 万，先谈和解额度。</div>
+            </div>
+            <div class="entry">
+              <div class="who">陈嘉禾 · 10-14 14:03</div>
+              <div class="what">@李文博 批次留样封存单拍照归进参考材料。</div>
+            </div>
+          </div>
+          <div class="input">
+            <input class="ipt" placeholder="写下处置记录，@提及同事">
+            <button class="btn pri sm">发送</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div></div>
+</main>
+</body>
+</html>

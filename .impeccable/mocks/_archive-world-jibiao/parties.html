@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 当事人</title>
+<link rel="stylesheet" href="world.css">
+<style>
+.filter{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card);border:1px solid var(--line);border-radius:3px}
+.filter label{font-size:12px;color:var(--ink2)}
+.sort::after{content:" ⇅";color:var(--mute);font-size:10px}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item" href="risk-matters.html">事项</a>
+    <a class="item on" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">当事人</div></header>
+  <div class="content"><div class="wrap">
+    <section class="filter">
+      <label>关键词</label><input class="ipt" style="width:300px" placeholder="名称，或完整证件号">
+      <span style="flex:1"></span>
+      <button class="btn">重置</button>
+      <button class="btn pri">查询</button>
+    </section>
+    <section class="card">
+      <div class="chead">
+        <h2>当事人档案</h2>
+        <div class="tools">
+          <em>共 5 份</em>
+          <button class="btn sm">列设置</button>
+          <button class="btn sm">导出 ▾</button>
+          <button class="btn sm">刷新</button>
+          <button class="btn sm pri">新建当事人</button>
+        </div>
+      </div>
+      <div class="throw" style="grid-template-columns:208px 84px 190px 132px 84px 84px 72px;padding-left:16px">
+        <span class="sort">名称</span><span>类型</span><span>证件号</span><span>联系方式</span><span class="r">涉及案件</span><span class="r">涉及事项</span><span class="sort">更新</span>
+      </div>
+      <div class="row" style="grid-template-columns:208px 84px 190px 132px 84px 84px 72px">
+        <span class="cut link" style="padding-left:16px">江苏恒基建设有限公司</span><span class="mut" style="padding-right:14px">企业</span><span class="num mut" style="padding-right:14px">9132****…3X</span><span class="mut" style="padding-right:14px">138****2261</span><span class="num r" style="padding-right:14px">3</span><span class="num r" style="padding-right:14px">1</span><span class="num mut" style="padding-right:14px">10-16</span>
+      </div>
+      <div class="row" style="grid-template-columns:208px 84px 190px 132px 84px 84px 72px">
+        <span class="cut link" style="padding-left:16px">常州天元化工有限公司</span><span class="mut" style="padding-right:14px">企业</span><span class="num mut" style="padding-right:14px">9130****…2Q</span><span class="mut" style="padding-right:14px">0519-88****</span><span class="num r" style="padding-right:14px">2</span><span class="num r" style="padding-right:14px">2</span><span class="num mut" style="padding-right:14px">10-15</span>
+      </div>
+      <div class="row" style="grid-template-columns:208px 84px 190px 132px 84px 84px 72px">
+        <span class="cut link" style="padding-left:16px">杭州瑞和供应链管理有限公司</span><span class="mut" style="padding-right:14px">企业</span><span class="num mut" style="padding-right:14px">9133****…8K</span><span class="mut" style="padding-right:14px">137****6600</span><span class="num r" style="padding-right:14px">1</span><span class="num r" style="padding-right:14px">0</span><span class="num mut" style="padding-right:14px">10-13</span>
+      </div>
+      <div class="row" style="grid-template-columns:208px 84px 190px 132px 84px 84px 72px">
+        <span class="cut link" style="padding-left:16px">王建国</span><span class="mut" style="padding-right:14px">自然人</span><span class="num mut" style="padding-right:14px">3204****…1X</span><span class="mut" style="padding-right:14px">139****0092</span><span class="num r" style="padding-right:14px">1</span><span class="num r" style="padding-right:14px">1</span><span class="num mut" style="padding-right:14px">10-09</span>
+      </div>
+      <div class="row" style="grid-template-columns:208px 84px 190px 132px 84px 84px 72px">
+        <span class="cut link" style="padding-left:16px">苏州万顺机械制造有限公司</span><span class="mut" style="padding-right:14px">企业</span><span class="num mut" style="padding-right:14px">9132****…5Z</span><span class="mut" style="padding-right:14px">136****3377</span><span class="num r" style="padding-right:14px">1</span><span class="num r" style="padding-right:14px">0</span><span class="num mut" style="padding-right:14px">09-30</span>
+      </div>
+      <div class="pager"><span>第 1–5 条 · 共 5 条</span><span><i class="on">1</i></span></div>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

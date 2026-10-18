@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 功能配置 · 风险等级</title>
+<link rel="stylesheet" href="world.css">
+<style>
+.mtx{width:100%;border-collapse:collapse;font-size:13px}
+.mtx th{font-weight:400;font-size:11.5px;color:var(--ink2);border-bottom:1px solid var(--line);padding:8px 16px;text-align:left}
+.mtx td{padding:9px 16px;border-bottom:1px solid var(--line2)}
+.mtx tr:last-child td{border-bottom:none}
+.back{font-size:12px;color:var(--ink2);text-decoration:none}
+.back:hover{color:var(--cinnabar)}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item on" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">功能配置</div></header>
+  <div class="content"><div class="wrap">
+    <section class="head">
+      <div>
+        <a class="back" href="config.html">‹ 功能配置</a>
+        <h1 style="margin-top:6px">风险等级</h1>
+      </div>
+      <em class="mut" style="font-style:normal;font-size:12px">案件与事项共用</em>
+    </section>
+    <section class="card">
+      <table class="mtx">
+        <tr><th style="width:140px">编码</th><th style="width:220px">名称</th><th>说明</th></tr>
+        <tr><td class="num mut">10</td><td>低</td><td class="mut">常规跟办，按节点推进</td></tr>
+        <tr><td class="num mut">20</td><td>中</td><td class="mut">需要关注，列入周例会</td></tr>
+        <tr><td class="num mut">30</td><td><span class="od">高</span></td><td class="mut">重大风险，负责人直接向管理层汇报</td></tr>
+      </table>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

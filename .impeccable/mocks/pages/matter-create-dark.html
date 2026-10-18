@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 新建案件</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body class="dark">
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it on" href="matters.html">案件</a>
+    <a class="it" href="risk-matters.html">事项</a>
+    <a class="it" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it" href="config.html">功能配置</a>
+    <a class="it" href="users.html">用户管理</a>
+    <a class="it" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>案件</h1>
+    </header>
+
+    <div class="page">
+      <div class="metrics">
+        <div class="metric"><b class="num">6</b><span>在办案件</span></div>
+        <div class="metric over"><b class="num">2</b><span>已逾期</span></div>
+        <div class="metric due"><b class="num">2</b><span>7 日内到期</span></div>
+        <div class="metric"><b class="num">1</b><span>未指派负责人</span></div>
+        <div class="metric"><b class="num">1</b><span>限期未确认</span></div>
+        <div class="metric"><b class="num">2</b><span>本月新增</span></div>
+      </div>
+
+      <div class="query" style="margin-top:16px">
+        <div class="field"><label>关键词</label><input class="inp w200" placeholder="案号 / 案名 / 案由"></div>
+        <div class="field"><label>案件状态</label><span class="sel">全部状态<i>▾</i></span></div>
+        <div class="field"><label>案件类型</label><span class="sel">全部类型<i>▾</i></span></div>
+        <div class="field"><label>案件程序</label><span class="sel">全部程序<i>▾</i></span></div>
+        <div class="field"><label>经办人</label><span class="sel">全部（含未指派）<i>▾</i></span></div>
+        <div class="field"><label>期限范围</label><span class="sel">全部<i>▾</i></span></div>
+        <button class="btn pri" style="margin-left:auto">查询</button>
+        <button class="btn">重置</button>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-h">
+          <h2>案件列表</h2>
+          <span class="sp"></span>
+          <button class="btn sm pri">新建案件</button>
+        </div>
+        <table class="tb">
+          <colgroup><col style="width:44px"><col style="width:150px"><col><col style="width:104px"><col style="width:88px"><col style="width:96px"><col style="width:72px"><col style="width:100px"><col style="width:116px"><col style="width:168px"></colgroup>
+          <thead>
+            <tr>
+              <th class="c"><span class="cb"></span></th>
+              <th>案号</th>
+              <th>案名</th>
+              <th>类型</th>
+              <th>程序</th>
+              <th>状态</th>
+              <th>经办人</th>
+              <th>立案日期</th>
+              <th>最近期限</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td class="mono">AJ-20260812-003</td>
+              <td class="ellip"><a class="btn link" href="matter-detail.html">江苏恒基建设 建设工程施工合同纠纷</a></td>
+              <td>合同纠纷</td>
+              <td>一审</td>
+              <td><span class="pill gray"><i></i>审理中</span></td>
+              <td>周敏</td>
+              <td class="num">2026-08-12</td>
+              <td><span class="pill over"><i></i>逾期 6 天</span></td>
+              <td><span class="rowflex"><a class="btn link" href="matter-detail.html">进展</a><a class="btn link" href="matter-detail.html">状态</a><a class="btn link" href="matter-detail.html">程序</a></span></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td class="mono">AJ-20260902-001</td>
+              <td class="ellip"><a class="btn link" href="matter-detail.html">杭州瑞和供应链 买卖合同纠纷</a></td>
+              <td>合同纠纷</td>
+              <td>一审</td>
+              <td><span class="pill gray"><i></i>审理中</span></td>
+              <td>陈嘉禾</td>
+              <td class="num">2026-09-02</td>
+              <td><span class="pill over"><i></i>逾期 1 天</span></td>
+              <td><span class="rowflex"><a class="btn link" href="matter-detail.html">进展</a><a class="btn link" href="matter-detail.html">状态</a><a class="btn link" href="matter-detail.html">程序</a></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mask static">
+  <div class="modal" role="dialog" aria-label="新建案件">
+    <div class="modal-h">
+      <h3>新建案件</h3>
+      <span class="sp"></span>
+      <button class="x" aria-label="关闭">✕</button>
+    </div>
+
+    <div class="modal-b">
+      <div class="fsec">基本信息</div>
+      <div class="fgrid">
+        <div class="field span12"><label>案件名称<b>*</b></label><input class="inp" placeholder="例：江苏恒基建设 建设工程施工合同纠纷"></div>
+        <div class="field span6"><label>案由<b>*</b></label><input class="inp" placeholder="如 建设工程施工合同纠纷"></div>
+        <div class="field span6"><label>案件类型<b>*</b></label><span class="sel">合同纠纷<i>▾</i></span></div>
+        <div class="field span6"><label>我方诉讼地位<b>*</b></label><span class="sel">原告<i>▾</i></span></div>
+        <div class="field span6"><label>案件程序<b>*</b></label><span class="sel">一审<i>▾</i></span></div>
+        <div class="field span6"><label>受理法院</label><input class="inp" placeholder="如 苏州市中级人民法院"></div>
+        <div class="field span6"><label>正式案号</label><input class="inp" placeholder="留空先用内部编号"></div>
+        <div class="field span6"><label>立案日期</label><input class="inp ph" placeholder="选择日期"></div>
+        <div class="field span6"><label>来源事项</label><span class="sel">无（被诉直建）<i>▾</i></span></div>
+        <div class="field span6"><label>标的额（元）</label><input class="inp" placeholder="最多两位小数"></div>
+        <div class="field span6"><label>风险等级<b>*</b></label><span class="sel">高风险<i>▾</i></span></div>
+      </div>
+
+      <div class="fsec">当事人</div>
+      <div class="pcard">
+        <div class="pcard-h"><span class="nm">当事人 1</span><span class="sp"></span><button class="btn sm">删</button></div>
+        <div class="fgrid" style="margin-bottom:0">
+          <div class="field span12"><label>名称</label><input class="inp" placeholder="名称（输入可引用已登记的当事人）"></div>
+          <div class="field span6"><label>类型</label><span class="sel">法人<i>▾</i></span></div>
+          <div class="field span6"><label>诉讼地位</label><span class="sel">被告<i>▾</i></span></div>
+        </div>
+      </div>
+      <div class="pcard">
+        <div class="pcard-h"><span class="nm">当事人 2</span><span class="sp"></span><button class="btn sm">删</button></div>
+        <div class="fgrid" style="margin-bottom:0">
+          <div class="field span12"><label>名称</label><input class="inp" placeholder="名称（输入可引用已登记的当事人）"></div>
+          <div class="field span6"><label>类型</label><span class="sel">法人<i>▾</i></span></div>
+          <div class="field span6"><label>诉讼地位</label><span class="sel">第三人<i>▾</i></span></div>
+        </div>
+      </div>
+      <div class="hint warn">库里已有同名档案 2 份：提交会新建一行；确认是同一家，建案后到当事人页合并</div>
+      <div class="rowflex" style="margin-top:10px"><button class="btn sm">添加当事人</button></div>
+
+      <div class="fsec">办理与关注</div>
+      <div class="fgrid">
+        <div class="field span6"><label>经办人<b>*</b></label><span class="sel">周敏<i>▾</i></span></div>
+        <div class="field span6"><label>关注人</label><span class="sel">陈嘉禾 · 王兆坤<i>▾</i></span></div>
+      </div>
+
+      <div class="fsec">其他</div>
+      <div class="fgrid">
+        <div class="field span12"><label>基本情况</label><textarea class="ta ph" placeholder="案情摘要、管辖约定、我方主张"></textarea></div>
+      </div>
+    </div>
+
+    <div class="modal-f">
+      <span class="sp"></span>
+      <button class="btn">取消</button>
+      <button class="btn pri">建案</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

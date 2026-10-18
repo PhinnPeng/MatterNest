@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 用户管理</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body class="dark">
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it" href="matters.html">案件</a>
+    <a class="it" href="risk-matters.html">事项</a>
+    <a class="it" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it" href="config.html">功能配置</a>
+    <a class="it on" href="users.html">用户管理</a>
+    <a class="it" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>用户管理</h1>
+    </header>
+
+    <div class="page">
+      <div class="pagehead">
+        <span class="seg">
+          <a class="on" href="users.html">全部 9</a>
+          <a href="users.html">待开通 2</a>
+          <a href="users.html">已停用 1</a>
+        </span>
+      </div>
+
+      <div class="query">
+        <div class="field"><label>关键词</label><input class="inp w200" placeholder="账号 / 姓名"></div>
+        <div class="field"><label>角色</label><span class="sel">全部角色<i>▾</i></span></div>
+        <div class="field"><label>数据范围</label><span class="sel">全部范围<i>▾</i></span></div>
+        <div class="field"><label>状态</label><span class="sel">全部状态<i>▾</i></span></div>
+        <button class="btn" style="margin-left:auto">查询</button>
+        <button class="btn">重置</button>
+        <button class="btn pri">新增用户</button>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-h">
+          <h2>用户</h2>
+        </div>
+        <table class="tb">
+          <colgroup><col style="width:160px"><col style="width:96px"><col style="width:150px"><col style="width:120px"><col style="width:96px"><col style="width:120px"><col style="width:190px"></colgroup>
+          <thead><tr><th>账号</th><th>姓名</th><th>角色</th><th>数据范围</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>admin</td>
+              <td>系统管理员</td>
+              <td><span class="tag">系统所有者</span> <span class="tag">管理员</span></td>
+              <td>L1 全部数据</td>
+              <td><span class="pill ok"><i></i>已开通</span></td>
+              <td class="num mut">今天 09:30</td>
+              <td><span class="rowflex"><a class="btn link" href="#">授予角色</a><a class="btn link" href="#">重置密码</a><a class="btn link" href="#">停用</a></span></td>
+            </tr>
+            <tr>
+              <td>zhou.min</td>
+              <td>周敏</td>
+              <td><span class="tag">法务</span></td>
+              <td>L2 参与数据</td>
+              <td><span class="pill ok"><i></i>已开通</span></td>
+              <td class="num mut">昨天 17:02</td>
+              <td><span class="rowflex"><a class="btn link" href="#">授予角色</a><a class="btn link" href="#">重置密码</a><a class="btn link" href="#">停用</a></span></td>
+            </tr>
+            <tr>
+              <td>li.wenbo</td>
+              <td>李文博</td>
+              <td><span class="tag">法务</span></td>
+              <td>L2 参与数据</td>
+              <td><span class="pill ok"><i></i>已开通</span></td>
+              <td class="num mut">昨天 09:15</td>
+              <td><span class="rowflex"><a class="btn link" href="#">授予角色</a><a class="btn link" href="#">重置密码</a><a class="btn link" href="#">停用</a></span></td>
+            </tr>
+            <tr>
+              <td>wang.zhaokun</td>
+              <td>王兆坤</td>
+              <td><span class="tag">法务</span> <span class="tag">业务经办</span></td>
+              <td>L2 参与数据</td>
+              <td><span class="pill ok"><i></i>已开通</span></td>
+              <td class="num mut">10-15 11:48</td>
+              <td><span class="rowflex"><a class="btn link" href="#">授予角色</a><a class="btn link" href="#">重置密码</a><a class="btn link" href="#">停用</a></span></td>
+            </tr>
+            <tr>
+              <td>xu.ming</td>
+              <td>徐明</td>
+              <td><span class="tag">业务经办</span></td>
+              <td>L2 参与数据</td>
+              <td><span class="pill ok"><i></i>已开通</span></td>
+              <td class="num mut">10-13 15:20</td>
+              <td><span class="rowflex"><a class="btn link" href="#">授予角色</a><a class="btn link" href="#">重置密码</a><a class="btn link" href="#">停用</a></span></td>
+            </tr>
+            <tr>
+              <td>gu.yawen</td>
+              <td>顾雅文</td>
+              <td><span class="tag">业务经办</span></td>
+              <td>L2 参与数据</td>
+              <td><span class="pill ok"><i></i>已开通</span></td>
+              <td class="num mut">10-16 10:06</td>
+              <td><span class="rowflex"><a class="btn link" href="#">授予角色</a><a class="btn link" href="#">重置密码</a><a class="btn link" href="#">停用</a></span></td>
+            </tr>
+            <tr>
+              <td>zhou.lin</td>
+              <td>周林</td>
+              <td class="ph">未授予</td>
+              <td class="ph">—</td>
+              <td><span class="pill due"><i></i>待开通</span></td>
+              <td class="mut">从未</td>
+              <td><a class="btn link" href="#">重新发送开通邮件</a></td>
+            </tr>
+            <tr>
+              <td>shen.yiran</td>
+              <td>沈亦然</td>
+              <td class="ph">未授予</td>
+              <td class="ph">—</td>
+              <td><span class="pill due"><i></i>待开通</span></td>
+              <td class="mut">从未</td>
+              <td><a class="btn link" href="#">重新发送开通邮件</a></td>
+            </tr>
+            <tr>
+              <td>chen.jiahe</td>
+              <td>陈嘉禾</td>
+              <td><span class="tag">法务</span></td>
+              <td>L2 参与数据</td>
+              <td><span class="pill gray"><i></i>已停用</span></td>
+              <td class="num mut">09-28 18:40</td>
+              <td><span class="rowflex"><a class="btn link" href="#">授予角色</a><a class="btn link" href="#">启用</a></span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="pager">
+          <span class="num">共 9 条</span>
+          <span class="sp"></span>
+          <button class="btn sm" disabled>上一页</button>
+          <span class="num">1 / 1</span>
+          <button class="btn sm" disabled>下一页</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

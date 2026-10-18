@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>工作台 · 待办节点</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden;font:13.5px/1.5 "Source Han Sans SC","Noto Sans SC","Microsoft YaHei","PingFang SC",system-ui,sans-serif}
+:root{
+--page:#17191C;--fg:#E9EAE7;--fg2:#8E928C;--line:rgba(233,234,231,.13);--recess:rgba(0,0,0,.22);
+--bk1:#D2601F;--bk2:#D8A81E;--bk3:#5B8C3E;--bk4:#2E7D7B;--bk5:#3A5BA0;--bk6:#9A6B4F;
+--red:#CF4A33;--amber:#C9A02B;--green:#5B8C3E;--rowh:46px
+}
+body{background:var(--page);color:var(--fg)}
+.mono{font-family:Consolas,"DejaVu Sans Mono",monospace;font-variant-numeric:tabular-nums}
+.stage{display:flex;height:900px}
+.nav{width:216px;flex:0 0 216px;display:flex;flex-direction:column;padding:12px 0 14px;border-right:1px solid var(--line)}
+.grp{position:relative;padding-right:6px;background:var(--recess)}
+.grp+.grp{margin-top:10px}
+.grp.open{background:var(--page);box-shadow:8px 0 0 var(--page)}
+.grp-tab{position:absolute;top:5px;bottom:5px;right:10px;width:5px;background:var(--bk);opacity:.72}
+.grp.open .grp-tab{right:-6px;opacity:1}
+.grp-h{display:flex;align-items:center;gap:8px;padding:7px 16px 5px;font-weight:600;color:var(--bk)}
+.sw{width:8px;height:8px;background:var(--bk)}
+.g1{--bk:var(--bk1);--ih:34px}.g2{--bk:var(--bk4);--ih:36px}.g3{--bk:var(--bk5);--ih:35px}
+.item{display:flex;align-items:center;height:var(--ih);padding:0 16px;color:var(--fg);text-decoration:none;border-top:1px solid var(--line)}
+.item.on{font-weight:600}
+.nav-foot{margin-top:auto;padding:12px 16px 0;border-top:1px solid var(--line);color:var(--fg2)}
+.mode{display:inline-flex;align-items:center;gap:6px;margin-top:5px;color:var(--fg)}
+.mode i{display:inline-block;width:10px;height:10px;border:1px solid var(--fg2);background:var(--fg)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{flex:0 0 52px;display:flex;align-items:center;padding:0 22px;font-weight:600;border-bottom:1px solid var(--line)}
+.body{flex:1;width:1224px;padding:20px 22px 22px;display:flex;flex-direction:column}
+.row{display:flex;align-items:baseline;gap:14px}
+.ttl{font-weight:600}
+.sub{color:var(--fg2)}
+.sp{flex:1}
+.btn{font:inherit;color:var(--fg);background:transparent;border:1px solid var(--line);height:28px;padding:0 14px}
+.btn:hover{border-color:var(--fg2)}
+.band{display:flex;list-style:none;margin:22px 0 26px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.band li{flex:1;padding:16px 16px 18px;border-left:1px solid var(--line);border-top:2px solid transparent}
+.band li:first-child{border-left:0}
+.band .v{display:block;font-weight:600}
+.band .k{display:block;color:var(--fg2)}
+.st-hot{color:var(--red)}.st-warn{color:var(--amber)}.st-ok{color:var(--green)}
+.b-hot{border-top-color:var(--red)}.b-warn{border-top-color:var(--amber)}
+table.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{height:var(--rowh);padding:0 12px;text-align:left;border-bottom:1px solid var(--line)}
+.tbl th{font-weight:600;color:var(--fg2)}
+.c-id{width:170px}.c-nd{width:180px}.c-due{width:130px}.c-ow{width:92px}
+.dot{display:inline-block;border-radius:50%;background:currentColor;margin-right:8px;vertical-align:1px}
+.dot.lg{width:9px;height:9px}.dot.sm{width:6px;height:6px}
+.acts{padding-top:22px}
+.acts-h{padding-bottom:6px;font-weight:600;color:var(--fg2);border-bottom:1px solid var(--line)}
+.act{display:flex;gap:14px;align-items:baseline;height:40px;border-bottom:1px solid var(--line)}
+.act .m,.act .t{color:var(--fg2)}
+.act .t{margin-left:auto}
+</style>
+</head>
+<body class="light">
+<div class="stage">
+<nav class="nav">
+ <div class="grp g1 open">
+  <span class="grp-tab"></span>
+  <div class="grp-h"><span class="sw"></span>概要</div>
+  <a class="item on" href="#">工作台</a>
+  <a class="item" href="#">通知</a>
+ </div>
+ <div class="grp g2">
+  <span class="grp-tab"></span>
+  <div class="grp-h"><span class="sw"></span>业务</div>
+  <a class="item" href="#">案件</a>
+  <a class="item" href="#">事项</a>
+  <a class="item" href="#">当事人</a>
+  <a class="item" href="#">已归档</a>
+ </div>
+ <div class="grp g3">
+  <span class="grp-tab"></span>
+  <div class="grp-h"><span class="sw"></span>系统</div>
+  <a class="item" href="#">功能配置</a>
+  <a class="item" href="#">用户管理</a>
+  <a class="item" href="#">角色权限</a>
+ </div>
+ <div class="nav-foot">系统管理员 · 全局管理<span class="mode"><i></i>深色</span></div>
+</nav>
+<main class="main">
+ <div class="top">工作台</div>
+ <div class="body">
+  <div class="row">
+   <div class="ttl">今天该动手的</div>
+   <div class="sub mono">2026-10-17 周六 · 数据截至 09:30</div>
+   <div class="sp"></div>
+   <button class="btn">刷新</button>
+  </div>
+  <ul class="band">
+   <li><span class="v mono">12</span><span class="k">待办节点</span></li>
+   <li class="b-hot"><span class="v mono st-hot">3</span><span class="k">已逾期</span></li>
+   <li class="b-warn"><span class="v mono st-warn">5</span><span class="k">7 天内到期</span></li>
+   <li><span class="v mono">6</span><span class="k">在办案件</span></li>
+   <li><span class="v mono">4</span><span class="k">在办事项</span></li>
+   <li><span class="v mono">2</span><span class="k">本月新增案件</span></li>
+  </ul>
+  <table class="tbl">
+   <thead>
+    <tr><th class="c-id">编号</th><th>案名</th><th class="c-nd">节点</th><th class="c-due">期限 ▲</th><th class="c-ow">经办人</th></tr>
+   </thead>
+   <tbody>
+    <tr><td class="c-id mono">AJ-20260812-003</td><td>江苏恒基建设 建设工程施工合同纠纷</td><td>举证期限届满</td><td><span class="dot lg st-hot"></span><span class="st-hot">逾期 6 天</span></td><td>周敏</td></tr>
+    <tr><td class="c-id mono">SX-20260805-007</td><td>常州天元化工 产品责任纠纷</td><td>证据固定完成</td><td><span class="dot lg st-hot"></span><span class="st-hot">逾期 3 天</span></td><td>李文博</td></tr>
+    <tr><td class="c-id mono">AJ-20260902-001</td><td>杭州瑞和供应链 买卖合同纠纷</td><td>提交补充证据</td><td><span class="dot lg st-hot"></span><span class="st-hot">逾期 1 天</span></td><td>陈嘉禾</td></tr>
+    <tr><td class="c-id mono">AJ-20260819-002</td><td>苏州万顺机械 承揽合同纠纷</td><td>开庭</td><td><span class="dot sm st-warn"></span><span class="st-warn">剩 2 天</span></td><td>王兆坤</td></tr>
+    <tr><td class="c-id mono">SX-20260915-001</td><td>合肥远航物资 采购合同</td><td>内部审批完成</td><td><span class="dot sm st-warn"></span><span class="st-warn">剩 3 天</span></td><td>周敏</td></tr>
+    <tr><td class="c-id mono">AJ-20261005-001</td><td>无锡精诚电子 侵害商标权纠纷</td><td>上诉期届满</td><td><span class="dot sm st-warn"></span><span class="st-warn">剩 6 天</span></td><td>陈嘉禾</td></tr>
+   </tbody>
+  </table>
+  <div class="acts">
+   <div class="acts-h">最近动作</div>
+   <div class="act"><span class="mono">创建 AJ-20260921-001</span><span>扬州金鼎装饰 装饰装修合同纠纷</span><span class="m">批量导入 · 系统管理员</span><span class="t">2 小时前</span></div>
+   <div class="act"><span class="mono">更新 AJ-20260812-003</span><span>举证期限调整至 2026-11-02</span><span class="m">周敏</span><span class="t">3 小时前</span></div>
+   <div class="act"><span class="mono">上传 SX-20260915-001</span><span>合同扫描件 4 份</span><span class="m">李文博</span><span class="t">昨天 17:42</span></div>
+  </div>
+ </div>
+</main>
+</div>
+<style>
+body.light{
+--page:#FFFFFF;--fg:#1B1B1B;--fg2:#6B6B68;--line:#E3E3E0;--recess:rgba(0,0,0,.035);
+--bk1:#D2601F;--bk2:#D8A81E;--bk3:#5B8C3E;--bk4:#2E7D7B;--bk5:#3A5BA0;--bk6:#9A6B4F;
+--red:#B0291E;--amber:#8F6A0C;--green:#47703A
+}
+body.light .mode i{background:transparent}
+</style>
+</body>
+</html>

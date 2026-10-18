@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 工作台 · 今天该动手的</title>
+<link rel="stylesheet" href="world.css">
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item on" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">工作台</div></header>
+  <div class="content"><div class="wrap">
+    <section class="head">
+      <div>
+        <h1>今天该动手的</h1>
+        <div class="sub">2026-10-17 周六 · 数据截至 09:30</div>
+      </div>
+      <button class="btn">刷新</button>
+    </section>
+    <section class="metrics">
+      <div class="metric"><span>待办节点</span><b>12</b></div>
+      <div class="metric"><span>已逾期</span><b class="od">3</b></div>
+      <div class="metric"><span>7 天内到期</span><b class="soon">5</b></div>
+      <div class="metric"><span>在办案件</span><b>6</b></div>
+      <div class="metric"><span>在办事项</span><b>4</b></div>
+      <div class="metric"><span>本月新增案件</span><b>2</b></div>
+    </section>
+    <section class="card">
+      <div class="chead"><h2>待办节点</h2><em>含已逾期 · 按期限升序 · 前 10 条</em></div>
+      <div class="row od" style="grid-template-columns:24px 136px minmax(0,1fr) 152px 96px 72px">
+        <span style="padding-left:13px"><i class="dot od"></i></span><span class="num mut">AJ-20260812-003</span><span class="cut" style="padding:0 14px">江苏恒基建设 建设工程施工合同纠纷</span><span class="mut" style="padding-right:14px">举证期限届满</span><span class="num od" style="font-weight:600">逾期 6 天</span><span class="mut" style="font-size:12px">周敏</span></div>
+      <div class="row od" style="grid-template-columns:24px 136px minmax(0,1fr) 152px 96px 72px">
+        <span style="padding-left:13px"><i class="dot od"></i></span><span class="num mut">SX-20260805-007</span><span class="cut" style="padding:0 14px">常州天元化工 产品责任纠纷（涉诉前）</span><span class="mut" style="padding-right:14px">证据固定完成</span><span class="num od" style="font-weight:600">逾期 3 天</span><span class="mut" style="font-size:12px">李文博</span></div>
+      <div class="row od" style="grid-template-columns:24px 136px minmax(0,1fr) 152px 96px 72px">
+        <span style="padding-left:13px"><i class="dot od"></i></span><span class="num mut">AJ-20260902-001</span><span class="cut" style="padding:0 14px">杭州瑞和供应链 买卖合同纠纷</span><span class="mut" style="padding-right:14px">提交补充证据</span><span class="num od" style="font-weight:600">逾期 1 天</span><span class="mut" style="font-size:12px">陈嘉禾</span></div>
+      <div class="row" style="grid-template-columns:24px 136px minmax(0,1fr) 152px 96px 72px">
+        <span style="padding-left:13px"><i class="dot soon"></i></span><span class="num mut">AJ-20260819-002</span><span class="cut" style="padding:0 14px">苏州万顺机械 承揽合同纠纷</span><span class="mut" style="padding-right:14px">开庭</span><span class="num soon" style="font-weight:600">剩 2 天</span><span class="mut" style="font-size:12px">王兆坤</span></div>
+      <div class="row" style="grid-template-columns:24px 136px minmax(0,1fr) 152px 96px 72px">
+        <span style="padding-left:13px"><i class="dot sm"></i></span><span class="num mut">SX-20260915-001</span><span class="cut" style="padding:0 14px">合肥远航物资 采购合同（未签）</span><span class="mut" style="padding-right:14px">内部审批完成</span><span class="num mut">剩 3 天</span><span class="mut" style="font-size:12px">周敏</span></div>
+      <div class="row" style="grid-template-columns:24px 136px minmax(0,1fr) 152px 96px 72px">
+        <span style="padding-left:13px"><i class="dot sm"></i></span><span class="num mut">AJ-20260812-003</span><span class="cut" style="padding:0 14px">江苏恒基建设 建设工程施工合同纠纷</span><span class="mut" style="padding-right:14px">开庭</span><span class="num mut">剩 5 天</span><span class="mut" style="font-size:12px">李文博</span></div>
+      <div class="row" style="grid-template-columns:24px 136px minmax(0,1fr) 152px 96px 72px">
+        <span style="padding-left:13px"><i class="dot sm"></i></span><span class="num mut">AJ-20260910-004</span><span class="cut" style="padding:0 14px">无锡精诚电子 侵害商标权纠纷</span><span class="mut" style="padding-right:14px">上诉期届满</span><span class="num mut">剩 6 天</span><span class="mut" style="font-size:12px">陈嘉禾</span></div>
+      <div class="row" style="grid-template-columns:24px 136px minmax(0,1fr) 152px 96px 72px">
+        <span style="padding-left:13px"><i class="dot sm"></i></span><span class="num mut">SX-20260928-001</span><span class="cut" style="padding:0 14px">南通宏泰置业 商品房买卖合同（涉诉前）</span><span class="mut" style="padding-right:14px">内部会签完成</span><span class="num mut">剩 7 天</span><span class="mut" style="font-size:12px">王兆坤</span></div>
+      <div class="row" style="grid-template-columns:24px 136px minmax(0,1fr) 152px 96px 72px">
+        <span style="padding-left:13px"><i class="dot sm"></i></span><span class="num mut">AJ-20260928-006</span><span class="cut" style="padding:0 14px">扬州金鼎装饰 装饰装修合同纠纷</span><span class="mut" style="padding-right:14px">提交证据清单</span><span class="num mut">剩 12 天</span><span class="mut" style="font-size:12px">周敏</span></div>
+    </section>
+    <section class="card">
+      <div class="chead"><h2>最近动作</h2><em>按时间倒序 · 前 10 条</em></div>
+      <div class="row" style="grid-template-columns:76px 136px minmax(0,1fr) 92px 96px;min-height:38px">
+        <span class="mut" style="padding-left:16px;font-size:12px">创建</span><span class="num mut">AJ-20260921-001</span><span class="cut" style="padding:0 14px">扬州金鼎装饰 装饰装修合同纠纷 · 批量导入</span><span class="mut" style="font-size:12px">系统管理员</span><span class="num mut r" style="padding-right:0;font-size:12px">2 小时前</span></div>
+      <div class="row" style="grid-template-columns:76px 136px minmax(0,1fr) 92px 96px;min-height:38px">
+        <span class="mut" style="padding-left:16px;font-size:12px">更新</span><span class="num mut">AJ-20260812-003</span><span class="cut" style="padding:0 14px">江苏恒基建设 举证期限调整至 2026-11-02</span><span class="mut" style="font-size:12px">周敏</span><span class="num mut r" style="padding-right:0;font-size:12px">3 小时前</span></div>
+      <div class="row" style="grid-template-columns:76px 136px minmax(0,1fr) 92px 96px;min-height:38px">
+        <span class="mut" style="padding-left:16px;font-size:12px">上传</span><span class="num mut">SX-20260915-001</span><span class="cut" style="padding:0 14px">合肥远航物资 合同扫描件 4 份</span><span class="mut" style="font-size:12px">李文博</span><span class="num mut r" style="padding-right:0;font-size:12px">昨天 17:42</span></div>
+      <div class="row" style="grid-template-columns:76px 136px minmax(0,1fr) 92px 96px;min-height:38px">
+        <span class="mut" style="padding-left:16px;font-size:12px">状态变更</span><span class="num mut">AJ-20260819-002</span><span class="cut" style="padding:0 14px">苏州万顺机械 一审已排期</span><span class="mut" style="font-size:12px">王兆坤</span><span class="num mut r" style="padding-right:0;font-size:12px">昨天 16:08</span></div>
+      <div class="row" style="grid-template-columns:76px 136px minmax(0,1fr) 92px 96px;min-height:38px">
+        <span class="mut" style="padding-left:16px;font-size:12px">指派</span><span class="num mut">AJ-20260902-001</span><span class="cut" style="padding:0 14px">杭州瑞和供应链 开庭准备 → 陈嘉禾</span><span class="mut" style="font-size:12px">系统管理员</span><span class="num mut r" style="padding-right:0;font-size:12px">昨天 11:20</span></div>
+      <div class="row" style="grid-template-columns:76px 136px minmax(0,1fr) 92px 96px;min-height:38px">
+        <span class="mut" style="padding-left:16px;font-size:12px">更新</span><span class="num mut">AJ-20260812-003</span><span class="cut" style="padding:0 14px">江苏恒基建设 补充证据 3 份已收录</span><span class="mut" style="font-size:12px">周敏</span><span class="num mut r" style="padding-right:0;font-size:12px">昨天 09:47</span></div>
+      <div class="row" style="grid-template-columns:76px 136px minmax(0,1fr) 92px 96px;min-height:38px">
+        <span class="mut" style="padding-left:16px;font-size:12px">归档</span><span class="num mut">AJ-20260603-005</span><span class="cut" style="padding:0 14px">泰州华信物流 运输合同纠纷 · 调解结案</span><span class="mut" style="font-size:12px">周敏</span><span class="num mut r" style="padding-right:0;font-size:12px">10-14 09:15</span></div>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

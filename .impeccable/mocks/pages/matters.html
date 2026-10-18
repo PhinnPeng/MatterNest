@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 案件</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it on" href="matters.html">案件</a>
+    <a class="it" href="risk-matters.html">事项</a>
+    <a class="it" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it" href="config.html">功能配置</a>
+    <a class="it" href="users.html">用户管理</a>
+    <a class="it" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>案件</h1>
+    </header>
+
+    <div class="page">
+      <div class="stack">
+        <div class="metrics">
+          <div class="metric"><b class="num">6</b><span>在办案件</span></div>
+          <div class="metric over"><b class="num">2</b><span>已逾期</span></div>
+          <div class="metric due"><b class="num">2</b><span>7 日内到期</span></div>
+          <div class="metric"><b class="num">1</b><span>未指派负责人</span></div>
+          <div class="metric"><b class="num">1</b><span>限期未确认</span></div>
+          <div class="metric"><b class="num">2</b><span>本月新增</span></div>
+        </div>
+
+        <div class="query">
+          <div class="field"><label>关键词</label><input class="inp w200" placeholder="案号 / 案名 / 案由"></div>
+          <div class="field"><label>案件状态</label><span class="sel">全部状态<i>▾</i></span></div>
+          <div class="field"><label>案件类型</label><span class="sel">全部类型<i>▾</i></span></div>
+          <div class="field"><label>案件程序</label><span class="sel">全部程序<i>▾</i></span></div>
+          <div class="field"><label>经办人</label><span class="sel">全部（含未指派）<i>▾</i></span></div>
+          <div class="field"><label>期限范围</label><span class="sel">全部<i>▾</i></span></div>
+          <button class="btn pri" style="margin-left:auto">查询</button>
+          <button class="btn">重置</button>
+        </div>
+
+        <div class="card">
+          <div class="card-h">
+            <h2>案件列表</h2>
+            <span class="sp"></span>
+            <a class="btn sm pri" href="matter-create.html">新建案件</a>
+          </div>
+          <div class="tool">
+            <span class="num">已选 2 项</span>
+            <button class="btn sm">导出</button>
+            <button class="btn link" style="margin-left:auto">取消选择</button>
+          </div>
+          <table class="tb">
+            <colgroup><col style="width:44px"><col style="width:150px"><col><col style="width:104px"><col style="width:88px"><col style="width:96px"><col style="width:72px"><col style="width:100px"><col style="width:116px"><col style="width:168px"></colgroup>
+            <thead>
+              <tr>
+                <th class="c"><span class="cb"></span></th>
+                <th>案号</th>
+                <th>案名</th>
+                <th>类型</th>
+                <th>程序</th>
+                <th>状态</th>
+                <th>经办人</th>
+                <th>立案日期</th>
+                <th>最近期限</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="c"><span class="cb on">✓</span></td>
+                <td class="mono">AJ-20260812-003</td>
+                <td class="ellip"><a class="btn link" href="matter-detail.html">江苏恒基建设 建设工程施工合同纠纷</a></td>
+                <td>合同纠纷</td>
+                <td>一审</td>
+                <td><span class="pill gray"><i></i>审理中</span></td>
+                <td>周敏</td>
+                <td class="num">2026-08-12</td>
+                <td><span class="pill over"><i></i>逾期 6 天</span></td>
+                <td><span class="rowflex"><a class="btn link" href="matter-detail.html">进展</a><a class="btn link" href="matter-detail.html">状态</a><a class="btn link" href="matter-detail.html">程序</a></span></td>
+              </tr>
+              <tr>
+                <td class="c"><span class="cb on">✓</span></td>
+                <td class="mono">AJ-20260902-001</td>
+                <td class="ellip"><a class="btn link" href="matter-detail.html">杭州瑞和供应链 买卖合同纠纷</a></td>
+                <td>合同纠纷</td>
+                <td>一审</td>
+                <td><span class="pill gray"><i></i>审理中</span></td>
+                <td>陈嘉禾</td>
+                <td class="num">2026-09-02</td>
+                <td><span class="pill over"><i></i>逾期 1 天</span></td>
+                <td><span class="rowflex"><a class="btn link" href="matter-detail.html">进展</a><a class="btn link" href="matter-detail.html">状态</a><a class="btn link" href="matter-detail.html">程序</a></span></td>
+              </tr>
+              <tr>
+                <td class="c"><span class="cb"></span></td>
+                <td class="mono">AJ-20260819-002</td>
+                <td class="ellip"><a class="btn link" href="matter-detail.html">苏州万顺机械 承揽合同纠纷</a></td>
+                <td>合同纠纷</td>
+                <td>一审</td>
+                <td><span class="pill gray"><i></i>审理中</span></td>
+                <td>王兆坤</td>
+                <td class="num">2026-08-19</td>
+                <td><span class="pill due"><i></i>剩 2 天</span></td>
+                <td><span class="rowflex"><a class="btn link" href="matter-detail.html">进展</a><a class="btn link" href="matter-detail.html">状态</a><a class="btn link" href="matter-detail.html">程序</a></span></td>
+              </tr>
+              <tr>
+                <td class="c"><span class="cb"></span></td>
+                <td class="mono">AJ-20261005-001</td>
+                <td class="ellip"><a class="btn link" href="matter-detail.html">无锡精诚电子 侵害商标权纠纷</a></td>
+                <td>知识产权</td>
+                <td>二审</td>
+                <td><span class="pill gray"><i></i>审理中</span></td>
+                <td>陈嘉禾</td>
+                <td class="num">2026-10-05</td>
+                <td><span class="pill due"><i></i>剩 6 天</span></td>
+                <td><span class="rowflex"><a class="btn link" href="matter-detail.html">进展</a><a class="btn link" href="matter-detail.html">状态</a><a class="btn link" href="matter-detail.html">程序</a></span></td>
+              </tr>
+              <tr>
+                <td class="c"><span class="cb"></span></td>
+                <td class="mono">AJ-20261002-001</td>
+                <td class="ellip"><a class="btn link" href="matter-detail.html">苏州园区开发集团 建设工程价款争议</a></td>
+                <td>合同纠纷</td>
+                <td>一审</td>
+                <td><span class="pill gray"><i></i>立案</span></td>
+                <td>周敏</td>
+                <td class="num">2026-10-02</td>
+                <td><span class="pill gray"><i></i>剩 12 天</span></td>
+                <td><span class="rowflex"><a class="btn link" href="matter-detail.html">进展</a><a class="btn link" href="matter-detail.html">状态</a><a class="btn link" href="matter-detail.html">程序</a></span></td>
+              </tr>
+              <tr>
+                <td class="c"><span class="cb"></span></td>
+                <td class="mono">AJ-20260921-001</td>
+                <td class="ellip"><a class="btn link" href="matter-detail.html">扬州金鼎装饰 装饰装修合同纠纷</a></td>
+                <td>合同纠纷</td>
+                <td>仲裁</td>
+                <td><span class="pill gray"><i></i>立案</span></td>
+                <td class="ph">未指派</td>
+                <td class="num">2026-09-21</td>
+                <td class="ph">—</td>
+                <td><span class="rowflex"><a class="btn link" href="matter-detail.html">指派</a><a class="btn link" href="matter-detail.html">进展</a><a class="btn link" href="matter-detail.html">状态</a></span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="pager">
+            <span class="num">共 6 条</span>
+            <span class="sp"></span>
+            <button class="btn sm" disabled>上一页</button>
+            <span class="num">1 / 1</span>
+            <button class="btn sm" disabled>下一页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

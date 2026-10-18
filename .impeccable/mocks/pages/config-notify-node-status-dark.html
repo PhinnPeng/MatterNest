@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 功能配置 · 节点通知状态</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body class="dark">
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it" href="matters.html">案件</a>
+    <a class="it" href="risk-matters.html">事项</a>
+    <a class="it" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it on" href="config.html">功能配置</a>
+    <a class="it" href="users.html">用户管理</a>
+    <a class="it" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>节点通知状态</h1>
+      <a class="back" href="config.html">返回功能配置</a>
+      <span class="sp"></span>
+    </header>
+
+    <div class="page">
+      <div class="pagehead">
+        <div><h2>节点通知状态</h2></div>
+        <span class="sp"></span>
+        <a class="btn pri" href="#form">新增</a>
+      </div>
+
+      <div class="card">
+        <table class="tb">
+          <colgroup><col style="width:52px"><col><col><col style="width:130px"><col style="width:120px"></colgroup>
+          <thead><tr><th></th><th>节点状态</th><th>触发说明</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="c"><span class="cb on">✓</span></td>
+              <td>未开始</td>
+              <td>开始前通知经办人、协办人</td>
+              <td><span class="pill ok"><i></i>启用</span></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb on">✓</span></td>
+              <td>进行中</td>
+              <td>截止前通知经办人、协办人</td>
+              <td><span class="pill ok"><i></i>启用</span></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td>已完成</td>
+              <td class="ph">—</td>
+              <td><span class="pill gray"><i></i>停用</span></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">启用</button></div></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td>已取消</td>
+              <td class="ph">—</td>
+              <td><span class="pill gray"><i></i>停用</span></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">启用</button></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+  <div class="mask" id="form">
+    <div class="modal narrow" role="dialog" aria-label="新增节点通知状态">
+      <div class="modal-h"><h3>新增节点通知状态</h3><span class="sp"></span><a class="x" href="#" aria-label="关闭">✕</a></div>
+      <div class="modal-b">
+        <div class="fgrid">
+          <div class="field span6"><label>节点状态</label><span class="sel">未开始<i>▾</i></span></div>
+          <div class="field span6"><label>触发通知</label><span class="sel">是<i>▾</i></span></div>
+          <div class="field span12"><label>触发说明</label><input class="inp" placeholder="如 节点建立时提醒经办"></div>
+        </div>
+      </div>
+      <div class="modal-f"><span class="sp"></span><a class="btn" href="#">取消</a><button class="btn pri">保存</button></div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,98 @@
+{
+  "title": "选择视觉世界",
+  "question": "掷出的方向是「案卷脊标」。保留它、挑一个备选，或换一手。",
+  "options": [
+    {
+      "id": "assigned",
+      "kind": "assigned",
+      "label": "案卷脊标",
+      "kicker": "THE ROLL",
+      "lineage": "诉讼卷宗 · 档案脊标 · 骑缝线",
+      "thesis": "把每一页做成一份立在案头的案卷：脊标给识别，细线给秩序，朱砂只落在要你动手的地方。",
+      "palette": ["#FAF7F0", "#201D19", "#B5442C", "#96601F", "#1F2A2C"],
+      "materials": ["纸面与墨", "细线横规", "脊标色带"],
+      "viewport": "深墨导航 + 纸面主体：页头指示行、五格指标摘要、按期限升序的待办节点列表；朱砂只落在逾期与主按钮。",
+      "risk": "脊标一旦失守就退成泛黄怀旧；细线密度松掉，只剩「古风皮肤」。",
+      "raised": [
+        {
+          "from": "challenger-star-atlas",
+          "raise": "星等即点径：紧迫度只由一维编码承担——已逾期 = 大朱砂点、7 天内 = 中点、其余 = 小灰点，且与文字并存。"
+        }
+      ],
+      "html": ".impeccable/mocks/decision/assigned.html"
+    },
+    {
+      "id": "model-pick",
+      "kind": "pick",
+      "label": "公文头版",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "中国公文标准格式（红头与版记）",
+      "thesis": "把每一屏当一份公文：红头给身份，窄正文给阅读，批注挂在右边的留白里。",
+      "palette": ["#FBF9F4", "#1C1A17", "#B02F1E", "#96601F"],
+      "materials": ["纸面", "红头横线", "旁批留白"],
+      "viewport": "红头压顶、窄正文 980px、右侧 180px 批注栏；指标以竖线分隔成一行版记，六行细横规待办。",
+      "risk": "正统感最强、也最可预期——红头与窄列一旦压不住，就像机关网站而不是工具。",
+      "html": ".impeccable/mocks/decision/grounded-1.html"
+    },
+    {
+      "id": "challenger-gate-board",
+      "kind": "challenger",
+      "catalogId": "vernacular-ephemera-boarding-pass-and-gate-board",
+      "label": "航班信息屏",
+      "verdict": "competitive",
+      "lineage": "登机口信息屏 · 登机牌段落",
+      "thesis": "待办列表就是发车屏：按期限重排，变更的行留在原地亮着，直到你看见。",
+      "palette": ["#F7F7F5", "#141414", "#F2C230", "#C43A2F"],
+      "materials": ["高对比中性面板", "信号黄变更条", "等宽数字"],
+      "viewport": "墨黑导航选中块、五格指标带、40px 行的待办白卡；第一行「期限变更 · 今日」带浅黄底与黄条。",
+      "case": "功能最锋利的一手：行内重排 + 变更保留，直接回答「什么变了」；身份却仍是通用信息屏。",
+      "risk": "信号黄用重了就变成警示灯竞赛，与「档案」的沉稳气质互斥。",
+      "hero": "https://impeccable.style/worlds/cards/vernacular-ephemera-boarding-pass-and-gate-board-hero.webp",
+      "html": ".impeccable/mocks/decision/challenger-gate-board.html"
+    },
+    {
+      "id": "challenger-centre-rail",
+      "kind": "challenger",
+      "catalogId": "rw-centre-rail-reference-setting",
+      "label": "中央导轨",
+      "verdict": "competitive",
+      "lineage": "考订版式 · 居中键轨",
+      "thesis": "一条写着 FROM / NODE / DUE / OWNER 的中央竖轨，把每一行切成围绕中缝对齐的两栏。",
+      "palette": ["#F4F1EA", "#1A1A1A", "#C23A2A"],
+      "materials": ["三值印刷", "1px 细线", "小号大写键名"],
+      "viewport": "标准应用壳之内，内容正中一条 88px 导轨立着键名，左右两栏围着它对齐六行待办。",
+      "case": "克制最彻底（只有三值、只有细线）；离「文件」只有一步，表格页会暴露它。",
+      "risk": "导轨在宽屏是秩序，在窄屏与多列表格页可能变成一条装饰性的空轴。",
+      "hero": "https://impeccable.style/worlds/cards/rw-centre-rail-reference-setting-hero.webp",
+      "html": ".impeccable/mocks/decision/challenger-centre-rail.html"
+    },
+    {
+      "id": "challenger-star-atlas",
+      "kind": "challenger",
+      "catalogId": "notation-diagram-systems-star-atlas",
+      "label": "天体星图",
+      "verdict": "declined",
+      "lineage": "航海与天文星图",
+      "thesis": "把紧迫度当星等：点径分级、夜蓝底，红圈只圈住需要被注意的对象。",
+      "palette": ["#0E1424", "#EDE6D6", "#D24B33", "#C9A25B"],
+      "materials": ["夜蓝底", "星等点径", "衬线斜体"],
+      "viewport": "深蓝壳 + 纸白字：列表首列是 12 / 9 / 6px 的星等圆点，指标列成一行星历。",
+      "kept": "星等即点径——层级只由一个已编码维度承担，其余字段全部退到静默。",
+      "risk": "夜空身份与法务的机构气质无关；星图的组织方式一旦进入布局，就是戏服。",
+      "hero": "https://impeccable.style/worlds/cards/notation-diagram-systems-star-atlas-hero.webp"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "code", "toggle": true },
+  "canon": true,
+  "canonCard": {
+    "kind": "canon",
+    "label": "行业标准做法",
+    "thesis": "这个品类的通用答案，以最扎实的工艺执行。",
+    "palette": ["#FFFFFF", "#111827", "#2563EB"],
+    "materials": ["干净栅格", "组件库默认"],
+    "viewport": "左侧深色导航 + 白色卡片与表格，人人一眼认得的企业后台。",
+    "risk": "与竞品无法区分——这是它被选中的原因，也是它的代价。"
+  },
+  "steer": true
+}

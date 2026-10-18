@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 角色权限</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it" href="matters.html">案件</a>
+    <a class="it" href="risk-matters.html">事项</a>
+    <a class="it" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it" href="config.html">功能配置</a>
+    <a class="it" href="users.html">用户管理</a>
+    <a class="it on" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>角色权限</h1>
+    </header>
+
+    <div class="page">
+      <div class="master">
+        <div class="card">
+          <div class="card-h">
+            <h2>角色</h2>
+            <span class="sp"></span>
+            <span class="num mut">5 个</span>
+          </div>
+          <div class="card-b" style="padding:10px">
+            <a class="pick on" id="p-full_admin" href="#p-full_admin">
+              <span class="t"><b>全局管理</b><span class="num mut">1</span></span>
+              <span class="s">全公司</span>
+            </a>
+            <a class="pick" id="p-sys_admin" href="#p-sys_admin">
+              <span class="t"><b>系统管理</b><span class="num mut">1</span></span>
+              <span class="s">我承办的</span>
+            </a>
+            <a class="pick" id="p-full_operator" href="#p-full_operator">
+              <span class="t"><b>全局经办</b><span class="num mut">0</span></span>
+              <span class="s">全公司</span>
+            </a>
+            <a class="pick" id="p-joined_operator" href="#p-joined_operator">
+              <span class="t"><b>参与经办</b><span class="num mut">0</span></span>
+              <span class="s">我参与的</span>
+            </a>
+            <a class="pick" id="p-self_operator" href="#p-self_operator">
+              <span class="t"><b>承办经办</b><span class="num mut">0</span></span>
+              <span class="s">我承办的</span>
+            </a>
+          </div>
+        </div>
+
+        <div>
+          <!-- 全局管理 -->
+          <div class="pane on" id="r-full_admin">
+            <div class="card">
+              <div class="card-h">
+                <h3>全局管理</h3>
+                <span class="mono mut">full_admin</span>
+                <span class="tag">系统内置</span>
+                <span class="sp"></span>
+                <span class="num mut">1 人持有</span>
+              </div>
+              <div class="card-b">
+                <dl class="cap">
+                  <dt>看得见</dt>
+                  <dd>全公司 <span class="mut">· 全公司每一案件/事项</span></dd>
+                  <dt>能做</dt>
+                  <dd>
+                    <div class="rowflex"><span class="pill ok"><i></i>撤销归档</span><span class="mut">把已归档的案件/事项退回在办</span></div>
+                    <div class="rowflex" style="margin-top:4px"><span class="pill ok"><i></i>明文导出</span><span class="mut">导出未脱敏的证件号</span></div>
+                  </dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">
+                <h3>成员</h3>
+                <span class="sp"></span>
+                <a class="btn link" href="users.html">去用户管理授予</a>
+              </div>
+              <table class="tb">
+                <colgroup><col style="width:150px"><col style="width:110px"><col style="width:120px"><col style="width:100px"><col></colgroup>
+                <thead><tr><th>账号</th><th>姓名</th><th>数据范围</th><th>状态</th><th>兼任</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td class="mono">admin</td>
+                    <td>系统管理员</td>
+                    <td>全公司</td>
+                    <td><span class="pill ok"><i></i>已开通</span></td>
+                    <td><span class="tag">系统管理</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 系统管理 -->
+          <div class="pane" id="r-sys_admin">
+            <div class="card">
+              <div class="card-h">
+                <h3>系统管理</h3>
+                <span class="mono mut">sys_admin</span>
+                <span class="tag">系统内置</span>
+                <span class="sp"></span>
+                <span class="num mut">1 人持有</span>
+              </div>
+              <div class="card-b">
+                <dl class="cap">
+                  <dt>看得见</dt>
+                  <dd>我承办的 <span class="mut">· 我承办的 ∪ 我创建的</span></dd>
+                  <dt>能做</dt>
+                  <dd>
+                    <div class="rowflex"><span class="pill ok"><i></i>管理账号</span><span class="mut">建号、授予角色、停用</span></div>
+                    <div class="rowflex" style="margin-top:4px"><span class="pill ok"><i></i>管理配置</span><span class="mut">改功能配置里的值</span></div>
+                  </dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">
+                <h3>成员</h3>
+                <span class="sp"></span>
+                <a class="btn link" href="users.html">去用户管理授予</a>
+              </div>
+              <table class="tb">
+                <colgroup><col style="width:150px"><col style="width:110px"><col style="width:120px"><col style="width:100px"><col></colgroup>
+                <thead><tr><th>账号</th><th>姓名</th><th>数据范围</th><th>状态</th><th>兼任</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td class="mono">admin</td>
+                    <td>系统管理员</td>
+                    <td>全公司</td>
+                    <td><span class="pill ok"><i></i>已开通</span></td>
+                    <td><span class="tag">全局管理</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 全局经办 -->
+          <div class="pane" id="r-full_operator">
+            <div class="card">
+              <div class="card-h">
+                <h3>全局经办</h3>
+                <span class="mono mut">full_operator</span>
+                <span class="tag">系统内置</span>
+                <span class="sp"></span>
+                <span class="num mut">0 人持有</span>
+              </div>
+              <div class="card-b">
+                <dl class="cap">
+                  <dt>看得见</dt>
+                  <dd>全公司 <span class="mut">· 全公司每一案件/事项</span></dd>
+                  <dt>能做</dt>
+                  <dd>
+                    <span class="mut">该角色没有特权项</span>
+                  </dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h"><h3>成员</h3></div>
+              <div class="card-b">
+                <div class="empty" style="padding:28px 16px">还没有人持有这个角色
+                  <div style="margin-top:10px"><a class="btn sm" href="users.html">去用户管理授予</a></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 参与经办 -->
+          <div class="pane" id="r-joined_operator">
+            <div class="card">
+              <div class="card-h">
+                <h3>参与经办</h3>
+                <span class="mono mut">joined_operator</span>
+                <span class="tag">系统内置</span>
+                <span class="sp"></span>
+                <span class="num mut">0 人持有</span>
+              </div>
+              <div class="card-b">
+                <dl class="cap">
+                  <dt>看得见</dt>
+                  <dd>我参与的 <span class="mut">· 我承办的 ∪ 我协办的 ∪ 我被加为关注人的 ∪ 我创建的</span></dd>
+                  <dt>能做</dt>
+                  <dd>
+                    <span class="mut">该角色没有特权项</span>
+                  </dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h"><h3>成员</h3></div>
+              <div class="card-b">
+                <div class="empty" style="padding:28px 16px">还没有人持有这个角色
+                  <div style="margin-top:10px"><a class="btn sm" href="users.html">去用户管理授予</a></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 承办经办 -->
+          <div class="pane" id="r-self_operator">
+            <div class="card">
+              <div class="card-h">
+                <h3>承办经办</h3>
+                <span class="mono mut">self_operator</span>
+                <span class="tag">系统内置</span>
+                <span class="sp"></span>
+                <span class="num mut">0 人持有</span>
+              </div>
+              <div class="card-b">
+                <dl class="cap">
+                  <dt>看得见</dt>
+                  <dd>我承办的 <span class="mut">· 我承办的 ∪ 我创建的</span></dd>
+                  <dt>能做</dt>
+                  <dd>
+                    <span class="mut">该角色没有特权项</span>
+                  </dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h"><h3>成员</h3></div>
+              <div class="card-b">
+                <div class="empty" style="padding:28px 16px">还没有人持有这个角色
+                  <div style="margin-top:10px"><a class="btn sm" href="users.html">去用户管理授予</a></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

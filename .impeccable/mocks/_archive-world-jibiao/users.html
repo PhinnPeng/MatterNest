@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 用户</title>
+<link rel="stylesheet" href="world.css">
+<style>
+.sort::after{content:" ⇅";color:var(--mute);font-size:10px}
+.act{display:inline-flex;gap:10px}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item" href="config.html">功能配置</a>
+    <a class="item on" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">用户</div></header>
+  <div class="content"><div class="wrap">
+    <section class="card">
+      <div class="chead"><h2>待开通</h2><em>1 个</em></div>
+      <div class="row" style="grid-template-columns:190px 140px minmax(0,1fr) 160px">
+        <span class="num" style="padding-left:16px">zhou.lin</span>
+        <span style="padding-right:14px">周林</span>
+        <span class="mut" style="padding-right:14px;font-size:12px">批准时必须同时指定角色</span>
+        <span style="text-align:right;padding-right:16px"><button class="btn sm pri">批准并指定角色</button></span>
+      </div>
+    </section>
+    <section class="card">
+      <div class="chead">
+        <h2>用户</h2>
+        <div class="tools"><em>共 5 个</em><button class="btn sm">列设置</button><button class="btn sm">刷新</button></div>
+      </div>
+      <div class="throw" style="grid-template-columns:190px 140px 220px 150px 90px 110px 216px;padding-left:16px">
+        <span>账号</span><span>显示名</span><span>角色</span><span>状态</span><span>凭据</span><span>最后登录</span><span>操作</span>
+      </div>
+      <div class="row" style="grid-template-columns:190px 140px 220px 150px 90px 110px 216px">
+        <span class="num" style="padding-left:16px">admin <i class="tag od" style="margin-left:6px">系统所有者</i></span>
+        <span style="padding-right:14px">系统管理员</span>
+        <span style="padding-right:14px"><i class="tag ok">系统所有者</i> <i class="tag mut">管理员</i></span>
+        <span style="padding-right:14px"><i class="dot sm ok"></i> <span class="ok">启用</span> <span class="mut" style="font-size:11.5px">· 已开通</span></span>
+        <span class="mut" style="padding-right:14px">已设</span>
+        <span class="num mut" style="padding-right:14px">09:30</span>
+        <span class="act" style="padding-right:16px"><span class="txtbtn">改角色</span><span class="txtbtn">移交所有权</span></span>
+      </div>
+      <div class="row" style="grid-template-columns:190px 140px 220px 150px 90px 110px 216px">
+        <span class="num" style="padding-left:16px">zhou.min</span>
+        <span style="padding-right:14px">周敏</span>
+        <span style="padding-right:14px"><i class="tag mut">法务</i></span>
+        <span style="padding-right:14px"><i class="dot sm ok"></i> <span class="ok">启用</span> <span class="mut" style="font-size:11.5px">· 已开通</span></span>
+        <span class="mut" style="padding-right:14px">已设</span>
+        <span class="num mut" style="padding-right:14px">昨天 17:02</span>
+        <span class="act" style="padding-right:16px"><span class="txtbtn">改角色</span><span class="txtbtn">停用</span><span class="txtbtn">设口令</span></span>
+      </div>
+      <div class="row" style="grid-template-columns:190px 140px 220px 150px 90px 110px 216px">
+        <span class="num" style="padding-left:16px">li.wenbo</span>
+        <span style="padding-right:14px">李文博</span>
+        <span style="padding-right:14px"><i class="tag mut">法务</i></span>
+        <span style="padding-right:14px"><i class="dot sm ok"></i> <span class="ok">启用</span> <span class="mut" style="font-size:11.5px">· 已开通</span></span>
+        <span class="mut" style="padding-right:14px">已设</span>
+        <span class="num mut" style="padding-right:14px">昨天 09:15</span>
+        <span class="act" style="padding-right:16px"><span class="txtbtn">改角色</span><span class="txtbtn">停用</span><span class="txtbtn">设口令</span></span>
+      </div>
+      <div class="row" style="grid-template-columns:190px 140px 220px 150px 90px 110px 216px">
+        <span class="num" style="padding-left:16px">chen.jiahe</span>
+        <span style="padding-right:14px">陈嘉禾</span>
+        <span style="padding-right:14px"><i class="tag mut">法务</i></span>
+        <span style="padding-right:14px"><i class="dot sm"></i> <span class="mut">停用</span> <span class="mut" style="font-size:11.5px">· 已开通</span></span>
+        <span class="mut" style="padding-right:14px">未设</span>
+        <span class="mut" style="padding-right:14px">从未</span>
+        <span class="act" style="padding-right:16px"><span class="txtbtn">改角色</span><span class="txtbtn">启用</span></span>
+      </div>
+      <div class="row" style="grid-template-columns:190px 140px 220px 150px 90px 110px 216px">
+        <span class="num" style="padding-left:16px">wang.zhaokun</span>
+        <span style="padding-right:14px">王兆坤</span>
+        <span style="padding-right:14px"><i class="tag mut">法务</i> <i class="tag mut">业务经办</i></span>
+        <span style="padding-right:14px"><i class="dot sm ok"></i> <span class="ok">启用</span> <span class="mut" style="font-size:11.5px">· 已开通</span></span>
+        <span class="mut" style="padding-right:14px">已设</span>
+        <span class="num mut" style="padding-right:14px">10-13 11:48</span>
+        <span class="act" style="padding-right:16px"><span class="txtbtn">改角色</span><span class="txtbtn">停用</span><span class="txtbtn">设口令</span></span>
+      </div>
+      <div class="row" style="grid-template-columns:190px 140px 220px 150px 90px 110px 216px">
+        <span class="num" style="padding-left:16px">xu.ming</span>
+        <span style="padding-right:14px">徐明</span>
+        <span style="padding-right:14px"><i class="tag mut">业务经办</i></span>
+        <span style="padding-right:14px"><i class="dot sm ok"></i> <span class="ok">启用</span> <span class="mut" style="font-size:11.5px">· 已开通</span></span>
+        <span class="mut" style="padding-right:14px">已设</span>
+        <span class="num mut" style="padding-right:14px">10-10 15:20</span>
+        <span class="act" style="padding-right:16px"><span class="txtbtn">改角色</span><span class="txtbtn">停用</span><span class="txtbtn">设口令</span></span>
+      </div>
+      <div class="pager"><span>共 6 个</span><span><i class="on">1</i></span></div>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 功能配置 · 标签</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it" href="matters.html">案件</a>
+    <a class="it" href="risk-matters.html">事项</a>
+    <a class="it" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it on" href="config.html">功能配置</a>
+    <a class="it" href="users.html">用户管理</a>
+    <a class="it" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>标签</h1>
+      <a class="back" href="config.html">返回功能配置</a>
+      <span class="sp"></span>
+    </header>
+
+    <div class="page">
+      <div class="pagehead">
+        <div><h2>标签</h2></div>
+        <span class="sp"></span>
+        <a class="btn pri" href="#form">新增</a>
+      </div>
+
+      <div class="card">
+        <table class="tb">
+          <colgroup><col style="width:36px"><col style="width:44px"><col><col style="width:150px"><col><col style="width:130px"><col style="width:120px"></colgroup>
+          <thead><tr><th></th><th class="c">序号</th><th>名称</th><th>编码</th><th>说明</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">1</td>
+              <td><span class="swatch" style="background:#DC2626"></span> 重大标的额</td>
+              <td class="mono">LARGE-AMOUNT</td>
+              <td>标的额 1000 万元以上</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">2</td>
+              <td><span class="swatch" style="background:#2563EB"></span> 涉外</td>
+              <td class="mono">FOREIGN</td>
+              <td>一方为境外主体</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">3</td>
+              <td><span class="swatch" style="background:#7C3AED"></span> 集团诉讼</td>
+              <td class="mono">CLASS-ACTION</td>
+              <td>当事人 10 人以上</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">4</td>
+              <td><span class="swatch" style="background:#D97706"></span> 需上报</td>
+              <td class="mono">REPORT-REQUIRED</td>
+              <td>结案前上报集团法务</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">5</td>
+              <td><span class="swatch" style="background:#0891B2"></span> 关注舆情</td>
+              <td class="mono">PUBLIC-OPINION</td>
+              <td>已有媒体报道</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">6</td>
+              <td><span class="swatch" style="background:#6B7280"></span> 长期未结</td>
+              <td class="mono">LONG-PENDING</td>
+              <td class="ph">—</td>
+              <td><div class="rowflex"><span class="sw"></span>停用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">启用</button></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+  <div class="mask" id="form">
+    <div class="modal narrow" role="dialog" aria-label="新增标签">
+      <div class="modal-h"><h3>新增标签</h3><span class="sp"></span><a class="x" href="#" aria-label="关闭">✕</a></div>
+      <div class="modal-b">
+        <div class="fgrid">
+          <div class="field span12"><label>名称<b>*</b></label><input class="inp" placeholder="如 一方为境外主体"></div>
+          <div class="field span6"><label>编码<b>*</b></label><input class="inp" placeholder="如 FOREIGN"></div>
+          <div class="field span6"><label>排序</label><input class="inp" placeholder="如 80"></div>
+          <div class="field span12"><label>说明</label><input class="inp" placeholder="如 一方为境外主体"></div>
+          <div class="field span6"><label>颜色</label>
+            <div class="rowflex"><span class="swatch" style="background:#DC2626"></span><span class="sel" style="flex:1">红<i>▾</i></span></div></div>
+          <div class="field span6"><label>适用</label><span class="sel">案件 + 事项<i>▾</i></span></div>
+        </div>
+      </div>
+      <div class="modal-f"><span class="sp"></span><a class="btn" href="#">取消</a><button class="btn pri">保存</button></div>
+    </div>
+  </div>
+</body>
+</html>

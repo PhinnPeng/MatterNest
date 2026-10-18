@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 功能配置 · 案件状态</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body class="dark">
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it" href="matters.html">案件</a>
+    <a class="it" href="risk-matters.html">事项</a>
+    <a class="it" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it on" href="config.html">功能配置</a>
+    <a class="it" href="users.html">用户管理</a>
+    <a class="it" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>案件状态</h1>
+      <a class="back" href="config.html">返回功能配置</a>
+      <span class="sp"></span>
+    </header>
+
+    <div class="page">
+      <div class="pagehead">
+        <div><h2>案件状态</h2></div>
+        <span class="sp"></span>
+        <a class="btn pri" href="#form">新增</a>
+      </div>
+
+      <div class="card">
+        <table class="tb">
+          <colgroup><col style="width:36px"><col style="width:44px"><col><col style="width:150px"><col><col style="width:130px"><col style="width:120px"></colgroup>
+          <thead><tr><th></th><th class="c">序号</th><th>名称</th><th>编码</th><th>说明</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">1</td>
+              <td>立案</td>
+              <td class="mono">FILED</td>
+              <td>受理登记完成</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">2</td>
+              <td>审理中</td>
+              <td class="mono">HEARING</td>
+              <td>庭审进行中</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">3</td>
+              <td>待判决</td>
+              <td class="mono">PENDING-JUDGMENT</td>
+              <td>辩论终结待宣判</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">4</td>
+              <td>已判决</td>
+              <td class="mono">JUDGED</td>
+              <td>判决书已送达</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">5</td>
+              <td>执行中</td>
+              <td class="mono">ENFORCING</td>
+              <td>已进入执行程序</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">6</td>
+              <td>已结案</td>
+              <td class="mono">CLOSED</td>
+              <td>材料齐备可归档</td>
+              <td><div class="rowflex"><span class="sw on"></span>启用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">停用</button></div></td>
+            </tr>
+            <tr>
+              <td class="drag">⠿</td><td class="num c">7</td>
+              <td>已撤诉</td>
+              <td class="mono">WITHDRAWN</td>
+              <td class="ph">—</td>
+              <td><div class="rowflex"><span class="sw"></span>停用</div></td>
+              <td><div class="rowflex"><a class="btn link" href="#form">编辑</a><button class="btn link">启用</button></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+  <div class="mask" id="form">
+    <div class="modal narrow" role="dialog" aria-label="新增案件状态">
+      <div class="modal-h"><h3>新增案件状态</h3><span class="sp"></span><a class="x" href="#" aria-label="关闭">✕</a></div>
+      <div class="modal-b">
+        <div class="fgrid">
+          <div class="field span12"><label>名称<b>*</b></label><input class="inp" placeholder="如 庭审进行中"></div>
+          <div class="field span6"><label>编码<b>*</b></label><input class="inp" placeholder="如 HEARING"></div>
+          <div class="field span6"><label>排序</label><input class="inp" placeholder="如 80"></div>
+          <div class="field span12"><label>说明</label><input class="inp" placeholder="如 庭审进行中"></div>
+          <div class="field span6"><label>语义</label><span class="sel">在办<i>▾</i></span>
+            <div class="hint">决定系统行为：在办 / 终态 / 归档</div></div>
+        </div>
+      </div>
+      <div class="modal-f"><span class="sp"></span><a class="btn" href="#">取消</a><button class="btn pri">保存</button></div>
+    </div>
+  </div>
+</body>
+</html>

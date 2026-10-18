@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 工作台（星图方向草图）</title>
+<style>
+:root{
+  --bg:#0E1424;--nav:#0A101C;--topbar:#111A2E;--panel:#151F36;--line:#26314A;--hair:rgba(38,49,74,.6);
+  --paper:#EDE6D6;--mist:#B8BFCC;--dim:#8B93A8;--red:#D24B33;--redink:#E25F46;--amber:#C9A25B;
+  --serif:"Songti SC","Noto Serif SC","Source Han Serif SC",SimSun,serif;
+  --sans:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:ui-monospace,"SF Mono",Consolas,"DejaVu Sans Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1440px;height:900px;overflow:hidden;background:var(--bg);color:var(--paper);font-family:var(--sans);font-size:13px;line-height:1.45}
+.app{display:flex;height:900px}
+.side{width:216px;flex:none;background:var(--nav);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.brand{height:64px;display:flex;align-items:center;padding:0 20px;font-family:var(--serif);font-size:18px;letter-spacing:.5px;border-bottom:1px solid var(--line)}
+.navgroup{padding:16px 0 2px}
+.navlabel{padding:0 20px 8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;color:var(--amber)}
+.navitem{display:block;padding:7px 20px;border-left:2px solid transparent;color:var(--mist);font-size:13px}
+.navitem.on{border-left-color:var(--red);color:var(--paper);font-weight:600;background:rgba(210,75,51,.08)}
+.navfoot{margin-top:auto;padding:14px 20px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;line-height:1.8;color:var(--dim);font-variant-numeric:tabular-nums}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:48px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:var(--topbar);border-bottom:1px solid var(--line)}
+.topbar h1{font-family:var(--serif);font-size:16px;font-weight:600;letter-spacing:.5px}
+.topright{display:flex;align-items:center;gap:14px}
+.stamp{font-family:var(--mono);font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+.btn{border:1px solid var(--amber);border-radius:3px;background:transparent;color:var(--amber);font-family:var(--sans);font-size:12px;padding:4px 12px}
+.content{flex:1;min-height:0;padding:22px 28px 24px;display:flex;flex-direction:column;gap:22px}
+.metrics{display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.metric{padding:14px 20px 16px;border-left:1px solid var(--line)}
+.metric:first-child{border-left:0;padding-left:0}
+.mlabel{display:block;margin-bottom:6px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--amber)}
+.mnum{font-family:var(--mono);font-size:26px;line-height:1;font-weight:600;font-variant-numeric:tabular-nums}
+.board{background:var(--panel);border:1px solid var(--line);border-radius:4px}
+.boardhead{display:flex;align-items:baseline;justify-content:space-between;padding:14px 18px 12px}
+.boardhead h2,.activity h2{font-family:var(--serif);font-size:15px;font-weight:600;letter-spacing:.4px}
+.legend{display:flex;gap:16px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.dot{display:inline-block;border-radius:50%;vertical-align:middle}
+.d-lg{width:12px;height:12px;background:var(--red)}
+.d-md{width:9px;height:9px;background:var(--amber)}
+.d-sm{width:6px;height:6px;background:var(--dim)}
+.legend i{margin-right:6px}
+.rowhead,.row{display:grid;grid-template-columns:28px 148px minmax(0,1fr) 172px 140px 88px;align-items:center;padding:0 18px}
+.rowhead{height:32px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--dim)}
+.row{height:40px}
+.row+.row{border-top:1px solid var(--hair)}
+.cid{font-family:var(--mono);font-size:11.5px;color:var(--mist);font-variant-numeric:tabular-nums}
+.ccase{font-family:var(--serif);font-size:13.5px;color:var(--paper);padding-right:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cnode{font-size:12.5px;color:var(--mist);padding-right:12px}
+.cdue{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+.over{color:var(--redink);font-weight:600}
+.soon{color:var(--amber)}
+.late{color:var(--mist)}
+.cwho{font-size:12.5px;color:var(--dim);text-align:right}
+.boardfoot{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 18px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+.boardfoot b{color:var(--amber);font-weight:400}
+.activity{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:14px 18px 12px}
+.activity h2{margin-bottom:10px}
+.act{display:flex;gap:14px;align-items:baseline;padding:6px 0;border-top:1px solid var(--hair);font-size:12.5px;color:var(--mist)}
+.act:first-of-type{border-top:0}
+.act time{flex:none;font-family:var(--mono);font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+.act em{font-style:normal;color:var(--paper)}
+.act code{font-family:var(--mono);font-size:11.5px;color:var(--mist);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="side">
+    <div class="brand">MatterNest</div>
+    <div class="navgroup">
+      <p class="navlabel">概要</p>
+      <a class="navitem on">工作台</a>
+      <a class="navitem">通知</a>
+    </div>
+    <div class="navgroup">
+      <p class="navlabel">业务</p>
+      <a class="navitem">案件</a>
+      <a class="navitem">事项</a>
+      <a class="navitem">当事人</a>
+      <a class="navitem">已归档</a>
+    </div>
+    <div class="navgroup">
+      <p class="navlabel">系统</p>
+      <a class="navitem">配置字典</a>
+      <a class="navitem">用户与角色</a>
+    </div>
+    <div class="navfoot">今日 2026-10-17<br>沈明霞 · 法务专员</div>
+  </nav>
+  <main class="main">
+    <header class="topbar">
+      <h1>工作台</h1>
+      <div class="topright"><span class="stamp">更新于 10-17 09:12</span><button type="button" class="btn">刷新</button></div>
+    </header>
+    <div class="content">
+      <section class="metrics" aria-label="指标摘要">
+        <div class="metric"><span class="mlabel">待办节点</span><span class="mnum">12</span></div>
+        <div class="metric"><span class="mlabel">已逾期</span><span class="mnum">3</span></div>
+        <div class="metric"><span class="mlabel">7 天内到期</span><span class="mnum">5</span></div>
+        <div class="metric"><span class="mlabel">在办案件</span><span class="mnum">6</span></div>
+        <div class="metric"><span class="mlabel">在办事项</span><span class="mnum">4</span></div>
+      </section>
+      <section class="board" aria-label="待办节点">
+        <div class="boardhead">
+          <h2>待办节点</h2>
+          <div class="legend"><span><i class="dot d-lg"></i>逾期</span><span><i class="dot d-md"></i>7 天内</span><span><i class="dot d-sm"></i>7 天后</span></div>
+        </div>
+        <div class="rowhead"><span>星等</span><span>编号</span><span>案件</span><span>节点</span><span>期限</span><span class="cwho">经办人</span></div>
+        <div class="row"><i class="dot d-lg"></i><span class="cid">AJ-20260812-003</span><span class="ccase">江苏恒基建设 建设工程施工合同纠纷</span><span class="cnode">举证期限届满</span><span class="cdue over">逾期 6 天</span><span class="cwho">沈明霞</span></div>
+        <div class="row"><i class="dot d-lg"></i><span class="cid">AJ-20260731-011</span><span class="ccase">浙江远洋物流 运输合同纠纷</span><span class="cnode">上诉期届满</span><span class="cdue over">逾期 2 天</span><span class="cwho">陆文斌</span></div>
+        <div class="row"><i class="dot d-lg"></i><span class="cid">AJ-20260925-018</span><span class="ccase">苏州恒信电子 买卖合同纠纷</span><span class="cnode">开庭</span><span class="cdue over">逾期 1 天</span><span class="cwho">郑海涛</span></div>
+        <div class="row"><i class="dot d-md"></i><span class="cid">AJ-20261005-026</span><span class="ccase">南京城投置业 房屋租赁合同纠纷</span><span class="cnode">举证期限届满</span><span class="cdue soon">3 天后到期</span><span class="cwho">周雅琴</span></div>
+        <div class="row"><i class="dot d-md"></i><span class="cid">SX-20260928-007</span><span class="ccase">常州华科机械 设备质量争议</span><span class="cnode">提交书面异议</span><span class="cdue soon">4 天后到期</span><span class="cwho">沈明霞</span></div>
+        <div class="row"><i class="dot d-md"></i><span class="cid">AJ-20261009-031</span><span class="ccase">无锡精密制造 劳动争议</span><span class="cnode">开庭</span><span class="cdue soon">5 天后到期</span><span class="cwho">陆文斌</span></div>
+        <div class="row"><i class="dot d-md"></i><span class="cid">AJ-20261012-034</span><span class="ccase">合肥新桥物流园 建设工程分包纠纷</span><span class="cnode">提交答辩状</span><span class="cdue soon">6 天后到期</span><span class="cwho">郑海涛</span></div>
+        <div class="row"><i class="dot d-md"></i><span class="cid">AJ-20261013-036</span><span class="ccase">南通瑞达纺织 买卖合同纠纷</span><span class="cnode">举证期限届满</span><span class="cdue soon">7 天后到期</span><span class="cwho">周雅琴</span></div>
+        <div class="row"><i class="dot d-sm"></i><span class="cid">AJ-20261015-041</span><span class="ccase">天津滨海港口服务 海事海商纠纷</span><span class="cnode">管辖异议答复</span><span class="cdue late">12 天后到期</span><span class="cwho">沈明霞</span></div>
+        <div class="row"><i class="dot d-sm"></i><span class="cid">AJ-20261016-045</span><span class="ccase">青岛海诺化工 货物运输合同纠纷</span><span class="cnode">证据交换</span><span class="cdue late">19 天后到期</span><span class="cwho">陆文斌</span></div>
+        <div class="boardfoot"><span>已显示 10 / 12 条</span><b>查看全部待办节点 →</b></div>
+      </section>
+      <section class="activity" aria-label="最近动作">
+        <h2>最近动作</h2>
+        <div class="act"><time>10-17 09:12</time><span><em>沈明霞</em> 将 <code>AJ-20260812-003</code> 的节点「举证期限届满」标记为已逾期</span></div>
+        <div class="act"><time>10-16 17:38</time><span><em>陆文斌</em> 上传《上诉答辩状》至 <code>AJ-20260731-011</code></span></div>
+        <div class="act"><time>10-16 11:05</time><span><em>周雅琴</em> 上传《证据目录》至 <code>AJ-20260925-018</code></span></div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

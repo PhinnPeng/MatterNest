@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 工作台</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body class="dark">
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it on" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it" href="matters.html">案件</a>
+    <a class="it" href="risk-matters.html">事项</a>
+    <a class="it" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it" href="config.html">功能配置</a>
+    <a class="it" href="users.html">用户管理</a>
+    <a class="it" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>工作台</h1>
+      <span class="sp"></span>
+      <span class="who num">数据截至 09:30</span>
+      <button class="btn sm">刷新</button>
+    </header>
+
+    <div class="page">
+      <div class="pagehead">
+        <div>
+          <h2>今天该动手的</h2>
+          <div class="sub num">2026-10-17 周六</div>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><b class="num">12</b><span>待办节点</span></div>
+        <div class="metric over"><b class="num">3</b><span>已逾期</span></div>
+        <div class="metric due"><b class="num">5</b><span>7 天内到期</span></div>
+        <div class="metric"><b class="num">6</b><span>在办案件</span></div>
+        <div class="metric"><b class="num">4</b><span>在办事项</span></div>
+        <div class="metric"><b class="num">2</b><span>本月新增案件</span></div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-h">
+          <h3>待办节点</h3>
+          <span class="sp"></span>
+          <span class="mut">按期限升序</span>
+          <a class="btn link" href="matters.html">查看全部</a>
+        </div>
+        <table class="tb">
+          <colgroup><col style="width:150px"><col><col style="width:132px"><col style="width:118px"><col style="width:76px"><col style="width:96px"></colgroup>
+          <thead><tr><th>编号</th><th>案名</th><th>节点</th><th>期限</th><th>经办人</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">AJ-20260812-003</td><td class="ellip">江苏恒基建设 建设工程施工合同纠纷</td><td>举证期限届满</td><td><span class="pill over"><i></i>逾期 6 天</span></td><td>周敏</td><td><a class="btn link" href="matter-detail.html">查看</a></td></tr>
+            <tr><td class="mono">SX-20260805-007</td><td class="ellip">常州天元化工 产品责任纠纷</td><td>证据固定完成</td><td><span class="pill over"><i></i>逾期 3 天</span></td><td>李文博</td><td><a class="btn link" href="risk-detail.html">查看</a></td></tr>
+            <tr><td class="mono">AJ-20260902-001</td><td class="ellip">杭州瑞和供应链 买卖合同纠纷</td><td>提交补充证据</td><td><span class="pill over"><i></i>逾期 1 天</span></td><td>陈嘉禾</td><td><a class="btn link" href="matter-detail.html">查看</a></td></tr>
+            <tr><td class="mono">AJ-20260819-002</td><td class="ellip">苏州万顺机械 承揽合同纠纷</td><td>开庭</td><td><span class="pill due"><i></i>剩 2 天</span></td><td>王兆坤</td><td><a class="btn link" href="matter-detail.html">查看</a></td></tr>
+            <tr><td class="mono">SX-20260915-001</td><td class="ellip">合肥远航物资 采购合同</td><td>内部审批完成</td><td><span class="pill due"><i></i>剩 3 天</span></td><td>周敏</td><td><a class="btn link" href="risk-detail.html">查看</a></td></tr>
+            <tr><td class="mono">AJ-20261005-001</td><td class="ellip">无锡精诚电子 侵害商标权纠纷</td><td>上诉期届满</td><td><span class="pill due"><i></i>剩 6 天</span></td><td>陈嘉禾</td><td><a class="btn link" href="matter-detail.html">查看</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3>最近动作</h3>
+          <span class="sp"></span>
+          <span class="mut">近 24 小时</span>
+          <a class="btn link" href="notifications.html">查看全部</a>
+        </div>
+        <table class="tb">
+          <colgroup><col style="width:110px"><col style="width:96px"><col style="width:140px"><col></colgroup>
+          <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th></tr></thead>
+          <tbody>
+            <tr><td class="num mut">10-17 10:12</td><td>系统管理员</td><td>批量导入</td><td class="ellip">创建 AJ-20260921-001 扬州金鼎装饰 装饰装修合同纠纷</td></tr>
+            <tr><td class="num mut">10-17 09:40</td><td>周敏</td><td>更新期限</td><td class="ellip">AJ-20260812-003 举证期限调整至 2026-11-02</td></tr>
+            <tr><td class="num mut">10-16 17:42</td><td>李文博</td><td>上传材料</td><td class="ellip">SX-20260915-001 合同扫描件 4 份</td></tr>
+            <tr><td class="num mut">10-16 16:20</td><td>陈嘉禾</td><td>转案件</td><td class="ellip">SX-20260902-004 江苏恒基建设 买卖合同纠纷</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

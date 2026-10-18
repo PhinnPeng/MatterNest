@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 功能配置 · 案件状态</title>
+<link rel="stylesheet" href="world.css">
+<style>
+.mtx{width:100%;border-collapse:collapse;font-size:13px}
+.mtx th{font-weight:400;font-size:11.5px;color:var(--ink2);border-bottom:1px solid var(--line);padding:8px 16px;text-align:left}
+.mtx td{padding:9px 16px;border-bottom:1px solid var(--line2)}
+.mtx tr:last-child td{border-bottom:none}
+.back{font-size:12px;color:var(--ink2);text-decoration:none}
+.back:hover{color:var(--cinnabar)}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item on" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">功能配置</div></header>
+  <div class="content"><div class="wrap">
+    <section class="head">
+      <div>
+        <a class="back" href="config.html">‹ 功能配置</a>
+        <h1 style="margin-top:6px">案件状态</h1>
+      </div>
+      <em class="mut" style="font-style:normal;font-size:12px">6 项</em>
+    </section>
+    <section class="card">
+      <table class="mtx">
+        <tr><th style="width:140px">编码</th><th style="width:220px">名称</th><th>语义</th></tr>
+        <tr><td class="num mut">10</td><td>立案受理</td><td><i class="dot sm"></i> <span class="mut">进行中</span></td></tr>
+        <tr><td class="num mut">20</td><td>审前准备</td><td><i class="dot sm"></i> <span class="mut">进行中</span></td></tr>
+        <tr><td class="num mut">30</td><td>一审已排期</td><td><i class="dot sm"></i> <span class="mut">进行中</span></td></tr>
+        <tr><td class="num mut">40</td><td>已结案</td><td><i class="dot sm ok"></i> <span class="ok">终态</span></td></tr>
+        <tr><td class="num mut">50</td><td>调解结案</td><td><i class="dot sm ok"></i> <span class="ok">终态</span></td></tr>
+        <tr><td class="num mut">60</td><td>已归档</td><td><i class="dot sm ok"></i> <span class="ok">终态</span></td></tr>
+      </table>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

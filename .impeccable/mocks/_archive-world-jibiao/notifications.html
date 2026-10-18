@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 通知</title>
+<link rel="stylesheet" href="world.css">
+<style>
+/* 页内局部：两行通知行 */
+.row{min-height:50px}
+.nt{font-size:13px}
+.ns{margin-top:2px;font-size:11.5px;color:var(--ink2)}
+.rd{font-size:12px}
+.rd.un{color:var(--cinnabar)}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item on" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">通知</div></header>
+  <div class="content"><div class="wrap">
+    <section class="card">
+      <div class="chead">
+        <h2>通知</h2>
+        <div class="tools">
+          <em>未读 3</em>
+          <span class="mut" style="font-size:12px">只看未读</span><i class="sw"></i>
+          <button class="btn">全部已读</button>
+          <button class="btn">刷新</button>
+        </div>
+      </div>
+      <div class="throw" style="grid-template-columns:150px minmax(0,1fr) 110px 72px;padding-left:16px">
+        <span>时间</span><span>通知</span><span>类别</span><span>状态</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-17 09:12</span>
+        <span style="padding:0 14px"><div class="nt">举证期限今日到期</div><div class="ns">AJ-20260819-002 苏州万顺机械 承揽合同纠纷 · 开庭准备材料</div></span>
+        <span style="padding-right:14px"><i class="tag mut">期限</i></span>
+        <span class="rd un" style="padding-right:14px"><i class="dot sm od" style="margin-right:6px"></i>未读</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-16 17:40</span>
+        <span style="padding:0 14px"><div class="nt">批量导入完成</div><div class="ns">扬州金鼎装饰 装饰装修合同纠纷 · 成功 12 条，跳过 1 条（缺案号）</div></span>
+        <span style="padding-right:14px"><i class="tag mut">导入</i></span>
+        <span class="rd un" style="padding-right:14px"><i class="dot sm od" style="margin-right:6px"></i>未读</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-16 15:03</span>
+        <span style="padding:0 14px"><div class="nt">新事项指派给你</div><div class="ns">SX-20260915-001 合肥远航物资 采购合同（未签）· 负责人变更为 周敏</div></span>
+        <span style="padding-right:14px"><i class="tag mut">指派</i></span>
+        <span class="rd un" style="padding-right:14px"><i class="dot sm od" style="margin-right:6px"></i>未读</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-16 11:26</span>
+        <span style="padding:0 14px"><div class="nt">陈嘉禾 在过程记录中提及你</div><div class="ns">AJ-20260902-001 杭州瑞和供应链 买卖合同纠纷 · "@王兆坤 下周补充证据清单"</div></span>
+        <span style="padding-right:14px"><i class="tag mut">提及</i></span>
+        <span class="rd mut" style="padding-right:14px">已读</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-15 18:55</span>
+        <span style="padding:0 14px"><div class="nt">案件状态变更为 一审已排期</div><div class="ns">AJ-20260819-002 苏州万顺机械 承揽合同纠纷 · 操作人 王兆坤</div></span>
+        <span style="padding-right:14px"><i class="tag mut">状态</i></span>
+        <span class="rd mut" style="padding-right:14px">已读</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-15 09:30</span>
+        <span style="padding:0 14px"><div class="nt">已转案件完成</div><div class="ns">SX-20260928-001 南通宏泰置业 商品房买卖合同（涉诉前）→ AJ-20260928-006</div></span>
+        <span style="padding-right:14px"><i class="tag mut">转案件</i></span>
+        <span class="rd mut" style="padding-right:14px">已读</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-14 09:15</span>
+        <span style="padding:0 14px"><div class="nt">案件已归档</div><div class="ns">AJ-20260603-005 泰州华信物流 运输合同纠纷 · 调解结案</div></span>
+        <span style="padding-right:14px"><i class="tag mut">归档</i></span>
+        <span class="rd mut" style="padding-right:14px">已读</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-13 16:20</span>
+        <span style="padding:0 14px"><div class="nt">费用新增</div><div class="ns">AJ-20260812-003 江苏恒基建设 建设工程施工合同纠纷 · 诉讼费 ¥12,800</div></span>
+        <span style="padding-right:14px"><i class="tag mut">费用</i></span>
+        <span class="rd mut" style="padding-right:14px">已读</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-12 10:02</span>
+        <span style="padding:0 14px"><div class="nt">这条通知涉及你无权查看的记录</div><div class="ns">标题与摘要已隐藏——能看见这条案卷的同事可以转告你内容</div></span>
+        <span style="padding-right:14px"><i class="tag mut">不可见</i></span>
+        <span class="rd mut" style="padding-right:14px">已读</span>
+      </div>
+      <div class="row" style="grid-template-columns:150px minmax(0,1fr) 110px 72px">
+        <span class="num mut" style="padding-left:16px">10-11 14:47</span>
+        <span style="padding:0 14px"><div class="nt">新当事人并入档案</div><div class="ns">常州恒基建材经营部 → 并入 江苏恒基建设有限公司</div></span>
+        <span style="padding-right:14px"><i class="tag mut">当事人</i></span>
+        <span class="rd mut" style="padding-right:14px">已读</span>
+      </div>
+      <div class="pager"><span>第 1–10 条 · 共 10 条</span><span><i class="on">1</i></span></div>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

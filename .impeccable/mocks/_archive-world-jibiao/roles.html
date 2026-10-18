@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 角色</title>
+<link rel="stylesheet" href="world.css">
+<style>
+.sort::after{content:" ⇅";color:var(--mute);font-size:10px}
+.mem{display:flex;align-items:center;gap:12px;min-height:40px;padding:0 16px;border-top:1px solid var(--line2)}
+.mem:first-of-type{border-top:none}
+.mem b{flex:none;width:150px;font-weight:400;font-size:12.5px}
+.mem .who{font-size:12.5px}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item on" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">角色</div></header>
+  <div class="content"><div class="wrap">
+    <section class="card">
+      <div class="chead">
+        <h2>角色</h2>
+        <div class="tools"><em>5 个 · 全部系统内置</em><button class="btn sm">刷新</button></div>
+      </div>
+      <div class="throw" style="grid-template-columns:170px 130px 120px 300px 90px 90px;padding-left:16px">
+        <span>角色</span><span>编码</span><span>数据范围</span><span>特权</span><span>状态</span><span class="r">持有人数</span>
+      </div>
+      <div class="row" style="grid-template-columns:170px 130px 120px 300px 90px 90px">
+        <span style="padding-left:16px">系统所有者
+      </span>
+        <span class="num mut" style="padding-right:14px">sys_owner</span>
+        <span style="padding-right:14px">L1 全部数据</span>
+        <span style="padding-right:14px"><i class="tag mut">管理账号</i> <i class="tag mut">管理配置</i> <i class="tag mut">阅明文</i> <i class="tag mut">撤销归档</i></span>
+        <span style="padding-right:14px"><i class="dot sm ok"></i> <span class="ok">启用</span></span>
+        <span class="num r" style="padding-right:16px">1</span>
+      </div>
+      <div class="row" style="grid-template-columns:170px 130px 120px 300px 90px 90px">
+        <span style="padding-left:16px">管理员
+      </span>
+        <span class="num mut" style="padding-right:14px">admin</span>
+        <span style="padding-right:14px">L1 全部数据</span>
+        <span style="padding-right:14px"><i class="tag mut">管理账号</i> <i class="tag mut">管理配置</i></span>
+        <span style="padding-right:14px"><i class="dot sm ok"></i> <span class="ok">启用</span></span>
+        <span class="num r" style="padding-right:16px">1</span>
+      </div>
+      <div class="row" style="grid-template-columns:170px 130px 120px 300px 90px 90px">
+        <span style="padding-left:16px">法务
+      </span>
+        <span class="num mut" style="padding-right:14px">legal</span>
+        <span style="padding-right:14px">L2 参与数据</span>
+        <span style="padding-right:14px"><i class="tag mut">撤销归档</i></span>
+        <span style="padding-right:14px"><i class="dot sm ok"></i> <span class="ok">启用</span></span>
+        <span class="num r" style="padding-right:16px">4</span>
+      </div>
+      <div class="row" style="grid-template-columns:170px 130px 120px 300px 90px 90px">
+        <span style="padding-left:16px">业务经办
+      </span>
+        <span class="num mut" style="padding-right:14px">staff</span>
+        <span style="padding-right:14px">L2 参与数据</span>
+        <span style="padding-right:14px"><span class="mut">无</span></span>
+        <span style="padding-right:14px"><i class="dot sm ok"></i> <span class="ok">启用</span></span>
+        <span class="num r" style="padding-right:16px">2</span>
+      </div>
+      <div class="row" style="grid-template-columns:170px 130px 120px 300px 90px 90px">
+        <span style="padding-left:16px">查阅
+      </span>
+        <span class="num mut" style="padding-right:14px">viewer</span>
+        <span style="padding-right:14px">L3 仅本人</span>
+        <span style="padding-right:14px"><span class="mut">无</span></span>
+        <span style="padding-right:14px"><i class="dot sm"></i> <span class="mut">停用</span></span>
+        <span class="num r" style="padding-right:16px">0</span>
+      </div>
+    </section>
+    <section class="card">
+      <div class="chead"><h2>角色成员</h2><em>谁在哪个角色上</em></div>
+      <div class="mem"><b>系统所有者</b><span class="who">系统管理员</span></div>
+      <div class="mem"><b>管理员</b><span class="who">系统管理员</span></div>
+      <div class="mem"><b>法务</b><span class="who">周敏 · 李文博 · 陈嘉禾 · 王兆坤</span></div>
+      <div class="mem"><b>业务经办</b><span class="who">王兆坤 · 徐明</span></div>
+      <div class="mem"><b>查阅</b><span class="mut" style="font-size:12.5px">暂无成员</span></div>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 工作台</title>
+<style>
+/* 甲级公文格式 → 界面语言：纸 #FBF9F4 / 墨 #1C1A17 / 次级 #5F5C55 / 细线 #E5E0D5 / 朱砂 #B02F1E / 赭石 #96601F */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--paper:#FBF9F4;--ink:#1C1A17;--gray:#5F5C55;--line:#E5E0D5;--red:#B02F1E;--ochre:#96601F;
+--serif:"Songti SC","Noto Serif SC","Source Han Serif SC",SimSun,serif;
+--mono:ui-monospace,"SF Mono",Consolas,"Cascadia Mono",monospace}
+body{background:var(--paper);color:var(--ink);font:13px/1.55 -apple-system,"Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+.stage{width:1440px;height:900px;overflow:hidden;display:flex;flex-direction:column}
+.toprule{flex:0 0 3px;background:var(--red)}
+.head{flex:0 0 52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px}
+.head-l,.head-r{display:flex;align-items:center;gap:16px}
+.brand{font-family:var(--serif);font-size:18px;font-weight:600;letter-spacing:.2em;color:var(--red)}
+.hair{width:1px;height:16px;background:var(--line)}
+.subsys{font-size:11px;letter-spacing:.3em;color:var(--gray)}
+.user{font-size:12px;color:var(--gray)}
+.btn{border:1px solid var(--red);color:var(--red);background:none;border-radius:1px;padding:6px 14px;font-size:12px;line-height:1;letter-spacing:.1em;font-family:inherit}
+.docrule{flex:0 0 1px;background:var(--red)}
+.doctitle{flex:0 0 34px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--line);font-family:var(--serif);font-size:14px;letter-spacing:.34em;padding-left:.34em}
+.body{flex:1;min-height:0;display:flex;overflow:hidden}
+/* 左导航：纸色底 + 墨线分隔；选中 = 朱砂竖线 + 朱砂字 */
+.nav{flex:0 0 216px;border-right:1px solid var(--ink);display:flex;flex-direction:column;padding:24px 0 22px}
+.navhead{padding:0 24px 16px;border-bottom:1px solid var(--line);font-family:var(--serif);font-size:13px;letter-spacing:.22em}
+.grp{margin-top:24px}
+.grplab{padding:0 24px 8px;font-size:11px;letter-spacing:.3em;color:var(--gray)}
+.nav a{display:block;position:relative;padding:8px 24px;font-family:var(--serif);font-size:13px;letter-spacing:.16em;color:var(--ink);text-decoration:none}
+.nav a.on{color:var(--red)}
+.nav a.on::before{content:"";position:absolute;left:10px;top:9px;bottom:9px;width:2px;background:var(--red)}
+.cnt{font-family:var(--mono);font-size:11px;letter-spacing:0;color:var(--red);margin-left:6px}
+.navfoot{margin-top:auto;padding:0 24px;font-size:11px;letter-spacing:.08em;color:var(--gray)}
+/* 主内容：正文收窄 980px + 右侧朱砂批注栏 180px */
+.main{flex:1;min-width:0;padding:34px 0 0;overflow:hidden}
+.wrap{display:grid;grid-template-columns:980px 180px;gap:24px;justify-content:center;align-items:start}
+.phead{display:flex;align-items:baseline;justify-content:space-between;height:32px}
+.pdate{font-family:var(--serif);font-size:15px;letter-spacing:.2em}
+.fresh{font-size:12px;color:var(--gray)}
+/* 指标摘要：公文式句子行（竖线分隔），非卡片 */
+.metrics{display:flex;align-items:baseline;justify-content:space-between;margin-top:20px;padding:15px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.m{display:flex;align-items:baseline;gap:10px}
+.mlab{font-size:12px;letter-spacing:.1em;color:var(--gray)}
+.mnum{font-family:var(--serif);font-size:26px;line-height:1}
+.vr{width:1px;height:22px;align-self:center;background:var(--line)}
+.red{color:var(--red)}
+.ochre{color:var(--ochre)}
+.sect{display:flex;align-items:baseline;justify-content:space-between;margin-top:30px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+.sect h2{font-family:var(--serif);font-size:14px;font-weight:500;letter-spacing:.22em}
+.hint{font-size:11.5px;color:var(--gray)}
+.link{color:var(--red);text-decoration:none}
+/* 待办节点：细线横规，无表格竖线 */
+.cols{display:grid;grid-template-columns:132px 1fr 140px 130px 64px;gap:16px;align-items:center}
+.th{height:26px;font-size:11.5px;letter-spacing:.16em;color:var(--gray)}
+.row{height:52px;border-top:1px solid var(--line)}
+.rows{border-bottom:1px solid var(--line)}
+.code{font-family:var(--mono);font-size:12px;letter-spacing:0;color:var(--gray)}
+.case,.node{font-size:13px}
+.due{display:flex;align-items:baseline;font-size:13px;font-weight:600}
+.date{font-family:var(--mono);font-size:11px;font-weight:400;color:var(--gray);margin-left:8px}
+.own{font-size:12.5px;color:var(--gray)}
+.act{display:grid;grid-template-columns:96px 64px 1fr;gap:16px;align-items:center;height:38px;border-top:1px solid var(--line)}
+.act:last-child{border-bottom:1px solid var(--line)}
+.t{font-family:var(--mono);font-size:11.5px;color:var(--gray)}
+.who{font-size:12.5px}
+.txt{font-size:12.5px}
+.ref{font-family:var(--mono);font-size:11.5px;color:var(--gray);margin-left:8px}
+/* 签名动作：旁批——右侧窄批注栏，朱砂细线 + 引出短横线 */
+.rail{position:relative;min-height:685px;border-left:1px solid var(--red)}
+.note{position:absolute;left:20px;right:0;font-size:12px;line-height:1.75;color:var(--red)}
+.note::before{content:"";position:absolute;left:-34px;top:10px;width:28px;height:1px;background:var(--red)}
+.n1{top:213px}.n2{top:473px}.n3{top:534px}
+</style>
+</head>
+<body>
+<div class="stage">
+<div class="toprule"></div>
+<header class="head">
+  <div class="head-l">
+    <span class="brand">MatterNest</span>
+    <span class="hair"></span>
+    <span class="subsys">涉诉事项台账系统</span>
+  </div>
+  <div class="head-r">
+    <span class="user">李思远 · 法务部</span>
+    <button class="btn">刷新</button>
+  </div>
+</header>
+<div class="docrule"></div>
+<div class="doctitle">工作台 · 今天该动手的</div>
+<div class="body">
+  <nav class="nav">
+    <div class="navhead">MatterNest</div>
+    <div class="grp">
+      <div class="grplab">概要</div>
+      <a class="on" href="#">工作台</a>
+      <a href="#">通知<span class="cnt">3</span></a>
+    </div>
+    <div class="grp">
+      <div class="grplab">业务</div>
+      <a href="#">案件</a>
+      <a href="#">事项</a>
+      <a href="#">当事人</a>
+      <a href="#">已归档</a>
+    </div>
+    <div class="grp">
+      <div class="grplab">系统</div>
+      <a href="#">配置字典</a>
+      <a href="#">用户与角色</a>
+    </div>
+    <div class="navfoot">v2.4.0 · 建库 2024-06</div>
+  </nav>
+  <main class="main">
+    <div class="wrap">
+      <div class="content">
+        <div class="phead">
+          <span class="pdate">2026年10月17日 星期六</span>
+          <span class="fresh">数据截至 09:20</span>
+        </div>
+        <div class="metrics">
+          <div class="m"><span class="mlab">待办节点</span><span class="mnum">12</span></div>
+          <span class="vr"></span>
+          <div class="m"><span class="mlab">已逾期</span><span class="mnum red">3</span></div>
+          <span class="vr"></span>
+          <div class="m"><span class="mlab">7 天内到期</span><span class="mnum ochre">5</span></div>
+          <span class="vr"></span>
+          <div class="m"><span class="mlab">在办案件</span><span class="mnum">6</span></div>
+          <span class="vr"></span>
+          <div class="m"><span class="mlab">在办事项</span><span class="mnum">4</span></div>
+        </div>
+        <div class="sect"><h2>待办节点</h2><span class="hint">按期限升序 · 显示前 6 项</span></div>
+        <div class="th cols">
+          <span>编号</span><span>案件</span><span>节点</span><span>期限</span><span>经办人</span>
+        </div>
+        <div class="rows">
+          <div class="row cols">
+            <span class="code">AJ-20260812-003</span>
+            <span class="case">江苏恒基建设 建设工程施工合同纠纷</span>
+            <span class="node">举证期限届满</span>
+            <span class="due"><b class="red">逾期 6 天</b><span class="date">10-11</span></span>
+            <span class="own">陈立</span>
+          </div>
+          <div class="row cols">
+            <span class="code">AJ-20260728-011</span>
+            <span class="case">宁波海通置业 房屋租赁合同纠纷</span>
+            <span class="node">提交质证意见</span>
+            <span class="due"><b class="red">逾期 3 天</b><span class="date">10-14</span></span>
+            <span class="own">王慧敏</span>
+          </div>
+          <div class="row cols">
+            <span class="code">AJ-20260905-002</span>
+            <span class="case">杭州锐驰科技 买卖合同纠纷</span>
+            <span class="node">答辩期限届满</span>
+            <span class="due"><b class="red">逾期 1 天</b><span class="date">10-16</span></span>
+            <span class="own">周延</span>
+          </div>
+          <div class="row cols">
+            <span class="code">AJ-20260715-008</span>
+            <span class="case">苏州金阊物流 劳动争议纠纷</span>
+            <span class="node">开庭（仲裁）</span>
+            <span class="due"><b class="ochre">剩 2 天</b><span class="date">10-19</span></span>
+            <span class="own">林可</span>
+          </div>
+          <div class="row cols">
+            <span class="code">AJ-20260922-006</span>
+            <span class="case">无锡华光电子 专利侵权纠纷</span>
+            <span class="node">上诉期届满</span>
+            <span class="due"><b class="ochre">剩 4 天</b><span class="date">10-21</span></span>
+            <span class="own">沈嘉</span>
+          </div>
+          <div class="row cols">
+            <span class="code">AJ-20260918-004</span>
+            <span class="case">中建八局华东公司 建设工程分包纠纷</span>
+            <span class="node">举证期限届满</span>
+            <span class="due"><b class="ochre">剩 5 天</b><span class="date">10-22</span></span>
+            <span class="own">郭敏</span>
+          </div>
+        </div>
+        <div class="sect"><h2>最近动作</h2><a class="hint link" href="#">查看全部</a></div>
+        <div class="acts">
+          <div class="act"><span class="t">今天 09:12</span><span class="who">王慧敏</span><span class="txt">上传证据 3 份（微信记录、情况说明）<span class="ref">AJ-20260728-011</span></span></div>
+          <div class="act"><span class="t">今天 08:40</span><span class="who">陈立</span><span class="txt">节点「提交质证意见」期限由 10-28 改为 10-20<span class="ref">AJ-20260918-004</span></span></div>
+          <div class="act"><span class="t">昨天 17:26</span><span class="who">周延</span><span class="txt">收到法院送达材料，节点「答辩期限届满」标记为已逾期<span class="ref">AJ-20260905-002</span></span></div>
+        </div>
+      </div>
+      <aside class="rail">
+        <p class="note n1">3 项已逾期 · 最早 10-11，逾期 6 天</p>
+        <p class="note n2">举证期限 10-22 · 逾期提交证据不予采信</p>
+        <p class="note n3">列表仅显示前 6 项，另有 6 项在下方</p>
+      </aside>
+    </div>
+  </main>
+</div>
+</div>
+</body>
+</html>

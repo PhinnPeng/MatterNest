@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 草图画廊</title>
+<style>
+:root{--paper:#FAF7F0;--card:#FDFBF6;--ink:#201D19;--ink2:#6B675F;--line:#E7E1D6;--cinnabar:#B5442C}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei UI",sans-serif;padding:40px}
+h1{font:400 22px/1.4 "Songti SC","Noto Serif SC",SimSun,serif;letter-spacing:.06em;margin-bottom:6px}
+p.sub{color:var(--ink2);font-size:13px;margin-bottom:14px;max-width:1080px}
+p.note{color:var(--cinnabar);font-size:13px;margin-bottom:28px;max-width:1080px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;max-width:1080px}
+a{display:block;background:var(--card);border:1px solid var(--line);border-radius:3px;padding:14px 16px;color:var(--ink);text-decoration:none}
+a:hover{border-color:var(--cinnabar)}
+a b{display:block;font-size:14px;font-weight:600;margin-bottom:3px}
+a span{font-size:12px;color:var(--ink2)}
+a .no{color:var(--cinnabar);font-weight:600;margin-right:6px}
+</style>
+</head>
+<body>
+<h1>草图画廊 · 「案卷脊标」世界</h1>
+<p class="sub">每页 1440 草图，页可纵向滚动看全结构。点开逐页过目，回复页名或编号说哪页要改。</p>
+<p class="sub"><b>方向轮（重跑）· 深色 / 浅色：<a href="/direction.html">/direction.html</a></b> —— 六个视觉世界各一屏，左深右浅。</p>
+<p class="note">本轮新改动：① 全站导航「系统」组拆为 功能配置 / 用户 / 角色，底部新增「浅色」模式切换（见 01b 与 16、17）；② 配置字典 → 功能配置：入口卡片 + 每卡独立页（10–14）；③ 用户与角色拆开（15、16）。</p>
+<div class="grid">
+  <a href="workbench.html"><b><span class="no">01</span>工作台</b><span>6 格指标带 · 待办节点 · 最近动作（墨青导航）</span></a>
+  <a href="workbench-light.html"><b><span class="no">01b</span>工作台 · 浅色模式</b><span>导航换纸面色，内容区一字不变；底角切回「墨青」</span></a>
+  <a href="notifications.html"><b><span class="no">02</span>通知</b><span>只看未读 · 全部已读 · 不可见行降级</span></a>
+  <a href="matters.html"><b><span class="no">03</span>案件</b><span>查询区 · 统计两卡 · 10 列表 · 批量工具栏</span></a>
+  <a href="matter-detail.html"><b><span class="no">04</span>案件详情</b><span>6 页签 · 归档就绪 · 来源风险</span></a>
+  <a href="risk-matters.html"><b><span class="no">05</span>事项</b><span>经办人筛选 · 转案件列 · 行内转案件</span></a>
+  <a href="risk-detail.html"><b><span class="no">06</span>事项详情</b><span>左内容右处置记录 356px · 节点页签</span></a>
+  <a href="parties.html"><b><span class="no">07</span>当事人</b><span>关键词查询 · 盲文证件号 · 导出两档</span></a>
+  <a href="party-detail.html"><b><span class="no">08</span>当事人详情</b><span>登记信息 · 涉及案件/事项 · 已并入</span></a>
+  <a href="archive.html"><b><span class="no">09</span>已归档</b><span>案件/事项切换 · 缺材料筛选 · 只读</span></a>
+  <a href="config.html"><b><span class="no">10</span>功能配置（入口）</b><span>4 张功能入口卡，卡片里不放数据</span></a>
+  <a href="config-matter-status.html"><b><span class="no">11</span>功能配置 · 案件状态</b><span>独立页：编码 / 名称 / 语义</span></a>
+  <a href="config-risk-status.html"><b><span class="no">12</span>功能配置 · 事项状态</b><span>独立页：5 项</span></a>
+  <a href="config-risk-level.html"><b><span class="no">13</span>功能配置 · 风险等级</b><span>独立页：案件与事项共用</span></a>
+  <a href="config-enums.html"><b><span class="no">14</span>功能配置 · 闭集枚举</b><span>独立页：6 组标签</span></a>
+  <a href="users.html"><b><span class="no">15</span>用户</b><span>待开通 · 账号/角色/状态/凭据/操作</span></a>
+  <a href="roles.html"><b><span class="no">16</span>角色</b><span>角色表（范围/特权/持有人数）+ 角色成员</span></a>
+  <a href="login.html"><b><span class="no">17</span>登录</b><span>独立壳 · 双栏卡</span></a>
+</div>
+</body>
+</html>

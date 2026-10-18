@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 草图画廊「标准写法」</title>
+<style>
+/* 画廊自己的样式。**色值必须与 canon.css 的 :root 同值**——
+   这份文件曾经自带一套旧值（--ink2:#6B7280 = 4.47:1），canon 改令牌时它没跟上，
+   于是画廊是整套原型里唯一还带着低对比度文字的地方。改 canon 令牌时这里同步改
+   （`agent-work/_chk/contrast-all.mjs` 会扫到它）。 */
+:root{--bg:#F5F6F8;--card:#FFF;--ink:#111827;--ink2:#4B5563;--line:#E5E7EB;--accent:#2563EB}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:13px/1.6 "Source Han Sans SC","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;padding:28px 32px 60px}
+h1{font-size:19px;font-weight:600;margin-bottom:4px}
+p.sub{color:var(--ink2);font-size:13px;max-width:1180px;margin-bottom:4px}
+p.note{color:var(--ink2);font-size:13px;max-width:1180px;margin-bottom:22px}
+a{color:var(--accent);text-decoration:none}
+h2{font-size:13px;font-weight:600;color:var(--ink2);margin:22px 0 8px}
+table{width:100%;max-width:1180px;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+th{text-align:left;font-weight:500;font-size:12px;color:var(--ink2);background:#FAFBFC;height:34px;padding:0 12px;border-bottom:1px solid var(--line)}
+td{height:38px;padding:0 12px;border-bottom:1px solid #F0F1F3;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+td.no{width:52px;color:var(--ink2);font-variant-numeric:tabular-nums}
+td.nm{width:230px;font-weight:500}
+td.ds{color:var(--ink2)}
+td.lk{width:132px;text-align:right;white-space:nowrap}
+code{font:12px Consolas,monospace;color:var(--ink2);background:#FAFBFC;border:1px solid var(--line);border-radius:4px;padding:0 5px}
+</style>
+</head>
+<body>
+<h1>草图画廊 · 「标准写法」</h1>
+<p class="sub">全量 31 页，每页两种模式：<b>浅色 / 深色</b>（同一份代码，变量切换）。结构、控件、字号阶梯全走标准件，不加任何世界材料。</p>
+<p class="note">方向轮六个世界留档在 <a href="/direction.html">/direction.html</a>。每行点「浅色」或「深色」开全尺寸，页可纵向滚动看全结构。</p>
+
+<h2>概要</h2>
+<table>
+  <tr><th>#</th><th>页面</th><th>内容</th><th>打开</th></tr>
+  <tr><td class="no">01</td><td class="nm">工作台</td><td class="ds">6 格指标带 · 待办节点 · 最近动作</td><td class="lk"><a href="workbench.html">浅色</a> · <a href="workbench-dark.html">深色</a></td></tr>
+  <tr><td class="no">02</td><td class="nm">通知</td><td class="ds">未读/全部分段 · 类型标签 · 超出数据范围的降级行</td><td class="lk"><a href="notifications.html">浅色</a> · <a href="notifications-dark.html">深色</a></td></tr>
+</table>
+
+<h2>业务</h2>
+<table>
+  <tr><th>#</th><th>页面</th><th>内容</th><th>打开</th></tr>
+  <tr><td class="no">03</td><td class="nm">案件</td><td class="ds">6 格指标带 · 查询区 · 10 列表 · 三类快捷动作 · 批量工具栏 · 分页</td><td class="lk"><a href="matters.html">浅色</a> · <a href="matters-dark.html">深色</a></td></tr>
+  <tr><td class="no">04</td><td class="nm">案件详情</td><td class="ds">6 页签 · 归档就绪（缺 1 份）· 来源事项</td><td class="lk"><a href="matter-detail.html">浅色</a> · <a href="matter-detail-dark.html">深色</a></td></tr>
+  <tr><td class="no">05</td><td class="nm">新建案件</td><td class="ds">弹层表单 · 4 分区 · 当事人引用/快速新增</td><td class="lk"><a href="matter-create.html">浅色</a> · <a href="matter-create-dark.html">深色</a></td></tr>
+  <tr><td class="no">06</td><td class="nm">案件已建</td><td class="ds">回显内部编号 · 再建一条 / 打开案件 · 同名当事人提示</td><td class="lk"><a href="matter-created.html">浅色</a> · <a href="matter-created-dark.html">深色</a></td></tr>
+  <tr><td class="no">07</td><td class="nm">事项</td><td class="ds">查询区 · 转案件列 · 已冻结行降级</td><td class="lk"><a href="risk-matters.html">浅色</a> · <a href="risk-matters-dark.html">深色</a></td></tr>
+  <tr><td class="no">08</td><td class="nm">新建事项</td><td class="ds">弹层表单 · 3 分区 · 富文本描述 · 处理人可留空</td><td class="lk"><a href="risk-create.html">浅色</a> · <a href="risk-create-dark.html">深色</a></td></tr>
+  <tr><td class="no">09</td><td class="nm">事项已报备</td><td class="ds">回显编号 · 再报一条 / 完成</td><td class="lk"><a href="risk-created.html">浅色</a> · <a href="risk-created-dark.html">深色</a></td></tr>
+  <tr><td class="no">10</td><td class="nm">事项详情</td><td class="ds">左内容右处置记录 356px · 节点页签 · 关联案件</td><td class="lk"><a href="risk-detail.html">浅色</a> · <a href="risk-detail-dark.html">深色</a></td></tr>
+  <tr><td class="no">11</td><td class="nm">当事人</td><td class="ds">脱敏证件号 · 导出两档 · 已并入行</td><td class="lk"><a href="parties.html">浅色</a> · <a href="parties-dark.html">深色</a></td></tr>
+  <tr><td class="no">12</td><td class="nm">当事人详情</td><td class="ds">登记信息 · 涉及案件/事项 · 已并入事实</td><td class="lk"><a href="party-detail.html">浅色</a> · <a href="party-detail-dark.html">深色</a></td></tr>
+  <tr><td class="no">13</td><td class="nm">已归档</td><td class="ds">案件/事项分段 · 缺材料筛选 · 只读 + 特权操作</td><td class="lk"><a href="archive.html">浅色</a> · <a href="archive-dark.html">深色</a></td></tr>
+</table>
+
+<h2>系统</h2>
+<table>
+  <tr><th>#</th><th>页面</th><th>内容</th><th>打开</th></tr>
+  <tr><td class="no">14</td><td class="nm">功能配置（入口）</td><td class="ds">5 张卡片（自适应等宽）· 14 条细则</td><td class="lk"><a href="config.html">浅色</a> · <a href="config-dark.html">深色</a></td></tr>
+  <tr><td class="no">15</td><td class="nm">用户管理</td><td class="ds">全部/待开通/已停用 · 行内授予角色</td><td class="lk"><a href="users.html">浅色</a> · <a href="users-dark.html">深色</a></td></tr>
+  <tr><td class="no">16</td><td class="nm">角色权限</td><td class="ds">只读 · 主从：左角色右详情 · 范围与特权分轴 · 点左栏切换</td><td class="lk"><a href="roles.html">浅色</a> · <a href="roles-dark.html">深色</a></td></tr>
+</table>
+
+<h2>功能配置细则（14 页，同形态：新增 / 编辑 / 停用 / 排序）</h2>
+<table>
+  <tr><th>#</th><th>页面</th><th>内容</th><th>打开</th></tr>
+  <tr><td class="no">17</td><td class="nm">事项类型</td><td class="ds">新增/编辑走弹层（点「新增」或行内「编辑」）</td><td class="lk"><a href="config-risk-type.html">浅色</a> · <a href="config-risk-type-dark.html">深色</a></td></tr>
+  <tr><td class="no">18</td><td class="nm">事项状态</td><td class="ds">5 项 · 语义标在办/终态</td><td class="lk"><a href="config-risk-status.html">浅色</a> · <a href="config-risk-status-dark.html">深色</a></td></tr>
+  <tr><td class="no">19</td><td class="nm">节点状态</td><td class="ds">未开始 / 进行中 / 已完成 / 已取消</td><td class="lk"><a href="config-node-status.html">浅色</a> · <a href="config-node-status-dark.html">深色</a></td></tr>
+  <tr><td class="no">20</td><td class="nm">案件类型</td><td class="ds">6 项</td><td class="lk"><a href="config-matter-type.html">浅色</a> · <a href="config-matter-type-dark.html">深色</a></td></tr>
+  <tr><td class="no">21</td><td class="nm">案件程序</td><td class="ds">一审 / 二审 / 再审 / 执行 / 仲裁</td><td class="lk"><a href="config-matter-stage.html">浅色</a> · <a href="config-matter-stage-dark.html">深色</a></td></tr>
+  <tr><td class="no">22</td><td class="nm">案件状态</td><td class="ds">立案 / 审理中 / 待判决 / 已判决 / 执行中 / 已结案</td><td class="lk"><a href="config-matter-status.html">浅色</a> · <a href="config-matter-status-dark.html">深色</a></td></tr>
+  <tr><td class="no">23</td><td class="nm">标签</td><td class="ds">名称带颜色</td><td class="lk"><a href="config-tags.html">浅色</a> · <a href="config-tags-dark.html">深色</a></td></tr>
+  <tr><td class="no">24</td><td class="nm">费用项目</td><td class="ds">说明列写计费口径</td><td class="lk"><a href="config-expense-items.html">浅色</a> · <a href="config-expense-items-dark.html">深色</a></td></tr>
+  <tr><td class="no">25</td><td class="nm">当事人类型</td><td class="ds">4 项</td><td class="lk"><a href="config-party-type.html">浅色</a> · <a href="config-party-type-dark.html">深色</a></td></tr>
+  <tr><td class="no">26</td><td class="nm">证件类型</td><td class="ds">5 项</td><td class="lk"><a href="config-id-type.html">浅色</a> · <a href="config-id-type-dark.html">深色</a></td></tr>
+  <tr><td class="no">27</td><td class="nm">诉讼地位</td><td class="ds">7 项</td><td class="lk"><a href="config-litigation-position.html">浅色</a> · <a href="config-litigation-position-dark.html">深色</a></td></tr>
+  <tr><td class="no">28</td><td class="nm">风险等级</td><td class="ds">名称带颜色 · 说明写处置口径</td><td class="lk"><a href="config-risk-level.html">浅色</a> · <a href="config-risk-level-dark.html">深色</a></td></tr>
+  <tr><td class="no">29</td><td class="nm">节点通知状态</td><td class="ds">勾选触发通知的节点状态（多选，未勾两行）</td><td class="lk"><a href="config-notify-node-status.html">浅色</a> · <a href="config-notify-node-status-dark.html">深色</a></td></tr>
+  <tr><td class="no">30</td><td class="nm">节点通知时间</td><td class="ds">提前 7/3/1 天 + 当天，可多条</td><td class="lk"><a href="config-notify-node-time.html">浅色</a> · <a href="config-notify-node-time-dark.html">深色</a></td></tr>
+</table>
+
+<h2>独立壳</h2>
+<table>
+  <tr><th>#</th><th>页面</th><th>内容</th><th>打开</th></tr>
+  <tr><td class="no">31</td><td class="nm">登录</td><td class="ds">居中 400px 卡片</td><td class="lk"><a href="login.html">浅色</a> · <a href="login-dark.html">深色</a></td></tr>
+</table>
+
+<p class="sub" style="margin-top:22px">视觉系统单源：<code>canon.css</code>（令牌 + 组件）。深色版 = 同文件复制后给 <code>&lt;body&gt;</code> 加 <code>class="dark"</code>。</p>
+</body>
+</html>

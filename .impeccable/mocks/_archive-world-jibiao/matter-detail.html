@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 案件详情</title>
+<link rel="stylesheet" href="world.css">
+<style>
+.head h1{max-width:640px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tab em{font-style:normal;font-size:11px;color:var(--ink2);margin-left:4px}
+.ready{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--line2);font-size:12px;color:var(--ink2)}
+.dl b{width:88px}
+.dl .tag{margin-right:4px}
+.para{padding:12px 16px 14px;font-size:13px;line-height:1.7;color:var(--ink)}
+.para b.lb{display:block;font-size:12px;font-weight:400;color:var(--ink2);margin-bottom:6px}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item on" href="matters.html">案件</a>
+    <a class="item" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">案件</div></header>
+  <div class="content"><div class="wrap">
+    <section class="head">
+      <div style="min-width:0">
+        <h1>江苏恒基建设 建设工程施工合同纠纷</h1>
+        <div class="sub" style="display:flex;align-items:center;gap:10px">
+          <span class="num">AJ-20260812-003</span>
+          <span style="display:inline-flex;align-items:center;gap:5px"><i class="dot sm"></i><span class="mut">审前准备</span></span>
+        </div>
+      </div>
+      <div class="tools">
+        <button class="btn">导出</button>
+        <button class="btn pri">变更状态</button>
+        <button class="btn">删除</button>
+      </div>
+    </section>
+    <section class="tabs">
+      <span class="tab on">基本信息</span>
+      <span class="tab">工作节点<em>8</em></span>
+      <span class="tab">参与人</span>
+      <span class="tab">费用<em>3</em></span>
+      <span class="tab">过程记录</span>
+      <span class="tab">活动日志<em>46</em></span>
+    </section>
+    <section class="card">
+      <div class="ready">
+        <b style="font-weight:400">归档就绪</b>
+        <em style="font-style:normal;color:var(--ink2)">2/3 项就绪</em>
+        <span style="flex:1"></span>
+        <i class="tag ok">结案文书 · 已就绪</i>
+        <i class="tag ok">费用清账 · 已就绪</i>
+        <i class="tag od">节点清零 · 缺 2 项</i>
+      </div>
+      <div class="desc" style="padding:10px 16px 4px">
+        <div class="dl"><b>案号</b><span class="num">（2026）苏 0591 民初 1234 号</span></div>
+        <div class="dl"><b>立案日期</b><span class="num">2026-08-12</span></div>
+        <div class="dl"><b>案由</b><span>建设工程施工合同纠纷</span></div>
+        <div class="dl"><b>案件类型</b><span>民事</span></div>
+        <div class="dl"><b>审级程序</b><span>一审</span></div>
+        <div class="dl"><b>风险等级</b><span><i class="tag od">高</i></span></div>
+        <div class="dl"><b>标的额</b><span class="num">¥1,860,000</span></div>
+        <div class="dl"><b>受理法院</b><span>苏州市中级人民法院</span></div>
+        <div class="dl"><b>我方诉讼地位</b><span>被告</span></div>
+        <div class="dl"><b>负责人</b><span>周敏</span></div>
+        <div class="dl"><b>关注人</b><span>陈嘉禾、王兆坤</span></div>
+        <div class="dl"><b>当事人</b><span>江苏恒基建设有限公司（我方）· 苏州工业园区管委会（对方）</span></div>
+      </div>
+      <div class="para">
+        <b class="lb">基本情况</b>
+        发包方以工期延误为由主张扣减工程款并要求支付违约金。我方已提交工期签证与监理例会纪要，关键争点在停工责任的归属与赶工费用的计算口径。举证期限 2026-10-11 已届满，下一步按节点推进鉴定申请。
+      </div>
+      <div class="card" style="margin:2px 12px 12px;border-radius:2px">
+        <div class="chead"><h2>来源风险</h2><em>本条案件由事项转入</em></div>
+        <div class="row" style="min-height:42px;grid-template-columns:136px minmax(0,1fr) 76px">
+          <span class="num mut" style="padding-left:16px">SX-20260812-002</span>
+          <span class="cut link" style="padding:0 14px">江苏恒基建设 工期与违约金争议评估</span>
+          <span style="padding-right:14px"><i class="tag od">高</i></span>
+        </div>
+      </div>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

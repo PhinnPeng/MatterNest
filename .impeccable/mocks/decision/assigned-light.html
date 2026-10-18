@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 工作台</title>
+<style>
+/* 公文字号 · GB/T 9704：黑体标题 / 仿宋正文 / 等宽数字。公文红只落三处含义（压线 · 当前项 · 逾期）。
+   点径阶梯固定三档：10 逾期 · 8 剩 ≤3 天 · 5 剩 4–7 天，且必与「词」同给。 */
+:root{
+  --bg:#15171A;--panel:#1A1D21;--ink:#F2F0EC;--ink2:rgba(242,240,236,.6);--line:rgba(242,240,236,.14);
+  --red:#C0392B;--amber:#B8823A;--green:#4E7F63;--odbg:rgba(192,57,43,.06);
+  --hei:"Source Han Sans SC","Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;
+  --song:FangSong,"FangSong_GB2312","仿宋_GB2312","STFangsong",serif;
+  --mono:Consolas,"DejaVu Sans Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{background:var(--bg);color:var(--ink);font:13.5px/1.55 var(--song);-webkit-font-smoothing:antialiased}
+.stage{width:1440px;height:900px;display:grid;grid-template-columns:216px 1fr;grid-template-rows:48px 1fr;overflow:hidden}
+/* 左导航 216px：三组九项 */
+.nav{grid-area:1/1/3/2;display:flex;flex-direction:column;padding:20px 0 16px;border-right:1px solid var(--line);font-family:var(--hei)}
+.brand{padding:0 20px 18px;font:15px/1 var(--hei);letter-spacing:.22em}
+.grp{margin-top:22px}
+.glab{display:block;padding:0 20px 8px;font-size:10.5px;letter-spacing:.3em;color:var(--ink2)}
+.it{display:block;padding:7px 20px;font-size:13px;line-height:1.4;letter-spacing:.04em;color:var(--ink);text-decoration:none;border-left:2px solid transparent}
+.it.cur{color:var(--red);border-left-color:var(--red)}
+.nfoot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 20px 0;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink2)}
+.mode{border:1px solid var(--line);border-radius:2px;padding:3px 8px;font-size:11px;letter-spacing:.08em;color:var(--ink);white-space:nowrap}
+.mode::after{content:"浅色"}
+/* 顶栏 + 一条横贯的公文红压线 */
+.bar{grid-area:1/2/2/3;display:flex;align-items:center;padding:0 22px}
+.bar h1{font:15px/1 var(--hei);font-weight:600;letter-spacing:.1em}
+.press{grid-area:1/1/2/3;align-self:end;height:2px;background:var(--red)}
+/* 内容区 1180px */
+.main{grid-area:2/2/3/3;overflow:hidden;padding:20px 22px}
+.wrap{width:1180px;height:100%;margin:0 auto;display:flex;flex-direction:column}
+.head{flex:none;height:62px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:var(--panel);border:1px solid var(--line);border-radius:2px}
+.head h2{font:17px/1.2 var(--hei);font-weight:600;letter-spacing:.06em}
+.meta{margin-top:6px;font-size:12px;color:var(--ink2)}
+.btn{border:1px solid var(--line);border-radius:2px;background:transparent;color:var(--ink);font:12px/1 var(--hei);letter-spacing:.14em;padding:9px 16px;cursor:pointer}
+/* 6 格指标带（数字是主角，待办一格略胀） */
+.metrics{flex:none;display:flex;margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:2px}
+.m{flex:1;padding:15px 18px 17px;border-left:1px solid var(--line)}
+.m:first-child{flex:1.15;border-left:0}
+.m span{display:block;font:11.5px/1 var(--hei);letter-spacing:.12em;color:var(--ink2)}
+.m b{display:block;margin-top:10px;font:33px/1 var(--mono);font-variant-numeric:tabular-nums;font-weight:500}
+.od{color:var(--red)}
+.soon{color:var(--amber)}
+/* 表：行首编号列成轴（竖细线贯穿） */
+.card{flex:none;margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:2px;overflow:hidden}
+.chd{display:flex;align-items:center;justify-content:space-between;height:40px;padding:0 18px;border-bottom:1px solid var(--line)}
+.chd h3{font:14px/1 var(--hei);font-weight:600;letter-spacing:.08em}
+.note{font-size:11.5px;color:var(--ink2)}
+.tr{display:grid;grid-template-columns:150px minmax(0,1fr) 148px 138px 76px;align-items:stretch;padding:0 18px}
+.tr>*{display:flex;align-items:center;min-width:0}
+.th{height:34px;font:12px/1 var(--hei);letter-spacing:.14em;color:var(--ink2)}
+.row{height:38px;font-size:13.5px}
+.row+.row{border-top:1px solid var(--line)}
+.row.islate{background:var(--odbg)}
+.axis{border-right:1px solid var(--line)}
+.code,.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-style:normal}
+.code{font-size:12.5px;line-height:1;letter-spacing:0}
+.pad{padding-left:16px}
+.case{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node{font-size:13px;white-space:nowrap}
+.due{justify-content:flex-end;gap:9px;padding:0 14px 0 12px}
+.srt{justify-content:flex-end;padding-right:14px}
+.th>span:last-child{justify-content:flex-end}
+.dot{border-radius:50%;flex:none}
+.d10{width:10px;height:10px;background:var(--red)}
+.d8{width:8px;height:8px;background:var(--amber)}
+.d5{width:5px;height:5px;background:var(--amber);opacity:.8}
+.wd{font-size:12.5px;font-weight:600;white-space:nowrap}
+.op{justify-content:flex-end;font-size:12.5px;color:var(--ink2)}
+/* 最近动作 */
+.acts{flex:1;min-height:0;display:flex;flex-direction:column}
+.arow{display:grid;grid-template-columns:56px 150px minmax(0,1fr) 92px 96px;align-items:center;height:38px;padding:0 18px}
+.arow+.arow{border-top:1px solid var(--line)}
+.act{font:12.5px/1 var(--hei);letter-spacing:.06em}
+.acase{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.awho{justify-self:end;font-size:12.5px;color:var(--ink2)}
+.atime{justify-self:end;font:12px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink2)}
+.afoot{margin-top:auto;height:34px;display:flex;align-items:center;justify-content:flex-end;padding:0 18px;border-top:1px solid var(--line)}
+.afoot a{font:12px/1 var(--hei);letter-spacing:.12em;color:var(--ink2);text-decoration:none}
+/* 版记：小字收尾，压在版心底 */
+.foot{flex:none;margin-top:20px;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--ink2)}
+.mword::after{content:"深色模式"}
+/* 浅色版：复制本文件后给 <body> 加 class="light" */
+body.light{--bg:#FFFFFF;--panel:#FFFFFF;--ink:#17181A;--ink2:#6A6A6A;--line:#E4E2DE;
+  --red:#B01F24;--amber:#96601F;--green:#47705B;--odbg:#FBF4F2}
+body.light .mode::after{content:"深色"}
+body.light .mword::after{content:"浅色模式"}
+</style>
+</head>
+<body class="light">
+<div class="stage">
+<div class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="grp"><span class="glab">概要</span>
+    <a class="it cur" href="#">工作台</a>
+    <a class="it" href="#">通知</a></div>
+  <div class="grp"><span class="glab">业务</span>
+    <a class="it" href="#">案件</a>
+    <a class="it" href="#">事项</a>
+    <a class="it" href="#">当事人</a>
+    <a class="it" href="#">已归档</a></div>
+  <div class="grp"><span class="glab">系统</span>
+    <a class="it" href="#">功能配置</a>
+    <a class="it" href="#">用户管理</a>
+    <a class="it" href="#">角色权限</a></div>
+  <div class="nfoot"><span>系统管理员 · 全局管理</span><span class="mode"></span></div>
+</div>
+<div class="bar"><h1>工作台</h1></div>
+<div class="press"></div>
+<main class="main">
+  <div class="wrap">
+    <section class="head">
+      <div>
+        <h2>今天该动手的</h2>
+        <p class="meta"><i class="num">2026-10-17</i> 周六 · 数据截至 <i class="num">09:30</i></p>
+      </div>
+      <button class="btn" type="button">刷新</button>
+    </section>
+    <section class="metrics">
+      <div class="m"><span>待办节点</span><b>12</b></div>
+      <div class="m"><span>已逾期</span><b class="od">3</b></div>
+      <div class="m"><span>7 天内到期</span><b class="soon">5</b></div>
+      <div class="m"><span>在办案件</span><b>6</b></div>
+      <div class="m"><span>在办事项</span><b>4</b></div>
+      <div class="m"><span>本月新增案件</span><b>2</b></div>
+    </section>
+    <section class="card">
+      <div class="chd"><h3>待办节点</h3><span class="note">按期限升序 · 前 6 项</span></div>
+      <div class="tr th"><span class="axis">编号</span><span class="pad">案名</span><span class="pad">节点</span><span class="srt">期限 ▾</span><span>经办人</span></div>
+      <div class="tr row islate"><span class="code axis">AJ-20260812-003</span><span class="case pad">江苏恒基建设 建设工程施工合同纠纷</span><span class="node pad">举证期限届满</span><span class="due"><i class="dot d10"></i><span class="wd od">逾期 <i class="num">6</i> 天</span></span><span class="op">周敏</span></div>
+      <div class="tr row islate"><span class="code axis">SX-20260805-007</span><span class="case pad">常州天元化工 产品责任纠纷</span><span class="node pad">证据固定完成</span><span class="due"><i class="dot d10"></i><span class="wd od">逾期 <i class="num">3</i> 天</span></span><span class="op">李文博</span></div>
+      <div class="tr row islate"><span class="code axis">AJ-20260902-001</span><span class="case pad">杭州瑞和供应链 买卖合同纠纷</span><span class="node pad">提交补充证据</span><span class="due"><i class="dot d10"></i><span class="wd od">逾期 <i class="num">1</i> 天</span></span><span class="op">陈嘉禾</span></div>
+      <div class="tr row"><span class="code axis">AJ-20260819-002</span><span class="case pad">苏州万顺机械 承揽合同纠纷</span><span class="node pad">开庭</span><span class="due"><i class="dot d8"></i><span class="wd soon">剩 <i class="num">2</i> 天</span></span><span class="op">王兆坤</span></div>
+      <div class="tr row"><span class="code axis">SX-20260915-001</span><span class="case pad">合肥远航物资 采购合同</span><span class="node pad">内部审批完成</span><span class="due"><i class="dot d8"></i><span class="wd soon">剩 <i class="num">3</i> 天</span></span><span class="op">周敏</span></div>
+      <div class="tr row"><span class="code axis">AJ-20261005-001</span><span class="case pad">无锡精诚电子 侵害商标权纠纷</span><span class="node pad">上诉期届满</span><span class="due"><i class="dot d5"></i><span class="wd soon">剩 <i class="num">6</i> 天</span></span><span class="op">陈嘉禾</span></div>
+    </section>
+    <section class="card acts">
+      <div class="chd"><h3>最近动作</h3><span class="note">近 24 小时</span></div>
+      <div class="arow"><span class="act">创建</span><span class="code">AJ-20260921-001</span><span class="acase pad">扬州金鼎装饰 装饰装修合同纠纷 · 批量导入</span><span class="awho">系统管理员</span><span class="atime">2 小时前</span></div>
+      <div class="arow"><span class="act">更新</span><span class="code">AJ-20260812-003</span><span class="acase pad">举证期限调整至 <i class="num">2026-11-02</i></span><span class="awho">周敏</span><span class="atime">3 小时前</span></div>
+      <div class="arow"><span class="act">上传</span><span class="code">SX-20260915-001</span><span class="acase pad">合同扫描件 <i class="num">4</i> 份</span><span class="awho">李文博</span><span class="atime">昨天 17:42</span></div>
+      <div class="afoot"><a href="#">查看全部</a></div>
+    </section>
+    <div class="foot">数据截至 <i class="num">09:30</i> · <span class="mword"></span> · <i class="num">1 / 1</i></div>
+  </div>
+</main>
+</div>
+</body>
+</html>

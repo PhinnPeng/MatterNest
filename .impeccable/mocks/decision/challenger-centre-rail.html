@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>MatterNest · 工作台</title>
+<style>
+:root{
+--ink:#1A1A1A;--cinn:#C23A2A;--paper:#F4F1EA;--gray:#6B6B6B;--rule:#D8D3C6;--rail:88px;
+--serif:"Songti SC","Noto Serif SC","Source Han Serif SC",SimSun,serif;
+--mono:ui-monospace,Menlo,Consolas,monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:var(--paper)}
+body{font:14px/1.45 var(--serif);color:var(--ink);font-variant-numeric:tabular-nums}
+.stage{width:1440px;height:900px;display:flex;overflow:hidden;border:1px solid var(--rule)}
+/* 左导航 216 */
+.nav{width:216px;flex:none;border-right:1px solid var(--rule);display:flex;flex-direction:column}
+.nav .grp{padding:22px 0 9px 32px;font-size:10px;letter-spacing:.3em;color:var(--gray)}
+.nav a{display:block;margin-left:20px;padding:6px 10px 6px 11px;font-size:13px;color:var(--ink);text-decoration:none;border-left:1px solid transparent}
+.nav a.on{border-left-color:var(--cinn);color:var(--cinn)}
+.nav .foot{margin-top:auto;padding:12px 20px;border-top:1px solid var(--rule);font:11px var(--mono);letter-spacing:.08em;color:var(--gray)}
+/* 顶栏 48 */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{height:48px;flex:none;padding:0 24px;border-bottom:1px solid var(--rule);display:grid;grid-template-columns:1fr auto 1fr;align-items:center}
+.brand{font-size:17px;letter-spacing:.1em}
+.mid{font-size:12px;letter-spacing:.34em;color:var(--gray)}
+.top .rt{justify-self:end}
+.btn{padding:6px 12px;border:1px solid var(--cinn);border-radius:0;background:transparent;color:var(--cinn);font:12px/1 var(--serif);letter-spacing:.18em}
+/* 内容区 */
+.body{flex:1;min-height:0;display:flex;flex-direction:column;padding:24px 32px 0}
+.metrics{display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:16px;border-bottom:1px solid var(--rule)}
+.cell{padding-left:18px;border-left:1px solid var(--rule)}
+.cell:first-child{padding-left:0;border-left:0}
+.cell em{display:block;font-style:normal;font-size:11px;letter-spacing:.22em}
+.cell b{display:block;margin-top:7px;font-weight:400;font-size:26px;line-height:1.1}
+.hot{color:var(--cinn)}
+.board{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;padding-bottom:22px}
+/* 中央导轨 */
+.rail{position:absolute;top:0;bottom:0;left:50%;z-index:1;width:var(--rail);margin-left:-44px;border-left:1px solid var(--ink);border-right:1px solid var(--ink);pointer-events:none}
+.keys{padding-top:8px}
+.key{display:flex;align-items:center;height:15px;padding-left:10px;border-bottom:1px solid var(--rule);font:10px var(--mono);letter-spacing:.18em}
+.key i{width:8px;height:1px;margin-right:6px;background:var(--rule)}
+.key.r{justify-content:flex-end;padding:0 10px 0 0}
+.key.r i{margin:0 0 0 6px}
+/* 行 */
+.hd{display:grid;grid-template-columns:1fr var(--rail) 1fr;height:64px;align-items:center;border-bottom:1px solid var(--rule)}
+.hd.sm{height:44px}
+.hd .t{font-size:13px;letter-spacing:.22em}
+.hd .n{grid-column:3;padding-left:18px;font:11px var(--mono);color:var(--gray)}
+.row{position:relative;display:grid;grid-template-columns:1fr var(--rail) 1fr;height:40px;align-items:center;border-bottom:1px solid var(--rule)}
+.row.sm{height:36px}
+.lt{grid-column:1;display:grid;grid-template-columns:104px minmax(0,1fr) 132px;align-items:center}
+.rt{grid-column:3;display:grid;grid-template-columns:104px minmax(0,1fr);align-items:center;padding-left:18px}
+.row.sm .rt{grid-template-columns:minmax(0,1fr)}
+.no{font:11px var(--mono);color:var(--gray)}
+.cn,.ev{font-size:14px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.cn{padding-right:14px}
+.nd,.own,.op{font-size:13px}
+.due{font-size:12.5px}
+.late{color:var(--cinn);font-weight:700}
+.soon{font-weight:700}
+.off{color:var(--gray)}
+.mk,.dot{position:absolute;top:50%;margin-top:-3px;width:6px;height:6px;background:var(--cinn)}
+.mk{left:-13px}
+.dot{left:50%;margin-left:-3px;opacity:0}
+.row:hover .dot,.row.on .dot{opacity:1}
+.recent{margin-top:auto}
+@media (max-width:1280px){body{zoom:.8}}
+@media (max-width:980px){body{zoom:.55}}
+@media (max-width:620px){body{zoom:.34}}
+</style>
+</head>
+<body>
+<div class="stage">
+  <aside class="nav">
+    <div class="grp">概要</div>
+    <a class="on" href="#">工作台</a>
+    <a href="#">通知</a>
+    <div class="grp">业务</div>
+    <a href="#">案件</a>
+    <a href="#">事项</a>
+    <a href="#">当事人</a>
+    <a href="#">已归档</a>
+    <div class="grp">系统</div>
+    <a href="#">配置字典</a>
+    <a href="#">用户与角色</a>
+    <div class="foot">已同步 08:40</div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <div class="brand">MatterNest</div>
+      <div class="mid">工作台</div>
+      <div class="rt"><button class="btn" type="button">刷新</button></div>
+    </header>
+    <div class="body">
+      <div class="metrics">
+        <div class="cell"><em>待办节点</em><b>12</b></div>
+        <div class="cell"><em>已逾期</em><b class="hot">3</b></div>
+        <div class="cell"><em>7 天内到期</em><b>5</b></div>
+        <div class="cell"><em>在办案件</em><b>6</b></div>
+        <div class="cell"><em>在办事项</em><b>4</b></div>
+      </div>
+      <div class="board">
+        <div class="rail">
+          <div class="keys">
+            <div class="key"><i></i>FROM</div>
+            <div class="key"><i></i>NODE</div>
+            <div class="key r">DUE<i></i></div>
+            <div class="key r">OWNER<i></i></div>
+          </div>
+        </div>
+        <div class="hd"><div class="t">待办节点</div><div class="n">共 12 项</div></div>
+        <div class="row on"><span class="mk"></span><span class="dot"></span>
+          <div class="lt"><span class="no">AJ-20260812-003</span><span class="cn">江苏恒基建设 建设工程施工合同纠纷</span><span class="nd">举证期限届满</span></div>
+          <div class="rt"><span class="due late">逾期 6 天</span><span class="own">沈佩</span></div>
+        </div>
+        <div class="row"><span class="dot"></span>
+          <div class="lt"><span class="no">AJ-20260728-011</span><span class="cn">浙江和裕物流 运输合同纠纷</span><span class="nd">上诉期届满</span></div>
+          <div class="rt"><span class="due soon">剩 2 天</span><span class="own">顾一鸣</span></div>
+        </div>
+        <div class="row"><span class="dot"></span>
+          <div class="lt"><span class="no">AJ-20250903-007</span><span class="cn">苏州中衡新材 买卖合同纠纷</span><span class="nd">开庭</span></div>
+          <div class="rt"><span class="due soon">剩 2 天</span><span class="own">陆昀</span></div>
+        </div>
+        <div class="row"><span class="dot"></span>
+          <div class="lt"><span class="no">AJ-20260319-014</span><span class="cn">安徽铜峰机电 承揽合同纠纷</span><span class="nd">提交答辩状</span></div>
+          <div class="rt"><span class="due off">剩 5 天</span><span class="own">程亦珊</span></div>
+        </div>
+        <div class="row"><span class="dot"></span>
+          <div class="lt"><span class="no">AJ-20260630-002</span><span class="cn">山东鲁新置业 房屋租赁合同纠纷</span><span class="nd">庭前会议</span></div>
+          <div class="rt"><span class="due off">剩 5 天</span><span class="own">韦嘉宁</span></div>
+        </div>
+        <div class="row"><span class="dot"></span>
+          <div class="lt"><span class="no">AJ-20260105-009</span><span class="cn">广州兆丰供应 保证合同纠纷</span><span class="nd">申请执行期限</span></div>
+          <div class="rt"><span class="due off">剩 7 天</span><span class="own">周砚</span></div>
+        </div>
+        <div class="recent">
+          <div class="hd sm"><div class="t">最近动作</div><div class="n">近 24 小时</div></div>
+          <div class="row sm"><span class="dot"></span>
+            <div class="lt"><span class="no">10-17 08:14</span><span class="op">沈佩</span></div>
+            <div class="rt"><span class="ev">提交「江苏恒基建设」质证意见 3 份</span></div>
+          </div>
+          <div class="row sm"><span class="dot"></span>
+            <div class="lt"><span class="no">10-16 17:40</span><span class="op">顾一鸣</span></div>
+            <div class="rt"><span class="ev">登记「浙江和裕物流」二审受理通知</span></div>
+          </div>
+          <div class="row sm"><span class="dot"></span>
+            <div class="lt"><span class="no">10-17 08:30</span><span class="op">系统</span></div>
+            <div class="rt"><span class="ev">生成 3 项逾期提醒</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

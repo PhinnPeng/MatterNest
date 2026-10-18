@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 当事人</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body class="dark">
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it" href="matters.html">案件</a>
+    <a class="it" href="risk-matters.html">事项</a>
+    <a class="it on" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it" href="config.html">功能配置</a>
+    <a class="it" href="users.html">用户管理</a>
+    <a class="it" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>当事人</h1>
+    </header>
+
+    <div class="page">
+      <div class="query">
+        <div class="field"><label>关键词</label><input class="inp w240" placeholder="名称 / 完整证件号"></div>
+        <div class="field"><label>当事人类型</label><span class="sel">全部类型<i>▾</i></span></div>
+        <div class="field"><label>证件类型</label><span class="sel">全部证件<i>▾</i></span></div>
+        <div class="field"><label>诉讼地位</label><span class="sel">全部地位<i>▾</i></span></div>
+        <button class="btn" style="margin-left:auto">查询</button>
+        <button class="btn">重置</button>
+        <button class="btn pri">新增当事人</button>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-h">
+          <h2>当事人档案</h2>
+          <span class="sp"></span>
+          <span class="num mut">共 8 份</span>
+          <button class="btn sm">导出（脱敏）</button>
+          <button class="btn sm danger">导出明文</button>
+          <span class="mut3 nowrap">明文导出仅全局管理可用</span>
+        </div>
+        <div class="tool">
+          <span class="num">已选 2 项</span>
+          <button class="btn sm">并入其他主体</button>
+          <a class="btn link" style="margin-left:auto" href="parties.html">取消选择</a>
+        </div>
+        <table class="tb">
+          <colgroup><col style="width:44px"><col><col style="width:110px"><col style="width:130px"><col style="width:170px"><col style="width:110px"><col style="width:88px"><col style="width:88px"><col style="width:96px"></colgroup>
+          <thead>
+            <tr>
+              <th class="c"><span class="cb"></span></th>
+              <th>名称</th>
+              <th>类型</th>
+              <th>证件类型</th>
+              <th>证件号</th>
+              <th>诉讼地位</th>
+              <th class="r">涉及案件</th>
+              <th class="r">涉及事项</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="c"><span class="cb on">✓</span></td>
+              <td class="ellip"><a class="btn link" href="party-detail.html">江苏恒基建设有限公司</a></td>
+              <td>法人</td>
+              <td>统一社会信用代码</td>
+              <td class="mono">9132**********1234</td>
+              <td>原告</td>
+              <td class="r num">3</td>
+              <td class="r num">2</td>
+              <td><a class="btn link" href="party-detail.html">查看</a></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td class="ellip"><a class="btn link" href="party-detail.html">常州天元化工有限公司</a></td>
+              <td>法人</td>
+              <td>统一社会信用代码</td>
+              <td class="mono">9132**********4456</td>
+              <td>被告</td>
+              <td class="r num">1</td>
+              <td class="r num">1</td>
+              <td><a class="btn link" href="party-detail.html">查看</a></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb on">✓</span></td>
+              <td class="ellip"><a class="btn link" href="party-detail.html">杭州瑞和供应链管理有限公司</a></td>
+              <td>法人</td>
+              <td>统一社会信用代码</td>
+              <td class="mono">9133**********8812</td>
+              <td>被告</td>
+              <td class="r num">1</td>
+              <td class="r num">1</td>
+              <td><a class="btn link" href="party-detail.html">查看</a></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td class="ellip"><a class="btn link" href="party-detail.html">苏州万顺机械制造有限公司</a></td>
+              <td>法人</td>
+              <td>统一社会信用代码</td>
+              <td class="mono">9132**********0067</td>
+              <td>被告</td>
+              <td class="r num">1</td>
+              <td class="r num">1</td>
+              <td><a class="btn link" href="party-detail.html">查看</a></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td class="ellip"><a class="btn link" href="party-detail.html">王建国</a></td>
+              <td>自然人</td>
+              <td>居民身份证</td>
+              <td class="mono">3204**********0092</td>
+              <td>第三人</td>
+              <td class="r num">1</td>
+              <td class="r ph">—</td>
+              <td><a class="btn link" href="party-detail.html">查看</a></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td class="ellip"><a class="btn link" href="party-detail.html">合肥远航物资有限公司</a></td>
+              <td>法人</td>
+              <td>统一社会信用代码</td>
+              <td class="mono">9134**********0921</td>
+              <td>被告</td>
+              <td class="r ph">—</td>
+              <td class="r num">1</td>
+              <td><a class="btn link" href="party-detail.html">查看</a></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td class="ellip"><a class="btn link" href="party-detail.html">扬州金鼎装饰工程有限公司</a></td>
+              <td>法人</td>
+              <td>统一社会信用代码</td>
+              <td class="mono">9132**********6600</td>
+              <td>原告</td>
+              <td class="r num">1</td>
+              <td class="r ph">—</td>
+              <td><a class="btn link" href="party-detail.html">查看</a></td>
+            </tr>
+            <tr>
+              <td class="c"><span class="cb"></span></td>
+              <td class="ellip">常州恒基建材经营部 <span class="tag">已并入</span></td>
+              <td>非法人组织</td>
+              <td>统一社会信用代码</td>
+              <td class="mono">9132**********9931</td>
+              <td class="ph">—</td>
+              <td class="r ph">—</td>
+              <td class="r ph">—</td>
+              <td><a class="btn link" href="party-detail.html">查看主体</a></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="pager">
+          <span class="num">共 8 条</span>
+          <span class="sp"></span>
+          <button class="btn sm" disabled>上一页</button>
+          <span class="num">1 / 1</span>
+          <button class="btn sm" disabled>下一页</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 工作台</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1440px;height:900px;overflow:hidden;background:#F7F7F5;color:#141414;font:13px/1.5 "PingFang SC","Microsoft YaHei UI",sans-serif;-webkit-font-smoothing:antialiased}
+.mono,.no,.d,.num,.time{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.topbar{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;border-bottom:1px solid #E3E3E0;background:#F7F7F5}
+.brand{font-size:17px;font-weight:600;letter-spacing:.01em}
+.topbar-right{display:flex;align-items:center;gap:16px}
+.btn{background:#141414;color:#fff;border:0;border-radius:3px;padding:7px 15px;font:600 12px/1.2 inherit;letter-spacing:.08em;font-family:inherit}
+.who{font-size:12px;color:#6E6E6E}
+.shell{display:flex;height:852px}
+.nav{width:216px;flex:none;border-right:1px solid #141414;padding:16px 12px}
+.nav .grp{font-size:11px;color:#8A8A85;letter-spacing:.18em;margin:16px 10px 6px}
+.nav .grp:first-child{margin-top:0}
+.nav a{display:block;padding:7px 10px;font-size:13px;color:#3A3A38;text-decoration:none;border-radius:3px}
+.nav a.on{background:#141414;color:#fff;font-weight:600}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;padding:26px 26px 18px}
+.metrics{display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid #E3E3E0;border-bottom:1px solid #E3E3E0}
+.metric{padding:20px 22px}
+.metric:first-child{padding-left:0}
+.metric+.metric{border-left:1px solid #E3E3E0}
+.metric .lbl{font-size:11px;color:#6E6E6E;letter-spacing:.14em}
+.metric .num{font-size:26px;font-weight:500;line-height:1.25;letter-spacing:-.01em}
+.metric.fail .num{color:#C43A2F}
+.card{margin-top:24px;background:#fff;border:1px solid #DEDEDA;border-radius:6px;overflow:hidden}
+.card-head{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #E3E3E0}
+.card-head h2{font-size:13px;font-weight:600;letter-spacing:.02em}
+.note{font-size:11px;color:#6E6E6E;letter-spacing:.04em}
+.grid,.row{display:grid;grid-template-columns:4px 118px minmax(0,1fr) 136px 262px 74px;align-items:center;padding-right:16px}
+.grid{height:32px;background:#FBFBF9;border-bottom:1px solid #E3E3E0}
+.grid span{font-size:11px;color:#8A8A85;letter-spacing:.1em;padding-left:10px}
+.row{height:40px;border-bottom:1px solid #F0F0ED}
+.row:last-of-type{border-bottom:0}
+.bar{align-self:stretch;background:#D6D6D2}
+.no{padding-left:10px;font-size:11px;color:#6E6E6E}
+.case{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:10px}
+.node{padding-left:10px;font-size:12.5px;color:#3A3A38;white-space:nowrap}
+.due{display:flex;align-items:center;gap:8px;padding-left:10px;font-size:12px;color:#3A3A38;white-space:nowrap}
+.d{color:#141414}
+.owner{padding-left:12px;font-size:12.5px;color:#3A3A38;white-space:nowrap}
+.orig{font-size:11px;color:#8A8A85;margin-left:6px}
+.tag{background:#F2C230;color:#141414;font-size:10px;font-weight:600;letter-spacing:.06em;padding:2px 6px;border-radius:2px;white-space:nowrap}
+.row.changed{background:#FBF3D9}
+.row.changed .bar{background:#F2C230}
+.row.over .bar{background:#C43A2F}
+.row.over .no,.row.over .case,.row.over .node,.row.over .due,.row.over .owner{color:#C43A2F}
+.row.over .d{color:#C43A2F}
+.row.soon .bar{background:#A96B00}
+.tail{color:#A96B00}
+.card-foot{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-top:1px solid #E3E3E0;background:#FCFCFA;font-size:11px;color:#6E6E6E;letter-spacing:.04em}
+.card-foot b{font-weight:400;color:#141414}
+.act{display:grid;grid-template-columns:80px minmax(0,1fr) 76px;align-items:center;height:38px;padding:0 16px;border-bottom:1px solid #F0F0ED;font-size:12.5px}
+.act:last-child{border-bottom:0}
+.act .time{font-size:11px;color:#8A8A85}
+.act .who{font-size:12px;color:#6E6E6E;text-align:right}
+.act .txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:12px}
+.ok{color:#2E6B45}
+.bad{color:#C43A2F}
+.foot{margin-top:auto;padding-top:12px;font-size:11px;color:#8A8A85;letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">MatterNest</span>
+  <div class="topbar-right"><span class="who">法务部 · 林见川</span><button class="btn">刷新</button></div>
+</div>
+<div class="shell">
+  <nav class="nav">
+    <p class="grp">概要</p>
+    <a class="on" href="#">工作台</a>
+    <a href="#">通知</a>
+    <p class="grp">业务</p>
+    <a href="#">案件</a>
+    <a href="#">事项</a>
+    <a href="#">当事人</a>
+    <a href="#">已归档</a>
+    <p class="grp">系统</p>
+    <a href="#">配置字典</a>
+    <a href="#">用户与角色</a>
+  </nav>
+  <main class="main">
+    <section class="metrics">
+      <div class="metric"><p class="lbl">待办节点</p><p class="num">12</p></div>
+      <div class="metric fail"><p class="lbl">已逾期</p><p class="num">3</p></div>
+      <div class="metric"><p class="lbl">7 天内到期</p><p class="num">5</p></div>
+      <div class="metric"><p class="lbl">在办案件</p><p class="num">6</p></div>
+      <div class="metric"><p class="lbl">在办事项</p><p class="num">4</p></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>待办节点</h2><span class="note">按期限升序 · 刚变更置顶 · 含已逾期</span></div>
+      <div class="grid"><span></span><span>编号</span><span>案件 / 事项</span><span>节点</span><span>期限</span><span>经办人</span></div>
+      <div class="row changed"><i class="bar"></i><span class="no">AJ-20260812-003</span><span class="case">江苏恒基建设 建设工程施工合同纠纷<span class="orig">原 10-25</span></span><span class="node">开庭</span><span class="due"><span class="tag">期限变更 · 今日</span><span class="d">2026-10-18</span><span class="tail">剩 1 天</span></span><span class="owner">陈嘉禾</span></div>
+      <div class="row over"><i class="bar"></i><span class="no">AJ-20260730-011</span><span class="case">宁波海裕物流 货运代理合同纠纷</span><span class="node">举证期限届满</span><span class="due"><span class="d">2026-10-11</span><span class="tail">逾期 6 天</span></span><span class="owner">周敏行</span></div>
+      <div class="row over"><i class="bar"></i><span class="no">AJ-20260819-006</span><span class="case">苏州瑞创精密机械 买卖合同纠纷</span><span class="node">上诉期届满</span><span class="due"><span class="d">2026-10-13</span><span class="tail">逾期 4 天</span></span><span class="owner">李文博</span></div>
+      <div class="row over"><i class="bar"></i><span class="no">AJ-20260804-002</span><span class="case">杭州临平置业 房屋租赁合同纠纷</span><span class="node">开庭</span><span class="due"><span class="d">2026-10-16</span><span class="tail">逾期 1 天</span></span><span class="owner">陈嘉禾</span></div>
+      <div class="row soon"><i class="bar"></i><span class="no">AJ-20260821-009</span><span class="case">无锡捷安特钢构 承揽合同纠纷</span><span class="node">举证期限届满</span><span class="due"><span class="d">2026-10-19</span><span class="tail">剩 2 天</span></span><span class="owner">赵一诺</span></div>
+      <div class="row soon"><i class="bar"></i><span class="no">AJ-20260727-004</span><span class="case">上海舜禾供应链 保证合同纠纷</span><span class="node">证据交换</span><span class="due"><span class="d">2026-10-20</span><span class="tail">剩 3 天</span></span><span class="owner">孙立群</span></div>
+      <div class="row soon"><i class="bar"></i><span class="no">XS-20260901-002</span><span class="case">事项 · 合肥晶科能源 货款催收</span><span class="node">律师函答复期限</span><span class="due"><span class="d">2026-10-22</span><span class="tail">剩 5 天</span></span><span class="owner">吴思远</span></div>
+      <div class="row soon"><i class="bar"></i><span class="no">AJ-20260826-008</span><span class="case">南通润石新材料 专利权权属纠纷</span><span class="node">答辩期届满</span><span class="due"><span class="d">2026-10-24</span><span class="tail">剩 7 天</span></span><span class="owner">郑文卿</span></div>
+      <div class="card-foot"><span>共 <b>12</b> 条待办节点 · 当前显示前 8 条</span><span>查看全部</span></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>最近动作</h2><span class="note">近 24 小时 · 倒序</span></div>
+      <div class="act"><span class="time">09:12</span><span class="txt">将节点「开庭」期限由 10-25 前移至 10-18 · 江苏恒基建设</span><span class="who">陈嘉禾</span></div>
+      <div class="act"><span class="time">08:47</span><span class="txt">上传开庭传票 2 份，节点标记 <span class="ok">已送达</span> · 宁波海裕物流</span><span class="who">周敏行</span></div>
+      <div class="act"><span class="time">昨日 18:20</span><span class="txt">标记 <span class="bad">3 个节点逾期</span> 并通知经办人 · 苏州瑞创精密机械</span><span class="who">系统</span></div>
+    </section>
+
+    <p class="foot">数据截至 2026-10-17 09:24 · 每 5 分钟自动同步</p>
+  </main>
+</div>
+</body>
+</html>

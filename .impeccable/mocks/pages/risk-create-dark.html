@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 新建事项</title>
+<link rel="stylesheet" href="canon.css">
+</head>
+<body class="dark">
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">MatterNest</div>
+    <span class="gl">概要</span>
+    <a class="it" href="workbench.html">工作台</a>
+    <a class="it" href="notifications.html">通知</a>
+    <span class="gl">业务</span>
+    <a class="it" href="matters.html">案件</a>
+    <a class="it on" href="risk-matters.html">事项</a>
+    <a class="it" href="parties.html">当事人</a>
+    <a class="it" href="archive.html">已归档</a>
+    <span class="gl">系统</span>
+    <a class="it" href="config.html">功能配置</a>
+    <a class="it" href="users.html">用户管理</a>
+    <a class="it" href="roles.html">角色权限</a>
+    <div class="navfoot">系统管理员 · 全局管理
+      <span class="modesw"><b class="m-light">浅色</b><b class="m-dark">深色</b></span>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>事项</h1>
+    </header>
+
+    <div class="page">
+      <div class="stack">
+        <div class="query">
+          <div class="field"><label>关键词</label><input class="inp w200" placeholder="编号 / 事项名称 / 描述"></div>
+          <div class="field"><label>事项状态</label><span class="sel">全部状态<i>▾</i></span></div>
+          <div class="field"><label>风险等级</label><span class="sel">全部等级<i>▾</i></span></div>
+          <div class="field"><label>经办人</label><span class="sel">全部（含未指派）<i>▾</i></span></div>
+          <button class="btn" style="margin-left:auto">查询</button>
+          <button class="btn">重置</button>
+          <a class="btn pri" href="risk-create.html">登记事项</a>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>事项列表</h2></div>
+          <table class="tb">
+            <colgroup><col style="width:44px"><col style="width:150px"><col><col style="width:96px"><col style="width:96px"><col style="width:76px"><col style="width:100px"><col style="width:118px"><col style="width:88px"><col style="width:96px"></colgroup>
+            <thead>
+              <tr>
+                <th class="c"><span class="cb"></span></th>
+                <th>事项编号</th>
+                <th>事项名称</th>
+                <th>风险等级</th>
+                <th>事项状态</th>
+                <th>经办人</th>
+                <th>上报时间</th>
+                <th>期限</th>
+                <th>转案件</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="c"><span class="cb"></span></td>
+                <td class="mono">SX-20260915-001</td>
+                <td class="ellip"><a class="btn link" href="risk-detail.html">合肥远航物资 采购合同</a></td>
+                <td><span class="pill due"><i></i>中风险</span></td>
+                <td><span class="pill gray"><i></i>处理中</span></td>
+                <td>王兆坤</td>
+                <td class="num">2026-09-15</td>
+                <td><span class="pill due"><i></i>剩 3 天</span></td>
+                <td><button class="btn link">转案件</button></td>
+                <td><a class="btn link" href="risk-detail.html">查看</a></td>
+              </tr>
+              <tr>
+                <td class="c"><span class="cb"></span></td>
+                <td class="mono">SX-20261008-002</td>
+                <td class="ellip"><a class="btn link" href="risk-detail.html">南京天工机械 设备质量索赔</a></td>
+                <td><span class="pill over"><i></i>高风险</span></td>
+                <td><span class="pill gray"><i></i>待评估</span></td>
+                <td class="ph">未指派</td>
+                <td class="num">2026-10-08</td>
+                <td class="ph">—</td>
+                <td><button class="btn link">转案件</button></td>
+                <td><a class="btn link" href="risk-detail.html">查看</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mask static">
+  <div class="modal narrow" role="dialog" aria-label="新建事项">
+    <div class="modal-h">
+      <h3>新建事项</h3>
+      <span class="sp"></span>
+      <button class="x" aria-label="关闭">✕</button>
+    </div>
+
+    <div class="modal-b">
+      <div class="fsec">基本信息</div>
+      <div class="fgrid">
+        <div class="field span12"><label>事项名称<b>*</b></label><input class="inp" placeholder="例：合肥远航物资 采购合同"></div>
+        <div class="field span6"><label>风险类型<b>*</b></label><span class="sel">合同纠纷<i>▾</i></span></div>
+        <div class="field span6"><label>风险等级<b>*</b></label><span class="sel">中风险<i>▾</i></span></div>
+        <div class="field span6"><label>来源</label><span class="sel">业务报备<i>▾</i></span></div>
+        <div class="field span6"><label>发现日期</label><input class="inp ph" placeholder="留空按今天记"></div>
+        <div class="field span12"><label>预估影响（元）</label><input class="inp" placeholder="最多两位小数"></div>
+      </div>
+
+      <div class="fsec">情况与处置</div>
+      <div class="fgrid">
+        <div class="field span12">
+          <label>描述<b>*</b></label>
+          <div class="rt">
+            <div class="rt-bar"><b class="on">正文</b><b>标题</b><i></i><b>B</b><b>I</b><b>•</b><b>1.</b><i></i><b>链接</b></div>
+            <div class="rt-b">
+              <div>对方以设备验收不合格为由，拒付第二期货款 86 万，并主张解除合同。</div>
+              <ul><li>验收单双方已签字，争议在「合格」的判定标准</li></ul>
+              <div class="ph">下一步：调取验收沟通记录</div>
+            </div>
+          </div>
+        </div>
+        <div class="field span12"><label>已采取措施</label><textarea class="ta" style="min-height:56px">已发函要求对方说明不合格依据；商务口径暂停后续发货。</textarea></div>
+      </div>
+
+      <div class="fsec">办理与关注</div>
+      <div class="fgrid">
+        <div class="field span6"><label>处理人</label><span class="sel">未指派<i>▾</i></span></div>
+        <div class="field span6"><label>关注人</label><span class="sel">陈嘉禾<i>▾</i></span></div>
+      </div>
+    </div>
+
+    <div class="modal-f">
+      <span class="sp"></span>
+      <button class="btn">取消</button>
+      <button class="btn pri">报备</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

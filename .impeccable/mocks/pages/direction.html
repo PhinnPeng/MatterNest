@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 方向轮（深色 / 浅色）</title>
+<style>
+:root{--paper:#FAF7F0;--card:#FDFBF6;--ink:#201D19;--ink2:#6B675F;--line:#E7E1D6;--red:#B5442C}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei UI",sans-serif;padding:36px 40px 60px}
+h1{font:400 22px/1.4 "Source Han Serif SC","Noto Serif SC","Songti SC",SimSun,serif;letter-spacing:.06em;margin-bottom:8px}
+p.sub{color:var(--ink2);font-size:13px;max-width:1180px;margin-bottom:6px}
+p.note{color:var(--red);font-size:13px;max-width:1180px;margin-bottom:26px}
+a{color:var(--red)}
+.world{border-top:1px solid var(--line);padding:20px 0 26px}
+.whead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.whead b{font:400 16px/1.3 "Songti SC",SimSun,serif;letter-spacing:.06em}
+.kick{font-size:11px;letter-spacing:.16em;color:var(--red);border:1px solid currentColor;border-radius:2px;padding:1px 6px}
+.src{font-size:12px;color:var(--ink2)}
+.thesis{font-size:13px;margin-bottom:2px}
+.risk{font-size:12px;color:var(--ink2);margin-bottom:12px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:1180px}
+figure{background:var(--card);border:1px solid var(--line);border-radius:3px;padding:8px;overflow:hidden}
+figcaption{font-size:11.5px;color:var(--ink2);margin-bottom:6px}
+.frame{width:1440px;height:900px;border:none;display:block;background:#fff;zoom:.38}
+</style>
+</head>
+<body>
+<h1>方向轮 · 深色 / 浅色</h1>
+<p class="sub">六个视觉世界，每个都坐在同一副标准后台骨架上（左导航 216 + 顶栏 + 内容区 1180），世界只提供字体、配色、密度与一个招牌动作。左深右浅，同一份代码换主题。</p>
+<p class="note">选一个请到决策页：<a href="http://192.168.1.2:65308/">http://192.168.1.2:65308/</a>　（也可以在这里看完，回话告诉我要哪个）</p>
+
+<div class="world">
+  <div class="whead"><b>公文字号</b><span class="kick">THE ROLL</span><span class="src">GB/T 9704 党政机关公文格式</span></div>
+  <div class="thesis">把内网台账写成一份随时可归档的公文：编号成轴、红线压区、版记收尾。</div>
+  <div class="risk">风险：仿宋在密集表格小字号下偏细；红线多一条就滑向廉价红。</div>
+  <div class="pair">
+    <figure><figcaption>深色 · <a href="/decision/assigned.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/assigned.html" loading="lazy"></iframe></figure>
+    <figure><figcaption>浅色 · <a href="/decision/assigned-light.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/assigned-light.html" loading="lazy"></iframe></figure>
+  </div>
+</div>
+
+<div class="world">
+  <div class="whead"><b>开庭排期</b><span class="kick">IMPECCABLE'S PICK</span><span class="src">法院公告栏的纸质排期表 / 蓝黑墨水记录簿</span></div>
+  <div class="thesis">一行一案：列永不动，行按开庭日走。</div>
+  <div class="risk">风险：它离品类默认的表格范式最近——熟悉是它的长处，辨识度最低是它的代价。</div>
+  <div class="pair">
+    <figure><figcaption>深色 · <a href="/decision/model-pick.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/model-pick.html" loading="lazy"></iframe></figure>
+    <figure><figcaption>浅色 · <a href="/decision/model-pick-light.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/model-pick-light.html" loading="lazy"></iframe></figure>
+  </div>
+</div>
+
+<div class="world">
+  <div class="whead"><b>手册页签</b><span class="kick">COMPETITIVE</span><span class="src">盒装说明书 + 醋酸片页签轨</span></div>
+  <div class="thesis">每个分组挂一枚页签，页签的高度就是它的篇幅。</div>
+  <div class="risk">风险：页签高度不一时，1366 宽度下容易显得参差。留下的纪律：页签高度=篇幅 + 单字号。</div>
+  <div class="pair">
+    <figure><figcaption>深色 · <a href="/decision/challenger-manual.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/challenger-manual.html" loading="lazy"></iframe></figure>
+    <figure><figcaption>浅色 · <a href="/decision/challenger-manual-light.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/challenger-manual-light.html" loading="lazy"></iframe></figure>
+  </div>
+</div>
+
+<div class="world">
+  <div class="whead"><b>石墨细缝</b><span class="kick">COMPETITIVE</span><span class="src">dark-first 工作台语言</span></div>
+  <div class="thesis">石墨底、一像素细缝分隔，危险动作独自站远。</div>
+  <div class="risk">风险：深色工作台的对比很容易滑向中性灰的品类默认。留下的纪律：细缝而非阴影 + 危险动作隔离。</div>
+  <div class="pair">
+    <figure><figcaption>深色 · <a href="/decision/challenger-console.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/challenger-console.html" loading="lazy"></iframe></figure>
+    <figure><figcaption>浅色 · <a href="/decision/challenger-console-light.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/challenger-console-light.html" loading="lazy"></iframe></figure>
+  </div>
+</div>
+
+<div class="world">
+  <div class="whead"><b>翻牌排期</b><span class="kick">COMPETITIVE</span><span class="src">车站翻牌告示板</span></div>
+  <div class="thesis">行是活的实体，列永不动，只有字在翻。</div>
+  <div class="risk">风险：夜间霓虹感与复古新奇，钢架一多就成了道具。留下的纪律：列不动 + 值变更一次性翻字。</div>
+  <div class="pair">
+    <figure><figcaption>深色 · <a href="/decision/challenger-flap.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/challenger-flap.html" loading="lazy"></iframe></figure>
+    <figure><figcaption>浅色 · <a href="/decision/challenger-flap-light.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/challenger-flap-light.html" loading="lazy"></iframe></figure>
+  </div>
+</div>
+
+<div class="world">
+  <div class="whead"><b>标准写法</b><span class="kick">标准写法</span><span class="src">这个品类默认的后台，做到无可挑剔</span></div>
+  <div class="thesis">中性灰阶 + 一个克制强调色，标准的卡片与表格。</div>
+  <div class="risk">风险：与同类产品难以区分——这是它的定义，不是它的缺陷。</div>
+  <div class="pair">
+    <figure><figcaption>深色 · <a href="/decision/canon.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/canon.html" loading="lazy"></iframe></figure>
+    <figure><figcaption>浅色 · <a href="/decision/canon-light.html" target="_blank">全尺寸</a></figcaption><iframe class="frame" src="/decision/canon-light.html" loading="lazy"></iframe></figure>
+  </div>
+</div>
+</body>
+</html>

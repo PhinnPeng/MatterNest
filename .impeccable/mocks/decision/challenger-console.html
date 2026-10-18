@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 工作台</title>
+<style>
+:root{
+  --bg:#16181B;--nav:#16181B;--panel:#1B1E22;--sel:#23272C;--seam:#24272C;
+  --ink:#E6E8EA;--ink2:#9AA0A6;--on-red:#101216;
+  --red:#D2543C;--amber:#C08A2E;--green:#4E8A6A;--red-t:#E0664B;--amber-t:#D9A24A;
+  --sans:system-ui,-apple-system,"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Consolas,"DejaVu Sans Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{display:flex;background:var(--bg);color:var(--ink);font:13px/1.45 var(--sans)}
+button,input,select{font:inherit;color:inherit;background:none;border:0;border-radius:0}
+a{color:inherit;text-decoration:none}
+.mono,.no{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:400}
+/* 左导航 216 */
+.nav{flex:none;width:216px;display:flex;flex-direction:column;background:var(--nav);border-right:1px solid var(--seam)}
+.brand{height:48px;display:flex;align-items:center;padding:0 12px;font-size:13px;letter-spacing:.10em}
+.gl{display:block;padding:16px 12px 6px;font-size:11px;letter-spacing:.08em;color:var(--ink2)}
+.it{display:flex;align-items:center;height:32px;padding:0 12px;font-size:13px;color:var(--ink2);border-left:2px solid transparent}
+.it.on{color:var(--ink);background:var(--sel);border-left-color:var(--ink)}
+.nf{margin-top:auto;display:flex;align-items:center;justify-content:space-between;height:48px;padding:0 12px;border-top:1px solid var(--seam);font-size:11px;color:var(--ink2)}
+.mode{display:flex;border:1px solid var(--seam);font-size:10.5px}
+.mode span{padding:3px 5px;color:var(--ink2)}
+.mode span+span{border-left:1px solid var(--seam)}
+.mode .cur{background:var(--sel);color:var(--ink)}
+/* 顶栏 + 内容区 1180（面板之间只有 1px 细缝：露出底色） */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{flex:none;height:48px;display:flex;align-items:center;padding:0 22px 0 34px;border-bottom:1px solid var(--seam);font-size:14px}
+.wrap{flex:1;min-height:0;width:1180px;display:flex;flex-direction:column;gap:1px;margin:16px 22px 0;background:var(--bg)}
+.panel{background:var(--panel);padding:12px}
+/* 指示行 */
+.head{flex:none;height:64px;display:flex;align-items:center;justify-content:space-between}
+.head h1{font-size:15px;font-weight:600}
+.head p{margin-top:5px;font-size:11.5px;color:var(--ink2)}
+.btn{font-size:12px;padding:7px 12px;border:1px solid var(--seam);color:var(--ink)}
+.btn:hover{border-color:var(--ink2)}
+/* 6 格指标带：六块面板各带 12px 内边距，彼此只隔 1px 细缝 */
+.band{flex:none;display:flex;gap:1px;background:var(--bg)}
+.cell{flex:1;height:92px;background:var(--panel);padding:12px}
+.cell .lb{display:block;font-size:11.5px;letter-spacing:.08em;color:var(--ink2)}
+.cell .vl{display:block;margin-top:13px;font:26px/1 var(--mono);font-variant-numeric:tabular-nums;font-weight:500}
+.dot{display:inline-block;border-radius:50%;margin-right:7px;vertical-align:1px}
+.d7{width:7px;height:7px;background:var(--red)}
+.d5{width:5px;height:5px;background:var(--amber)}
+.d4{width:4px;height:4px;background:var(--ink2)}
+.od{color:var(--red)}
+.soon{color:var(--amber)}
+.late{color:var(--red-t);font-weight:600}
+.near{color:var(--amber-t);font-weight:600}
+/* 待办节点表 */
+.tbl{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--panel);padding:12px}
+.tbar{flex:none;display:flex;align-items:center;justify-content:space-between;height:32px}
+.tbar h2{font-size:13px;font-weight:600}
+.tools{display:flex;align-items:center;gap:6px}
+.inp,.sel{border:1px solid var(--seam);font-size:12px;padding:6px 10px;color:var(--ink)}
+.inp{width:200px}
+.inp::placeholder{color:var(--ink2)}
+.sel{padding-right:24px}
+.gh,.r{display:grid;grid-template-columns:168px minmax(0,1fr) 150px 110px 84px 200px;align-items:center}
+.gh>span,.r>span{padding:0 12px}
+.gh>span:first-child,.r>span:first-child{padding-left:0}
+.gh>span:last-child,.r>span:last-child{padding-right:0}
+.gh{flex:none;height:34px;border-bottom:1px solid var(--seam);font-size:11.5px;letter-spacing:.08em;color:var(--ink2)}
+.sorted{color:var(--ink)}
+.sorted i{font-style:normal;font-size:9px}
+.rows{flex:none}
+.r{height:48px;border-bottom:1px solid var(--seam)}
+.rows .r:last-child{border-bottom:0}
+.no{font-size:12px;color:var(--ink2)}
+.nm{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nd,.ow{font-size:12.5px;color:var(--ink2)}
+.dl{font-size:12.5px;font-variant-numeric:tabular-nums}
+/* 危险动作隔离：常规动作 —— 空白 16px + 1px 细缝 + 空白 16px —— 危险动作（默认描边，聚焦才实心） */
+.ops{display:flex;align-items:center;justify-content:flex-end}
+.act{font-size:12px;color:var(--ink2);padding:5px 0}
+.act:hover{color:var(--ink)}
+.gap{flex:none;width:33px;height:18px;margin-left:14px;border-left:1px solid var(--seam)}
+.danger{font-size:12px;color:var(--red-t);padding:5px 10px;border:1px solid var(--seam)}
+.danger:focus{background:var(--red);border-color:var(--red);color:var(--on-red);outline:0}
+.tfoot{flex:none;margin-top:auto;height:40px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--seam);font-size:11.5px;color:var(--ink2)}
+.pg{display:flex;align-items:center;gap:12px}
+.btn.sm{font-size:11.5px;padding:5px 10px}
+/* 最近动作 */
+.acts{flex:none;background:var(--panel);padding:12px}
+.abar{display:flex;align-items:center;justify-content:space-between;height:44px}
+.abar h2{font-size:13px;font-weight:600}
+.abar em{font-style:normal;font-size:11.5px;color:var(--ink2)}
+.arow{display:grid;grid-template-columns:52px 172px minmax(0,1fr) 96px 92px;align-items:center;height:52px;border-top:1px solid var(--seam)}
+.arow>span{padding:0 12px}
+.arow>span:first-child{padding-left:0}
+.arow>span:last-child{padding-right:0}
+.a-act{font-size:12.5px}
+.a-no{font-size:12px;color:var(--ink2)}
+.a-nm{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.a-op{font-size:12.5px;color:var(--ink2)}
+.a-tm{font:11.5px var(--mono);font-variant-numeric:tabular-nums;color:var(--ink2);text-align:right}
+/* 浅色版：复制文件后给 body 加 class="light" */
+body.light{
+  --bg:#F6F7F8;--nav:#FFFFFF;--panel:#FFFFFF;--sel:#EEF0F2;--seam:#E3E5E8;
+  --ink:#15181B;--ink2:#5F6670;
+  --red:#D2543C;--amber:#C08A2E;--green:#4E8A6A;--red-t:#B93F28;--amber-t:#8F6217;
+}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <span class="gl">概要</span>
+  <a class="it on" href="#">工作台</a>
+  <a class="it" href="#">通知</a>
+  <span class="gl">业务</span>
+  <a class="it" href="#">案件</a>
+  <a class="it" href="#">事项</a>
+  <a class="it" href="#">当事人</a>
+  <a class="it" href="#">已归档</a>
+  <span class="gl">系统</span>
+  <a class="it" href="#">功能配置</a>
+  <a class="it" href="#">用户管理</a>
+  <a class="it" href="#">角色权限</a>
+  <div class="nf"><span>系统管理员 · 全局管理</span><span class="mode"><span class="cur">深色</span><span>浅色</span></span></div>
+</nav>
+<main class="main">
+  <header class="top">工作台</header>
+  <div class="wrap">
+    <section class="panel head">
+      <div>
+        <h1>今天该动手的</h1>
+        <p><b class="mono">2026-10-17</b> 周六 · 数据截至 <b class="mono">09:30</b></p>
+      </div>
+      <button class="btn">刷新</button>
+    </section>
+    <section class="band">
+      <div class="cell"><span class="lb">待办节点</span><span class="vl">12</span></div>
+      <div class="cell"><span class="lb"><i class="dot d7"></i>已逾期</span><span class="vl od">3</span></div>
+      <div class="cell"><span class="lb"><i class="dot d5"></i>7 天内到期</span><span class="vl soon">5</span></div>
+      <div class="cell"><span class="lb">在办案件</span><span class="vl">6</span></div>
+      <div class="cell"><span class="lb">在办事项</span><span class="vl">4</span></div>
+      <div class="cell"><span class="lb">本月新增案件</span><span class="vl">2</span></div>
+    </section>
+    <section class="tbl">
+      <div class="tbar">
+        <h2>待办节点</h2>
+        <div class="tools">
+          <input class="inp" placeholder="搜索编号或案名" aria-label="搜索编号或案名">
+          <select class="sel" aria-label="按期限筛选"><option>全部节点</option><option>已逾期</option><option>7 天内到期</option></select>
+        </div>
+      </div>
+      <div class="gh">
+        <span>编号</span><span>案名</span><span>节点</span>
+        <span class="sorted">期限 <i>▲</i></span>
+        <span>经办人</span><span>操作</span>
+      </div>
+      <div class="rows">
+        <div class="r"><span class="no">AJ-20260812-003</span><span class="nm">江苏恒基建设 建设工程施工合同纠纷</span><span class="nd">举证期限届满</span><span class="dl late"><i class="dot d7"></i>逾期 6 天</span><span class="ow">周敏</span><span class="ops"><button class="act">标记完成</button><i class="gap"></i><button class="danger">作废节点</button></span></div>
+        <div class="r"><span class="no">SX-20260805-007</span><span class="nm">常州天元化工 产品责任纠纷</span><span class="nd">证据固定完成</span><span class="dl late"><i class="dot d7"></i>逾期 3 天</span><span class="ow">李文博</span><span class="ops"><button class="act">标记完成</button><i class="gap"></i><button class="danger">作废节点</button></span></div>
+        <div class="r"><span class="no">AJ-20260902-001</span><span class="nm">杭州瑞和供应链 买卖合同纠纷</span><span class="nd">提交补充证据</span><span class="dl late"><i class="dot d7"></i>逾期 1 天</span><span class="ow">陈嘉禾</span><span class="ops"><button class="act">标记完成</button><i class="gap"></i><button class="danger">作废节点</button></span></div>
+        <div class="r"><span class="no">AJ-20260819-002</span><span class="nm">苏州万顺机械 承揽合同纠纷</span><span class="nd">开庭</span><span class="dl near"><i class="dot d5"></i>剩 2 天</span><span class="ow">王兆坤</span><span class="ops"><button class="act">标记完成</button><i class="gap"></i><button class="danger">作废节点</button></span></div>
+        <div class="r"><span class="no">SX-20260915-001</span><span class="nm">合肥远航物资 采购合同</span><span class="nd">内部审批完成</span><span class="dl near"><i class="dot d5"></i>剩 3 天</span><span class="ow">周敏</span><span class="ops"><button class="act">标记完成</button><i class="gap"></i><button class="danger">作废节点</button></span></div>
+        <div class="r"><span class="no">AJ-20261005-001</span><span class="nm">无锡精诚电子 侵害商标权纠纷</span><span class="nd">上诉期届满</span><span class="dl near"><i class="dot d5"></i>剩 6 天</span><span class="ow">陈嘉禾</span><span class="ops"><button class="act">标记完成</button><i class="gap"></i><button class="danger">作废节点</button></span></div>
+      </div>
+      <div class="tfoot"><span>显示 <b class="mono">6 / 12</b></span><span class="pg"><button class="btn sm">上一页</button><b class="mono">1 / 2</b><button class="btn sm">下一页</button></span></div>
+    </section>
+    <section class="acts">
+      <div class="abar"><h2>最近动作</h2><em>按时间倒序</em></div>
+      <div class="arow"><span class="a-act">创建</span><span class="a-no">AJ-20260921-001</span><span class="a-nm">扬州金鼎装饰 装饰装修合同纠纷 · 批量导入</span><span class="a-op">系统管理员</span><span class="a-tm">2 小时前</span></div>
+      <div class="arow"><span class="a-act">更新</span><span class="a-no">AJ-20260812-003</span><span class="a-nm">江苏恒基建设 举证期限调整至 2026-11-02</span><span class="a-op">周敏</span><span class="a-tm">3 小时前</span></div>
+      <div class="arow"><span class="a-act">上传</span><span class="a-no">SX-20260915-001</span><span class="a-nm">合肥远航物资 合同扫描件 4 份</span><span class="a-op">李文博</span><span class="a-tm">昨天 17:42</span></div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,130 @@
+/* MatterNest · 「案卷脊标」共享草图样式 —— 只服务 .impeccable/mocks/pages/ 下的草图与画廊，
+   不是实现源码；真页的视觉由 src/app/theme/* 与 antd token 承担。 */
+:root{
+  --paper:#FAF7F0;--card:#FDFBF6;--panel:#F5F1E8;
+  --ink:#201D19;--ink2:#6B675F;--line:#E7E1D6;--line2:#F1ECE1;--mute:#DED7C8;--tint:#FCF3EF;
+  --cinnabar:#B5442C;--ochre:#96601F;--green:#47705B;
+  --nav:#1F2A2C;--nav-item:#D8D4C9;--nav-sel:#E3775C;--nav-sel-bg:#25312F;--nav-label:#8B9598;
+  --edge:#CFC7B7;
+  --serif:"Songti SC","Noto Serif SC","Source Han Serif SC",SimSun,serif;
+  --sans:"PingFang SC","Microsoft YaHei UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{height:100%}
+body{min-height:100%;display:flex;background:var(--paper);color:var(--ink);font:13px/1.45 var(--sans);overflow-x:hidden}
+
+/* —— 导航（desk 页共用，216px，sticky）—— */
+.nav{flex:none;width:216px;position:sticky;top:0;height:100vh;background:var(--nav);color:var(--paper);display:flex;flex-direction:column;padding:18px 0 14px}
+.brand{font:15px/1 var(--serif);letter-spacing:.16em;padding:0 20px 18px;margin:0 20px 16px;border-bottom:1px solid rgba(250,247,240,.12)}
+.group{padding-bottom:16px}
+.glabel{display:block;padding:0 20px 8px;font-size:10.5px;letter-spacing:.24em;color:var(--nav-label)}
+.item{display:block;padding:8px 20px;font-size:13px;color:var(--nav-item);text-decoration:none;border-left:3px solid transparent}
+.item.on{color:var(--nav-sel);background:var(--nav-sel-bg);border-left-color:var(--cinnabar)}
+.navfoot{margin-top:auto;padding:14px 20px 0;border-top:1px solid rgba(250,247,240,.12);font-size:11.5px;color:#9AA2A3;display:flex;align-items:center;justify-content:space-between}
+.theme-sw{font-size:11px;color:#9AA2A3;border:1px solid rgba(250,247,240,.28);border-radius:2px;padding:2px 6px;letter-spacing:.04em}
+/* —— 浅色模式（body.light）：导航换到纸面色，内容区一字不变 —— */
+body.light .nav{background:var(--panel);color:var(--ink);border-right:1px solid var(--line)}
+body.light .brand{color:var(--ink);border-bottom-color:var(--line)}
+body.light .glabel{color:#8A8578}
+body.light .item{color:#4A463F}
+body.light .item.on{color:var(--cinnabar);background:#FCF3EF;border-left-color:var(--cinnabar)}
+body.light .navfoot{border-top-color:var(--line);color:var(--ink2)}
+body.light .theme-sw{color:var(--ink2);border-color:var(--edge)}
+
+/* —— 顶栏 + 内容 —— */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
+.topbar{flex:none;height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--paper);border-bottom:1px solid var(--line)}
+.ptitle{font:15px/1 var(--serif);letter-spacing:.08em}
+.content{flex:1;padding:16px 16px 28px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+
+/* —— 卡与行 —— */
+.card{background:var(--card);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.chead{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:6px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+.chead h2{font:15px/1 var(--serif);letter-spacing:.06em}
+.chead em{font-style:normal;font-size:11.5px;color:var(--ink2)}
+.tools{display:flex;align-items:center;gap:8px}
+.row{display:grid;align-items:center;min-height:40px;padding-right:16px}
+.row+.row{border-top:1px solid var(--line2)}
+.row.od{background:var(--tint)}
+.cut{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.r{text-align:right}
+.mut{color:var(--ink2)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.link{color:var(--ink);text-decoration:none}
+.link:hover{color:var(--cinnabar)}
+
+/* —— 指示行 —— */
+.head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 16px;background:var(--card);border:1px solid var(--line);border-top:2px solid var(--cinnabar);border-radius:2px}
+.head h1{font:17px/1.25 var(--serif);letter-spacing:.05em}
+.head .sub{margin-top:5px;font-size:11.5px;color:var(--ink2)}
+
+/* —— 指标带（竖线分隔，直接立在纸面）—— */
+.metrics{display:flex;align-items:center;min-height:72px}
+.metric{flex:1;border-left:1px solid var(--line);padding-left:20px}
+.metric:first-child{border-left:0;padding-left:0}
+.metric span{display:block;font-size:11.5px;letter-spacing:.1em;color:var(--ink2)}
+.metric b{display:block;margin-top:6px;font:26px/1 var(--mono);font-variant-numeric:tabular-nums;font-weight:500}
+.od{color:var(--cinnabar)}.soon{color:var(--ochre)}.ok{color:var(--green)}
+
+/* —— 控件 —— */
+.btn{font:12px/1 var(--sans);color:var(--ink);background:var(--card);border:1px solid var(--edge);border-radius:2px;padding:6px 13px;cursor:default}
+.btn.pri{color:#fff;background:var(--cinnabar);border-color:var(--cinnabar)}
+.btn.sm{padding:4px 9px;font-size:11.5px}
+.txtbtn{font:12px/1 var(--sans);color:var(--cinnabar);background:none;border:none;padding:0}
+.ipt{height:30px;background:#fff;border:1px solid var(--edge);border-radius:2px;padding:0 10px;font:12.5px/1 var(--sans);color:var(--ink)}
+.sel{height:30px;background:#fff;border:1px solid var(--edge);border-radius:2px;padding:0 10px;font:12.5px/1 var(--sans);color:var(--ink);display:inline-flex;align-items:center;gap:12px}
+.sel i{width:7px;height:7px;border-right:1px solid var(--ink2);border-bottom:1px solid var(--ink2);transform:rotate(45deg);margin-top:-3px}
+.tag{display:inline-block;font:11px/1 var(--sans);border:1px solid;padding:3px 7px;border-radius:2px}
+.tag.od{color:var(--cinnabar);border-color:#D89A8B}
+.tag.soon{color:var(--ochre);border-color:#D0B284}
+.tag.ok{color:var(--green);border-color:#A9C0B2}
+.tag.mut{color:var(--ink2);border-color:var(--mute)}
+.sw{display:inline-block;width:28px;height:16px;border-radius:8px;background:var(--mute);position:relative;vertical-align:-3px}
+.sw::after{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff}
+.sw.on{background:var(--cinnabar)}
+.sw.on::after{left:auto;right:2px}
+
+/* —— 点径（星等即点径：逾期 10 · 临期 8 · 平常 5）—— */
+.dot{display:inline-block;border-radius:50%;background:#C2BAA9;vertical-align:middle}
+.dot.od{width:10px;height:10px;background:var(--cinnabar)}
+.dot.soon{width:8px;height:8px;background:var(--ochre)}
+.dot.sm{width:5px;height:5px}
+
+/* —— 页签 —— */
+.tabs{display:flex;border-bottom:1px solid var(--line);gap:2px}
+.tab{padding:9px 14px 8px;font-size:12.5px;color:var(--ink2);border-bottom:2px solid transparent;position:relative;top:1px}
+.tab.on{color:var(--cinnabar);border-bottom-color:var(--cinnabar);font-weight:600}
+
+/* —— 键值行（Descriptions / MetaLine）—— */
+.desc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px}
+.dl{display:flex;gap:14px;min-height:34px;align-items:center;border-bottom:1px solid var(--line2);padding:4px 0}
+.dl b{flex:none;width:96px;font-size:12px;font-weight:400;color:var(--ink2)}
+.dl span{flex:1;min-width:0}
+
+/* —— 提示条 —— */
+.alert{display:flex;align-items:center;gap:10px;padding:8px 12px;font-size:12px;border:1px solid;border-radius:2px}
+.alert.od{color:var(--cinnabar);border-color:#E4B7A9;background:#FDF4F0}
+.alert.mut{color:var(--ink2);border-color:var(--line);background:var(--panel)}
+
+/* —— 时间线 —— */
+.tl{list-style:none}
+.tl li{position:relative;padding:0 0 14px 18px;border-left:1px solid var(--line);margin-left:6px}
+.tl li::before{content:"";position:absolute;left:-4px;top:4px;width:7px;height:7px;border-radius:50%;background:#C2BAA9}
+.tl li:last-child{border-left-color:transparent}
+
+/* —— 两栏（事项详情）—— */
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 356px;gap:14px;align-items:start}
+
+/* —— 表头行（列表卡内）—— */
+.throw{display:grid;align-items:center;min-height:36px;padding-right:16px;border-bottom:1px solid var(--line)}
+.throw span{font-size:11.5px;letter-spacing:.04em;color:var(--ink2)}
+/* 相邻列表头不贴住：每格留出右距（首格的 padding-left 由页内内联给出） */
+.throw span{padding-right:12px}
+/* 真页契约是 width+ellipsis（截断不折行）：所有行格与表头一律单行截断 */
+.row>span,.throw span{white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.throw .sort::after{content:" ⇅";color:var(--mute);font-size:10px}
+.pager{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 16px;border-top:1px solid var(--line2);font-size:12px;color:var(--ink2)}
+.pager i{font-style:normal;display:inline-block;min-width:22px;text-align:center;border:1px solid var(--edge);border-radius:2px;padding:3px 0;margin-left:4px;background:var(--card)}
+.pager i.on{color:#fff;background:var(--cinnabar);border-color:var(--cinnabar)}

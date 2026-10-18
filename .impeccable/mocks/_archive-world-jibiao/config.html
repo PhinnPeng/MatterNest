@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 功能配置</title>
+<link rel="stylesheet" href="world.css">
+<style>
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.entry{display:block;background:var(--card);border:1px solid var(--line);border-radius:3px;padding:18px 20px 16px;text-decoration:none;color:var(--ink)}
+.entry:hover{border-color:var(--cinnabar)}
+.entry h2{font:15px/1 var(--serif);letter-spacing:.06em}
+.entry span{display:block;margin-top:9px;font-size:12px;color:var(--ink2)}
+.entry .go{float:right;color:var(--mute);font-size:14px}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item" href="workbench.html">工作台</a>
+    <a class="item" href="notifications.html">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="matters.html">案件</a>
+    <a class="item" href="risk-matters.html">事项</a>
+    <a class="item" href="parties.html">当事人</a>
+    <a class="item" href="archive.html">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item on" href="config.html">功能配置</a>
+    <a class="item" href="users.html">用户</a>
+    <a class="item" href="roles.html">角色</a></div>
+  <div class="navfoot"><span>系统管理员 · 全局管理</span><span class="theme-sw">浅色</span></div>
+</nav>
+<main class="main">
+  <header class="topbar"><div class="ptitle">功能配置</div></header>
+  <div class="content"><div class="wrap">
+    <section class="head">
+      <div><h1>功能配置</h1></div>
+    </section>
+    <section class="grid">
+      <a class="entry" href="config-matter-status.html">
+        <span class="go">›</span>
+        <h2>案件状态</h2>
+        <span>6 项 · 编码 / 名称 / 语义</span>
+      </a>
+      <a class="entry" href="config-risk-status.html">
+        <span class="go">›</span>
+        <h2>事项状态</h2>
+        <span>5 项 · 编码 / 名称 / 语义</span>
+      </a>
+      <a class="entry" href="config-risk-level.html">
+        <span class="go">›</span>
+        <h2>风险等级</h2>
+        <span>3 项 · 案件与事项共用</span>
+      </a>
+      <a class="entry" href="config-enums.html">
+        <span class="go">›</span>
+        <h2>闭集枚举</h2>
+        <span>6 组 · 案件类型 / 审级程序 / 诉讼地位 / 当事人类型 / 节点状态 / 事项类型</span>
+      </a>
+    </section>
+  </div></div>
+</main>
+</body>
+</html>

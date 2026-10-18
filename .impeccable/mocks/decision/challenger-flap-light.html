@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MatterNest · 工作台 · 今天该动手的</title>
+<style>
+:root{
+  --bg:#141414;--plate:#1B1C1E;--cell:#141414;--seam:#0A0A0A;--fg:#F5F5F5;--fg2:#8E9296;
+  --line:rgba(245,245,245,.13);--navbg:#101011;--navfg:#D6D9DB;--navdim:#71767A;--navsel:rgba(138,143,148,.16);
+  --steel:#8A8F94;--frameline:rgba(138,143,148,.34);--rail-t:#9AA0A5;--amber:#E0A020;--red:#A8322A;--turn:#2C2F33;
+  --sans:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  --cond:"Arial Narrow",Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:Consolas,"DejaVu Sans Mono",monospace;
+}
+body.light{
+  --bg:#EDEDEA;--plate:#E4E4DF;--cell:#DFDFDA;--seam:#C9C9C3;--fg:#141414;--fg2:#5E6165;
+  --line:rgba(20,20,20,.12);--navbg:#E1E1DC;--navfg:#1B1C1E;--navdim:#6B6F73;--navsel:rgba(20,20,20,.07);
+  --steel:#8A8F94;--frameline:rgba(138,143,148,.7);--rail-t:#5B5F63;--amber:#E0A020;--red:#A8322A;--turn:#EFEFEB;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{display:flex;background:var(--bg);color:var(--fg);font:13px/1.45 var(--sans)}
+/* 字符格：每个字符一格，格缝 1px 可见 */
+.flap{display:inline-flex;gap:1px;padding:1px;background:var(--seam);border-radius:2px}
+.flap i{display:flex;align-items:center;justify-content:center;width:10px;height:20px;background:var(--cell);color:var(--fg);font:600 14px/1 var(--cond);font-style:normal;text-transform:uppercase}
+.flap.w i{width:15px;height:21px;font-size:13px}
+.flap.sm i{width:9px;height:18px;font-size:12px}
+.flap.big i{width:27px;height:38px;font-size:26px}
+.flap.red i{background:var(--red);color:#F5F5F5}
+.flap.soon{background:var(--amber)}
+.flap i.turn{background:linear-gradient(180deg,var(--turn) 0 47%,var(--seam) 47% 53%,var(--turn) 53%);color:var(--fg2);box-shadow:inset 0 1px 0 var(--frameline),inset 0 -1px 0 var(--frameline)}
+.flap i.turn+i.turn{transform:translateY(3px)}
+/* 钢架 */
+.nav{flex:none;width:216px;background:var(--navbg);color:var(--navfg);display:flex;flex-direction:column;padding:18px 0 14px;border-right:1px solid var(--frameline)}
+.brand{padding:0 20px 16px;margin:0 20px 14px;border-bottom:1px solid var(--line);font:600 12px/1 var(--cond);letter-spacing:.3em;text-transform:uppercase;color:var(--fg)}
+.group{padding-bottom:14px}
+.glabel{display:block;padding:0 20px 7px;font-size:10.5px;letter-spacing:.22em;color:var(--navdim)}
+.item{display:block;height:32px;padding:0 20px;font-size:13px;line-height:32px;color:var(--navfg);text-decoration:none;border-left:3px solid transparent}
+.item.on{color:var(--fg);background:var(--navsel);border-left-color:var(--steel)}
+.navfoot{margin-top:auto;padding:12px 20px 0;border-top:1px solid var(--line);font-size:11.5px;color:var(--navdim)}
+.sw{height:22px;margin-top:9px;padding:0 9px;border:1px solid var(--frameline);border-radius:2px;background:transparent;color:var(--navfg);font:11.5px/1 var(--sans)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{flex:none;height:48px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--frameline);font:600 14px/1 var(--sans);letter-spacing:.06em}
+.content{flex:1;min-height:0;overflow:hidden;padding:16px 20px}
+.wrap{width:1180px;height:100%;margin:0 auto;display:flex;flex-direction:column}
+.head{flex:none;height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--plate);border:1px solid var(--line);border-radius:3px}
+.head h1{font-size:16px;font-weight:600;letter-spacing:.02em}
+.meta{margin-top:5px;font:11.5px/1 var(--mono);color:var(--fg2);letter-spacing:.02em}
+.btn{height:28px;padding:0 14px;border:1px solid var(--frameline);border-radius:2px;background:transparent;color:var(--fg);font:12px/1 var(--sans)}
+.metrics{flex:none;display:grid;grid-template-columns:repeat(6,1fr);margin-top:14px;background:var(--plate);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.metric{padding:12px 14px 14px;border-left:1px solid var(--line)}
+.metric:first-child{border-left:0}
+.metric .lb{display:block;font-size:11.5px;letter-spacing:.08em;color:var(--fg2)}
+.metric .flap{margin-top:9px}
+.board{flex:none;margin-top:14px;background:var(--plate);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.bhead{display:flex;align-items:center;height:38px;padding:0 16px;border-bottom:1px solid var(--line)}
+.bhead h2{font-size:13.5px;font-weight:600;letter-spacing:.04em}
+.cols,.row{display:grid;grid-template-columns:190px minmax(0,1fr) 176px 152px 76px;align-items:center;padding:0 16px}
+.cols{height:30px;background:var(--bg);border-bottom:1px solid var(--line);font-size:11.5px;letter-spacing:.1em;color:var(--fg2)}
+.cols .sort::after{content:"";display:inline-block;margin-left:6px;border:4px solid transparent;border-bottom-color:var(--steel);vertical-align:2px}
+.row{height:44px}
+.row+.row{border-top:1px solid var(--line)}
+.cn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:14px}
+.nd{font-size:12.5px;color:var(--fg2)}
+.dl{display:flex;align-items:center;gap:5px}
+.lamp{flex:none;width:9px;height:9px;border-radius:50%;background:var(--steel)}
+.lamp.od{background:var(--red)}
+.lamp.soon{background:var(--amber)}
+.arow{display:grid;grid-template-columns:56px 176px minmax(0,1fr) 88px 84px;align-items:center;height:36px;padding:0 16px}
+.arow+.arow{border-top:1px solid var(--line)}
+.act{font-size:12px;color:var(--fg2)}
+.tm{font:11.5px/1 var(--mono);color:var(--fg2);text-align:right}
+.op{font-size:12px;color:var(--fg2)}
+.rail{flex:none;margin-top:auto;height:30px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-top:1px solid var(--steel);border-radius:0 0 3px 3px;background:linear-gradient(180deg,var(--frameline),transparent 62%),var(--plate);font:11.5px/1 var(--mono);color:var(--rail-t)}
+</style>
+</head>
+<body class="light">
+<nav class="nav">
+  <div class="brand">MatterNest</div>
+  <div class="group"><span class="glabel">概要</span>
+    <a class="item on" href="#">工作台</a>
+    <a class="item" href="#">通知</a></div>
+  <div class="group"><span class="glabel">业务</span>
+    <a class="item" href="#">案件</a>
+    <a class="item" href="#">事项</a>
+    <a class="item" href="#">当事人</a>
+    <a class="item" href="#">已归档</a></div>
+  <div class="group"><span class="glabel">系统</span>
+    <a class="item" href="#">功能配置</a>
+    <a class="item" href="#">用户管理</a>
+    <a class="item" href="#">角色权限</a></div>
+  <div class="navfoot">
+    <div>系统管理员 · 全局管理</div>
+    <button class="sw" type="button">浅色</button></div>
+</nav>
+<main class="main">
+  <header class="topbar">工作台</header>
+  <div class="content"><div class="wrap">
+    <section class="head">
+      <div><h1>今天该动手的</h1><div class="meta">2026-10-17 周六 · 数据截至 09:30</div></div>
+      <button class="btn" type="button">刷新</button></section>
+    <section class="metrics">
+      <div class="metric"><span class="lb">待办节点</span><span class="flap big"><i>1</i><i>2</i></span></div>
+      <div class="metric"><span class="lb">已逾期</span><span class="flap big red"><i>3</i></span></div>
+      <div class="metric"><span class="lb">7 天内到期</span><span class="flap big soon"><i>5</i></span></div>
+      <div class="metric"><span class="lb">在办案件</span><span class="flap big"><i>6</i></span></div>
+      <div class="metric"><span class="lb">在办事项</span><span class="flap big"><i>4</i></span></div>
+      <div class="metric"><span class="lb">本月新增案件</span><span class="flap big"><i>2</i></span></div>
+    </section>
+    <section class="board">
+      <div class="bhead"><h2>待办节点</h2></div>
+      <div class="cols"><span>编号</span><span>案名</span><span>节点</span><span class="sort">期限</span><span>经办人</span></div>
+      <div class="row"><span class="flap"><i>A</i><i>J</i><i>-</i><i>2</i><i>0</i><i>2</i><i>6</i><i>0</i><i>8</i><i>1</i><i>2</i><i>-</i><i>0</i><i>0</i><i>3</i></span><span class="cn">江苏恒基建设 建设工程施工合同纠纷</span><span class="nd">举证期限届满</span><span class="dl"><i class="lamp od"></i><span class="flap w red"><i>逾</i><i>期</i></span><span class="flap w"><i>6</i></span><span class="flap w"><i>天</i></span></span><span class="op">周敏</span></div>
+      <div class="row"><span class="flap"><i>S</i><i>X</i><i>-</i><i>2</i><i>0</i><i>2</i><i>6</i><i>0</i><i>8</i><i>0</i><i>5</i><i>-</i><i>0</i><i>0</i><i>7</i></span><span class="cn">常州天元化工 产品责任纠纷</span><span class="nd">证据固定完成</span><span class="dl"><i class="lamp od"></i><span class="flap w red"><i>逾</i><i>期</i></span><span class="flap w"><i>3</i></span><span class="flap w"><i>天</i></span></span><span class="op">李文博</span></div>
+      <div class="row"><span class="flap"><i>A</i><i>J</i><i>-</i><i>2</i><i>0</i><i>2</i><i>6</i><i>0</i><i>9</i><i>0</i><i>2</i><i>-</i><i>0</i><i class="turn">0</i><i class="turn">1</i></span><span class="cn">杭州瑞和供应链 买卖合同纠纷</span><span class="nd">提交补充证据</span><span class="dl"><i class="lamp od"></i><span class="flap w red"><i>逾</i><i>期</i></span><span class="flap w"><i>1</i></span><span class="flap w"><i>天</i></span></span><span class="op">陈嘉禾</span></div>
+      <div class="row"><span class="flap"><i>A</i><i>J</i><i>-</i><i>2</i><i>0</i><i>2</i><i>6</i><i>0</i><i>8</i><i>1</i><i>9</i><i>-</i><i>0</i><i>0</i><i>2</i></span><span class="cn">苏州万顺机械 承揽合同纠纷</span><span class="nd">开庭</span><span class="dl"><i class="lamp soon"></i><span class="flap w soon"><i>剩</i></span><span class="flap w"><i>2</i></span><span class="flap w"><i>天</i></span></span><span class="op">王兆坤</span></div>
+      <div class="row"><span class="flap"><i>S</i><i>X</i><i>-</i><i>2</i><i>0</i><i>2</i><i>6</i><i>0</i><i>9</i><i>1</i><i>5</i><i>-</i><i>0</i><i>0</i><i>1</i></span><span class="cn">合肥远航物资 采购合同</span><span class="nd">内部审批完成</span><span class="dl"><i class="lamp soon"></i><span class="flap w soon"><i>剩</i></span><span class="flap w"><i>3</i></span><span class="flap w"><i>天</i></span></span><span class="op">周敏</span></div>
+      <div class="row"><span class="flap"><i>A</i><i>J</i><i>-</i><i>2</i><i>0</i><i>2</i><i>6</i><i>1</i><i>0</i><i>0</i><i>5</i><i>-</i><i>0</i><i>0</i><i>1</i></span><span class="cn">无锡精诚电子 侵害商标权纠纷</span><span class="nd">上诉期届满</span><span class="dl"><i class="lamp soon"></i><span class="flap w soon"><i>剩</i></span><span class="flap w"><i>6</i></span><span class="flap w"><i>天</i></span></span><span class="op">陈嘉禾</span></div>
+    </section>
+    <section class="board">
+      <div class="bhead"><h2>最近动作</h2></div>
+      <div class="arow"><span class="act">创建</span><span class="flap sm"><i>A</i><i>J</i><i>-</i><i>2</i><i>0</i><i>2</i><i>6</i><i>0</i><i>9</i><i>2</i><i>1</i><i>-</i><i>0</i><i>0</i><i>1</i></span><span class="cn">扬州金鼎装饰 装饰装修合同纠纷 · 批量导入</span><span class="op">系统管理员</span><span class="tm">2 小时前</span></div>
+      <div class="arow"><span class="act">更新</span><span class="flap sm"><i>A</i><i>J</i><i>-</i><i>2</i><i>0</i><i>2</i><i>6</i><i>0</i><i>8</i><i>1</i><i>2</i><i>-</i><i>0</i><i>0</i><i>3</i></span><span class="cn">江苏恒基建设 举证期限调整至 2026-11-02</span><span class="op">周敏</span><span class="tm">3 小时前</span></div>
+      <div class="arow"><span class="act">上传</span><span class="flap sm"><i>S</i><i>X</i><i>-</i><i>2</i><i>0</i><i>2</i><i>6</i><i>0</i><i>9</i><i>1</i><i>5</i><i>-</i><i>0</i><i>0</i><i>1</i></span><span class="cn">合肥远航物资 合同扫描件 4 份</span><span class="op">李文博</span><span class="tm">昨天 17:42</span></div>
+    </section>
+    <div class="rail"><span>共 6 条</span><span>‹ 1 / 1 ›</span></div>
+  </div></div>
+</main>
+</body>
+</html>
