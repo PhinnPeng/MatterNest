@@ -1,7 +1,6 @@
 "use client";
 
-import { App as AntdApp, Button, Dropdown } from "antd";
-import { DownloadOutlined } from "@ant-design/icons";
+import { App as AntdApp, Dropdown } from "antd";
 import { useMutation } from "@tanstack/react-query";
 
 import { api, ApiFailure, downloadCsv, useActor, type HostFileExport } from "@/app/lib/client/api";
@@ -71,9 +70,9 @@ export function ExportFileButton({
         onClick: ({ key }) => mut.mutate(key === "plain"),
       }}
     >
-      <Button icon={<DownloadOutlined />} loading={mut.isPending}>
+      <button type="button" className="btn sm" disabled={mut.isPending}>
         导出
-      </Button>
+      </button>
     </Dropdown>
   );
 }
@@ -153,9 +152,9 @@ export function ExportListButton({
         onClick: ({ key }) => mut.mutate(key === "plain"),
       }}
     >
-      <Button icon={<DownloadOutlined />} loading={mut.isPending}>
+      <button type="button" className="btn sm" disabled={mut.isPending}>
         导出
-      </Button>
+      </button>
     </Dropdown>
   );
 }
