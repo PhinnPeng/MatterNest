@@ -1,8 +1,6 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
 import type { ReactNode } from "react";
-import { Flex, Typography } from "antd";
 
 /**
  * 页面头：**名称 / 编号 / 状态**这类"必须在第一屏出现"的事实与操作。
@@ -23,8 +21,15 @@ import { Flex, Typography } from "antd";
  *     它们不是对标题的解释。
  *
  * 要多说什么，落点只有四类：空态 / 错误态、字段说明（`Form.Item` 的 extra/help）、
- * tooltip、页面里已有的字段表（`Descriptions` / `MetaLine`）。见
+ * tooltip、页面里已有的字段表（`.dl`）。见
  * `.trellis/spec/frontend/component-guidelines.md` 的「副标题纪律」。
+ *
+ * ## 2026-10-18（MATT-99）：换 canon
+ *
+ * 从 antd `Flex` + `Typography.Title level={1}` 换成 canon 的 `.pagehead` + `h2`。
+ * 标题层级因此归位：**顶栏 `h1` 是页名**（`app-shell.tsx` 的 `.topbar h1`），
+ * 页面内的主区块标题是 `h2`（`component-guidelines` 的 h1→h2→h3 不跳级）。
+ * 换渲染器不丢任何 prop —— `code` / `status` / `flags` / `actions` 逐一同在。
  */
 export function PageHeader({
   title,
@@ -43,33 +48,33 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <Flex align="flex-start" justify="space-between" gap={16} wrap style={{ marginBottom: 12 }}>
+    <div className="pagehead">
       <div style={{ minWidth: 0 }}>
-        <Flex align="center" gap={8} wrap>
-          {/* 语义上这是每页唯一的 h1（登录页也是 h1，全站标题层级才有唯一的根），
-              但视觉尺寸仍钉在原 h4 的 16px：读屏结构要修，成熟观感不能跟着一起动。 */}
-          <Typography.Title
-            level={1}
-            style={{ margin: 0, lineHeight: "28px", fontSize: 16, fontWeight: 600 }}
-          >
-            {title}
-          </Typography.Title>
+        <div className="rowflex" style={{ flexWrap: "wrap", gap: 8 }}>
+          <h2>{title}</h2>
           {/* 编号是主键不是副标题，所以与标题同行；灰 12px 让它在读过一遍后自动退到次位 */}
           {code ? (
-            <span className="num" style={{ color: INK.muted, fontSize: 12 }}>
+            <span className="num mut3" style={{ fontSize: 12 }}>
               {code}
             </span>
           ) : null}
           {status}
           {flags}
-        </Flex>
+        </div>
       </div>
-      {actions ? <Flex gap={8}>{actions}</Flex> : null}
-    </Flex>
+      <span className="sp" />
+      {actions ? <div className="rowflex">{actions}</div> : null}
+    </div>
   );
 }
 
-/** 卡片小节标题（详情 Tab 内部分区用） */
+/**
+ * 卡片小节标题（详情 Tab 内部分区、详情页内嵌表用）。
+ *
+ * 层级归位：这是**卡片内的嵌套区块**，用 `h3`（canon 的 `.card-h h2/h3` 同貌，14px/600）。
+ * 从 antd `Typography.Text` 换成真实的 `h3` 标签——嵌套区块的层级该由标签承担，
+ * 否则读屏拿到的是"一段加粗的字"，与视觉上的分区对不上。
+ */
 export function SectionTitle({
   children,
   count,
@@ -80,16 +85,16 @@ export function SectionTitle({
   extra?: ReactNode;
 }) {
   return (
-    <Flex align="center" justify="space-between" gap={12} style={{ marginBottom: 6 }}>
-      <Typography.Text strong style={{ fontSize: 13 }}>
+    <div className="rowflex" style={{ justifyContent: "space-between", marginBottom: 6 }}>
+      <h3 style={{ fontSize: 13, fontWeight: 600 }}>
         {children}
         {count !== undefined ? (
-          <span className="num" style={{ color: INK.muted, fontWeight: 400, marginLeft: 6 }}>
+          <span className="num mut3" style={{ fontWeight: 400, marginLeft: 6 }}>
             {count}
           </span>
         ) : null}
-      </Typography.Text>
+      </h3>
       {extra}
-    </Flex>
+    </div>
   );
 }
