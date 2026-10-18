@@ -444,7 +444,7 @@
  * （深色类打在 documentElement 上，见 brand.ts）。
  */
 @layer components {
-  /* 工具类（`.num` 在文件末尾的 @utility；这里补 canon 同段里真页用得到的四个） */
+  /* 工具类（`.num` 在文件末尾的 @utility；这里补 canon 同段里真页用得到的几个） */
   .ellip {
     white-space: nowrap;
     overflow: hidden;
@@ -458,6 +458,75 @@
   }
   .mut3 {
     color: var(--ink3);
+  }
+  /*
+   * 编码 / 证件号这类**机器可读的标识**用等宽（canon.css 同款）。
+   *
+   * 与 `@utility num` 是两个工具，别合并：`num` 管**数字对齐**（表格数字 + 系统等宽栈），
+   * `.mono` 管**编码的字符形态**（Consolas 那份字形，`l/1`、`O/0` 分得开）。
+   * 编码列用它，金额列仍然用 `num`。
+   *
+   * ⚠ 2026-10-18：它曾被当"零消费者死代码"删掉。那条判据（grep 到 0 处 className 命中）
+   * 在**迁移期**无效 —— `canon-spec.md:152` 明写配置细项页要有「编码(`.mono`, 150px)」、
+   * `:90` 明写当事人表的证件号列用它。零命中的真因是**页面还没搬成 canon 形态**
+   * （当时编码列用 `.num`），不是这个类没人要。判据要挂在「规范 vs 实现」上，
+   * 不是挂在「有没有人 import」上。
+   */
+  .mono {
+    font-family: Consolas, "DejaVu Sans Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  /*
+   * 启用 / 停用的开关字形（canon-spec.md:152「状态(130px，`.sw on`/`.sw` + 启用/停用)」）。
+   *
+   * 为什么不用 antd 的 `Tag color="green"`：那个绿是 `#389E0D`，压在卡面上只有 3.37、
+   * 页面底上 3.20 —— **浅色下就低于正文 4.5 的地板**（实测，`smoke-visual.mjs` 量的）。
+   * 而且"绿 = 启用"把状态**只挂在颜色**上，色觉障碍与灰阶打印都读不出来。
+   * 这里的形态是 canon 口径：**图形开关承担颜色、词写中性墨色** —— 两个通道，
+   * 与 `.pill`（状态点 + 词）是同一条判断。
+   */
+  .sw {
+    width: 34px;
+    height: 20px;
+    border-radius: 10px;
+    background: var(--switch-off);
+    display: inline-block;
+    position: relative;
+    vertical-align: -5px;
+  }
+  /* ⚠ 必须带 `:not(.on)`：`html.dark .sw` 的特异性高于 `.sw.on`，不加排除会让深色下所有开关变灰 */
+  html.dark .sw:not(.on) {
+    background: var(--switch-off);
+  }
+  .sw::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+  }
+  .sw.on {
+    background: var(--accent);
+  }
+  .sw.on::after {
+    left: 16px;
+  }
+  /*
+   * 细则行（canon.css 同款）：左名右箭头，箭头靠 `space-between` 顶到行尾。
+   * 用它的是功能配置入口页（原型 `config.html` 的 `<a class="it cfgrow">`，14 处）。
+   */
+  .cfgrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .cfgrow i {
+    color: var(--ink3);
+    font-style: normal;
   }
 
   /* 顶栏里详情页的返回入口与右侧留白（`h1` 已在外壳段落） */

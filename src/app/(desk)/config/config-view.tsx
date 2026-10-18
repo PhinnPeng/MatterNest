@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 
-import { INK } from "@/app/theme/brand";
 import { PageHeader } from "@/app/components/page-header";
 import { CONFIG_GROUPS, CONFIG_KIND_META, configKindPath } from "@/shared/schema/config";
 
@@ -49,16 +48,15 @@ export function ConfigView() {
             </div>
             <div className="card-b" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {group.kinds.map((kind) => (
-                <Link
-                  key={kind}
-                  href={configKindPath(kind)}
-                  className="it"
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
-                >
+                /*
+                  `it cfgrow`：`cfgrow` 承担「左名右箭头」的形态（原型 `config.html` 同款，
+                  14 处都是 `class="it cfgrow"`）。原先这里用行内 style 手写了一遍同样的
+                  flex + space-between，箭头还自己写了个 `color: INK.muted` —— 成类之后
+                  形态与箭头色都回到 `globals.css`，页面上不再有第二份。
+                */
+                <Link key={kind} href={configKindPath(kind)} className="it cfgrow">
                   {CONFIG_KIND_META[kind].label}
-                  <i style={{ color: INK.muted, fontStyle: "normal" }} aria-hidden="true">
-                    ›
-                  </i>
+                  <i aria-hidden="true">›</i>
                 </Link>
               ))}
             </div>

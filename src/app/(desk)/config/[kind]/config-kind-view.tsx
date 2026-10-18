@@ -240,7 +240,8 @@ function writableColumns(
       title: "编码",
       dataIndex: "code",
       width: 160,
-      render: (v: string) => <span className="num">{v}</span>,
+      // 编码是机器可读的标识（接口与规则的引用键），用 `.mono` 而不是 `.num`：见 globals.css 那条
+      render: (v: string) => <span className="mono">{v}</span>,
     });
   }
   if (cols.includes("color")) {
@@ -290,12 +291,17 @@ function writableColumns(
     title: "状态",
     dataIndex: "isEnabled",
     width: 120,
+    /*
+      开关字形 + 中性词（canon-spec.md:152「状态(130px，`.sw on`/`.sw` + 启用/停用)」）。
+      原先这里是 antd `<Tag color="green">`：那个绿（`#389E0D`）压在卡面上只有 3.37、
+      页面底上 3.20，**浅色下就低于正文 4.5 的地板** —— 真页视觉冒烟量出来的。
+      换成 canon 的形态之后，颜色由图形承担、词是中性墨色，两个通道都读得出。
+    */
     render: (v: boolean) => (
-      <Space size={6}>
-        <Tag color={v ? "green" : "default"} variant="filled" style={{ marginInlineEnd: 0 }}>
-          {v ? "启用" : "停用"}
-        </Tag>
-      </Space>
+      <span className="rowflex">
+        <span className={v ? "sw on" : "sw"} aria-hidden="true" />
+        {v ? "启用" : "停用"}
+      </span>
     ),
   });
   out.push({

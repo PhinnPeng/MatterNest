@@ -110,9 +110,11 @@ export function PartiesView() {
         width: 190,
         ellipsis: true,
         // 明文列被裁时 `ellipsis` 不会自动补 title（render 包了 span），所以显式给
+        // 证件号用 `.mono`（canon-spec.md:90 指定的就是它）：它是机器可读的标识，
+        // 不是要参与列对齐的数字 —— `l/1`、`O/0` 那份字形差异在这里才看得出
         render: (_, r) =>
           r.idNumber ? (
-            <span className="num" title={r.idNumber} style={{ fontSize: 12 }}>
+            <span className="mono" title={r.idNumber} style={{ fontSize: 12 }}>
               {r.idNumber}
             </span>
           ) : (
