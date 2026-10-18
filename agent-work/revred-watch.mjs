@@ -3,13 +3,14 @@
  *
  * 用法：
  *   node agent-work/revred-watch.mjs <visibility-gate|create-follow|create-follow-risk>
+ *   node agent-work/revred-gate.mjs                      # ⇒ 必须 GATE-OK（编译门）
  *   node --env-file=.env agent-work/smoke-watch.mjs      # ⇒ 必须红（红的条数见下）
  *   node agent-work/revred-watch.mjs restore
  *   node --env-file=.env agent-work/smoke-watch.mjs      # ⇒ 必须绿
  *
  * | mode | 注入的缺陷 | 期望变红的断言 |
  * |---|---|---|
- * | `visibility-gate` | `hostVisible` **恒返回 true** | 看不见的记录也收藏得动 ⇒ 2 条 |
+ * | `visibility-gate` | `hostVisible` **恒返回 true** | 看不见的记录也收藏得动 ⇒ **3 条** |
  * | `create-follow` | 摘掉**案件侧创建路径**的 `syncFollowWatch` | 案件侧创建期 follow 行 1 条 |
  * | `create-follow-risk` | 摘掉**事项侧创建路径**的 `syncFollowWatch` | 创建期 follow 行 1 条 |
  *
@@ -27,6 +28,12 @@
  * 那是假证据（`revred-followers.mjs` 头注记过同一个教训）。同理，创建路径那两处
  * 只摘 `syncFollowWatch` 调用而**不摘 import**：两个文件都还有别的调用点
  * （`addMatterStaff` / `addRiskFollowers`），所以 import 仍被引用，编译干净。
+ *
+ * ⚠ 「编译红是假证据」的**理由**在 2026-10-18 更正过。旧说法是「编译失败时 dev server
+ * 继续发旧产物 ⇒ 冒烟假绿」——**实测不成立**：Turbopack 不做类型检查、只剥类型，
+ * 模块照常按新代码跑。真正发生的是**反方向**：编译不出来的模块让**每条路由返 500**，
+ * 冒烟照样红成一片，而你以为「断言抓住了缺陷」。跑 `agent-work/revred-gate.mjs`
+ * 才能把「假红」与「断言红」分开。详见该工具头注。
  *
  * 认**缺陷**的签名：判据查注入标记**在不在**（照 `revred-t1.mjs` 的教训：
  * 判据要认缺陷的样貌，不是正确代码的样貌）。
@@ -66,10 +73,11 @@ const NEEDLES = {
      * ⚠ 锚点必须唯一。只框住 `return Boolean(row);` 那一行连同它上面查询的最后一行
      * `.limit(1);`，而**不动**函数签名与注释（改签名会让编译红成别的样子）。
      *
-     * ⚠ `void row;` 不是摆设：`noUnusedLocals: true` 下，把 `Boolean(row)` 换成 `true`
-     * 会让 `row` 变成未使用局部量 ⇒ **TS6133 编译红**。编译红证明不了断言会红
-     * （dev server 继续发旧产物，冒烟反而**假绿**），正是本工具头注警告的形态。
-     * 本工具初版就漏了这一行，2026-10-17 复审对着 `tsc` 实测才发现。
+     * ⚠ `void row;` 让 `row` 仍被引用：`noUnusedLocals: true` 下把 `Boolean(row)` 换成
+     * `true` 会让它变成未使用局部量 ⇒ **TS6133**。类型错**不会**影响 dev server
+     * （Turbopack 不做类型检查，实测：带 TS6133 跑冒烟仍是那 3 条断言红），
+     * 但留着它会让人跑 `pnpm verify` 时收到一个与本次验证无关的红。
+     * ⚠ 这条注释的旧版说「TS6133 ⇒ 冒烟假绿」，**那是错的**，2026-10-18 实测更正。
      */
     needle: `    .where(scopedWhere(host, actor, eq(t.id, BigInt(hostId))))
     .limit(1);

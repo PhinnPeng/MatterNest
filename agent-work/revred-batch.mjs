@@ -40,8 +40,9 @@
  *    的代价是"用户空着提交、拿回一份'跳过 2 条'的摘要"，而摘要里那两条的原因
  *    是"这一步必须填原因"——一条本来能在表单上拦住的错误，变成了要读摘要才知道的失败。
  *    用 `.default("")` 而不是 `.optional()`：后者的输出类型变成 `string | undefined`，
- *    会先在服务层调用处编译红——**编译红证明不了断言会红**（revred-staff 记过：
- *    编译失败时 dev server 继续发旧产物，冒烟会假绿）。
+ *    会先在服务层调用处编译红——**编译红证明不了断言会红**。注入之后先跑
+ *    `agent-work/revred-gate.mjs`，别让编译红混进冒烟的红里（2026-10-18 更正：
+ *    旧说法「编译失败 ⇒ dev server 发旧产物 ⇒ 冒烟假绿」实测不成立）。
  *
  * ⚠ 还原后别立刻跑冒烟：`next dev` 热更新有窗口（revred-convert 那轮踩过）。
  */
@@ -106,8 +107,9 @@ const NEEDLES = {
     .from(matter)
     .where(scopedWhere("matter", actor, inArray(matter.id, uniq)));`,
     // `void actor;` 不是装饰：摘掉 `scopedWhere` 之后这个参数就没人读了，
-    // `noUnusedParameters` 会把它变成**编译红**——而编译红证明不了断言会红
-    // （dev server 编译失败时继续发旧产物，冒烟会假绿）。revred-staff 记过这一条。
+    // `noUnusedParameters` 会把它变成**编译红**——而编译红证明不了断言会红。
+    // 注入之后先跑 `agent-work/revred-gate.mjs`（2026-10-18 更正：旧说法
+    // 「dev server 编译失败时继续发旧产物，冒烟会假绿」实测不成立）。
     replacement: `  const uniq = [...new Set(ids)].map((i) => BigInt(i));
   // 反向红：摘掉标签动作唯一的可见性边界
   void actor;
