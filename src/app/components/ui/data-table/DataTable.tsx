@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { isValidElement, useMemo, useState } from "react";
 import { Checkbox, Dropdown } from "antd";
 import type { TableColumnsType } from "antd";
 
@@ -223,7 +223,11 @@ export function DataTable<T extends object>({
                     ? c.render(value, r, i)
                     : ((value ?? null) as React.ReactNode);
                   return (
-                    <td key={key} className={cellClass(c)} title={undefined}>
+                    <td
+                      key={key}
+                      className={cellClass(c)}
+                      title={c.ellipsis ? cellTitle(content) : undefined}
+                    >
                       {content}
                     </td>
                   );
@@ -285,6 +289,33 @@ function alignClass(align?: Align): string | undefined {
 function cellClass<T>(c: ColumnLike<T>): string | undefined {
   const parts = [alignClass(c.align), c.ellipsis ? "ellip" : null].filter(Boolean);
   return parts.length ? parts.join(" ") : undefined;
+}
+
+/**
+ * `ellipsis` 列的原生 `title`（悬停找回被裁的文字）。
+ *
+ * ## 为什么不能省掉这一行
+ *
+ * 换渲染器前 antd 的 `Table` 走 rc-table 的 `getTitleFromCellRenderChildren`：
+ * 单元格内容是**纯字符串/数字**、或**单元素且它的 `children` 是字符串**时，
+ * 由 `ellipsis` 自动补 `title`。MATT-99 换成手写 `<table>` 后那一层没了，
+ * 这里逐字补回同一口径——否则「文本被裁、悬停无提示」会在 render 包了一层的列上重现。
+ *
+ * ⚠ **这一条与「`.ellip` 真的会裁」是两件事**：当前 `<table class="tb">` 是 auto layout，
+ * `.ellip` 的 `overflow:hidden` 在 `<td>` 上量不出裁剪（实测：长文本把列撑宽、表格横向溢出，
+ * `scrollWidth === clientWidth`）。真正被裁的是**内容自己限了宽**的那些格
+ * （如案件名那列内层 `span` 的 `max-width:220`）。所以这里只按内容形状给 `title`，
+ * 不假装所有单元格都被裁：多给一个 `title` 是无害的（值与可见文本一致），
+ * 而少给一个就丢了找回路径——与 component-guidelines 规则 3 同一条判断。
+ */
+function cellTitle(content: React.ReactNode): string | undefined {
+  if (typeof content === "string") return content;
+  if (typeof content === "number") return String(content);
+  if (isValidElement(content)) {
+    const inner = (content.props as { children?: unknown }).children;
+    if (typeof inner === "string" || typeof inner === "number") return String(inner);
+  }
+  return undefined;
 }
 
 /**
