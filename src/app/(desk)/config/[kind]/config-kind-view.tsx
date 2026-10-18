@@ -25,6 +25,7 @@ import { api, ApiFailure, useActor } from "@/app/lib/client/api";
 import { rulesFor } from "@/app/components/form/zod-rules";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { STATUS_SEMANTIC_LABELS } from "@/shared/enums/status";
+import { HOST_TYPE_LABELS, type HostType } from "@/shared/enums/targets";
 import {
   CASE_TYPE_LABELS,
   ID_TYPE_LABELS,
@@ -279,8 +280,8 @@ function writableColumns(
       title: "适用",
       dataIndex: "hostType",
       width: 130,
-      render: (v: string | null) =>
-        v === "matter" ? "案件" : v === "risk_matter" ? "事项" : (v ?? "—"),
+      // 中文名走 `HOST_TYPE_LABELS`：业务枚举不在 `src/app/**` 再声明一份（type-safety §「单一事实源」）
+      render: (v: string | null) => (v ? (HOST_TYPE_LABELS[v as HostType] ?? v) : "—"),
     });
   }
   out.push({
@@ -412,10 +413,7 @@ function ConfigFormModal({
           <Form.Item label="适用" name="hostType" rules={rulesFor(schema, ["hostType"])}>
             <Select
               placeholder="案件 / 事项"
-              options={[
-                { value: "matter", label: "案件" },
-                { value: "risk_matter", label: "事项" },
-              ]}
+              options={Object.entries(HOST_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
             />
           </Form.Item>
         ) : null}
