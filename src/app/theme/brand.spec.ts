@@ -119,27 +119,55 @@ describe("theme/brand 令牌同源（canon.css 是另一半）", () => {
     expect(alpha(TOKENS.light["nav-ink"], 0.62)).toBe("rgba(55,65,81,0.62)");
   });
 
-  it("alpha() 只吃 6 位十六进制，坏输入立刻抛", () => {
+  /**
+   * `var(--…)` 走 `color-mix`（2026-10-18）。
+   *
+   * 别名改成令牌引用之后，`alpha(INK.muted, .1)`（提及 chip 的底色）拿到的是一个
+   * `var(…)` 而不是十六进制。若在这里抛错，就等于逼调用点退回写死颜色。
+   * 百分比而不是小数：`color-mix` 只收百分比，写 `.1` 进去是**无效值**（整条声明被丢，
+   * 表现成"底色没了"而不是报错）。
+   */
+  it("alpha() 收到令牌引用时走 color-mix（不是抛错、也不是小数）", () => {
+    expect(alpha("var(--ink3)", 0.1)).toBe("color-mix(in srgb, var(--ink3) 10%, transparent)");
+    expect(alpha("var(--accent)", 0.5)).toBe("color-mix(in srgb, var(--accent) 50%, transparent)");
+    expect(alpha("var(--ink3)", 0.1)).not.toContain("0.1");
+  });
+
+  it("alpha() 只吃 6 位十六进制或 var(--名字)，坏输入立刻抛", () => {
     expect(() => alpha("#fff", 0.5)).toThrow(/6 位十六进制/);
     expect(() => alpha("red", 0.5)).toThrow(/6 位十六进制/);
+    // 半个 var（少了右括号 / 名字里有空格）也拒掉：那种值进了 CSS 会被整条丢掉
+    expect(() => alpha("var(--ink3", 0.5)).toThrow(/6 位十六进制/);
+    expect(() => alpha("var( --ink3 )", 0.5)).toThrow(/6 位十六进制/);
   });
 
   /**
-   * 迁移期别名（`BRAND` / `INK` / `PAPER`）只是 TOKENS.light 的**视图**：
-   * 它们不持有自己的十六进制。批量二把页面搬完就删掉这一层，
-   * 这里守着"别名不会变成第二份色值源"——那正是这次转写要消灭的东西。
+   * 迁移期别名（`BRAND` / `INK` / `PAPER`）是**令牌引用**，不是第二份色值。
+   *
+   * 这一条替代了原先的"别名是浅色令牌的视图"。换掉的理由是实测出来的
+   * （2026-10-18，`smoke-visual.mjs` 量真页）：别名被当**行内样式**用，而行内样式里
+   * 一个十六进制是死的 —— 深色下它们仍旧渲染浅色值，`/roles` 的计数只有 3.08、
+   * `/matters` 的逾期红只有 3.62。`pnpm verify` 全绿也照样存在，因为它测量的是渲染结果。
+   *
+   * 现在守的是更强的一条：每个别名都必须是 `var(--某令牌)`，且那个令牌**真的定义过**。
+   * 于是"别名指向一个不存在的令牌"（= 浏览器把整条声明丢掉、文字回落到继承色）会当场红，
+   * 而不是等到某个页面在某个外观下变难看。
    */
-  it("迁移期别名是浅色令牌的视图，不是第二份色值", () => {
-    const light = new Set(Object.values(TOKENS.light));
-    const aliased = [
+  it("迁移期别名是**令牌引用**，且每个指向的令牌都真的定义过", () => {
+    const defined = new Set([...keysOf(TOKENS.light), ...keysOf(CSS_SCALE), "shadow"]);
+    const aliased: Record<string, string> = {
       PAPER,
-      ...Object.values(INK),
-      BRAND.primary,
-      BRAND.success,
-      BRAND.overdue,
-      BRAND.soon,
-      ...Object.values(BRAND.sider),
-    ];
-    for (const value of aliased) expect(light, `别名 ${value} 不在浅色令牌里`).toContain(value);
+      ...Object.fromEntries(Object.entries(INK).map(([k, v]) => [`INK.${k}`, v])),
+      "BRAND.primary": BRAND.primary,
+      "BRAND.success": BRAND.success,
+      "BRAND.overdue": BRAND.overdue,
+      "BRAND.soon": BRAND.soon,
+      ...Object.fromEntries(Object.entries(BRAND.sider).map(([k, v]) => [`BRAND.sider.${k}`, v])),
+    };
+    for (const [name, value] of Object.entries(aliased)) {
+      const m = /^var\(--([\w-]+)\)$/.exec(value);
+      expect(m, `${name} = "${value}" 不是 var(--令牌) 形状`).not.toBeNull();
+      expect(defined, `${name} 指向未定义的 --${m?.[1]}`).toContain(m?.[1]);
+    }
   });
 });

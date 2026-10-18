@@ -30,8 +30,10 @@
  *
  * ## 下面的 `BRAND` / `INK` / `PAPER` 是迁移期别名
  *
- * 批量二（MATT-99）逐页搬完之前，老页面还在用它们。它们**只是 `TOKENS.light` 的视图**，
- * 不持有自己的十六进制——`brand.spec.ts` 守着这一条。搬完就该整块删掉。
+ * 批量二（MATT-99）逐页搬完之后它们仍留着：**它们现在是令牌引用**（`var(--ink3)` 这种），
+ * 不再是 `TOKENS.light` 的十六进制副本。改名/删除是另一件事，改值那一件已经做了，
+ * 理由见下面那一段注释（行内样式里的死十六进制在深色下不翻）。
+ * `brand.spec.ts` 守着"每个别名都指向一个真的定义过的令牌"。
  */
 
 /** 明暗两台外观。SSR 一律先按浅色渲染，客户端首帧前由 `<head>` 脚本改成已存值。 */
@@ -167,12 +169,27 @@ export function tokensCss(): string {
 }
 
 /* ------------------------------------------------------------------ *
- * 迁移期别名（批量二删）。以下每个值都只是上面 `LIGHT` 里某一项的视图，
- * 这里**不出现第二个十六进制**——`brand.spec.ts` 的"别名是视图"一条守着它。
+ * 迁移期别名（批量二删）。
+ *
+ * ## 它们是**令牌引用**（`var(--…)`），不是浅色的十六进制副本
+ *
+ * 这里曾经写成 `LIGHT.ink3` 这样的浅色值。代价实测过（2026-10-18，`smoke-visual.mjs`
+ * 量真页）：这些别名被当**行内样式**用（`style={{ color: INK.muted }}`），行内样式
+ * 是死的十六进制 —— 深色下它们仍旧渲染浅色值，于是
+ *   · `/roles` 的计数 `#6A717D` 落在深底上 3.08（低于正文 4.5 的地板）；
+ *   · `/matters`、`/risk-matters`、`/` 的逾期红 `#DC2626` 3.62、临期橙 `#B55300` 3.50。
+ * 而 `pnpm verify` 全绿 —— 那是**渲染后**才是事实的东西，单测看不见。
+ *
+ * 改成 `var(--ink3)` 之后，同一个行内样式在明暗两台各自解析到那一台的令牌值
+ * （两段都由 `tokensCss()` 注入 `<head>`，见 `layout.tsx`）。
+ * 于是"深色下这些位置用浅色值"这件事**在结构上不可能**再发生，不用逐个页面去改。
+ *
+ * 禁令⑦ 仍然成立：这里没有第二个十六进制，只是把"哪一台"从写死改成运行时解析。
+ * `brand.spec.ts` 守着这条（别名必须逐个对上某条令牌的变量名）。
  * ------------------------------------------------------------------ */
 
 /** 纸色底：长时间读表，纯白的对比噪声更累。 */
-export const PAPER = LIGHT.bg;
+export const PAPER = "var(--bg)";
 
 /**
  * 墨阶（文字与分隔线的四档 + 分隔线/描边与进度轨道）。
@@ -183,51 +200,67 @@ export const PAPER = LIGHT.bg;
  */
 export const INK = {
   /** 正文 */
-  body: LIGHT.ink,
+  body: "var(--ink)",
   /** 次级：表头、金额、需要读但不抢焦点的词 */
-  secondary: LIGHT.ink2,
+  secondary: "var(--ink2)",
   /** 弱级：时间戳、备注、页头/页脚说明文案 —— 也承载 `—` 这种"这个字段没有值"的事实 */
-  muted: LIGHT.ink3,
+  muted: "var(--ink3)",
   /** 最弱：占位符、`—`、搜索图标这类引导 */
-  faint: LIGHT.ink3,
+  faint: "var(--ink3)",
   /** 分隔线 / 描边 */
-  line: LIGHT.line,
+  line: "var(--line)",
   /** 进度轨道、引文竖线：比线更实，但仍不是内容 */
-  rail: LIGHT["control-line"],
+  rail: "var(--control-line)",
 } as const;
 
 /**
  * 品牌与语义色的迁移期别名。`sider.*` 是老深色导航壳与登录页墨蓝面板那组名字，
- * canon 里没有第二个深色壳（导航改由 `nav-*` 令牌承担），所以它现在指向浅色导航令牌。
+ * canon 里没有第二个深色壳（导航改由 `nav-*` 令牌承担），所以它现在指向导航令牌。
+ *
+ * ⚠ `overdue` / `soon` / `success` 同时也是 `DEADLINE_TONE` 的来源，而那一组会流进
+ * `DeadlineMark`、`ReportCards`、工作台的指标带 —— 一处改成令牌引用，三处一起随外观走。
+ * 语义色**不给整块底色**（词保持中性可读）这条不变：变的只是取哪一台的值。
  */
 export const BRAND = {
-  primary: LIGHT.accent,
+  primary: "var(--accent)",
   /** 达成/完成：只在"数字完成了"这种前景上用，不做整块底色 */
-  success: LIGHT.green,
+  success: "var(--green)",
   /** 逾期 / 高风险 / 不可逆操作 */
-  overdue: LIGHT.red,
+  overdue: "var(--red)",
   /** 临期 / 待开通 / 缺材料 */
-  soon: LIGHT.amber,
+  soon: "var(--amber)",
   sider: {
-    bg: LIGHT["nav-bg"],
-    gradient: LIGHT["nav-on"],
-    item: LIGHT["nav-ink"],
-    active: LIGHT["nav-on-ink"],
-    accent: LIGHT.accent,
+    bg: "var(--nav-bg)",
+    gradient: "var(--nav-on)",
+    item: "var(--nav-ink)",
+    active: "var(--nav-on-ink)",
+    accent: "var(--accent)",
   },
 } as const;
 
 /**
- * 给一个十六进制色加透明度。
+ * 给一个色加透明度。
+ *
+ * 两种输入：
+ *   · 六位十六进制 → `rgba(r,g,b,a)`，通道值不靠人肉换算；
+ *   · `var(--名字)` → `color-mix(in srgb, var(--名字) N%, transparent)`。
+ *
+ * 第二条是 2026-10-18 加的：别名改成令牌引用之后，`alpha(INK.muted, .1)` 这种调用
+ * （提及 chip 的底色）会拿到一个 `var(…)` 而不是十六进制。若在这里抛错，就等于
+ * 逼调用点退回写死颜色 —— 那正是这一轮要消灭的东西。
  *
  * 为什么不直接写 `rgba(195,204,221,.62)`：那等于把某个令牌色用另一种记法
  * 再抄一遍，改主色时只会改到一半——"同一颜色三档透明度"正是最容易漏的地方。
  * 只支持 6 位十六进制（本文件里的色都是），传错立刻抛，不静默返回 NaN 串。
  */
 export function alpha(color: string, opacity: number): string {
+  if (/^var\(--[\w-]+\)$/.test(color)) {
+    // 百分比而不是小数：`color-mix` 只收百分比，`.1` 写进去是**无效值**（整条声明被丢）
+    return `color-mix(in srgb, ${color} ${opacity * 100}%, transparent)`;
+  }
   const hex = color.replace("#", "");
   if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
-    throw new Error(`alpha() 只接受 6 位十六进制，收到 "${color}"`);
+    throw new Error(`alpha() 只接受 6 位十六进制或 var(--名字)，收到 "${color}"`);
   }
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
   return `rgba(${r},${g},${b},${opacity})`;

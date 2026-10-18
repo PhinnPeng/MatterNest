@@ -129,7 +129,12 @@ export function RolesView() {
             >
               <span className="t">
                 <b>{r.name}</b>
-                <span className="num" style={{ color: INK.muted, fontSize: 12 }}>
+                {/*
+                  计数用 `INK.secondary`（canon 的 `mut`）而不是 `muted`：这一格在**选中态**
+                  的底是 `--nav-on`，而 `--ink3` 压在上面只有 4.46（低于正文 4.5 的地板）。
+                  原型这一处写的也是 `num mut`，不是 `num mut3` —— 照它来。
+                */}
+                <span className="num" style={{ color: INK.secondary, fontSize: 12 }}>
                   {r.holderCount}
                 </span>
               </span>
@@ -184,9 +189,17 @@ export function RolesView() {
                     ) : (
                       PRIVILEGES.filter((p) => selected[p.key]).map((p) => (
                         <Flex key={p.key} gap={8} align="baseline" wrap>
-                          <Tag color="green" variant="filled" style={{ marginInlineEnd: 0 }}>
+                          {/*
+                            特权项用 canon 的 `.pill ok`（点 + 词 + `--green`），不用 antd 的
+                            `Tag color="green"`：后者渲出的绿是 antd 主题色 `#389E0D`，
+                            压在 `#F6FFED` 底上只有 3.37 —— 低于正文 4.5，且在浅色下就红。
+                            改用令牌之后明暗两台各自解析（`--green` 深色是 `#34D399`，9.09）。
+                            色仍**不是唯一通道**：点是图形，词在旁边（canon 同款）。
+                          */}
+                          <span className="pill ok">
+                            <i aria-hidden="true" />
                             {p.label}
-                          </Tag>
+                          </span>
                           <Typography.Text style={{ fontSize: 12, color: INK.muted }}>
                             {p.hint}
                           </Typography.Text>

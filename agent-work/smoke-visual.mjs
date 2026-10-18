@@ -51,7 +51,16 @@ const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3777";
 
 /** 要走的真路由。`anchor` = 这一页必须有内容的最小证据 */
 const PAGES = [
-  { path: "/", label: "工作台", anchor: "table tbody tr, .ant-card" },
+  /**
+   * 工作台的锚在 MATT-99 换 canon 类之后改过一次：它原先靠 `table tbody tr, .ant-card`，
+   * 而工作台是**指标带 + 卡片**结构（`globals.css` 的 `.metrics` / `.metric` / `.card`），
+   * 从来没有表格。于是实机命中 0 —— 那是**脚本过期**，不是页面空了
+   * （探过 DOM：`.metric` 5 个、`.card` 2 个、`h1` 是「工作台」，页面好好的）。
+   *
+   * 锚过期比锚缺失更值得警惕：它让这一页的对比度/留白/标题三项**白白失去覆盖**，
+   * 而输出的红字看起来像"页面坏了"。改类名时顺手看一眼这里。
+   */
+  { path: "/", label: "工作台", anchor: ".metric, .card, table tbody tr" },
   { path: "/matters", label: "案件", anchor: "table tbody tr" },
   { path: "/risk-matters", label: "事项", anchor: "table tbody tr" },
   { path: "/parties", label: "当事人", anchor: "table tbody tr" },
