@@ -1,6 +1,5 @@
 "use client";
 
-import { INK } from "@/app/theme/brand";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -188,7 +187,7 @@ export function RiskDetail({ id }: { id: string }) {
             <Flex justify="space-between" align="flex-start" gap={20} wrap>
               <div style={{ minWidth: 0 }}>
                 <Space size={8} wrap style={{ marginBottom: 6 }}>
-                  <Typography.Text className="num" style={{ fontSize: 12, color: INK.muted }}>
+                  <Typography.Text className="num mut3" style={{ fontSize: 12 }}>
                     {risk.code}
                   </Typography.Text>
                   <StatusMark host="risk_matter" code={risk.status} />
@@ -247,7 +246,7 @@ export function RiskDetail({ id }: { id: string }) {
                 处置措施仍是纯文本（票面只改描述；measure 不动）。 */}
             <div style={{ marginTop: 13 }}>
               <Flex align="center" justify="space-between" style={{ marginBottom: 5 }}>
-                <span style={{ fontSize: 12, color: INK.muted }}>描述</span>
+                <span style={{ fontSize: 12, color: "var(--ink3)" }}>描述</span>
                 {canEditBody && (
                   <Button size="small" type="link" onClick={() => setDescOpen(true)}>
                     编辑
@@ -263,14 +262,14 @@ export function RiskDetail({ id }: { id: string }) {
               )}
             </div>
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 12, color: INK.muted, marginBottom: 5 }}>处置措施</div>
+              <div style={{ fontSize: 12, color: "var(--ink3)", marginBottom: 5 }}>处置措施</div>
               {risk.measure ? (
                 <Typography.Paragraph
                   style={{
                     margin: 0,
                     fontSize: 13.5,
                     lineHeight: 1.72,
-                    color: INK.secondary,
+                    color: "var(--ink2)",
                     maxWidth: "74ch",
                   }}
                 >
@@ -289,7 +288,7 @@ export function RiskDetail({ id }: { id: string }) {
               style={{
                 marginTop: 13,
                 paddingTop: 12,
-                borderTop: `1px solid ${INK.line}`,
+                borderTop: "1px solid var(--line)",
                 fontSize: 12.5,
               }}
             >
@@ -332,7 +331,7 @@ export function RiskDetail({ id }: { id: string }) {
                     <span
                       style={{
                         cursor: "default",
-                        borderBottom: `1px dashed ${INK.rail}`,
+                        borderBottom: "1px dashed var(--control-line)",
                       }}
                     >
                       {risk.convertedCases.length} 件
@@ -470,7 +469,7 @@ export function RiskDetail({ id }: { id: string }) {
                           children: (
                             <Space orientation="vertical" size={0}>
                               <span>{meta?.enums.auditActions[a.action] ?? a.action}</span>
-                              <span style={{ color: INK.muted, fontSize: 12 }}>
+                              <span style={{ color: "var(--ink3)", fontSize: 12 }}>
                                 {dateTime(a.createdAt)}
                               </span>
                             </Space>
@@ -660,13 +659,13 @@ function NodeRow({
             {label}
           </Tag>
         </Space>
-        <span style={{ color: INK.muted, fontSize: 12 }}>
+        <span style={{ color: "var(--ink3)", fontSize: 12 }}>
           {/* 事项节点只有时间点：没有「起止」，也就没有「这段时间内」这种表达 */}
           {node.startTime ? calDate(node.startTime) : "时间待定"}
           {!node.isTimeConfirmed && node.startTime && " · 未确认"}
         </span>
         {node.cancelReason && (
-          <span style={{ color: INK.secondary, fontSize: 12 }}>取消原因：{node.cancelReason}</span>
+          <span style={{ color: "var(--ink2)", fontSize: 12 }}>取消原因：{node.cancelReason}</span>
         )}
         {!readOnly && (
           <Space size={4} wrap>
@@ -746,8 +745,10 @@ function CommentList({
               <Space orientation="vertical" size={4} style={{ width: "100%" }}>
                 <Space size={8} align="baseline" wrap>
                   <Typography.Text strong>{c.authorName}</Typography.Text>
-                  <span style={{ color: INK.muted, fontSize: 12 }}>{fromNow(c.createdAt)}</span>
-                  {c.isEdited && <span style={{ color: INK.muted, fontSize: 12 }}>（已编辑）</span>}
+                  <span style={{ color: "var(--ink3)", fontSize: 12 }}>{fromNow(c.createdAt)}</span>
+                  {c.isEdited && (
+                    <span style={{ color: "var(--ink3)", fontSize: 12 }}>（已编辑）</span>
+                  )}
                 </Space>
                 {editing === c.id ? (
                   <Space orientation="vertical" size={6} style={{ width: "100%" }}>
@@ -796,7 +797,7 @@ function CommentList({
         )}
       </div>
       {!readOnly && (
-        <div style={{ borderTop: `1px solid ${INK.line}`, paddingTop: 10, marginTop: 10 }}>
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, marginTop: 10 }}>
           <Space.Compact style={{ width: "100%" }}>
             <Input.TextArea
               autoSize={{ minRows: 2, maxRows: 6 }}
@@ -1031,7 +1032,7 @@ function FollowGroup({ risk, onDone }: { risk: Risk; onDone: () => void }) {
   const roster = (
     <div style={{ minWidth: 200 }}>
       {followers.length === 0 ? (
-        <div style={{ padding: "2px 10px 8px", fontSize: 12, color: INK.muted }}>
+        <div style={{ padding: "2px 10px 8px", fontSize: 12, color: "var(--ink3)" }}>
           还没有关注人。
         </div>
       ) : (
@@ -1074,7 +1075,7 @@ function FollowGroup({ risk, onDone }: { risk: Risk; onDone: () => void }) {
           >
             添加关注人
           </Button>
-          <div style={{ borderTop: `1px solid ${INK.line}`, margin: "4px 0" }} />
+          <div style={{ borderTop: "1px solid var(--line)", margin: "4px 0" }} />
         </>
       )}
       {roster}
@@ -1083,7 +1084,7 @@ function FollowGroup({ risk, onDone }: { risk: Risk; onDone: () => void }) {
 
   if (risk.isArchived) {
     return (
-      <span style={{ fontSize: 12.5, color: INK.muted }}>
+      <span style={{ fontSize: 12.5, color: "var(--ink3)" }}>
         <EyeOutlined style={{ marginRight: 4 }} />
         {followers.length} 人关注
       </span>
@@ -1190,7 +1191,7 @@ function AddFollowersDialog({
 function DetailBlock({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div style={{ color: INK.muted, fontSize: 12, marginBottom: 4 }}>{title}</div>
+      <div style={{ color: "var(--ink3)", fontSize: 12, marginBottom: 4 }}>{title}</div>
       <div>{children}</div>
     </div>
   );
