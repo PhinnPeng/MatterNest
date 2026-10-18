@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, Flex, Space, Table, Tag, Typography } from "antd";
+import { Button, Card, Space, Table, Tag, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { api, type FavoriteRow } from "@/app/lib/client/api";
 import { dateTime } from "@/app/lib/client/format";
 import { StateBlock } from "@/app/components/ui/state-block";
+import { PageHeader } from "@/app/components/page-header";
 
 /**
  * 我关注的（F1-13）。
@@ -85,16 +86,20 @@ export function FavoritesView() {
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
-      <Flex align="center" justify="space-between" style={{ marginBottom: 12 }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          我关注的
-        </Typography.Title>
-        {/* 一句话说清这个集合的边界：它是**私人的**，与通知是两条线。
-            不写"由你自己关注"——那是复述标题。 */}
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          只有你自己看得见
-        </Typography.Text>
-      </Flex>
+      {/*
+        页标题走共享的 `PageHeader`（`.pagehead` + `h2`），与其余页同形。
+
+        换掉 antd `Typography.Title level={4}` 的理由不是审美：那一档渲出的是 `<h4>`，
+        而本页唯一的 `h1` 在顶栏（`app-shell.tsx`），于是标题层级是 h1 → h4 —— 跳了两级。
+        读屏按标题跳转时会听不出页面结构（US 7）。`PageHeader` 的 `h2` 正好补上中间那级。
+
+        ⚠ 原来标题右侧还有一句「只有你自己看得见」，已删。它是**旁白**：
+        念出来听，读者会问"这不是一眼就看出来吗"——标题就写着「我关注的」。
+        私密语义不是靠一句标语守的：它由服务端保证（`api/watch` 只回当前用户的收藏），
+        并在 `favorite-button.tsx` 的文件头记着口径。页面头没有第二行插槽（刻意的，
+        见 `page-header.tsx` 的头注），这句落不进四种允许的落点。
+      */}
+      <PageHeader title="我关注的" />
 
       {isError ? (
         <StateBlock
