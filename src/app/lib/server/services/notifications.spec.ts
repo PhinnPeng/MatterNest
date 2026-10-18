@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { immediateDedupeKey } from "@/shared/notification/dedupe";
-import { intentsOfOutboxRow } from "./notifications";
+import type { NotifyReceiver } from "@/shared/enums/automation";
+import { applyRuleGate, intentsOfOutboxRow } from "./notifications";
 
 /**
  * 通知管线的**源码守卫**（MATT-41 / T4）。
@@ -262,5 +263,141 @@ describe("outbox 展开：comment_added → new_comment + mention", () => {
     });
     expect(intents).toHaveLength(1);
     expect(intents[0]!.payloads).toHaveLength(2);
+  });
+});
+
+/**
+ * `applyRuleGate` 的**行为测试**与**调用点守卫**（2026-10-18）。
+ *
+ * ## 为什么这两档必须一起在
+ *
+ * `agent-work/probe-rule-executors.mjs` 量出过本仓最典型的一种失败：
+ * 规则 2/5/6/7/8 的收件人取自**常量**、通路上零处查 `is_enabled` ——
+ * 配置页上勾得动、勾了不改变行为。修完之后有两个**半档**会各自静默复发：
+ *
+ *   · 判定函数写好了但**没人调用**（死代码）⇒ 行为测试照绿；
+ *   · 调用点写了但**传错 key**（判定表按 `new_comment` 索引、调用点传 `comment_added`）
+ *     ⇒ 行为测试照绿，而线上表现为"这条规则停用无效"。
+ *
+ * 所以：行为测试钉"判得对不对"，调用点守卫钉"真的接了、键对得上"。
+ * 只留一半，就会退回到"看着像做了"。
+ */
+describe("applyRuleGate：规则停用 ⇒ 该意图整条丢掉", () => {
+  const commentRow = {
+    id: 1n,
+    eventType: "comment_added",
+    batchId: "44444444-4444-4444-4444-444444444444",
+    payload: {
+      host_type: "matter",
+      host_id: "900",
+      author_name: "张三",
+      quoted: "已核查",
+      mention_ids: [],
+    },
+  };
+  const fire = (receivers: NotifyReceiver[]) => ({ fire: true as const, receivers, ruleId: 9n });
+  const stop = { fire: false as const, why: "rule_disabled" as const, ruleId: 9n };
+
+  it("**停用 ⇒ `new_comment` 不再产出**（规则 8 的开关落点）", () => {
+    const gated = applyRuleGate(intentsOfOutboxRow(commentRow), new Map([["new_comment", stop]]));
+    expect(gated).toEqual([]);
+  });
+
+  it("启用 ⇒ 收件人换成**规则行里配的那一份**，不是常量", () => {
+    const gated = applyRuleGate(
+      intentsOfOutboxRow(commentRow),
+      new Map([["new_comment", fire(["owner"])]]),
+    );
+    expect(gated).toHaveLength(1);
+    expect(gated[0]!.receivers).toEqual(["owner"]);
+  });
+
+  it("**`mention` 不归规则管** —— 停用规则 8 不该把 @提及 一起关掉", () => {
+    // §2.3 末段：「mention 不经规则引擎，由评论服务直接发事件」
+    const row = { ...commentRow, payload: { ...commentRow.payload, mention_ids: ["7"] } };
+    const gated = applyRuleGate(intentsOfOutboxRow(row), new Map([["new_comment", stop]]));
+    expect(gated.map((i) => i.eventType)).toEqual(["mention"]);
+  });
+
+  it("**没给判定 = 调用方漏查 ⇒ 丢掉**（不照发）：照发会让'忘了查开关'装成'停用无效'", () => {
+    const gated = applyRuleGate(intentsOfOutboxRow(commentRow), new Map());
+    expect(gated).toEqual([]);
+  });
+
+  it("**`excludeUserIds` 原样穿过**：换档位不等于那个人该收两份（§7.2 合并规则 1）", () => {
+    const row = { ...commentRow, payload: { ...commentRow.payload, mention_ids: ["7"] } };
+    const gated = applyRuleGate(
+      intentsOfOutboxRow(row),
+      new Map([["new_comment", fire(["owner", "follower"])]]),
+    );
+    const broadcast = gated.find((i) => i.eventType === "new_comment");
+    expect(broadcast?.receivers).toEqual(["owner", "follower"]);
+    expect(broadcast?.excludeUserIds).toEqual(["7"]);
+  });
+
+  it("转案件（规则 7）同样受开关约束", () => {
+    const row = {
+      id: 2n,
+      eventType: "risk_converted",
+      batchId: "55555555-5555-5555-5555-555555555555",
+      payload: { risk_matter_id: "900", case_ids: ["1"], actor_name: "张三" },
+    };
+    expect(applyRuleGate(intentsOfOutboxRow(row), new Map([["risk_converted", stop]]))).toEqual([]);
+    const on = applyRuleGate(
+      intentsOfOutboxRow(row),
+      new Map([["risk_converted", fire(["owner", "follower", "creator"])]]),
+    );
+    expect(on).toHaveLength(1);
+  });
+
+  it("判定表按**事件类型**索引，不是规则号（两边键不一致就是静默失效）", () => {
+    // 表里放一个规则号做 key ⇒ 一次也不该命中；这正是"传错 key"那个半档的探针
+    const gated = applyRuleGate(intentsOfOutboxRow(commentRow), new Map([["8", stop]]));
+    expect(gated).toEqual([]);
+  });
+});
+
+describe("源码守卫：闸门真的接在四条链路上（不是死代码）", () => {
+  const src = readFileSync("src/app/lib/server/services/notifications.ts", "utf8");
+
+  it("`notifyStatusChanged`（规则 2）走 `decideNotifyRule` 且早退", () => {
+    const at = src.indexOf("export async function notifyStatusChanged");
+    expect(at, "锚点失效：找不到 notifyStatusChanged").toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf("\nexport ", at + 10));
+    expect(body).toContain("decideNotifyRule");
+    expect(body).toContain("if (!decision.fire) return");
+    // 常量退化为兜底：它必须在，但**不再**直接当 receivers 用
+    expect(body).not.toContain("receivers: RULE_STATUS_CHANGED_NOTIFY.receivers");
+  });
+
+  it("`consumeOutbox`（规则 7/8）把 `expand` 的结果过了闸门", () => {
+    const at = src.indexOf("export async function consumeOutbox");
+    expect(at, "锚点失效：找不到 consumeOutbox").toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf("\nexport ", at + 10));
+    expect(body).toContain("applyRuleGate(");
+    expect(body).toContain("loadOutboxRuleDecisions(");
+    // 整批查一次，不在行循环里查（循环里查是 N 次往返）
+    expect(body.indexOf("loadOutboxRuleDecisions(")).toBeLessThan(
+      body.indexOf("for (const row of pending)"),
+    );
+  });
+
+  it("`scanDueNodes`（规则 5/6）两档各自查行、各自早退", () => {
+    const at = src.indexOf("export async function scanDueNodes");
+    expect(at, "锚点失效：找不到 scanDueNodes").toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf("\nexport ", at + 10));
+    expect(body).toContain("presetRule(5).code");
+    expect(body).toContain("presetRule(6).code");
+    expect(body).toContain("if (!decision.fire) continue;");
+    expect(body).not.toContain("rule.receivers");
+  });
+
+  it("事件类型 → 规则号的映射里**没有 `mention`**（它不经规则引擎）", () => {
+    const at = src.indexOf("const OUTBOX_EVENT_RULE_NO");
+    expect(at, "锚点失效：找不到 OUTBOX_EVENT_RULE_NO").toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf("};", at));
+    expect(body).toContain("new_comment: 8");
+    expect(body).toContain("risk_converted: 7");
+    expect(body).not.toContain("mention");
   });
 });

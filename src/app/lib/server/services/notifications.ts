@@ -68,6 +68,9 @@ import {
 } from "../scope/visibility";
 import type { Actor } from "../auth/auth";
 import type { DataScope } from "@/shared/enums";
+import { presetRule } from "@/shared/automation/preset-rules";
+import { decideNotifyRule, type NotifyRuleDecision } from "@/shared/automation/rule-gate";
+import { loadRuleByCode } from "./rule-config";
 
 /**
  * 通知管线（MATT-41 / T4）：outbox 生产与消费、聚合去重、收件人解析、通知中心读写、节点到期扫描。
@@ -439,6 +442,17 @@ async function emitForHost(
     windowStart?: string | null;
     windowEnd?: string | null;
     invisibleAsPlaceholder?: boolean;
+    /**
+     * 触发这条通知的规则行 id（`mn_notification_event.source_rule_id`）。
+     *
+     * 这一列**从建表起就在**（§7.2 的表里写着"排障回溯"），但直到 2026-10-18
+     * 都没有任何一条链路写它 —— 规则 4/9 的扫描器传了，其余四条通知规则没传。
+     * 那个洞与本轮修的是同一件事的两面：**不读规则行的调用点，也就不会记它**。
+     *
+     * 有它之后"这条通知是哪条规则发的"是一句 SQL；没有它只能按 `event_type` 反推，
+     * 而 `event_type` 与规则不是一一对应（规则 2 与规则 9 都可能产出与状态有关的提醒）。
+     */
+    sourceRuleId?: bigint | null;
   },
 ): Promise<InsertEventResult> {
   const excluded = new Set((args.excludeUserIds ?? []).map(String));
@@ -459,6 +473,7 @@ async function emitForHost(
   return insertNotificationEvent(tx, {
     eventType: args.eventType,
     sourceType: args.sourceType,
+    sourceRuleId: args.sourceRuleId ?? null,
     host: args.host,
     hostId: args.hostId,
     targetType: args.targetType ?? args.host,
@@ -514,6 +529,19 @@ export async function notifyStatusChanged(
   },
 ): Promise<InsertEventResult> {
   if (args.isArchivedAfter) return { eventId: null, delivered: 0, merged: false };
+  /**
+   * 规则 2 的**开关与收件人都从规则行读**（F5-10「可调参可停用」，2026-10-18）。
+   *
+   * 此前这里直接用 `RULE_STATUS_CHANGED_NOTIFY.receivers` 常量、且通路上零处查
+   * `is_enabled` ⇒ 配置页上勾掉规则 2 之后状态变更照样发通知。
+   * 判定收在 `decideNotifyRule()`（纯函数，行为测试与反向红都在
+   * `shared/automation/rule-gate.spec.ts`）。
+   *
+   * 常量退化为**兜底**：只在规则行缺 `action_config.receivers` 那个键时才用到。
+   */
+  const rule = await loadRuleByCode(tx, presetRule(2).code);
+  const decision = decideNotifyRule(rule, RULE_STATUS_CHANGED_NOTIFY.receivers);
+  if (!decision.fire) return { eventId: null, delivered: 0, merged: false };
   const facts = await loadHostFacts(tx, args.host, args.hostId);
   if (!facts) return { eventId: null, delivered: 0, merged: false };
   return emitForHost(tx, {
@@ -522,7 +550,8 @@ export async function notifyStatusChanged(
     facts,
     eventType: "status_changed",
     sourceType: "auto_rule",
-    receivers: RULE_STATUS_CHANGED_NOTIFY.receivers,
+    sourceRuleId: rule?.id ?? null,
+    receivers: decision.receivers,
     batchId: randomUUID(),
     payload: {
       code: facts.code,
@@ -633,6 +662,32 @@ export async function enqueueCommentIntent(
  * 五、消费侧：抽干 outbox
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * 消费侧**认领哪条规则**：事件类型 → 规则号。
+ *
+ * ## 为什么需要这张表（2026-10-18）
+ *
+ * `intentsOfOutboxRow` 是纯函数（不碰库），而"这条规则停用没有"必须查库。
+ * 所以开关判定不能长在它里面 —— 那会把它从纯函数变成一个要连库的异步函数，
+ * 而它的 12 处单测与 usages 都建立在"给它一行数据、它算出一组意图"上。
+ *
+ * 于是分成两半：**展开**（纯，算意图）与**闸门**（`applyRuleGate`，也纯，
+ * 但输入是"算好的意图 + 已查到的规则判定"）。查库那一半在 `consumeOutbox` 里，
+ * 一次批量查一遍（规则行对整批都一样）。
+ *
+ * ## `mention` **不在这张表里**，这是刻意的
+ *
+ * §2.3 末段原话：「`mention`（@提及）**不经规则引擎**，由评论服务直接发事件」。
+ * 所以它没有规则行可查、也就没有开关可认 —— 把它塞进表里会凭空造出一条
+ * "规则 10"，而配置页会把这个不存在的东西画出来（本仓最防的"看着像做了"）。
+ */
+const OUTBOX_EVENT_RULE_NO: Record<string, number> = {
+  // 规则 8：新评论通知关注人（收件人 follower ∪ creator）
+  new_comment: 8,
+  // 规则 7：转案件后归档 —— 通知是它的**副作用**（§2.4 既裁：「转案件归档」无独立模板）
+  risk_converted: 7,
+};
+
 export type OutboxRow = {
   id: bigint;
   eventType: string;
@@ -666,6 +721,11 @@ export type OutboxIntent = {
    * 只有 `mention` 为 true，理由见 `NotificationIntent.invisibleAsPlaceholder`。
    */
   invisibleAsPlaceholder?: boolean;
+  /**
+   * 触发该意图的规则行 id。由 `applyRuleGate()` 按事件类型填上；
+   * `mention` 不归规则管，所以它没有这个值（见 `OUTBOX_EVENT_RULE_NO` 的注）。
+   */
+  sourceRuleId?: bigint | null;
   payloads: Record<string, unknown>[];
 };
 
@@ -770,6 +830,82 @@ export function intentsOfOutboxRow(row: OutboxRow): OutboxIntent[] {
 }
 
 /**
+ * 把规则开关的判定作用到展开出来的意图上（**纯函数**）。
+ *
+ * ## 它做什么
+ *
+ * · 规则 8（`new_comment`）与规则 7（`risk_converted`）对应的意图，
+ *   **停用即整条丢掉**，收件人换成规则行里配的那一份；
+ * · `mention` **不经过它**（不经规则引擎，见 `OUTBOX_EVENT_RULE_NO` 的注）；
+ * · 判定说"行缺失"（`rule_missing`）时也丢掉 —— 理由与 `decideNotifyRule` 文件头
+ *   第 1 条相同：规则表是开关的唯一落点，行缺失只可能是环境不对，宁可静默不发。
+ *
+ * ## 为什么收件人在**这里**替换而不是在 `intentsOfOutboxRow` 里
+ *
+ * 那个函数是纯的且不知道库；把"行里配了什么"传进来是它的调用方的事。
+ * 拆成两步之后两半各自可测：展开那一半（12 条既有断言）+ 闸门这一半（本函数）。
+ *
+ * ⚠ **`excludeUserIds` 与 `receivers` 是两件事，别一起改**：前者是"本批里已经收过
+ * 更具体那条通知的人"（减法，§7.2 合并规则 1），后者才是规则的档位。
+ * 替换档位时减法名单原样穿过 —— 换了档位不代表那个人就该收两份。
+ */
+export type NotifyRuleDecisionWithId = NotifyRuleDecision & { ruleId: bigint | null };
+
+export function applyRuleGate(
+  intents: readonly OutboxIntent[],
+  decisions: ReadonlyMap<string, NotifyRuleDecisionWithId>,
+): OutboxIntent[] {
+  const out: OutboxIntent[] = [];
+  for (const intent of intents) {
+    const ruleNo = OUTBOX_EVENT_RULE_NO[intent.eventType];
+    // 不归规则管的（`mention`）原样穿过
+    if (ruleNo === undefined) {
+      out.push(intent);
+      continue;
+    }
+    const decision = decisions.get(intent.eventType);
+    // 没给判定 = 调用方漏了查（编程错误）。**丢掉而不是照发**：
+    // 照发会让"忘了查开关"表现为"停用无效"，而那正是本票要修的那一类。
+    if (!decision || !decision.fire) continue;
+    out.push({ ...intent, receivers: decision.receivers, sourceRuleId: decision.ruleId });
+  }
+  return out;
+}
+
+/**
+ * 一次查出**这批 outbox 行涉及的全部规则**的开关判定。
+ *
+ * 规则行对整批都一样（9 行静态数据），所以查一次、整批复用：
+ * 逐行去查会变成 N 次往返，而每条 outbox 行还要再看同一个答案。
+ *
+ * 返回的 key 是**事件类型**（`new_comment` / `risk_converted`），
+ * 与 `applyRuleGate` 的取法一致 —— 用规则号做 key 会让两处各转一次。
+ */
+export async function loadOutboxRuleDecisions(
+  r: Reader,
+  eventTypes: readonly string[],
+): Promise<Map<string, NotifyRuleDecisionWithId>> {
+  const needed = [...new Set(eventTypes)]
+    .map((t) => [t, OUTBOX_EVENT_RULE_NO[t]] as const)
+    .filter((pair): pair is readonly [string, number] => pair[1] !== undefined);
+  const decisions = new Map<string, NotifyRuleDecisionWithId>();
+  for (const [eventType, ruleNo] of needed) {
+    /**
+     * 兜底收件人 = 规则目录里那一份字面量。它只在**规则行缺 `receivers` 那个键**时用到：
+     * 规则 7 的动作是 `archive`、`action_config` 是 `{}`，它**本来就没有**通知那一侧
+     * （见 `shared/notification/preset-rules.ts` 里 `RULE_RISK_CONVERTED_NOTIFY` 的长注）。
+     */
+    const fallback =
+      eventType === "new_comment"
+        ? RULE_COMMENT_ADDED_NOTIFY.receivers
+        : RULE_RISK_CONVERTED_NOTIFY.receivers;
+    const rule = await loadRuleByCode(r, presetRule(ruleNo).code);
+    decisions.set(eventType, { ...decideNotifyRule(rule, fallback), ruleId: rule?.id ?? null });
+  }
+  return decisions;
+}
+
+/**
  * 抽干待投递的 outbox。**至少一次**：只扫 `published_at IS NULL`，成功才打时间戳。
  *
  * 重放是正常路径（消费者崩溃、并发消费），所以去重必须在**数据库唯一键**上——
@@ -804,15 +940,29 @@ export async function consumeOutbox(limit = OUTBOX_BATCH): Promise<{
   let events = 0;
   let merged = 0;
 
+  /**
+   * 规则开关判定：**整批查一次**（规则行是 9 行静态数据，对整批都一样）。
+   *
+   * 放在循环外是因为逐行去查会变成 N 次往返，而每条 outbox 行都会再看同一个答案。
+   * 放在 `db` 上而不是某个事务里：它是**只读**的配置，不参与任何一笔投递的原子性。
+   */
+  const decisions = await loadOutboxRuleDecisions(
+    db,
+    pending.map((r) => r.eventType),
+  );
+
   for (const row of pending) {
     try {
       const r = await db.transaction(async (tx) => {
-        const expanded = intentsOfOutboxRow({
-          id: row.id,
-          eventType: row.eventType,
-          batchId: row.batchId,
-          payload: (row.payload ?? {}) as Record<string, unknown>,
-        });
+        const expanded = applyRuleGate(
+          intentsOfOutboxRow({
+            id: row.id,
+            eventType: row.eventType,
+            batchId: row.batchId,
+            payload: (row.payload ?? {}) as Record<string, unknown>,
+          }),
+          decisions,
+        );
         let made = 0;
         let absorbed = 0;
         if (expanded.length > 0) {
@@ -829,6 +979,7 @@ export async function consumeOutbox(limit = OUTBOX_BATCH): Promise<{
                   facts,
                   eventType: spec.eventType,
                   sourceType: "auto_rule",
+                  sourceRuleId: spec.sourceRuleId,
                   receivers: spec.receivers,
                   customUserIds: spec.customUserIds,
                   excludeUserIds: spec.excludeUserIds,
@@ -942,6 +1093,28 @@ export async function scanDueNodes(now: Date = new Date()): Promise<{
   let events = 0;
   let merged = 0;
 
+  /**
+   * 规则 5 / 6 的开关与收件人**从规则行读**（F5-10「可调参可停用」，2026-10-18）。
+   *
+   * 此前这里直接用 `RULE_NODE_START_NOTIFY.receivers` / `RULE_NODE_END_NOTIFY.receivers`
+   * 两个常量，通路上零处查 `is_enabled` ⇒ 配置页上勾掉规则 5 之后节点提醒照样发。
+   *
+   * ⚠ **`trigger_config.days` 不在这里兑现，而且它本就不该在这里兑现。**
+   * §7.2 明写节点的提前天数只有一个来源：`node.remind_days`
+   * （「提醒唯一配置入口（A8/A9 后无第二处）」），扫描器把它 `unnest` 出来逐档判定。
+   * 规则 5/6 的 `{days:3}` 是**这个触发域的标识**（`scope_key` 的输入），
+   * 不是扫描参数 —— 拿它去改判定会造出第二处口径，而两处漂移是静默的。
+   * 所以那三个 `days` 在本条链路上**至今没有被消费**，这是规格如此，不是漏接线。
+   */
+  const nodeStartRule = await loadRuleByCode(db, presetRule(5).code);
+  const nodeEndRule = await loadRuleByCode(db, presetRule(6).code);
+  const nodeStartDecision = decideNotifyRule(nodeStartRule, RULE_NODE_START_NOTIFY.receivers);
+  const nodeEndDecision = decideNotifyRule(nodeEndRule, RULE_NODE_END_NOTIFY.receivers);
+  const decisionOf = (eventType: string) =>
+    eventType === "node_due_end" ? nodeEndDecision : nodeStartDecision;
+  const ruleIdOf = (eventType: string) =>
+    eventType === "node_due_end" ? (nodeEndRule?.id ?? null) : (nodeStartRule?.id ?? null);
+
   for (const [host, nodes] of [
     ["matter", matterNodes],
     ["risk_matter", riskNodes],
@@ -975,7 +1148,9 @@ export async function scanDueNodes(now: Date = new Date()): Promise<{
       if (!facts || facts.isArchived) continue;
 
       for (const d of due) {
-        const rule = d.eventType === "node_due_end" ? RULE_NODE_END_NOTIFY : RULE_NODE_START_NOTIFY;
+        // 规则停用 / 行缺失 ⇒ 这一档不发。判定收在 `decideNotifyRule()`（纯函数，有反向红）
+        const decision = decisionOf(d.eventType);
+        if (!decision.fire) continue;
         const res = await db.transaction(async (tx) => {
           // 节点提醒的 owner 优先取**节点自己的** owner（§6.1 节点可单独指派），空则回落宿主 owner
           const nodeOwner = await nodeOwnerOf(tx, host, node.id);
@@ -987,7 +1162,7 @@ export async function scanDueNodes(now: Date = new Date()): Promise<{
               ...facts,
               ownerId: nodeOwner ?? facts.ownerId,
             },
-            rule.receivers,
+            decision.receivers,
           );
           if (recipients.length === 0) return { eventId: null as bigint | null, merged: false };
           const dedupeKey = scheduledDedupeKey({
@@ -1005,6 +1180,8 @@ export async function scanDueNodes(now: Date = new Date()): Promise<{
           return insertNotificationEvent(tx, {
             eventType: d.eventType,
             sourceType: "node_remind",
+            // 规则 5 / 6 的行 id：有了它"这条提醒是哪条规则发的"是一句 SQL
+            sourceRuleId: ruleIdOf(d.eventType),
             host,
             hostId: node.hostId,
             targetType: `${host}_node`,

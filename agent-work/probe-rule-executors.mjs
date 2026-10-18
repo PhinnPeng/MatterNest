@@ -53,6 +53,31 @@ const RULES = [
   { no: 9, code: "preset_09_archive_incomplete_notify", konst: "ARCHIVE_REMINDER_RULE_CODE" },
 ];
 
+/**
+ * 「读规则行」的判据：这条链路的代码里，**既有取行、也有判定**。
+ *
+ * ## ⚠ 这个判据改过一次，理由是实现搬了家（2026-10-18 当天）
+ *
+ * 初版判的是"引用该 code 的文件里同时出现 `automationRule` 与 `isEnabled`" ——
+ * 那是"每个生产者各自写一遍查库"时代的形状。补执行体那一轮把这些收敛到了两处：
+ *   · `services/rule-config.ts` 的 `loadRuleByCode()` —— **取行**（读 `is_enabled`）；
+ *   · `shared/automation/rule-gate.ts` 的 `decideNotifyRule()` —— **判定**（纯函数）。
+ * 于是初版判据在 `notifications.ts` 上命中 0 次，会把已经修好的链路继续报成「装饰」。
+ *
+ * 这正是本仓记过的那条纪律：**判据跟着实现搬，是维护这类工具的一部分**
+ * （`revred-notifications.mjs` 的 `creator-drop` 锚点因为一次合法重构失效过，
+ * 由 `verify-anchors.mjs` 当场抓住）。所以这里也检**两个函数名**，
+ * 并要求**两个都出现** —— 只取行不判定 = 取回来没用，只判定不取行 = 判的是空气。
+ *
+ * 直接查 `automationRule.isEnabled` 的老写法**仍然认**（`archive-reminder.ts` /
+ * `stale-reminder.ts` 就是那样，它们先于这次收敛存在）。
+ */
+function honorsRuleRow(t) {
+  const viaSeam = t.includes("loadRuleByCode") && t.includes("decideNotifyRule");
+  const direct = t.includes("automationRule") && t.includes("isEnabled");
+  return viaSeam || direct;
+}
+
 const pad = (s, n) => String(s) + " ".repeat(Math.max(0, n - [...String(s)].reduce((w, c) => w + (c.charCodeAt(0) > 0x2e80 ? 2 : 1), 0)));
 
 console.log("规则  生产者(引用其 code / 常量的源文件)                     读规则行  读参数  判定");
@@ -67,9 +92,8 @@ for (const r of RULES) {
   for (const [f, t] of text) {
     if (t.includes(r.code) || (r.konst && t.includes(r.konst))) hits.push(f);
   }
-  const rowRead = hits.filter(
-    (f) => text.get(f).includes("automationRule") && text.get(f).includes("isEnabled"),
-  );
+  // 读规则行：生产者里有一处既取行又判定（或直接查 isEnabled）
+  const rowRead = hits.filter((f) => honorsRuleRow(text.get(f)));
   const paramRead = hits.filter((f) => /triggerConfig|actionConfig/.test(text.get(f)));
 
   let verdict;
