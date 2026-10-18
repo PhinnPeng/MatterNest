@@ -124,14 +124,18 @@ describe("数据源单一：写出口读写的表 = /api/meta 读的表", () => 
   });
 
   it("`/api/meta` 的读出口读的是同一批表名（改一处名，两处一起变）", () => {
-    const meta = read("src/app/api/meta/route.ts");
+    const metaRoute = read("src/app/api/meta/route.ts");
     // 直接 select 的两张：风险等级与标签。
     for (const name of ["riskLevelConfig", "tag"]) {
-      expect(meta, `/api/meta 不再读 ${name}？那下拉与配置页会分叉`).toContain(`.from(${name})`);
+      expect(metaRoute, `/api/meta 不再读 ${name}？那下拉与配置页会分叉`).toContain(
+        `.from(${name})`,
+      );
     }
     // 状态与费用走服务层（有意的：注释点名了"别在 /api/meta 里另抄一份查询"）——
     // 状态表的读写都经 `hostStatusRows`/本服务，费用经 `listExpenseItems`。
-    expect(meta, "状态不走服务层就会分叉（is_enabled 过滤只在服务层）").toContain("hostStatusRows");
-    expect(meta, "费用项目不走服务层就会分叉").toContain("listExpenseItems");
+    expect(metaRoute, "状态不走服务层就会分叉（is_enabled 过滤只在服务层）").toContain(
+      "hostStatusRows",
+    );
+    expect(metaRoute, "费用项目不走服务层就会分叉").toContain("listExpenseItems");
   });
 });
