@@ -3,21 +3,34 @@
 /*
  * Tailwind v4 入口（无 tailwind.config.js 的 CSS-first 配置）。
  *
- * **这版只管两件事**：preflight + 少量布局工具类。组件的外观、尺寸、色彩全部交给
- * antd 的 token（`src/app/theme/antd.ts` 一处定义）。
+ * **这版只管三件事**：preflight、少数真需要成类的地方（外壳 / 页容器 / `.num`）、
+ * 以及把颜色的引用指到令牌上。组件的外观与尺寸仍然交给 antd 的 token
+ * （`src/app/theme/antd.ts` 一处定义）。
  *
- * 为什么不再留 shadcn 那套语义色变量（`--primary/--muted/--sidebar/...`）：
- * 换到 antd 后如果两套令牌并存，就一定出现"这个页面用 `bg-primary`、那个用
- * `colorPrimary`"的分叉——那正是本仓禁令⑦ 一开始要防的事。
- * 迁移的诚实做法是**把旧的那套删干净**，而不是留着"以后可能用得上"。
+ * ## 色值不从这儿来（MATT-98 / ADR-0006）
  *
- * 三条样式约定（原"样式三条"按 antd 重述，spec/frontend 同步）：
+ * 全站的两组令牌（浅 / 深）定义在 `src/app/theme/brand.ts`，由 `tokensCss()` 生成
+ * `:root{…}` 与 `html.dark{…}` 两段注入 `<head>`（见 `app/layout.tsx`）。
+ * 所以本文件**一个色值都不写**，只写 `var(--…)`；写错变量名由
+ * `theme/brand.spec.ts` 的"globals.css 只引令牌变量"一条当场拦下。
+ *
+ * 深色类打在 `<html>`（`html.dark`），不是 canon 原型的 `body.dark`：首帧脚本在
+ * `<head>` 里同步执行，那一刻 `<body>` 还没被解析出来，只有 `documentElement` 可写。
+ *
+ * ## 为什么还会出现 `.card` / `.nav` 这些"类"
+ *
+ * 它们不归 Tailwind 管，是 canon 原型（`.impeccable/mocks/pages/canon.css`，目标态的
+ * 唯一实现）的**外壳与页容器**部分，逐条转写在这里——内容区撑满视口的传递链要求
+ * `.page` / `.card` / `.stack` / `.master` 真实存在，否则批量二搬页面时无类可挂。
+ * 只搬这几组：按钮、表格、标签、弹层、表单那些**随页面一起搬**（MATT-99 / 101），
+ * 在此之前它们留在 canon.css 里作为参考实现。canon.css 不许删。
+ *
+ * ## 样式约定三条
  *   ① 组件内尺寸一律走 antd token（`theme.components.*`），不用 Tailwind 去顶开
  *      —— 两套间距刻度会在这里第二次长出来；
  *   ② Tailwind 只用于**容器布局**（flex/gap/宽高/文字排版），不用于组件外观覆盖；
  *   ③ 覆盖 antd 默认样式优先用 `styles`/`classNames` 语义槽与 token，
  *      实在不行才写行内 style；`!important` 一律禁止。
- *      守卫见 `tools/lint-guard/check.mjs` 的禁令⑦（现在禁的是"重新引入第二套体系"）。
  */
 
 @layer base {
@@ -27,32 +40,30 @@
   }
   body {
     /* 纸色底：长时间读表，纯白的对比噪声更累（沿用 v5 那条判断，与用哪个库无关）。
-       ⚠ 这三处色值与 theme/brand.ts 同源——CSS 侧 import 不到 TS 常量，改色必须两处一起改。 */
-    background: #f7f8fa;
-    color: #1f2533;
+       值来自 theme/brand.ts 的 `bg` 令牌，明暗两值一并由 <head> 注入。 */
+    background: var(--bg);
+    color: var(--ink);
     font-family:
       -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
       "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
   }
   /*
-   * 选中文本：默认那套系统蓝在这张页面上会同时压在纸白与墨蓝两种底上，
-   * 所以给一个不依赖背景的实色——主色底 + 白字，两种表面都可读。
-   * 值同 BRAND.primary / BRAND.sider.active。
+   * 选中文本：默认那套系统蓝在这张页面上会同时压在两种底上（浅色纸底 / 深色面），
+   * 所以给一个不依赖背景的实色——强调色底 + `accent-ink` 字，两种外观都可读。
    */
   ::selection {
-    background: #2f5fe0;
-    color: #fff;
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 
   /*
    * 滚动条：列表页是主要的滚动面，而滚动条是这张页面上**唯一还没被调校过的表面**——
    * 浏览器默认那套系统灰不属于任何一个设计体系（craft-floor 的 browser surfaces 一条）。
-   * 滑块用 INK.rail、悬停用 INK.faint，轨道透明（纸色底已经是面）。
-   * 同 ::selection 的处境：CSS 侧 import 不到 theme/brand.ts，改色两处一起改。
+   * 滑块用 `control-line`（交互面的边界，浅色 3:1 起）、悬停用 `ink3`；轨道透明（纸色底已经是面）。
    */
   * {
     scrollbar-width: thin;
-    scrollbar-color: #c8ccd4 transparent;
+    scrollbar-color: var(--control-line) transparent;
   }
   ::-webkit-scrollbar {
     width: 10px;
@@ -63,14 +74,283 @@
   }
   ::-webkit-scrollbar-thumb {
     /* border + background-clip 造出"滑块比轨道窄"的留白，比直接加 margin 稳 */
-    background: #c8ccd4;
+    background: var(--control-line);
     background-clip: content-box;
     border: 2px solid transparent;
     border-radius: 5px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #a4abb8;
+    background: var(--ink3);
     background-clip: content-box;
+  }
+}
+
+/*
+ * 外壳与页容器（canon.css 的对应段落逐条转写）。
+ *
+ * 骨架：左导航 216 + 主区；顶栏 52 只写当前页名；`.page` 是内容容器。
+ */
+@layer components {
+  .shell {
+    display: flex;
+    min-height: 100vh;
+  }
+  .nav {
+    width: 216px;
+    flex: 0 0 216px;
+    background: var(--nav-bg);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    padding: 14px 12px 12px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .brand {
+    font-size: 14.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    padding: 0 10px 16px;
+  }
+  .gl {
+    font-size: 11.5px;
+    color: var(--ink3);
+    padding: 12px 10px 5px;
+    letter-spacing: 0.02em;
+  }
+  .it {
+    display: block;
+    font-size: 13px;
+    color: var(--nav-ink);
+    padding: 7px 10px;
+    border-radius: var(--radius);
+  }
+  .it.on {
+    background: var(--nav-on);
+    color: var(--nav-on-ink);
+    font-weight: 500;
+  }
+  /* 底角的身份区：菜单区自己 `flex:1` 吃余量，这里只需要 `margin-top:auto` 兜底 */
+  .navfoot {
+    margin-top: auto;
+    border-top: 1px solid var(--line);
+    padding: 12px 10px 0;
+    font-size: 12px;
+    color: var(--ink2);
+  }
+  /*
+   * 身份区里的身份本身（点开是「我关注的」/「退出登录」）。
+   * canon 的 `navfoot` 只是一行静态文本，而这里必须**可点、可 Tab、可回车**
+   * （US 15/16 要求这两个动作在同一个地方），所以它是一个 `<button>`，不是一行字。
+   */
+  .navfoot .who {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 0;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ink);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+  }
+  .navfoot .who i {
+    color: var(--ink3);
+    font-size: 10px;
+    font-style: normal;
+  }
+  .navfoot .who:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  /*
+   * 外观切换（原型里的 `.modesw`）。原型是两个 `<b>`——它禁 JS，所以只是一块静态标记；
+   * 真控件必须是 `<button>`：US 5 要求能 Tab 到、能回车触发，`<b>` 两者都做不到。
+   */
+  .modesw {
+    display: inline-flex;
+    gap: 6px;
+    margin-top: 7px;
+    font-size: 12px;
+    color: var(--ink3);
+  }
+  .modesw button {
+    font: inherit;
+    font-weight: 400;
+    padding: 1px 7px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  html:not(.dark) .modesw .m-light,
+  html.dark .modesw .m-dark {
+    color: var(--nav-on-ink);
+    background: var(--nav-on);
+    border-color: var(--accent-line);
+  }
+  .modesw button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .main {
+    flex: 1;
+    min-width: 0;
+  }
+  .topbar {
+    height: 52px;
+    background: var(--card);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 24px;
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+  .topbar h1 {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  /*
+   * 页容器：**内容区至少撑到视口，末元素吃掉余量**。
+   *
+   * 起因：左导航是 `height:100vh` 从顶贴到底，而 `.main`/`.page` 不参与高度分配，
+   * 于是导航从 0 贴到 900 而内容只到 437——同一屏里两个高度基准，就是"只剩顶部有内容"的观感成因。
+   * 口径：**表格/卡片主体充满余下的区域，数据少就短**（列头与行保持原高，空的是表格区）；
+   * 这比把空白留在页面背景上协调，且不需要编造数据。
+   * `calc(100vh - 52px)` 的 52 是顶栏高；`min-height` 不是 `height`，长内容页（详情）不受影响。
+   */
+  .page {
+    padding: 20px 24px 40px;
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 52px);
+  }
+  /*
+   * 余量只传给**已知的页级结构**（单张卡片 / stack / 主从区）。
+   * 不写 `.page>*:last-child`：功能配置页的末元素是「卡片网格」容器（无 class），
+   * 被拉高后它内部的 `grid-auto-rows:1fr` 会把五张卡一起撑到视口高（实测 788px），
+   * 而功能卡的常态是「最多 5 条细项」的自然高度，余量应留在网格下方。
+   * ⇒ 功能配置的卡片网格只能是**独立容器**，不能靠"最后一个元素"被追上。
+   */
+  .page > .card:last-child,
+  .page > .stack:last-child,
+  .page > .master:last-child {
+    flex: 1;
+    min-height: 0;
+  }
+  /*
+   * 链式传递：末元素本身是容器时，让余量继续往下走，直到落在卡片上。
+   * ⚠ `.master` 与 `.split` **是 grid，不能在这里改 `flex-direction`**——
+   * 那会把并排的两栏压成上下堆叠（踩过一次：角色页主从布局整个塌掉）。
+   */
+  .page > .card,
+  .page > .stack {
+    display: flex;
+    flex-direction: column;
+  }
+  .page > .stack > *:last-child {
+    flex: 1;
+    min-height: 0;
+  }
+  /*
+   * 主从区吃余量：撑满用 `flex:1`，行高用 `grid-template-rows:1fr`。
+   * `1fr` 在「无固定高的祖先」里会随内容跳（研究笔记 §5.3 排除过），但这里 `.page`
+   * 有视口地板托底，`1fr` 锚在它上面，实测切换 5 个角色高度恒为 788、不跳。
+   */
+  .page > .master {
+    flex: 1;
+    min-height: 0;
+    grid-template-rows: 1fr;
+  }
+  .page > .master > div:last-child {
+    min-height: 0;
+  }
+  /*
+   * 卡片吃掉余量，但**表格不拉伸**：`<table>` 一旦被拉高，浏览器会把余高平均分给各行
+   * （实测 4 行数据被摊成每行 180px），那是「数据少就数据少」的反面。
+   * 所以余量留在卡片底部、行高恒定——表格卡本来就是「行随数据、下方留白」的形态。
+   */
+  .page > .card {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* 卡片与竖向节奏：间距一律 16（`.card + .card`、`.stack > * + *`） */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .card + .card,
+  .stack > * + * {
+    margin-top: 16px;
+  }
+  .card-h {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line2);
+  }
+  /*
+   * 卡片头标题。**h2 与 h3 两种标签、同一副面孔**：
+   * 页面主区块（列表卡的「案件列表」）用 `h2`；嵌套区块（角色页「全局管理」下的「成员」）用 `h3`。
+   * 层级靠标签承担，视觉不能跟着变，否则同层级的两个卡片头会长得不一样。
+   */
+  .card-h h2,
+  .card-h h3 {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .card-b {
+    padding: 16px;
+  }
+
+  /*
+   * 主从：左窄（可点选的清单）/ 右宽（选中项详情）。
+   * **两栏等高**靠三件事，缺一不可（研究底稿 `agent-work/research-master-detail-equal-height.md`）：
+   *   ① `.master` **不写 `align-items:start`** —— 那会关掉 grid 默认的 stretch，
+   *      右栏只剩内容高（实测 305/347 vs 左栏 365），底部悬空 60/18px；
+   *   ② 右栏 wrapper 是 flex 列，被选中的 `.pane` 用 `flex:1` 吃掉 stretch 给的高度；
+   *   ③ pane 内**末张卡**用 `flex:1 1 auto` 吃余量（`flex-basis:auto` 不能省，否则卡片被压扁）。
+   * 高度取「左栏内容 / 右栏内容」的较大者：任一侧变长另一侧跟涨，不写死任何高度。
+   * （选中态那套 `.pick` / `:target` 机制随角色权限页落，MATT-100。）
+   */
+  .master {
+    display: grid;
+    grid-template-columns: 264px minmax(0, 1fr);
+    gap: 16px;
+  }
+  .master > div:last-child {
+    display: flex;
+    flex-direction: column;
+  }
+  /*
+   * 右栏里被选中的那一栏。原型靠 `:target` / `:has()` 在纯 CSS 里切（它禁 JS），
+   * 真页由 React 状态决定渲染哪个 —— 所以这里**只留被选中那一栏的形态**：
+   * flex 列 + `flex:1` 接住 grid stretch 给的高度（原型那套 `.pane{display:none}` 的
+   * "藏起来"在 React 里就是"不渲染"，不需要一份 CSS 隐藏语义）。
+   */
+  .pane {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+  .master > div:last-child > .pane > .card {
+    flex: 0 0 auto;
+  }
+  .master > div:last-child > .pane > .card:last-child {
+    flex: 1 1 auto;
   }
 }
 

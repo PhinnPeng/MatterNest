@@ -10,14 +10,17 @@ import "dayjs/locale/zh-cn.js";
 
 import { ApiFailure } from "@/app/lib/client/api";
 import { antdThemeConfig } from "@/app/theme/antd";
+import { AppearanceProvider, useAppearance } from "@/app/theme/appearance-provider";
 
 dayjs.locale("zh-cn");
 
 /**
- * 全站唯一的三个 Provider：QueryClient → antd 样式抽取 → 主题/语言 → `App` 上下文。
+ * 全站唯一的四个 Provider：外观状态 → QueryClient → antd 样式抽取 → 主题/语言 → `App` 上下文。
  *
  * 顺序是有原因的：`AntdRegistry` 必须在 `ConfigProvider` **外面**，
  * 否则 SSR 抽出来的 style 拿不到主题 token，首屏会闪一下无样式的控件（FOUC）。
+ * `AppearanceProvider` 在最外层：它是 `ConfigProvider` 的入参来源（见 `ThemedApp`），
+ * 也是侧栏底部那个切换器的状态来源。
  *
  * 三条不变的东西：
  *   · `useState(() => new QueryClient())` 而不是模块级单例——Next 服务端跨请求复用模块，
@@ -46,14 +49,31 @@ export function Providers({ children }: { children: ReactNode }) {
   );
 
   return (
-    <QueryClientProvider client={client}>
-      <AntdRegistry>
-        <ConfigProvider locale={zhCN} theme={antdThemeConfig}>
-          {/* `App` 提供 message/notification/modal 的 context 版实例——
-              静态方法在 React 19 + 严格模式下读不到主题与 locale，官方就是用它替代 */}
-          <App>{children}</App>
-        </ConfigProvider>
-      </AntdRegistry>
-    </QueryClientProvider>
+    <AppearanceProvider>
+      <QueryClientProvider client={client}>
+        <AntdRegistry>
+          <ThemedApp>{children}</ThemedApp>
+        </AntdRegistry>
+      </QueryClientProvider>
+    </AppearanceProvider>
+  );
+}
+
+/**
+ * 主题接线：外观状态 → `ConfigProvider`。
+ *
+ * 抽成一个组件是因为 `ConfigProvider` 必须在 `AntdRegistry` **之内**，而
+ * `useAppearance()` 又必须在 `AppearanceProvider` 之内 —— 两者都在本组件的上层。
+ * `antdThemeConfig()` 按外观返回模块级缓存的主题（见 `theme/antd.ts`），
+ * 所以这里每次渲染不会让 cssinjs 重算 token。
+ */
+function ThemedApp({ children }: { children: ReactNode }) {
+  const { appearance } = useAppearance();
+  return (
+    <ConfigProvider locale={zhCN} theme={antdThemeConfig(appearance)}>
+      {/* `App` 提供 message/notification/modal 的 context 版实例——
+          静态方法在 React 19 + 严格模式下读不到主题与 locale，官方就是用它替代 */}
+      <App>{children}</App>
+    </ConfigProvider>
   );
 }
