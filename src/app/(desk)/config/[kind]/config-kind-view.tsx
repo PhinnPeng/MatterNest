@@ -159,7 +159,16 @@ function WritableConfig({ kind }: { kind: WritableConfigKind }) {
           <Button type="primary" onClick={() => setCreating(true)}>
             新增
           </Button>
-        ) : null}
+        ) : (
+          /*
+            无写权时，把"为什么这页没有「新增 / 编辑」"写在**控件本该在的位置**（页头操作区），
+            而不是页尾飘一句说明：权限是一句话，但它的落点是"动作发生处"（副标题纪律的
+            控件说明那一类）。页尾那句会与列表末尾的其他文字连成一片旁白，也离它解释的动作太远。
+          */
+          <Typography.Text style={{ fontSize: 12, color: INK.muted }}>
+            改动功能配置需要「管理配置」权限
+          </Typography.Text>
+        )}
       </div>
 
       <div className="card">
@@ -183,14 +192,6 @@ function WritableConfig({ kind }: { kind: WritableConfigKind }) {
           }}
         />
       </div>
-
-      {canWrite ? null : (
-        <Typography.Text
-          style={{ fontSize: 12, color: INK.muted, display: "block", marginTop: 12 }}
-        >
-          改动功能配置需要「管理配置」权限，当前角色未持有。
-        </Typography.Text>
-      )}
 
       <ConfigFormModal
         kind={kind}
@@ -516,9 +517,18 @@ function ReadOnlyConfig({ kind }: { kind: ConfigKind }) {
         )}
       </div>
 
-      <Typography.Text style={{ fontSize: 12, color: INK.muted, display: "block", marginTop: 12 }}>
-        这些取值写在代码与迁移里（与数据库的 CHECK 双向核对），改动要走迁移，不在这里改。
-      </Typography.Text>
+      {/*
+        这句只在**有列表**时出现：闭集枚举的取值就在上面那张表里，用户看着表会问
+        "为什么改不了"，这里是它唯一的答案（user story 25）。
+        无承载的两项不走列表，那一句已写在卡片里（`card-b`），页尾再来一遍就是复述。
+      */}
+      {source ? (
+        <Typography.Text
+          style={{ fontSize: 12, color: INK.muted, display: "block", marginTop: 12 }}
+        >
+          这些取值写在代码与迁移里（与数据库的 CHECK 双向核对），改动要走迁移，不在这里改。
+        </Typography.Text>
+      ) : null}
     </>
   );
 }

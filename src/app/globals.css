@@ -432,38 +432,6 @@
     outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
-  /*
-   * 页头（canon.css `.pagehead` + `.cfgrow` 的逐条转写，MATT-101 配置细项页用）。
-   *
-   * 背景同 `.pick`：原型在纯 CSS 里靠 `href="#form"` 开弹层，真页由 React 状态开，
-   * 所以这里只留**形态**（左标题 / 右操作 / 纵向居中）。细则行 `.cfgrow` 是入口页
-   * 五张卡片里的 `名称 … ›`：右箭头靠 `justify-content:space-between` 顶到行尾，
-   * 不是绝对定位（原型同款）。
-   */
-  .pagehead {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-  .pagehead h2 {
-    font-size: 19px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-  }
-  .pagehead .sp {
-    flex: 1;
-  }
-  .cfgrow {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .cfgrow i {
-    color: var(--ink3);
-    font-style: normal;
-  }
 }
 
 /*
@@ -476,7 +444,7 @@
  * （深色类打在 documentElement 上，见 brand.ts）。
  */
 @layer components {
-  /* 工具类（`.num` 在文件末尾的 @utility；这里补 canon 同段的其它四个） */
+  /* 工具类（`.num` 在文件末尾的 @utility；这里补 canon 同段里真页用得到的四个） */
   .ellip {
     white-space: nowrap;
     overflow: hidden;
@@ -490,10 +458,6 @@
   }
   .mut3 {
     color: var(--ink3);
-  }
-  .mono {
-    font-family: Consolas, "DejaVu Sans Mono", monospace;
-    font-variant-numeric: tabular-nums;
   }
 
   /* 顶栏里详情页的返回入口与右侧留白（`h1` 已在外壳段落） */
@@ -517,11 +481,6 @@
     font-weight: 600;
     letter-spacing: -0.01em;
   }
-  .pagehead .sub {
-    font-size: 13px;
-    color: var(--ink2);
-    margin-top: 3px;
-  }
   .pagehead .sp {
     flex: 1;
   }
@@ -532,27 +491,6 @@
   }
   .card-h .sp {
     flex: 1;
-  }
-
-  /* 两列网格与配置细项行（`.card + .card` 间距已在外壳段） */
-  .grid2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    align-items: start;
-  }
-  .grid2 > .card + .card {
-    margin-top: 0;
-  }
-  .cfgrow {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .cfgrow i {
-    color: var(--ink3);
-    font-style: normal;
   }
 
   /* 指标带：数字口径一律来自服务端聚合，前端不按当页数据现算（禁令⑧） */
@@ -755,52 +693,6 @@
     font-size: 10px;
     line-height: 13px;
     text-align: center;
-  }
-  .sw {
-    width: 34px;
-    height: 20px;
-    border-radius: 10px;
-    background: var(--switch-off);
-    display: inline-block;
-    position: relative;
-    vertical-align: -5px;
-  }
-  /* ⚠ 必须带 `:not(.on)`：`html.dark .sw` 的特异性高于 `.sw.on`，不加排除会让深色下所有开关变灰 */
-  html.dark .sw:not(.on) {
-    background: var(--switch-off);
-  }
-  .sw::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #fff;
-  }
-  .sw.on {
-    background: var(--accent);
-  }
-  .sw.on::after {
-    left: 16px;
-  }
-  .drag {
-    color: var(--ink3);
-    font-size: 13px;
-    letter-spacing: -1px;
-  }
-  /* 色块描边：浅色淡黑影、深色淡白影——同一个 rgba(0,0,0,.1) 在黑底上等于没有边 */
-  .swatch {
-    width: 14px;
-    height: 14px;
-    border-radius: 3px;
-    display: inline-block;
-    border: 1px solid rgba(0, 0, 0, 0.12);
-    vertical-align: -2px;
-  }
-  html.dark .swatch {
-    border-color: rgba(255, 255, 255, 0.22);
   }
 
   /* 表格：行高 40 恒不拉伸，表头 --th 底，行分隔 --line2，悬停 --hover */
