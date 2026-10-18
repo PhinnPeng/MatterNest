@@ -105,9 +105,7 @@ export function projectRoleDetails(
  * 两次查询再在内存里归并，与 `users.ts:listUsers()` 同一形状：十人组织看不出差别，
  * 但"每行一次查询"这种形状一旦定型，加人时没人会回头改。
  */
-export async function listRoleDetails(opts: {
-  includeMembers: boolean;
-}): Promise<RoleDetail[]> {
+export async function listRoleDetails(opts: { includeMembers: boolean }): Promise<RoleDetail[]> {
   const db = await getDb();
   const rows = await db
     .select({
