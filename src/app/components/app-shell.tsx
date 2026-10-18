@@ -58,6 +58,8 @@ const NAV: { label: string; items: { href: string; label: string }[] }[] = [
     label: "系统",
     items: [
       { href: "/config", label: "功能配置" },
+      // 自动化规则页（P12，2026-10-18）。放在配置旁边：两者都是"系统怎么运转"的设置面。
+      { href: "/rules", label: "自动化规则" },
       // 用户管理（MATT-10 / P13）。**不做按权限隐藏**：无 canManageUser 的人点进来看到的
       // 是"这个页面需要「管理账号」权限"这句话，而不是一个凭空消失的菜单项——
       // 菜单项消失会让人以为"系统没有这个功能"，那是另一件事。
