@@ -663,30 +663,57 @@ export async function enqueueCommentIntent(
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * 消费侧**认领哪条规则**：事件类型 → 规则号。
+ * 消费侧**认领哪条规则**：两套事件名之间的映射。
  *
- * ## 为什么需要这张表（2026-10-18）
+ * ## ⚠ 这里有两个不同的"事件类型"，弄混过一次（2026-10-18 实测回归）
  *
- * `intentsOfOutboxRow` 是纯函数（不碰库），而"这条规则停用没有"必须查库。
- * 所以开关判定不能长在它里面 —— 那会把它从纯函数变成一个要连库的异步函数，
- * 而它的 12 处单测与 usages 都建立在"给它一行数据、它算出一组意图"上。
+ * · **outbox 行**的类型是 E32 的写入事件名：`comment_added` / `risk_converted`；
+ * · **通知意图**的类型是 E29 的通知事件名：`new_comment` / `mention` / `risk_converted`。
  *
- * 于是分成两半：**展开**（纯，算意图）与**闸门**（`applyRuleGate`，也纯，
- * 但输入是"算好的意图 + 已查到的规则判定"）。查库那一半在 `consumeOutbox` 里，
- * 一次批量查一遍（规则行对整批都一样）。
+ * 初版把"查规则判定"的 key 直接用了 **outbox 行**的类型（`pending.map(r => r.eventType)`），
+ * 而 `applyRuleGate` 按**意图**的类型去取 —— 两者对不上，于是
+ * `applyRuleGate` 认为"调用方漏查了开关"（它的注释里写着那种情况要丢掉），
+ * **把所有 `new_comment` 广播静默丢掉了**。`mention` 因为不归规则管而原样穿过，
+ * 所以症状是"@ 的人照样收到、没被 @ 的关注人收不到"——
+ * 与"规则 8 被关掉"长得一模一样，而开关其实是开着的。
  *
- * ## `mention` **不在这张表里**，这是刻意的
+ * `smoke-notifications.mjs` 的三条断言当场抓住（本仓"接线错不会让单测红"的又一例）。
  *
- * §2.3 末段原话：「`mention`（@提及）**不经规则引擎**，由评论服务直接发事件」。
- * 所以它没有规则行可查、也就没有开关可认 —— 把它塞进表里会凭空造出一条
- * "规则 10"，而配置页会把这个不存在的东西画出来（本仓最防的"看着像做了"）。
+ * 所以映射**分两层、都写在一处**：outbox 类型 → 它能展开出的意图类型 → 规则号。
+ * `outboxRuleKeysOf()` 是这条链路的唯一入口，且有单测钉住它返回的是**意图**类型。
  */
-const OUTBOX_EVENT_RULE_NO: Record<string, number> = {
+const INTENT_EVENT_RULE_NO: Record<string, number> = {
   // 规则 8：新评论通知关注人（收件人 follower ∪ creator）
   new_comment: 8,
   // 规则 7：转案件后归档 —— 通知是它的**副作用**（§2.4 既裁：「转案件归档」无独立模板）
   risk_converted: 7,
 };
+
+/**
+ * 一条 outbox 行能展开出哪几种**意图**（静态映射；payload 只影响条数，不影响种类）。
+ *
+ * `mention` **不列**：§2.3 末段原话「`mention`（@提及）**不经规则引擎**，由评论服务
+ * 直接发事件」，它没有规则行可查、也就没有开关可认。把它塞进来等于凭空造一条"规则 10"，
+ * 配置页会把这个不存在的东西画出来。
+ */
+const OUTBOX_EVENT_INTENTS: Record<string, readonly string[]> = {
+  comment_added: ["new_comment"],
+  risk_converted: ["risk_converted"],
+};
+
+/**
+ * 一批 outbox 行（按它们的事件类型）**需要查判定**的意图类型。
+ *
+ * 单一入口 —— 初版的两层名字就是在这里错位的，抽成一个函数之后
+ * 单测可以直接钉"输入 `comment_added`、输出必须含 `new_comment`"。
+ */
+export function outboxRuleKeysOf(outboxEventTypes: readonly string[]): string[] {
+  const keys = new Set<string>();
+  for (const t of outboxEventTypes) {
+    for (const intent of OUTBOX_EVENT_INTENTS[t] ?? []) keys.add(intent);
+  }
+  return [...keys];
+}
 
 export type OutboxRow = {
   id: bigint;
@@ -723,7 +750,7 @@ export type OutboxIntent = {
   invisibleAsPlaceholder?: boolean;
   /**
    * 触发该意图的规则行 id。由 `applyRuleGate()` 按事件类型填上；
-   * `mention` 不归规则管，所以它没有这个值（见 `OUTBOX_EVENT_RULE_NO` 的注）。
+   * `mention` 不归规则管，所以它没有这个值（见 `INTENT_EVENT_RULE_NO` 的注）。
    */
   sourceRuleId?: bigint | null;
   payloads: Record<string, unknown>[];
@@ -836,7 +863,7 @@ export function intentsOfOutboxRow(row: OutboxRow): OutboxIntent[] {
  *
  * · 规则 8（`new_comment`）与规则 7（`risk_converted`）对应的意图，
  *   **停用即整条丢掉**，收件人换成规则行里配的那一份；
- * · `mention` **不经过它**（不经规则引擎，见 `OUTBOX_EVENT_RULE_NO` 的注）；
+ * · `mention` **不经过它**（不经规则引擎，见 `INTENT_EVENT_RULE_NO` 的注）；
  * · 判定说"行缺失"（`rule_missing`）时也丢掉 —— 理由与 `decideNotifyRule` 文件头
  *   第 1 条相同：规则表是开关的唯一落点，行缺失只可能是环境不对，宁可静默不发。
  *
@@ -857,7 +884,7 @@ export function applyRuleGate(
 ): OutboxIntent[] {
   const out: OutboxIntent[] = [];
   for (const intent of intents) {
-    const ruleNo = OUTBOX_EVENT_RULE_NO[intent.eventType];
+    const ruleNo = INTENT_EVENT_RULE_NO[intent.eventType];
     // 不归规则管的（`mention`）原样穿过
     if (ruleNo === undefined) {
       out.push(intent);
@@ -878,16 +905,24 @@ export function applyRuleGate(
  * 规则行对整批都一样（9 行静态数据），所以查一次、整批复用：
  * 逐行去查会变成 N 次往返，而每条 outbox 行还要再看同一个答案。
  *
- * 返回的 key 是**事件类型**（`new_comment` / `risk_converted`），
+ * 返回的 key 是**意图**的类型（`new_comment` / `risk_converted`），
  * 与 `applyRuleGate` 的取法一致 —— 用规则号做 key 会让两处各转一次。
+ * 入参却是 **outbox 行**的类型，两者的翻译见下。
  */
 export async function loadOutboxRuleDecisions(
   r: Reader,
-  eventTypes: readonly string[],
+  outboxEventTypes: readonly string[],
 ): Promise<Map<string, NotifyRuleDecisionWithId>> {
-  const needed = [...new Set(eventTypes)]
-    .map((t) => [t, OUTBOX_EVENT_RULE_NO[t]] as const)
-    .filter((pair): pair is readonly [string, number] => pair[1] !== undefined);
+  /**
+   * ⚠ 入参是 **outbox 行**的类型（`comment_added`），返回的 key 是 **意图**的类型
+   * （`new_comment`）。初版把入参直接当 key 用 ⇒ 映射全部落空 ⇒
+   * `applyRuleGate` 把所有评论广播静默丢掉（`smoke-notifications.mjs` 三条断言抓到）。
+   * 翻译收在 `outboxRuleKeysOf()` 一处，本函数不自己拼 key。
+   */
+  const needed = outboxRuleKeysOf(outboxEventTypes).flatMap((eventType) => {
+    const ruleNo = INTENT_EVENT_RULE_NO[eventType];
+    return ruleNo === undefined ? [] : [[eventType, ruleNo] as const];
+  });
   const decisions = new Map<string, NotifyRuleDecisionWithId>();
   for (const [eventType, ruleNo] of needed) {
     /**

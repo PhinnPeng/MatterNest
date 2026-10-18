@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { immediateDedupeKey } from "@/shared/notification/dedupe";
 import type { NotifyReceiver } from "@/shared/enums/automation";
-import { applyRuleGate, intentsOfOutboxRow } from "./notifications";
+import { applyRuleGate, intentsOfOutboxRow, outboxRuleKeysOf } from "./notifications";
 
 /**
  * 通知管线的**源码守卫**（MATT-41 / T4）。
@@ -392,12 +392,65 @@ describe("源码守卫：闸门真的接在四条链路上（不是死代码）"
     expect(body).not.toContain("rule.receivers");
   });
 
-  it("事件类型 → 规则号的映射里**没有 `mention`**（它不经规则引擎）", () => {
-    const at = src.indexOf("const OUTBOX_EVENT_RULE_NO");
-    expect(at, "锚点失效：找不到 OUTBOX_EVENT_RULE_NO").toBeGreaterThan(0);
+  it("**意图** → 规则号的映射里没有 `mention`，且 outbox 层也不列它（它不经规则引擎）", () => {
+    const at = src.indexOf("const INTENT_EVENT_RULE_NO");
+    expect(at, "锚点失效：找不到 INTENT_EVENT_RULE_NO").toBeGreaterThan(0);
     const body = src.slice(at, src.indexOf("};", at));
     expect(body).toContain("new_comment: 8");
     expect(body).toContain("risk_converted: 7");
     expect(body).not.toContain("mention");
+
+    // outbox 那一层的映射也不许把 mention 列进来（它根本不作为 outbox 行的事件名存在）
+    const at2 = src.indexOf("const OUTBOX_EVENT_INTENTS");
+    expect(at2, "锚点失效：找不到 OUTBOX_EVENT_INTENTS").toBeGreaterThan(0);
+    expect(src.slice(at2, src.indexOf("};", at2))).not.toContain("mention");
+  });
+});
+
+/**
+ * **两套事件名的翻译**（2026-10-18 实测回归的护栏）。
+ *
+ * ## 它挡的是什么
+ *
+ * 消费侧有两个不同的"事件类型"，名字长得很像：
+ *   · **outbox 行**（E32 写入事件）：`comment_added` / `risk_converted`；
+ *   · **通知意图**（E29 通知事件）：`new_comment` / `mention` / `risk_converted`。
+ *
+ * `loadOutboxRuleDecisions` 的入参是前者的类型，而 `applyRuleGate` 按后者的类型取判定。
+ * 初版把入参**直接**当 key 用 ⇒ 映射全部落空 ⇒ `applyRuleGate` 按它"漏查开关要丢掉"
+ * 的分支把所有评论广播**静默丢掉**。`mention` 因不归规则管而原样穿过，
+ * 所以症状是"@的人收得到、没被@的关注人收不到" —— 与"规则 8 被关掉"完全同形，
+ * 而开关其实是开着的。
+ *
+ * ⚠ 这条缺陷**单测当时全绿**：本 spec 里所有 `applyRuleGate` 用例都是手工构造判定表，
+ * 没人验过"真实调用链传进来的 key 对不对"。抓到它的是 `smoke-notifications.mjs` 的三条
+ * 业务断言。所以下面这组断言钉的是**翻译函数**，而不是某条业务路径。
+ */
+describe("outboxRuleKeysOf：outbox 类型 → 意图类型的翻译", () => {
+  it("**`comment_added` 必须翻成 `new_comment`**（不是原样返回）", () => {
+    // 初版就是少了这一步，于是规则 8 的广播全被丢掉
+    expect(outboxRuleKeysOf(["comment_added"])).toEqual(["new_comment"]);
+  });
+
+  it("`risk_converted` 两边同名，但仍走翻译（别假设所有事件都同名）", () => {
+    expect(outboxRuleKeysOf(["risk_converted"])).toEqual(["risk_converted"]);
+  });
+
+  it("**`mention` 不出现在结果里**：它不经规则引擎，没有开关可查", () => {
+    for (const keys of [outboxRuleKeysOf(["comment_added"]), outboxRuleKeysOf([])]) {
+      expect(keys).not.toContain("mention");
+    }
+  });
+
+  it("未知事件类型返回空（一条坏行不该让整批查判定时抛错）", () => {
+    expect(outboxRuleKeysOf(["no_such_event"])).toEqual([]);
+  });
+
+  it("多个 outbox 类型去重合并（`comment_added` ×2 只查一次）", () => {
+    expect(outboxRuleKeysOf(["comment_added", "comment_added"]).sort()).toEqual(["new_comment"]);
+    expect(outboxRuleKeysOf(["comment_added", "risk_converted"]).sort()).toEqual([
+      "new_comment",
+      "risk_converted",
+    ]);
   });
 });
