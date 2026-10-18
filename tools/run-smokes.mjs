@@ -3,10 +3,10 @@
  *
  * ## 为什么需要这个工具
  *
- * 仓里有 17 个 `agent-work/smoke-*.mjs`，各自打同一个 dev server、各自连同一个共享库，
+ * 仓里的 `agent-work/smoke-*.mjs` 各自打同一个 dev server、各自连同一个共享库，
  * 但**从来没有一条命令跑过全组**（`pnpm verify` 故意不含它们：verify 必须离线可跑）。
  * 于是出现过一次真实事故：`smoke-improvements` 读的是 `process.env.BASE` / 默认端口 3000，
- * 而其余 16 个读 `SMOKE_BASE` / 3777 —— 起在默认端口时它是全组唯一连不上的那个。
+ * 而其余脚本读 `SMOKE_BASE` / 3777 —— 起在默认端口时它是全组唯一连不上的那个。
  * 它**从来没成功执行过一次**，却躺在一堆"绿色冒烟"里提供虚假覆盖，而且因为没人跑全组，
  * 这件事完全不可见（`docs/retro-2026-10-14.md` 候选 3）。
  *
@@ -23,7 +23,7 @@
  *
  * ## 串行，不并行 —— 请不要"优化"成并行
  *
- * 这 17 个脚本共享**一个** dev server 和**一个**共享 dev 库，每个都在库里建临时账号、
+ * 这些脚本共享**一个** dev server 和**一个**共享 dev 库，每个都在库里建临时账号、
  * 临时事项、临时当事人，然后各自清场。并发跑会让夹具互相看见：
  * `smoke-notifications` 与 `smoke-rule9` 都在读 `mn_notification` 做去重/冷却断言，
  * `smoke-batch` 自己就写了"另一个冒烟脚本同时在跑"会让 `attempts + 1` 的去重断言塌掉。
@@ -31,7 +31,7 @@
  *
  * ## 判定以退出码为准，汇总行只是给人看的
  *
- * 退出码是脚本自己写的、已经被读过很多遍的那份事实；汇总行是人肉格式，17 个脚本有 5 种
+ * 退出码是脚本自己写的、已经被读过很多遍的那份事实；汇总行是人肉格式，各脚本有 5 种
  * 写法（见 `parseSummary`）。所以：**退出码非 0 ⇒ 失败**，无条件。
  * 反过来，**退出码 0 但整段输出里找不到任何汇总行 ⇒ 也判失败**。这不是苛刻，
  * 是本工具存在的理由：一个"没跑却安静退 0"的脚本正是本轮要消灭的东西，
@@ -39,7 +39,7 @@
  *
  * ## 「清场失败」是**第三种**结果，不是失败的一种
  *
- * 17 个脚本的退出码约定见 `agent-work/_testacct.mjs` 的 `finishSmoke`：
+ * 各脚本的退出码约定见 `agent-work/_testacct.mjs` 的 `finishSmoke`：
  * 0 断言全过且库干净 / 1 断言有红 / 2 断言全过但**库被自己弄脏了** / 3 环境不对。
  *
  * 2 必须单独一类，不能并进「失败」也不能当成「通过」：
@@ -85,7 +85,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SMOKE_DIR = path.join(ROOT, "agent-work");
-/** 与 17 个冒烟脚本里的默认值一致；脚本各自也读 SMOKE_BASE，这里只是探活地址 */
+/** 与冒烟脚本里的默认值一致；脚本各自也读 SMOKE_BASE，这里只是探活地址 */
 const DEFAULT_BASE = "http://127.0.0.1:3777";
 /**
  * 探 `/login` 而不是 `/`：`/` 会重定向到登录页（多一跳，且重定向目标依赖鉴权状态），
@@ -230,7 +230,7 @@ function secs(ms) {
  *   ④ `通过 61 · 失败 0`                             —— smoke-import（分隔符是 `·`）
  *   ⑤ `冒烟：7/7 通过，失败 S3 S4`                    —— smoke-improvements（分子分母式）
  *
- * 本函数**只吃通过数与失败数**，不解析 PASS/FAIL/✅ 这些词 —— 17 个里只有 11 个会打它们，
+ * 本函数**只吃通过数与失败数**，不解析 PASS/FAIL/✅ 这些词 —— 只有一部分脚本会打它们，
  * 拿它们当锚点等于让 6 个脚本永远解析不出汇总。
  *
  * 容错清单（这些都是仓里真实存在的写法，不是假想）：
@@ -304,7 +304,7 @@ function parseSummaryLine(line) {
 /**
  * 两种失败形态必须分开，因为它们要不同的处置：
  *   - **没人听**（ECONNREFUSED / ENOTFOUND）：`pnpm smoke` 是人主动敲的命令，
- *     服务没起就是没起。立刻带着"怎么起"退 1，比让 17 个脚本各吐一遍 ECONNREFUSED
+ *     服务没起就是没起。立刻带着"怎么起"退 1，比让每个脚本各吐一遍 ECONNREFUSED
  *     再让人自己猜强一万倍。（`SMOKE_WAIT_FOR_SERVER=1` 切到等待模式，给 CI 用。）
  *   - **在听但没准备好**（fetch 超时 / 5xx）：`next dev` 先 accept 后编译，
  *     首请求几十秒很正常。这不是错误，是还没好 —— 所以重试到预算耗尽。
@@ -388,9 +388,9 @@ function printNoServer(base, probe, budgetMs) {
 /**
  * `--env-file` 的处置（**刻意**的，不是顺带的）：
  *
- * 17 个冒烟脚本一个都不调 `process.loadEnvFile()`，它们全靠命令行上的
+ * 冒烟脚本一个都不调 `process.loadEnvFile()`，它们全靠命令行上的
  * `--env-file=.env` 拿 `PG*`（`tools/db-check.mjs` 与 `tools/migrate.mjs` 相反，
- * 自己在进程里 loadEnvFile）。编排器不传这个 flag，17 个脚本会全部连不上库，
+ * 自己在进程里 loadEnvFile）。编排器不传这个 flag，全部脚本都会连不上库，
  * 然后每个都吐一句"数据库连不上"——和 ECONNREFUSED 同一类灾难。
  *
  * 所以：**`.env` 存在就显式传给每个子进程；不存在就不传，并且说出来。**
@@ -442,7 +442,7 @@ function runSmoke(file, { base, timeoutMs, envFile }) {
       if (head.length < CAP_HEAD) head.push(s);
       tail.push(s);
       if (tail.length > CAP_TAIL) tail.shift();
-      // 判定失败的行形态：仓里 17 个脚本的 ok() 统一打 `[FAIL]`，外加三种中断形态
+      // 判定失败的行形态：冒烟脚本的 ok() 统一打 `[FAIL]`，外加三种中断形态
       if (/^\s*\[FAIL\]|❌|冒烟中断|脚本中断|清场失败|冒烟脚本自身出错/.test(s)) {
         if (fails.length < CAP_FAIL) fails.push(s);
       }

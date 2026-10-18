@@ -95,6 +95,27 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
+      # ⚠ `playwright@1.64.1` **没有 `postinstall`**（实测 `package.json` 的 `scripts: undefined`），
+      # 所以 `pnpm install` 不会带来任何浏览器。而全组冒烟里有 `smoke-visual.mjs` ——
+      # 唯一会**起真浏览器**的冒烟，少了这一步它在 CI 上必然红。
+      #
+      # 2026-10-18 实测：本仓此前**从没跑过 CI**，PR #1 是第一次。那一轮正是死在这里，
+      # 报的是 `LOCALAPPDATA 未设置`（`pickChrome()` 当时只有 Windows 一条路）。
+      # 取法已改成平台自适应（见 `agent-work/_chrome.mjs` 头注），但**取法改对不等于浏览器存在**
+      # —— 这两件事要一起做，只做一件的两种表现都是「覆盖为零却看起来跑过了」。
+      #
+      # 位置：紧跟 `install`，**在 verify / 建库 / 起 dev server 之前**。它是独立的一步，
+      # 早失败早报；放到冒烟前面的话，得先等三分钟建库起服务才看到它红，而那个红与库无关。
+      #
+      # `--with-deps`：Ubuntu 上 chromium 要一串系统库（libnss3 / libatk / libgbm 等）。
+      # 裸装浏览器会在 `launch()` 时缺库报错，而那个报错长得像「页面坏了」。
+      #
+      # ⚠ **不缓存**浏览器（`actions/cache` 挂 `~/.cache/ms-playwright`）。缓存键要同时跟上
+      # playwright 版本与 runner 镜像，键错一次就是**静默地**用旧浏览器跑判据 —— 正是本仓
+      # 最忌讳的那类静默。每次下载约 1–2 分钟，买这个确定性划算。
+      - name: 装 chromium（`smoke-visual.mjs` 要起真浏览器）
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: pnpm verify（format / lint / typecheck / test / lint-guard / anchors / deploy）
         run: pnpm verify
 
@@ -208,7 +229,7 @@ jobs:
       - name: db:check（C18：从未运行 vs 已停摆，两种红分开报）
         run: pnpm db:check
 
-      - name: 全组冒烟（17 脚本 / 串行）
+      - name: 全组冒烟（脚本数由 run-smokes.mjs 发现 / 串行）
         run: pnpm smoke
 
       - name: 停 dev server

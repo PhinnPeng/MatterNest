@@ -179,7 +179,7 @@ export async function createSmokeAccount(sql, { roles, isAdmin = false, suffix =
  *    排查得从头翻 schema。检查清单必须覆盖**真正会拦住的列**，不然这份"友好报错"
  *    只覆盖了它恰好想到的那一半（本轮实测：7 个残留账号里 6 个是 `created_by` 拦的）。
  *
- * ⚠ **清场不许连坐**（2026-10-14 实测补上）。17 个冒烟脚本的 `finally` 都是这样：
+ * ⚠ **清场不许连坐**（2026-10-14 实测补上）。冒烟脚本的 `finally` 都是这样：
  *
  *      } finally {
  *        try { await cleanup() } catch (e) { console.log(...) }
@@ -267,7 +267,7 @@ async function dropSmokeAccountStrict(sql, userId) {
 /**
  * **不连坐**的批量清理：一个账号删不掉，不影响其余账号。
  *
- * 存在的理由见本文件 `dropSmokeAccount` 上方那段 ⚠ —— 17 个冒烟脚本的 `finally`
+ * 存在的理由见本文件 `dropSmokeAccount` 上方那段 ⚠ —— 冒烟脚本的 `finally`
  * 里 `dropSmokeAccount` 是在 try 之外顺序调用的，第一个抛错就中断了整个块，
  * 于是一次全组冒烟能把带 `is_admin` 的临时账号永久留在共享库里，
  * 并让 `db:check` C14 报出一句完全指不到来源的红。
