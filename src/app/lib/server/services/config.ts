@@ -5,7 +5,13 @@ import { nextId } from "@/shared/ids/snowflake";
 import type { ConfigItem, WritableConfigKind } from "@/shared/schema/config";
 
 import { getDb } from "../db/client";
-import { automationRule, expenseItemConfig, riskLevelConfig, statusConfig, tag } from "../db/schema";
+import {
+  automationRule,
+  expenseItemConfig,
+  riskLevelConfig,
+  statusConfig,
+  tag,
+} from "../db/schema";
 
 /**
  * 功能配置的写出口（MATT-101）。
@@ -160,10 +166,7 @@ export async function listConfigItems(kind: WritableConfigKind): Promise<ConfigI
       hostType: null,
     }));
   }
-  const rows = await db
-    .select()
-    .from(tag)
-    .orderBy(asc(tag.sortOrder), asc(tag.id));
+  const rows = await db.select().from(tag).orderBy(asc(tag.sortOrder), asc(tag.id));
   return rows.map((r) => ({
     id: String(r.id),
     code: null,
@@ -434,7 +437,11 @@ async function codeTaken(
   const [row] = await db
     .select({ id: table.id })
     .from(table)
-    .where(exceptId === undefined ? eq(table.code, code) : and(eq(table.code, code), ne(table.id, exceptId)))
+    .where(
+      exceptId === undefined
+        ? eq(table.code, code)
+        : and(eq(table.code, code), ne(table.id, exceptId)),
+    )
     .limit(1);
   return row !== undefined;
 }

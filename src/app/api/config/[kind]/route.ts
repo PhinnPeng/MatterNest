@@ -5,14 +5,7 @@ import {
   isWritableConfigKind,
   type WritableConfigKind,
 } from "@/shared/schema/config";
-import {
-  body,
-  fail,
-  json,
-  notFound,
-  requirePrivilege,
-  withActor,
-} from "@/app/lib/server/http";
+import { body, fail, json, notFound, requirePrivilege, withActor } from "@/app/lib/server/http";
 import {
   createConfigItem,
   listConfigItems,
@@ -106,7 +99,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
   return withActor(async (actor) => {
     const denied = requirePrivilege(actor, "canManageConfig", "管理配置");
     if (denied) return denied;
-    const r = await updateConfigItem(resolved.kind, parsed.data as Record<string, unknown> & { id: string });
+    const r = await updateConfigItem(
+      resolved.kind,
+      parsed.data as Record<string, unknown> & { id: string },
+    );
     if (r.ok) return json({ ok: true, id: r.id });
     return reject(r);
   });

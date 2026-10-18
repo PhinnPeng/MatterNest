@@ -122,31 +122,34 @@ export type ConfigColumnKey =
   | "notify"
   | "triggerTime"
   | "scope"
-  | "description"
   | "status"
   | "actions";
 
 /**
  * 每一列的取舍都以库为准（原型行数据全是编的）：
+ *   · **说明**：5 张可写配置表**都没有 `description` 列**（`status_config` / `risk_level_config` /
+ *     `tag` / `expense_item_config` 只有 code/name/color/sort_order/is_system/is_enabled）——
+ *     所以可写细项**不出说明列**，而不是画一列永远空的。只读的 7 个闭集枚举与 2 个无承载项
+ *     也不出它（没有逐值事实可写）——原型的「说明」列没有库里的承载，登记为已知缺口。
  *   · 编码：`mn_tag` 没有 `code` 列（唯一键是「宿主 + 名称」），故标签页不出编码列；
- *   · 颜色：只有 `mn_status_config` 与 `mn_tag` 有 `color` 列；风险等级没有（原型画了，库里没有）；
+ *   · 颜色：只有 `mn_status_config` 与 `mn_tag` 有 `color` 列（风险等级没有，原型画了）；
  *   · 语义：只有 `mn_status_config` 有 `semantics`。
  */
 const CONFIG_KIND_COLUMNS: Record<ConfigKind, readonly ConfigColumnKey[]> = {
-  case_status: ["seq", "name", "code", "color", "semantics", "description", "status", "actions"],
-  item_status: ["seq", "name", "code", "color", "semantics", "description", "status", "actions"],
-  risk_level: ["seq", "name", "code", "description", "status", "actions"],
-  tag: ["seq", "name", "color", "host", "description", "status", "actions"],
-  expense_item: ["seq", "name", "code", "description", "status", "actions"],
-  case_type: ["seq", "name", "code", "description"],
-  procedure: ["seq", "name", "code", "description"],
-  party_type: ["seq", "name", "code", "description"],
-  id_type: ["seq", "name", "code", "description"],
-  litigation_role: ["seq", "name", "code", "description"],
-  risk_matter_type: ["seq", "name", "code", "description"],
-  node_status: ["seq", "name", "code", "description"],
-  node_notify_status: ["seq", "name", "notify", "description"],
-  node_notify_time: ["seq", "name", "triggerTime", "scope", "description"],
+  case_status: ["seq", "name", "code", "color", "semantics", "status", "actions"],
+  item_status: ["seq", "name", "code", "color", "semantics", "status", "actions"],
+  risk_level: ["seq", "name", "code", "status", "actions"],
+  tag: ["seq", "name", "color", "host", "status", "actions"],
+  expense_item: ["seq", "name", "code", "status", "actions"],
+  case_type: ["seq", "name", "code"],
+  procedure: ["seq", "name", "code"],
+  party_type: ["seq", "name", "code"],
+  id_type: ["seq", "name", "code"],
+  litigation_role: ["seq", "name", "code"],
+  risk_matter_type: ["seq", "name", "code"],
+  node_status: ["seq", "name", "code"],
+  node_notify_status: ["seq", "name", "notify"],
+  node_notify_time: ["seq", "name", "triggerTime", "scope"],
 };
 
 const CONFIG_KIND_EDIT: Record<ConfigKind, ConfigEditMode> = {

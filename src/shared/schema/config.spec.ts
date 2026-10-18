@@ -119,12 +119,12 @@ describe("字段能力按细项裁剪（不是一份通用 schema）", () => {
     // 标签一行只能一个宿主：原型画的「适用 = 案件 + 事项」在表里表达不出来，
     // 要两行才等义 —— 所以这里是单选枚举，不是数组。
     expect(configCreateSchema("tag").safeParse({ name: "涉外" }).success).toBe(false);
-    expect(configCreateSchema("tag").safeParse({ name: "涉外", hostType: "risk_matter" }).success).toBe(
-      true,
-    );
-    expect(configCreateSchema("tag").safeParse({ name: "涉外", hostType: "contract" }).success).toBe(
-      false,
-    );
+    expect(
+      configCreateSchema("tag").safeParse({ name: "涉外", hostType: "risk_matter" }).success,
+    ).toBe(true);
+    expect(
+      configCreateSchema("tag").safeParse({ name: "涉外", hostType: "contract" }).success,
+    ).toBe(false);
   });
 
   it("状态细项收 code 与 color（两列都在 mn_status_config 里）", () => {
@@ -137,7 +137,11 @@ describe("字段能力按细项裁剪（不是一份通用 schema）", () => {
   });
 
   it("风险等级没有 color 列 ⇒ 给 color 的请求被拒", () => {
-    const bad = configCreateSchema("risk_level").safeParse({ name: "高", code: "high", color: "red" });
+    const bad = configCreateSchema("risk_level").safeParse({
+      name: "高",
+      code: "high",
+      color: "red",
+    });
     expect(bad.success).toBe(false);
   });
 
@@ -156,9 +160,9 @@ describe("字段能力按细项裁剪（不是一份通用 schema）", () => {
   });
 
   it("编码按库里的小写形态校验（不是原型画的大写）", () => {
-    expect(configCreateSchema("case_status").safeParse({ name: "x", code: "in_progress" }).success).toBe(
-      true,
-    );
+    expect(
+      configCreateSchema("case_status").safeParse({ name: "x", code: "in_progress" }).success,
+    ).toBe(true);
     for (const bad of ["FILED", "in-progress", "9start", "", "有中文"]) {
       expect(
         configCreateSchema("case_status").safeParse({ name: "x", code: bad }).success,

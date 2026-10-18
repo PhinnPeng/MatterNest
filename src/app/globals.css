@@ -412,6 +412,38 @@
     outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
+  /*
+   * 页头（canon.css `.pagehead` + `.cfgrow` 的逐条转写，MATT-101 配置细项页用）。
+   *
+   * 背景同 `.pick`：原型在纯 CSS 里靠 `href="#form"` 开弹层，真页由 React 状态开，
+   * 所以这里只留**形态**（左标题 / 右操作 / 纵向居中）。细则行 `.cfgrow` 是入口页
+   * 五张卡片里的 `名称 … ›`：右箭头靠 `justify-content:space-between` 顶到行尾，
+   * 不是绝对定位（原型同款）。
+   */
+  .pagehead {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .pagehead h2 {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .pagehead .sp {
+    flex: 1;
+  }
+  .cfgrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .cfgrow i {
+    color: var(--ink3);
+    font-style: normal;
+  }
 }
 
 /*

@@ -69,7 +69,9 @@ const ROW = {
 const req = (method: string, body?: unknown) =>
   new Request(`http://test/api/config/case_status`, {
     method,
-    ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
+    ...(body === undefined
+      ? {}
+      : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
   });
 const ctx = (kind: string) => ({ params: Promise.resolve({ kind }) });
 
@@ -85,7 +87,7 @@ describe("GET：读配置登录即可（与 /api/meta 同档）", () => {
   it("200，透出 { kind, items }", async () => {
     const res = await GET(req("GET"), ctx("case_status"));
     expect(res.status).toBe(200);
-    const b = (await res.json()) as { kind: string; items: typeof ROW[] };
+    const b = (await res.json()) as { kind: string; items: (typeof ROW)[] };
     expect(b.kind).toBe("case_status");
     expect(b.items).toEqual([ROW]);
   });
@@ -164,13 +166,19 @@ describe("写路径的权限门：非 canManageConfig ⇒ 403 privilege_required
   });
 
   it("有权限 ⇒ POST 201、PATCH 200", async () => {
-    expect((await POST(req("POST", { name: "x", code: "y" }), ctx("case_status"))).status).toBe(201);
-    expect((await PATCH(req("PATCH", { id: "1", name: "x" }), ctx("case_status"))).status).toBe(200);
+    expect((await POST(req("POST", { name: "x", code: "y" }), ctx("case_status"))).status).toBe(
+      201,
+    );
+    expect((await PATCH(req("PATCH", { id: "1", name: "x" }), ctx("case_status"))).status).toBe(
+      200,
+    );
   });
 
   it("未登录的写请求 ⇒ 401（不是 403：先问会话再问权限）", async () => {
     readActor.mockResolvedValue(null);
-    expect((await POST(req("POST", { name: "x", code: "y" }), ctx("case_status"))).status).toBe(401);
+    expect((await POST(req("POST", { name: "x", code: "y" }), ctx("case_status"))).status).toBe(
+      401,
+    );
   });
 });
 
@@ -235,9 +243,9 @@ describe("服务层拒绝理由的翻译", () => {
 
   it("停用初始态 / 归档态 ⇒ 422 且码不同", async () => {
     updateConfigItem.mockResolvedValue({ ok: false, why: "initial_status" });
-    expect((await PATCH(req("PATCH", { id: "1", isEnabled: false }), ctx("case_status"))).status).toBe(
-      422,
-    );
+    expect(
+      (await PATCH(req("PATCH", { id: "1", isEnabled: false }), ctx("case_status"))).status,
+    ).toBe(422);
     updateConfigItem.mockResolvedValue({ ok: false, why: "archived_status" });
     const res = await PATCH(req("PATCH", { id: "4", isEnabled: false }), ctx("case_status"));
     expect(((await res.json()) as { error: string }).error).toBe("archived_status");
