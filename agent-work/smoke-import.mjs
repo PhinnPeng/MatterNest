@@ -31,6 +31,10 @@ import {
  *   ⑥ 当事人随行按 (类型, 证件号哈希) 查重：命中挂接既有、否则建档、同名不同号不自动合并
  *   ⑦ 幂等重放：同文件重导 0 新增；改一行重传只补那一行；同文件内重复行报出来
  *   ⑧ 金额精度、日期归一、初始态取配置、案号默认取内部编号
+ *   ⑨ 幂等键的 DB 级兜底（并发也拦得住）
+ *   ⑩ 批次列表：计数自洽、状态收尾、`reportRef` 可点
+ *   ⑪ 预检（`?dryRun=1`）与真导**同一实现**：同文件两跑计数与行级明细逐条相同、
+ *      预检不写库（不落批次、不给报告号）、导完再预检报 `replayed`（MATT-102 留的活）
  *
  * ## 为什么夹具的行是从**下载下来的模板**上拼的
  *
@@ -854,6 +858,112 @@ ok(
   "批次状态收尾为 completed",
   mine.every((b) => b.status === "completed"),
   [...new Set(mine.map((b) => b.status))].join(","),
+);
+
+/* ─────────── ⑪ 预检（`?dryRun=1`）与真导走同一条实现 ─────────── */
+
+/**
+ * 票面那条**真库**验收（MATT-102 干完活后留给父代理的那条）：同一份文件先预检再真导，
+ * 两个响应的计数一致。
+ *
+ * 结构证明在 `import.spec.ts`（预检不另起一条解析路径）。这里补的是库这一侧：
+ * "同一段代码"不蕴含"两次跑出的数字一样" —— 中间隔着**既有档案查重**与**幂等判定**，
+ * 而这两件事都要读库，是分支之外的活。
+ *
+ * 五条断言各钉一个失效方式：
+ *   ① 计数逐项一致 —— 预检说能导 2 行，真导就得进 2 行。预检谎报的代价是用户按预检
+ *      决定要不要导，导完发现不是那个数；
+ *   ② 行级明细一致 —— 行号/字段/原因逐条相同，不是"总数碰巧对上、各错一半"；
+ *   ③ 预检**没写库** —— 不落批次行、不给批次 id。给了会引出两个后果：「最近导入」
+ *      多一条什么都没导的记录，以及预检把幂等键占掉、真导反倒变成"重放"；
+ *   ④ 真导不是重放 —— ③ 的直接后果，单独钉一条（否则 ③ 红了会伪装成"导入坏了"）；
+ *   ⑤ **导完再预检**要报 0 新增且 `replayed`。谁把幂等判定挪进 `if (!dryRun)` 这条就红，
+ *      而那正是"预检把已导过的行报成还能导"的成因。
+ *
+ * 夹具**夹了一行坏行**：只比计数的话，一行坏行 + 一行被吞，总数照样对得上。
+ */
+const drA = `${P}-预检甲`;
+const drB = `${P}-预检乙`;
+const drCsv = fileWith("party", [
+  { 当事人名称: drA, 当事人类型: "法人", 证件类型: "统一社会信用代码", 证件号: uscc(11) },
+  // 名称 1 个字 → DTO 拦下。它必须在**两份**响应里以同样的行号/字段/原因出现
+  { 当事人名称: "乙", 当事人类型: "法人" },
+  { 当事人名称: drB, 当事人类型: "自然人", 证件类型: "居民身份证", 证件号: idCard(12) },
+]);
+const DR_FILE = "预检与真导.csv";
+/** 这一批落库了没有 —— 按「谁建的 + 文件名」查：预检那次本来就没有 id 可查 */
+const drBatches = async () =>
+  (
+    await sql`select count(*)::int as n from mn_import_batch
+      where created_by = ${admin.id} and file_name = ${DR_FILE}`
+  )[0].n;
+/** 行级明细的指纹。**不含 message** —— `already_imported` 的文案里带着上一次的批次号，
+    两次跑必然不同，把它算进去会把"同一判定"误判成"两次不一样" */
+const drKey = (r) =>
+  (r.body?.issues ?? [])
+    .map((i) => `${i.row}:${i.field ?? ""}:${i.code}`)
+    .sort()
+    .join(" | ");
+
+const dry = await call("POST", "/api/import?dryRun=1", adminC, {
+  hostType: "party",
+  fileName: DR_FILE,
+  csv: drCsv,
+});
+ok(
+  "预检：200，逐行判定照跑（2 行能导、1 行坏行）",
+  dry.status === 200 && dry.body?.importedRows === 2 && dry.body?.errorRows === 1,
+  `status=${dry.status} total=${dry.body?.totalRows} imported=${dry.body?.importedRows} error=${dry.body?.errorRows}`,
+);
+ok(
+  "预检**不落批次行**（库里查不到这一批：「最近导入」不该多一条什么都没导的记录）",
+  (await drBatches()) === 0,
+);
+ok(
+  "预检不给批次 id / 报告号（给了用户就会去点「下载错误报告」，撞 404 读起来像报告丢了）",
+  dry.body?.batchId === "" && dry.body?.reportRef === "",
+  `batchId=${JSON.stringify(dry.body?.batchId)} reportRef=${JSON.stringify(dry.body?.reportRef)}`,
+);
+
+const real = await post("party", DR_FILE, drCsv);
+if (real.body?.batchId) batchIds.push(real.body.batchId);
+ok(
+  "同一份文件真导：计数与预检**逐项相同**",
+  real.status === 200 &&
+    real.body?.importedRows === dry.body?.importedRows &&
+    real.body?.errorRows === dry.body?.errorRows &&
+    real.body?.totalRows === dry.body?.totalRows,
+  `预检 ${dry.body?.importedRows}/${dry.body?.errorRows}/${dry.body?.totalRows} · 真导 ${real.body?.importedRows}/${real.body?.errorRows}/${real.body?.totalRows}`,
+);
+ok(
+  "两份响应的行级明细**逐条相同**（行号 / 字段 / 原因），不是只有总数齐",
+  drKey(dry) !== "" && drKey(dry) === drKey(real),
+  `预检 [${drKey(dry)}] · 真导 [${drKey(real)}]`,
+);
+ok(
+  "真导**不是重放**：预检没把幂等键占掉",
+  real.body?.replayed === false,
+  `replayed=${real.body?.replayed}`,
+);
+ok("真导落了**一批**（预检那次没落）", (await drBatches()) === 1, `n=${await drBatches()}`);
+
+const dry2 = await call("POST", "/api/import?dryRun=1", adminC, {
+  hostType: "party",
+  fileName: DR_FILE,
+  csv: drCsv,
+});
+ok(
+  "导完再预检：0 新增 + `replayed` —— 幂等判定在预检里照样参与，预检不谎报「还能导」",
+  dry2.status === 200 && dry2.body?.importedRows === 0 && dry2.body?.replayed === true,
+  `imported=${dry2.body?.importedRows} error=${dry2.body?.errorRows} replayed=${dry2.body?.replayed}`,
+);
+ok(
+  "再预检的**未导入数 = 原来能导的 + 原来就坏的**：那两行由「能导」翻成了 `already_imported`",
+  // 这一条一开始被我写成 `errorRows === 预检的 errorRows`（1），红了。**红得对**：
+  // 重放的行落在 `errorRows` 里（它们确实没进库），所以是 1 + 2 = 3。
+  // 写成"两次数相等"会把这条恒等式钉错，等于给"重放的行从计数里消失"背书。
+  dry2.body?.errorRows === dry.body.importedRows + dry.body.errorRows,
+  `再预检 error=${dry2.body?.errorRows}（预期 ${dry.body?.importedRows}+${dry.body?.errorRows}）`,
 );
 
 /* ───────────────────────── 清场 ───────────────────────── */
