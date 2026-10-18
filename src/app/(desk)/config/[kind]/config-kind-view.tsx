@@ -22,6 +22,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 
 import { INK } from "@/app/theme/brand";
 import { api, ApiFailure, useActor } from "@/app/lib/client/api";
+import { rulesFor } from "@/app/components/form/zod-rules";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { STATUS_SEMANTIC_LABELS } from "@/shared/enums/status";
 import {
@@ -36,6 +37,8 @@ import {
 import {
   CONFIG_KIND_META,
   CONFIG_WRITE_FIELDS,
+  configCreateSchema,
+  configUpdateSchema,
   type ConfigItem,
   type ConfigKind,
   type WritableConfigKind,
@@ -345,6 +348,13 @@ function ConfigFormModal({
   const { message } = AntdApp.useApp();
   const [form] = Form.useForm<Record<string, unknown>>();
   const isEdit = row !== null;
+  /**
+   * 校验规则从 `shared/schema/config.ts` 读（禁令⑧）：新增用 `configCreateSchema`、
+   * 编辑用 `configUpdateSchema`（后者没有 `code`，且字段可空）。
+   * 正则那半 `rulesFor` 刻意不映射（见 `zod-rules.ts` 文件头），所以 `code` 的
+   * 格式仍由提交时的 `safeParse` 兜 —— 不在这里补一条手写 pattern，那会变成第二份规则。
+   */
+  const schema = isEdit ? configUpdateSchema(kind) : configCreateSchema(kind);
 
   // 每次打开重置（同一竞态：afterOpenChange 要等动画，别用它做初始化）
   useEffect(() => {
@@ -390,27 +400,16 @@ function ConfigFormModal({
       }}
     >
       <Form form={form} layout="vertical" requiredMark>
-        <Form.Item label="名称" name="name" rules={[{ required: true, message: "名称必填" }]}>
+        <Form.Item label="名称" name="name" rules={rulesFor(schema, ["name"])}>
           <Input placeholder="如 已撤诉" maxLength={50} />
         </Form.Item>
         {isEdit ? null : f.needsCode ? (
-          <Form.Item
-            label="编码"
-            name="code"
-            rules={[
-              { required: true, message: "编码必填" },
-              { pattern: /^[a-z][a-z0-9_]{0,31}$/, message: "小写英文、数字与下划线，以字母开头" },
-            ]}
-          >
+          <Form.Item label="编码" name="code" rules={rulesFor(schema, ["code"])}>
             <Input placeholder="如 withdrawn" maxLength={32} />
           </Form.Item>
         ) : null}
         {f.needsHost ? (
-          <Form.Item
-            label="适用"
-            name="hostType"
-            rules={[{ required: true, message: "选择适用宿主" }]}
-          >
+          <Form.Item label="适用" name="hostType" rules={rulesFor(schema, ["hostType"])}>
             <Select
               placeholder="案件 / 事项"
               options={[
