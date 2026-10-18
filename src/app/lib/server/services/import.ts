@@ -608,20 +608,26 @@ export async function runImport(
 }
 
 /**
- * 预检时的逐行落库替身：什么都不写，只让调用点的形状与 `writeRow` 一致。
+ * 预检时的逐行落库替身：什么都不写。
+ *
  * 之所以做到"替身"这一层，是为了让逐行循环**一个字都不分支** ——
  * 一旦在循环里写 `if (!dryRun) await writeRow(...)`，预检与真导就从同一段代码
  * 变成了两段长得像的代码，那正是本票要避免的。
+ * 零参箭头可赋给七参的 `RowWriter`（TS 里少写参数是合法协变），所以这里没有
+ * 一排用不上的形参，也就不会有 lint 的"未使用变量"。
  */
-async function noopPersist(
-  _batchId: bigint,
-  _hostType: ImportKind,
-  _rowNo: number,
-  _rowHash: string | null,
-  _status: "imported" | "skipped",
-  _hostId: bigint | null,
-  _rowIssues: readonly ImportRowIssue[] | null,
-): Promise<void> {}
+const noopPersist: RowWriter = async () => {};
+
+/** 逐行落库函数（真导写库 / 预检空转）的签名，两处共用一个 */
+type RowWriter = (
+  batchId: bigint,
+  hostType: ImportKind,
+  rowNo: number,
+  rowHash: string | null,
+  status: "imported" | "skipped",
+  hostId: bigint | null,
+  rowIssues: readonly ImportRowIssue[] | null,
+) => Promise<void>;
 
 /** 三份 DTO 按 kind 分派。写成显式 switch 而不是表：新增 kind 时这里必须一起改，编译期就会提醒 */
 function dtoFor(kind: ImportKind) {

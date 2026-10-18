@@ -66,7 +66,7 @@ const ANCHORS = {
     file: F_SVC,
     tag: "bulk-only",
     needle: `    if (!built.ok) {
-      await writeRow(batchId, kind, row.rowNo, null, "skipped", null, built.issues);
+      await persist(batchId, kind, row.rowNo, null, "skipped", null, built.issues);
       skipRow(row.rowNo, built.issues);
       continue;
     }`,
