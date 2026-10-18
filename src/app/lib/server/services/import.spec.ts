@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { matterCreateSchema, riskCreateSchema } from "@/shared/schema/hosts";
 import type { ImportKind } from "@/shared/enums/import";
@@ -8,6 +9,7 @@ import {
   templateRows,
   type ImportDeps,
 } from "@/shared/schema/import";
+import { stripTsComments } from "../../../../../tools/lint-guard/strip-comments.mjs";
 import { csvText } from "./exports";
 import { IMPORT_REPORT_HEADER, importAuditPayload, reportFieldLabel, rowHashOf } from "./import";
 import { partyCreateSchema } from "./parties";
@@ -186,5 +188,79 @@ describe("载荷与报告的形状", () => {
     expect(reportFieldLabel("party", "type")).toBe("当事人类型");
     // 路径里出现模板没有的字段时原样带回，而不是编一个中文名
     expect(reportFieldLabel("party", "unknownField")).toBe("unknownField");
+  });
+});
+
+/**
+ * 预检（`?dryRun=1`）与真导**走同一条实现**的结构证明（MATT-102）。
+ *
+ * ## 为什么这一组断言值得存在
+ *
+ * 票面的核心承诺是「预检说能导的行真导时进得去」不是一句约定，而是**同一个实现跑了两次**。
+ * 那条承诺在真库上的验收（同一份文件先 dryRun 再真导、两个响应的两项计数一致）要库，
+ * 留给父代理的冒烟；**离线这一层能钉的、也最该钉的是它的结构前提**：
+ * 解析、构建、DTO 校验、内容键比对这几步在 `runImport` 里**只出现一次** ——
+ * 不是"真导一份、预检一份"。一旦有人把它们复制进 `if (dryRun)` 的另一支，
+ * 这里当场红（且是断言失败，不是编译错误）。
+ *
+ * ⚠ 用 `stripTsComments` 剥注释再匹配：本文件的注释里**大量**写着这些函数名
+ * （解释为什么不能各写一份），不剥就会把"文档里提到"当成"代码里有第二份"。
+ * 这与 `tools/lint-guard/check.mjs` 的源码断言同一个理由。
+ */
+describe("dry-run 与真导走同一条实现（结构证明）", () => {
+  /** 剥掉注释与字符串内容的服务层源码（只留代码，且行号仍对得上） */
+  const svc = stripTsComments(readFileSync("src/app/lib/server/services/import.ts", "utf8"));
+
+  /** `runImport` 函数体：从它的声明到下一个顶层声明（`noopPersist`）之间 */
+  const runImportBody = (() => {
+    const start = svc.indexOf("export async function runImport");
+    const end = svc.indexOf("const noopPersist");
+    return svc.slice(start, end);
+  })();
+
+  it("解析与逐行校验的每一步在 runImport 里各出现**一次**（不是两支各一份）", () => {
+    for (const call of [
+      "parseImportFile(kind",
+      "buildImportRow(kind",
+      "dtoFor(kind).safeParse",
+      "findImportedByHash(kind",
+      "createRecord(kind",
+    ]) {
+      const hits = runImportBody.split(call).length - 1;
+      expect(hits, `${call} 在 runImport 里出现 ${hits} 次 —— 预检与真导不能各走一份`).toBe(1);
+    }
+  });
+
+  it("内容键（幂等判定）在预检里照常参与 —— 它的计算不在任何 dryRun 分支里", () => {
+    // `rowHashOf` 的调用就在逐行循环里、与 dryRun 无关；只有"写库"那一处走 persist
+    const hits = runImportBody.split("rowHashOf(kind").length - 1;
+    expect(hits).toBe(1);
+    // 反向：若有人把内容键挪进 `if (!dryRun)`，这一句会命中 0 —— 那正是"预检谎报能导"的成因
+    expect(runImportBody).not.toMatch(/if \(!dryRun\)[^]{0,80}rowHashOf/);
+  });
+
+  it("dryRun 只挡在**写库**那两处（批次行 + 收尾），不挡判据", () => {
+    // `createRecord` 调用点**不在** dryRun 分支里：预检照样逐行跑创建服务的校验
+    expect(runImportBody).not.toMatch(/if \(!dryRun\)[^]{0,120}createRecord\(kind/);
+    // 逐行落库是"替身"而非分支：persist 在两支之间选，循环体本身不分支
+    expect(runImportBody).toContain("const persist = dryRun ? noopPersist : writeRow;");
+  });
+
+  it("两个宿主创建服务各有 dryRun 出口，且**取号**被 dryRun 挡住（预检不消耗编号）", () => {
+    // ⚠ `stripTsComments` 会剥掉字符串**内容**，所以 `nextCode("matter")` 在剥后是
+    // `nextCode("")` —— 这里只按函数名匹配，不带上那条被剥掉的参数。
+    for (const [file, fn] of [
+      ["matters", "createMatter"],
+      ["risks", "createRiskMatter"],
+    ] as const) {
+      const src = stripTsComments(readFileSync(`src/app/lib/server/services/${file}.ts`, "utf8"));
+      expect(src, `${fn} 没有 dryRun 开关`).toContain("opts: { dryRun?: boolean } = {}");
+      // 取号写成 `dryRun ? … : await nextCode(…)`：同一行里 dryRun 三元先于 nextCode ⇒ 预检不取号
+      expect(src, `${fn} 的取号没被 dryRun 挡住`).toMatch(/dryRun \?[^\n]*nextCode\(/);
+    }
+    const partySrc = stripTsComments(
+      readFileSync("src/app/lib/server/services/parties.ts", "utf8"),
+    );
+    expect(partySrc, "createParty 没有 dryRun 开关").toContain("opts: { dryRun?: boolean } = {}");
   });
 });

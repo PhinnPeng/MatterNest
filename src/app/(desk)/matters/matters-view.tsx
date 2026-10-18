@@ -32,6 +32,7 @@ import { StatusMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { MatterCreateDialog } from "./matter-create-dialog";
+import { ImportDialog } from "@/app/components/import-dialog";
 
 type MatterRow = {
   id: string;
@@ -67,6 +68,8 @@ export function MattersView() {
   const { state, push } = useListState();
   const { data: meta } = useMeta("matter");
   const [creating, setCreating] = useState(false);
+  /** 批量导入弹层（MATT-102）：类型锁定为 `matter`，见页头那个按钮的注释 */
+  const [importing, setImporting] = useState(false);
   /**
    * 批量动作的选中集合（MATT-45）——**受控，且只装当前页的 id**。
    *
@@ -391,6 +394,13 @@ export function MattersView() {
             />
             {/* 导出吃的是**当前筛选**（`state` 自己进控件，见 ExportListButton 的注释） */}
             <ExportListButton path="/api/matters/export" fileBase="案件列表" state={state} />
+            {/*
+              批量导入（MATT-102）：入口从系统组的独立页搬到这里、弹层形式。
+              类型由**本页**锁定为 `matter`（弹层里不给类型选择器）——用户是在"案件"里点的，
+              再让他选一次"导什么"是把入口给的信息又收回去。
+              `canImport` 由服务端每个端点判（403），前端不镜像谓词（见 ImportDialog 文件头）。
+            */}
+            <Button onClick={() => setImporting(true)}>批量导入</Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
               新建案件
             </Button>
@@ -434,6 +444,7 @@ export function MattersView() {
       />
 
       <MatterCreateDialog open={creating} onOpenChange={setCreating} />
+      <ImportDialog hostType="matter" open={importing} onOpenChange={setImporting} />
     </div>
   );
 }

@@ -225,6 +225,7 @@ type Created = { ok: true; hostId: bigint } | { ok: false; issue: ImportRowIssue
 
 /**
  * 逐行落库：调用**单条路径的创建服务**，把可预期错误翻成报告条目。
+ * `dryRun` 时把开关透传给创建服务（那里只跳过取号与写库事务，校验一条不少）。
  *
  * 未知错误**故意不 catch**：那意味着代码有 bug，继续跑只会把剩下的行
  * 一条条标成"错误"而掩盖真因。让它冒泡 ⇒ 请求 500、批次停在 `running`、
@@ -234,22 +235,28 @@ async function createRecord(
   kind: ImportKind,
   actor: Actor,
   data: Record<string, unknown>,
+  dryRun = false,
 ): Promise<Created> {
   const s = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
+  const opts = { dryRun };
   try {
     if (kind === "risk_matter") {
-      const r = await createRiskMatter(actor, {
-        name: String(data.name),
-        type: String(data.type),
-        level: String(data.level),
-        description: String(data.description),
-        source: s(data.source) ?? null,
-        measure: s(data.measure) ?? null,
-        amount: s(data.amount),
-        discoverDate: s(data.discoverDate) ?? null,
-        ownerId: s(data.ownerId),
-        parties: (data.parties ?? []) as PartyLinkInput[],
-      });
+      const r = await createRiskMatter(
+        actor,
+        {
+          name: String(data.name),
+          type: String(data.type),
+          level: String(data.level),
+          description: String(data.description),
+          source: s(data.source) ?? null,
+          measure: s(data.measure) ?? null,
+          amount: s(data.amount),
+          discoverDate: s(data.discoverDate) ?? null,
+          ownerId: s(data.ownerId),
+          parties: (data.parties ?? []) as PartyLinkInput[],
+        },
+        opts,
+      );
       return { ok: true, hostId: BigInt(r.id) };
     }
     if (kind === "matter") {
@@ -278,21 +285,25 @@ async function createRecord(
           issue: { field: "处理人", code: "required", message: "案件必须填处理人，这一行没填" },
         };
       }
-      const r = await createMatter(actor, {
-        name: String(data.name),
-        cause: String(data.cause),
-        caseType: String(data.caseType),
-        procedure: String(data.procedure),
-        litigationRole: String(data.litigationRole),
-        court: s(data.court) ?? null,
-        amount: s(data.amount),
-        level: String(data.level),
-        caseNo: s(data.caseNo) ?? null,
-        filingDate: s(data.filingDate) ?? null,
-        ownerId: s(data.ownerId),
-        description: s(data.description) ?? null,
-        parties: (data.parties ?? []) as PartyLinkInput[],
-      });
+      const r = await createMatter(
+        actor,
+        {
+          name: String(data.name),
+          cause: String(data.cause),
+          caseType: String(data.caseType),
+          procedure: String(data.procedure),
+          litigationRole: String(data.litigationRole),
+          court: s(data.court) ?? null,
+          amount: s(data.amount),
+          level: String(data.level),
+          caseNo: s(data.caseNo) ?? null,
+          filingDate: s(data.filingDate) ?? null,
+          ownerId: s(data.ownerId),
+          description: s(data.description) ?? null,
+          parties: (data.parties ?? []) as PartyLinkInput[],
+        },
+        opts,
+      );
       return { ok: true, hostId: BigInt(r.id) };
     }
     /**
@@ -300,7 +311,7 @@ async function createRecord(
      * 所以直接再 parse 一次拿类型，而不是手写六个字段再逐个 cast：
      * 手写的那份会在 DTO 加字段时静默漏掉（新增字段既不在入参里、也没有编译错误）。
      */
-    const r = await createParty(actor, partyCreateSchema.parse(data));
+    const r = await createParty(actor, partyCreateSchema.parse(data), opts);
     if (r.ok) return { ok: true, hostId: BigInt(r.id) };
     if (r.why === "own_company") {
       return {
@@ -379,11 +390,24 @@ export function importAuditPayload(p: {
 /** 错误报告的列（导出一份报告时表头就用它，测试也断言它） */
 export const IMPORT_REPORT_HEADER = ["行号", "字段", "原因", "状态"] as const;
 
+/**
+ * 跑一次导入。**预检（`dryRun`）与真导走的是同一个函数体的同一段解析与逐行校验**——
+ * 唯一的区别是"写不写库"，见下面三处 `if (!dryRun)` 与 `createRecord(..., dryRun)`。
+ * 这样"预检说能导的行真导时进得去"不是一句约定，而是同一段代码跑了两遍：
+ *   · 文件级解析（`parseImportFile`）与逐行构建（`buildImportRow`）**不分支**；
+ *   · DTO 校验（`dtoFor`）与内容键（`rowHashOf`）**不分支**；
+ *   · **幂等判定（内容键比对）在预检里照常参与** —— 否则预检会把"已导过的行"报成"能导"，
+ *     真导时它们全被 `already_imported` 跳过，预检就成了谎报。
+ * `dryRun` 只跳过三类写：① 批次行；② 逐行 `mn_import_row`；③ 业务记录（`createRecord`
+ * 把 `dryRun` 透传给创建服务，那里同样只跳过取号与写库事务）。
+ */
 export async function runImport(
   actor: Actor,
   req: { hostType: ImportKind; fileName: string; csv: string },
+  opts: { dryRun?: boolean } = {},
 ): Promise<ImportSummary> {
   const db = await getDb();
+  const dryRun = opts.dryRun === true;
   const kind = req.hostType;
   const parsed = parseImportFile(kind, req.csv);
   if (!parsed.ok) throw new ImportFileError(parsed.problem);
@@ -394,13 +418,19 @@ export async function runImport(
 
   // 批次行**先落**（`running`）：这样"跑到一半崩了"在库里是可见的，
   // 而不是"什么都没发生"。计数在收尾事务里补齐。
-  await db.insert(importBatch).values({
-    id: batchId,
-    hostType: kind,
-    fileName: req.fileName,
-    status: "running",
-    createdBy: operator,
-  });
+  // 预检不落批次：没有真导入就不该在「最近导入」里多出一条什么都没导的记录。
+  if (!dryRun) {
+    await db.insert(importBatch).values({
+      id: batchId,
+      hostType: kind,
+      fileName: req.fileName,
+      status: "running",
+      createdBy: operator,
+    });
+  }
+
+  /** 逐行明细落库。预检整段跳过 —— 它是写库，不是判据 */
+  const persist = dryRun ? noopPersist : writeRow;
 
   const issues: ImportIssueLine[] = [];
   const seenInRun = new Map<string, number>();
@@ -436,7 +466,7 @@ export async function runImport(
     const built = buildImportRow(kind, row.cells, deps);
 
     if (!built.ok) {
-      await writeRow(batchId, kind, row.rowNo, null, "skipped", null, built.issues);
+      await persist(batchId, kind, row.rowNo, null, "skipped", null, built.issues);
       skipRow(row.rowNo, built.issues);
       continue;
     }
@@ -449,7 +479,7 @@ export async function runImport(
     const dto = dtoFor(kind).safeParse(built.input);
     if (!dto.success) {
       const rowIssues = issuesFromZod(kind, dto.error.issues);
-      await writeRow(batchId, kind, row.rowNo, null, "skipped", null, rowIssues);
+      await persist(batchId, kind, row.rowNo, null, "skipped", null, rowIssues);
       skipRow(row.rowNo, rowIssues);
       continue;
     }
@@ -467,7 +497,7 @@ export async function runImport(
           message: `与本文件第 ${earlier} 行的内容完全相同，未重复导入（若这是两笔真事，请在其中一行加上可区分的信息）`,
         },
       ];
-      await writeRow(batchId, kind, row.rowNo, null, "skipped", null, rowIssues);
+      await persist(batchId, kind, row.rowNo, null, "skipped", null, rowIssues);
       skipRow(row.rowNo, rowIssues);
       continue;
     }
@@ -481,14 +511,14 @@ export async function runImport(
           message: `与第 ${prior.rowNo} 行（批次 ${prior.batchId}）内容相同，已导入过，未重复导入`,
         },
       ];
-      await writeRow(batchId, kind, row.rowNo, null, "skipped", null, rowIssues);
+      await persist(batchId, kind, row.rowNo, null, "skipped", null, rowIssues);
       skipRow(row.rowNo, rowIssues, true);
       continue;
     }
 
-    const created = await createRecord(kind, actor, data);
+    const created = await createRecord(kind, actor, data, dryRun);
     if (!created.ok) {
-      await writeRow(batchId, kind, row.rowNo, null, "skipped", null, [created.issue]);
+      await persist(batchId, kind, row.rowNo, null, "skipped", null, [created.issue]);
       skipRow(row.rowNo, [created.issue]);
       continue;
     }
@@ -501,7 +531,7 @@ export async function runImport(
      */
     const warn: ImportRowIssue[] = [];
     try {
-      await writeRow(batchId, kind, row.rowNo, hash, "imported", created.hostId, null);
+      await persist(batchId, kind, row.rowNo, hash, "imported", created.hostId, null);
     } catch (e) {
       if (!isUniqueViolation(e)) throw e;
       warn.push({
@@ -510,7 +540,7 @@ export async function runImport(
         message:
           "并发导入：另一批次已导入同样的内容。本次仍写入了记录，请在列表里核对后删除多余的一条",
       });
-      await writeRow(batchId, kind, row.rowNo, null, "imported", created.hostId, warn);
+      await persist(batchId, kind, row.rowNo, null, "imported", created.hostId, warn);
     }
     seenInRun.set(hash, row.rowNo);
     importedRows += 1;
@@ -542,35 +572,62 @@ export async function runImport(
 
   // 收尾：计数、状态、汇总日志**同一个事务** —— 三者描述的是同一件事，
   // 分开写就会出现"日志说导了 812 行、批次记录说 810"。
-  await db.transaction(async (tx) => {
-    await tx
-      .update(importBatch)
-      .set({ totalRows, importedRows, errorRows, status: "completed" })
-      .where(eq(importBatch.id, batchId));
-    await logActivity(tx, actor, {
-      // 与 `PARTY_MERGED` 同一种落点：导入是**账号维度**的汇总动作，不挂任何业务宿主
-      // （E03 的 `app_user` 是唯一"无业务宿主"的合法落点，迁移 0006 开的）。
-      targetType: "app_user",
-      targetId: operator,
-      action: "BULK_IMPORT",
-      payload,
+  // 预检没有批次行可收尾，也不写 `BULK_IMPORT` 汇总（那会被读成"真导过一批"）。
+  if (!dryRun) {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(importBatch)
+        .set({ totalRows, importedRows, errorRows, status: "completed" })
+        .where(eq(importBatch.id, batchId));
+      await logActivity(tx, actor, {
+        // 与 `PARTY_MERGED` 同一种落点：导入是**账号维度**的汇总动作，不挂任何业务宿主
+        // （E03 的 `app_user` 是唯一"无业务宿主"的合法落点，迁移 0006 开的）。
+        targetType: "app_user",
+        targetId: operator,
+        action: "BULK_IMPORT",
+        payload,
+      });
     });
-  });
+  }
 
   return {
-    batchId: String(batchId),
+    // 预检没落批次：这两个引用指向一个不存在的批次，给空串而不是那个用过的雪花号
+    // ——后者会让用户点"下载报告"时撞 404，读起来像"报告丢了"。
+    batchId: dryRun ? "" : String(batchId),
     hostType: kind,
     fileName: req.fileName,
     totalRows,
     importedRows,
     errorRows,
     replayed,
-    reportRef: String(batchId),
+    reportRef: dryRun ? "" : String(batchId),
     issues: issues.slice(0, SUMMARY_ISSUE_LIMIT),
     issueTotal: issues.length,
     truncatedIssues: issues.length > SUMMARY_ISSUE_LIMIT,
   };
 }
+
+/**
+ * 预检时的逐行落库替身：什么都不写。
+ *
+ * 之所以做到"替身"这一层，是为了让逐行循环**一个字都不分支** ——
+ * 一旦在循环里写 `if (!dryRun) await writeRow(...)`，预检与真导就从同一段代码
+ * 变成了两段长得像的代码，那正是本票要避免的。
+ * 零参箭头可赋给七参的 `RowWriter`（TS 里少写参数是合法协变），所以这里没有
+ * 一排用不上的形参，也就不会有 lint 的"未使用变量"。
+ */
+const noopPersist: RowWriter = async () => {};
+
+/** 逐行落库函数（真导写库 / 预检空转）的签名，两处共用一个 */
+type RowWriter = (
+  batchId: bigint,
+  hostType: ImportKind,
+  rowNo: number,
+  rowHash: string | null,
+  status: "imported" | "skipped",
+  hostId: bigint | null,
+  rowIssues: readonly ImportRowIssue[] | null,
+) => Promise<void>;
 
 /** 三份 DTO 按 kind 分派。写成显式 switch 而不是表：新增 kind 时这里必须一起改，编译期就会提醒 */
 function dtoFor(kind: ImportKind) {
