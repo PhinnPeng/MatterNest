@@ -248,6 +248,33 @@
 测量脚本按批核对（`verify-fill-all.mjs` / `verify-equalheight.mjs` / `check-headings.mjs` 已有），
 **它们不是 `verify` 门禁**——理由与 `branches:merged` 同源：判据依赖本地运行态的东西不该挂 CI。
 
+### ⚠ 验收标的错位：`_chk/` 那四个脚本扫的是**原型**，不是本切片的交付物（2026-10-18 实测）
+
+实测四个脚本的取数第一行：
+
+| 脚本 | 扫的目录 |
+|---|---|
+| `_chk/verify-fill-all.mjs:6` | `.impeccable/mocks/pages` |
+| `_chk/check-headings.mjs:7` | `.impeccable/mocks/pages` |
+| `_chk/contrast-all.mjs:7` | `.impeccable/mocks/pages` |
+| `_chk/token-contrast.mjs` | `canon.css` 的令牌配对（不渲染页面） |
+
+**没有一个扫 `src/` 跑出来的真页面。** 而票面（MATT-98 的验收项，本文本节与其余四票同形）
+写着「`token-contrast.mjs` + `contrast-all.mjs`（**31 页** × 明暗两版）0 失败」——
+那 31 页是**原型**。**绿的是原型，交付物一次都没被视觉验过。**
+
+这不是脚本坏了（它们在原型阶段用途完全正确），是**验收标的错位**：
+把「原型的性质」当成了「本切片交付物的性质」。
+
+⇒ 补 `agent-work/smoke-visual.mjs`：**同一批判据，换到真页面上跑**（进冒烟族，
+`run-smokes.mjs` 的 `smoke-*.mjs` 发现规则自动收，汇总行照该族格式）。
+`_chk/` 那四个保留原用途，不再作为本切片的验收依据。
+
+**这条值得单独记的理由**：它是「**判据存在**」与「**判据在验对的东西**」之间的差别。
+本仓对前者很警惕（canary、「扫到 0 处即失败」），但这条两种都挡不住 ——
+脚本跑得好好的、命中了 31 个文件、全绿，**而它验的是另一个目录**。
+
+
 ## Out of Scope
 
 - **不动服务层的业务口径**。范围谓词、404 语义、编号规则、归档完备性、通知规则、
