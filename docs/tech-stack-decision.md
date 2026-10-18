@@ -537,6 +537,9 @@ N1 装配与 CLI 能力现场看 / N2 一条带 `withScope` 的 404 查询 / N3 
 
 外加两条部署级：**(a)** 多副本必须共配 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 与 `deploymentId`，且不使用 `'use cache'`/跨实例共享缓存；**(b)** worker 与 app 都要处理 SIGTERM，留 10–30s drain，outbox 投递不得在关闭时被掐断。
 
+
+> **P1-17 的「只要亮色」那半条不再是现行裁定**（MATT-98，2026-10-18）。⚠ 本节的八条禁令里**从来没有 P1-17 这一项**——那条裁定当时的落点是 `docs/PRD-phase1-master.md` §7.2 的 P1-17 条目（`tech-stack-decision.md` 全文零命中），旧文字保留、就地标注被谁取代。撤销的裁定与理由见 `docs/adr/0006-dark-mode-first-class.md`：深色内容区升为一等外观（`theme/antd.ts` 的 `algorithm` 可切、`brand.ts` 持明暗两组同名色）；「一期只做内网宽屏 PC、不做响应式」那半条不变。
+
 ## 13.6 v6 改判（2026-09-28）：前端组件体系由纯 shadcn 改为 **Ant Design 6**
 
 > 触发方式是**用户两次否同一套观感**，不是我判定 shadcn 的能力不够。第一次反馈"效果不好"，我按量不猜：在同源 1440×900 iframe 里取 computed style 与 rect，量出案件表**行高 39px、表头 40px、十列宽 `[133,304,160,45,45,72,109,146,74,70]`**——「程序」「等级」被挤到 45px，因为 auto layout 下传给 TanStack 的 `size` 根本不生效；表头与正文同字色同字号，整张表没有视觉锚点。修完那次回归（`2217b08`）用户仍否，并明确定方向"整体使用 antd"。**这条是决策不是提议，本节按改判记录，不写"待评估"。**
