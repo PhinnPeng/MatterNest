@@ -6,6 +6,11 @@
 > 一手来源：Kubernetes 官方文档（`kubernetes.io`）、AWS CloudTrail 官方文档（`docs.aws.amazon.com`）、Salesforce 官方 Help（`help.salesforce.com`）、OWASP Cheat Sheet Series 与 OWASP Non-Human Identities Top 10 官方项目页、NIST SP 800-92 官方页。**二手博客一篇未引**。
 >
 > 术语以仓库根 `GLOSSARY.md` 为准。本文只回答一个窄问题，**不复议**权限草案 §8 已有的裁定本身（见 §3）。
+>
+> **⚠ 落地状态（2026-10-19 补记）**：本文写完之后，MATT-72 阻塞 1 **当天就落地了** ——
+> `operator_id` 已放开 NOT NULL（迁移 `0016`），规则 1 有了执行体，方案见 §9 的落地回写。
+> 所以下面正文里「`operator_id` 是 NOT NULL 外键」这类**现在时描述是写文时的状态**，不是今天的库结构。
+> 沿读时请以 §9 与本文件末的核实表为准。
 
 ---
 
@@ -207,26 +212,59 @@ userValidationRules:
 
 ## 9. 要人拍的三点
 
+> **2026-10-19 落地回写**（本票 `26f567d` + 冒烟 `c186caf`）：下面三点里 **2 与 3 已拍定并按本文建议落地**，
+> 第 1 点拍了**「纯可空」而不是「保留常量 + 可空」**。落地形态与本文 §6 的差异见本节末「实现与建议的出入」——
+> 差异是真的，不抹平。
+
 1. **走「可空」还是「保留常量 + 可空」**（§6 末段）。前者语义简单，后者可筛可类型化。
+   **→ 已拍：纯可空**（`operator_id = NULL` 即「无人类主体」，**没有**任何保留常量值）。
+   身份线索改由 `payload` 承担（`rule_id` / `rule_code` / `rule_name` / `triggered_by`）。
 2. **`operator_id` 的 `NOT NULL` 契约要不要放宽**——这是 `0000_mn_baseline.sql` 的**基线契约**，改动面覆盖所有审计读侧（§6.2 列了三处具体位置）。**这是规格修订，不是代码修改。**
+   **→ 已放宽**：迁移 `0016_activity_log_operator_nullable.sql`（只 `DROP NOT NULL`，**FK 保留**）。读侧三处已改（`api.ts` 两处改 `string | null`、`matters.ts` / `overview.ts` 子查询改类型），UI 落在 `format.ts` 的 `actorName()`。
 3. **审计 UI 怎么显示系统动作**——`matter-detail.tsx:629` 今天直接渲染 `{a.operator}` 字符串。系统动作要显示成什么？（本仓 UI 文案纪律见 `AGENTS.md`「旁白」节与 `component-guidelines.md`「副标题纪律」——**这条要按那份纪律来写，不要临时造词**。）
+   **→ 已拍：`"系统自动"`**，收在 `format.ts` 的 `actorName()` 一个函数里（`matter-detail.tsx` 与 `workbench.tsx` 两处调用）。
+   ⚠ **刻意不用空串、不用破折号**：那两种在本仓已经另有含义（"数据缺失" / "无值"），复用会让两种不同的东西长得一样。
+
+### 实现与建议的出入（不抹平）
+
+本文 §6 的建议第 1 条写着「**保留一段 id 段位当系统主体**……另定一个**永不对应真实行**的保留值」，
+而**实际落地是纯可空、没有保留值**。§6 末段其实已经预判了这个岔口（「两者都行……这条要人拍」），
+拍定结果选了可空那一支，理由是：
+
+- 保留常量在**本仓的 FK 约束下走不通**——`operator_id` 的 FK 指向 `mn_app_user(id)`，
+  常量值要么不存在（撞 FK），要么就得**为了它插一行**（等于回到被否决的方案 A 哨兵行）。
+  §6 第 1 条自己都记着这条代价（「缺点是 FK 仍然拦着——除非同时放宽 FK 或改用 CHECK 约束」），
+  而放宽 FK 的改动面**大于**放宽 NOT NULL，且会让「谁发起的」失去外键兜底。
+- 保留值的**唯一好处是「可筛可类型化」**，而这件事在可空方案里由 `action = 'ARCHIVED'` +
+  `payload.rule_code` 同样答得上来 —— 本仓按动作名筛审计是既有做法（`MATT-60` 把
+  `UNARCHIVED` 从 `STATUS_CHANGED` 里拆出来，用的就是同一个思路）。
+
+⇒ 若将来二期要「系统主体可类型化」（例如一个 `actor_type` 枚举列），本文 §2 的**方案 C 仍然是对的远期形态**；
+一期选纯可空是**在 FK 约束下的最小改动**，不是对方案 C 的否定。
 
 ---
 
 ## 附：本仓核实过的具体位置（便于复核）
 
+> ⚠ 行号为 **2026-10-19 落地后**的实测值。本文写于 2026-10-19 早先，§6 / §9 正文里引用的
+> 行号是**写文时的**（`matters.ts:300` / `overview.ts:120` / `api.ts:289`、`:514` /
+> `matter-detail.tsx:629`），落地改动之后各自下移，**以本表为准**。
+
 | 事实 | 位置 |
 |---|---|
 | 规格裁定「不建行、用常量 id」 | `docs/PRD-phase1-permission-design-draft.md:97` |
 | 规格裁定「规则以 operator = SYSTEM 执行」 | `docs/PRD-phase1-permission-design-draft.md:230` |
-| `operator_id NOT NULL` + FK RESTRICT | `src/app/lib/server/db/migrations/0000_mn_baseline.sql:343` / `:406` |
-| drizzle 同形定义 | `src/app/lib/server/db/schema/collab.ts:90-92` |
+| `operator_id NOT NULL` + FK RESTRICT（**基线原状**） | `src/app/lib/server/db/migrations/0000_mn_baseline.sql:343` / `:406` |
+| **放开 NOT NULL 的迁移**（落地） | `src/app/lib/server/db/migrations/0016_activity_log_operator_nullable.sql` |
+| drizzle 同形定义（**已改可空 + FK 保留**） | `src/app/lib/server/db/schema/collab.ts:103` |
 | `AUTO_RULE_*` 三动作已在值域 | `0000_mn_baseline.sql:349`（经 0002/0008/0014 保留） |
 | 同源历史证据（operator_id 已挡过一次） | `docs/survey-missing-seams.md:31` |
 | 登录校验（无口令即登不进，非显式拦截） | `src/app/lib/server/auth/auth.ts:198` 与 `:90` |
 | 用户列表无过滤 | `src/app/lib/server/services/users.ts:95` |
-| 审计读侧走子查询（NULL 不破行） | `src/app/lib/server/services/matters.ts:300`、`overview.ts:120` |
-| DTO `operator: string`（需改可空） | `src/app/lib/client/api.ts:289`、`:514` |
-| 前端直接渲染 `{a.operator}` | `src/app/(desk)/matters/[id]/matter-detail.tsx:629` |
-| `logActivity` 拿 `Actor`（系统动作无 Actor） | `src/app/lib/server/services/activity.ts:14-40`，`Actor` 定义 `auth.ts:101` |
+| 审计读侧走子查询（NULL 不破行） | `src/app/lib/server/services/matters.ts:309`、`overview.ts:123` |
+| DTO `operator: string \| null`（**已改**） | `src/app/lib/client/api.ts:295`、`:521` |
+| 前端渲染（**已改走 `actorName()`**） | `src/app/(desk)/matters/[id]/matter-detail.tsx:630`；`actorName()` 定义在 `src/app/lib/client/format.ts` |
+| `logActivity` 拿 `Actor`（系统动作无 Actor） | `src/app/lib/server/services/activity.ts:37-50`；并列的 `logSystemActivity` 在同文件 `:77-91`；`Actor` 定义 `auth.ts:101` |
+| 规则 1 的执行体（**落地**） | `src/app/lib/server/services/auto-archive.ts` |
 | 规则 1/3 阻塞的原始核对 | `agent-work/probe-rule13-blockers.mjs` |
+| 规则 1 的真 HTTP 行为冒烟（**落地**） | `agent-work/smoke-rule1-auto-archive.mjs` |
