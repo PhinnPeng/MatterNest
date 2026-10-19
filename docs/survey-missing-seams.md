@@ -28,7 +28,15 @@
 
 **业务日：全仓 7 处 `slice(0,10)` 形态命中，落在 6 个文件里，只有 1 处真的写业务日语义的值**（`risks.ts:228`，另有 `import.ts:249` 通过委派继承同一处默认值）。`businessDateKey` 今天的保护面是**零**——没有 lint 规则、没有 import 限制、甚至 `zh-cn.spec.ts` 里**没有一条断言直接测它**，全部保护来自两处调用点自己的注释。
 
-**拒绝留痕：没有单一漏斗，而且比票面描述的更难**——`http.ts` 的 10 个拒绝构造器**没有一个接受 `tx`，也没有一个接受 `target_type`/`target_id`**；只有 `requirePrivilege(actor, …)` 手里有 actor。更硬的约束在库上：`target_id bigint NOT NULL`（`0000_mn_baseline.sql:340`）、`operator_id bigint NOT NULL`（`:343`）、`target_type` 只有 7 个取值（`0006_activity_log_user_scope.sql:42-43`）——**建案类拒绝（POST /api/users、POST /api/matters）根本没有可落地的 target_id**。所以票面问的"拒绝时该记谁当 operator"其实不是最难的一半，**最难的是"该记什么当 target"**。
+**拒绝留痕：没有单一漏斗，而且比票面描述的更难**——`http.ts` 的 10 个拒绝构造器**没有一个接受 `tx`，也没有一个接受 `target_type`/`target_id`**；只有 `requirePrivilege(actor, …)` 手里有 actor。更硬的约束在库上：`target_id bigint NOT NULL`（`0000_mn_baseline.sql:340`）、~~`operator_id bigint NOT NULL`（`:343`）~~、`target_type` 只有 7 个取值（`0006_activity_log_user_scope.sql:42-43`）——**建案类拒绝（POST /api/users、POST /api/matters）根本没有可落地的 target_id**。所以票面问的"拒绝时该记谁当 operator"其实不是最难的一半，**最难的是"该记什么当 target"**。
+
+> **订正（2026-10-19）**：上面三项约束里的 `operator_id bigint NOT NULL` **已解除** —— 迁移
+> `0016_activity_log_operator_nullable.sql` 放开了 NOT NULL（FK 保留），因为自动化规则 1
+> 需要一个「无人类主体」的审计落点。所以这段里「**拒绝时该记谁当 operator**」这一半**现在有解了**：
+> 无人类主体的动作可写 `operator_id = NULL`（`logSystemActivity`，与规则 1 同一条路）。
+> **但「该记什么当 target」那一半没有任何变化**（`target_id NOT NULL` 与 `target_type` 的 7 值
+> 都还在）—— 而它才是本文判定的「最难的一半」。⇒ **本节结论不变**，只是三项约束少了一项。
+
 
 **同一类还找到 4 处实例**，其中最强的一处是：`withScope()` 在 9 份文档里被写成"缺这一步即视为漏洞"，其中一条还被写进 `.trellis/spec/backend/quality-guidelines.md:35` 的「**CI 必须拦得住**」表——**而 `withScope` 在代码里根本不存在**。它承诺的签名 `withScope(req, { target, action }, handler)` 恰好就是拒绝钩子需要的那两个参数。
 

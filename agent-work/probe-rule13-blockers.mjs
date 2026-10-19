@@ -1,9 +1,17 @@
 /**
- * 规则 1 / 3 的**落地前置**核对（2026-10-18）。
+ * 规则 1 / 3 的**落地前置**核对（2026-10-18，2026-10-19 订正）。
+ *
+ * > **⚠ 当前状态（2026-10-19）：两处阻塞一解一留。**
+ * > **规则 1 已解除** —— 迁移 `0016` 放开了 `operator_id` 的 NOT NULL（FK 保留），
+ * > 执行体落在 `services/auto-archive.ts`，真 HTTP 冒烟见 `smoke-rule1-auto-archive.mjs`。
+ * > **规则 3 仍堵着**，且当日已被产品裁定**一期不实施**（不做自动建节点），
+ * > 保持页面「暂不可用」+ 接口 422 `no_executor`。
+ * > 下面「规则 1」那整段是**写文时的现场**，留作沿革；本脚本的实际判定已跟着实现走
+ * > （见「规则 1」段落末的条件分支，它现在会自己报「已解除」）。
  *
  * ## 为什么要单开一份核对
  *
- * 票 A 让 7 条规则的开关变真（`probe-rule-executors.mjs` 现报 7 有效 / 0 装饰），
+ * 票 A 让 7 条规则的开关变真（`probe-rule-executors.mjs` 现报 9 有效 / 0 装饰），
  * 剩下的规则 1（结案自动归档）与规则 3（进入进行中创建节点）**连执行体都没有**。
  * 本可以照着规则 2 的形状直接写，但开工前核出来两处**硬阻塞** ——
  * 都不是"代码没写"，而是**规格与库结构对不上**。写在这里是因为：
@@ -15,6 +23,11 @@
  *
  * 权限草案 §8 原话：「系统内部身份（`operator = SYSTEM`）**不建 `app_user` 行**，
  * 用常量 id，特权恒为假」，且「规则以 `operator = SYSTEM` 执行」。
+ *
+ * > **沿革（2026-10-19）**：本段以下描述的是**写文当日的阻塞现场**。
+ * > 该阻塞已由迁移 `0016`（`operator_id` 放开 NOT NULL、FK 保留）解除，
+ * > 形态取「纯可空」而非「保留常量」（理由见 `docs/research-system-identity.md` §9
+ * > 「实现与建议的出入」）。**本段不再代表当前库结构**，保留是为了让后来者看懂当初堵在哪。
  *
  * 而 `mn_activity_log.operator_id` 是 **NOT NULL + 外键指向 `mn_app_user(id)`
  * ON DELETE RESTRICT**（`0000_mn_baseline.sql:343/406`）。当前库里：
@@ -89,8 +102,20 @@ try {
   line(`  · 库里 AUTO_RULE_* 审计行：${autoRows[0].n} 行（既有规则 4/9 只写通知，不写审计）`);
   const reasonRequired = ["ARCHIVED", "UNARCHIVED", "UNCONVERT", "NODE_CANCELLED"];
   line(`  · 归档在人工路径上属 ${JSON.stringify(reasonRequired)} 之一 ⇒ 规则触发时无 reason、无 actor`);
+  /**
+   * ⚠ **这一行原先写死「⇒ 阻塞」。2026-10-19 之后它是假的**：迁移 0016 已把
+   * `operator_id` 放开 NOT NULL（上面那行 `is_nullable` 就是证据），规则 1 的执行体
+   * 落在 `services/auto-archive.ts`（`operator_id` 写 NULL + `payload` 带 rule_id）。
+   *
+   * 判定跟着实现走、不写死结论：`is_nullable` 是这处阻塞的**唯一判据**（FK 保留是刻意的，
+   * 不算阻塞）。写成条件分支而不是改一句话 —— 下次有人把 NOT NULL 加回来，这里会自己重报阻塞。
+   */
+  const r1Resolved = notNull[0]?.is_nullable === "YES";
   line(
-    "  ⇒ **阻塞**：要写 ARCHIVED 审计就得先决定 operator 怎么表示（建 SYSTEM 行 / 放宽可空 / 借用触发人）\n",
+    r1Resolved
+      ? "  ⇒ **已解除**：`operator_id` 可空（迁移 0016），系统动作写 NULL；执行体在 `services/auto-archive.ts`" +
+          "\n     验证：`agent-work/smoke-rule1-auto-archive.mjs`（25 条，含 operator_id IS NULL 与 payload 线索）\n"
+      : "  ⇒ **阻塞**：要写 ARCHIVED 审计就得先决定 operator 怎么表示（建 SYSTEM 行 / 放宽可空 / 借用触发人）\n",
   );
 
   // ── 规则 3 ──
@@ -110,11 +135,17 @@ try {
   line(`  · 规则 3 的 action_config：${JSON.stringify(rule3?.action_config ?? null)}`);
   line(
     "  ⇒ **阻塞**：P1 已在建案时生成同一批类型；P2 再生成一次 ⇒ 同一案件两套节点、" +
-      "两套 sort_order。规格未回答「P1 已生成的类型 P2 是否跳过」\n",
+      "两套 sort_order。规格未回答「P1 已生成的类型 P2 是否跳过」" +
+      "\n     **2026-10-19 产品裁定：一期不实施该规则**（不做自动建节点），保持「暂不可用」。" +
+      "下面的技术阻塞因此不再需要解除。\n",
   );
 
-  line("结论：规则 1 / 3 **不能照规则 2 的形状直接写**，两者各需一个先决裁定。");
-  line('      本脚本不判红绿（今天的事实就是「还堵着」）；要动它们，先看上面四项。');
+  line(
+    r1Resolved
+      ? "结论：规则 1 **已落地**（阻塞解除）；规则 3 **一期不实施**（产品裁定），技术阻塞一并搁置。"
+      : "结论：规则 1 / 3 **不能照规则 2 的形状直接写**，两者各需一个先决裁定。",
+  );
+  line("      本脚本不判红绿（只如实报当日事实）；要动它们，先看上面四项。");
 } catch (e) {
   console.error(`核对失败（${e?.message ?? e}）—— 隧道可能正在抖，重跑即可。`);
   process.exitCode = 3;
