@@ -286,7 +286,13 @@ export type MatterDetail = {
     action: string;
     reason: string | null;
     createdAt: string;
-    operator: string;
+    /**
+     * **可空**：`null` = 系统自动动作（迁移 0016 放开了 `operator_id` 的 NOT NULL）。
+     *
+     * 前端不能把它当空串渲染 —— 那会显示成一格空白，读起来像"数据缺了"。
+     * 系统动作要明说，见 `matter-detail.tsx` 的渲染分支。
+     */
+    operator: string | null;
   }[];
   statuses: StatusRow[];
   /**
@@ -511,7 +517,8 @@ export type Overview = {
     actionLabel: string;
     reason: string | null;
     createdAt: string;
-    operator: string;
+    /** **可空**：`null` = 系统自动动作（迁移 0016），见上一条同名字段的注 */
+    operator: string | null;
     hostCode: string | null;
     hostId: string | null;
     kind: HostKind;

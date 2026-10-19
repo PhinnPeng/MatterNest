@@ -1,0 +1,59 @@
+-- 0016：审计的 operator 可为空 —— 让「系统自动动作」有一个不冒充任何人的落点（MATT-72 阻塞 1）
+--
+-- 权威出处：`docs/research-system-identity.md`（2026-10-19 研究，一手来源见该文）。
+-- 本文件只做那一份结论的落地，不含新判断。
+--
+-- ## 为什么要放宽这一列，而不是给系统建一个用户行
+--
+-- 权限草案 §3 末行**早就裁过**（`docs/PRD-phase1-permission-design-draft.md:97`）：
+--
+--     系统内部身份（`operator = SYSTEM`）**不建 `app_user` 行**，用常量 id，特权恒为假（§8）。
+--
+-- 即规格要的是「actor 是系统」这件事**在值里表达**，而不是**在用户表里多一行**。
+-- 而 `0000_mn_baseline.sql:343/406` 的 `operator_id` 是 NOT NULL + 外键指向 `mn_app_user(id)`，
+-- 于是规格那句话**写不进去** —— 这是 MATT-72 阻塞 1 的物理成因。
+--
+-- 建行的代价（研究 §4 逐条给了行业一手证据）：
+--   · **认证面**：本仓登录校验（`auth.ts:198`）只看 `is_enabled` + `activation_status` + `!is_deleted`，
+--     哨兵行会与真人走同一套校验；今天它登不进去只是因为没人给它设口令 —— 那是「碰巧」不是「守住」。
+--   · **用户列表 / 选人面**：`listUsers()`（`users.ts:95`）没有任何过滤，
+--     `listSelectableUsers` 的三个条件也不排除它 ⇒ 它会露出来，且可能被选为案件经办人。
+--   · **审计会说谎**：读侧的 display_name 子查询会把系统动作渲染成某个人干的。
+--     OWASP NHI Top 10 的 NHI10:2025 把「人与自动化的动作不可区分」直接列为风险，
+--     危害写作 "obscuring accountability"（掩盖责任归属），缓解第一条是 "Use dedicated identities"。
+--
+-- 行业主流同样是**不建行**（研究 §5）：Kubernetes 用 `system:` 前缀命名空间表达系统身份，
+-- 且 `userValidationRules` 显式禁止外部身份冒用该前缀；AWS CloudTrail 用 `userIdentity.type`
+-- 枚举区分人/服务，服务发起的动作 `userName` 一栏是 `Not present`（不给服务主体编用户名）。
+--
+-- ## 为什么是「可空」而不是「保留常量 id」
+--
+-- 常量 id 也表达得了「这是系统」，但它要同时撞掉 FK —— 要么删 FK、要么放宽成 CHECK，
+-- 两条都比 `DROP NOT NULL` 动得更多，而**多出来的那点表达力这里用不上**：
+-- 系统动作的种类已由 `action`（`AUTO_RULE_*` 三值，早在 `0000:349` 就在值域里）
+-- 与 `payload.rule_id` 分开表达，不需要再从 operator 上区分是「哪一条规则」。
+-- ⚠ 也不是「将来可能要区分多个系统主体」——那件事真发生时该加的是 `operator_type` 列，
+--   不是把一个哨兵行重新发明出来。这一条留给那时的迁移，不预留在今天。
+--
+-- ## 为什么这条改动是安全的（放宽 NOT NULL 一般不是，这次是）
+--
+-- **读侧不必改逻辑**：两处审计读取（`matters.ts:300`、`overview.ts:120`）走的是
+-- **子查询**而不是 INNER JOIN ——
+--
+--     (select u.display_name from mn_app_user u where u.id = operator_id)
+--
+-- NULL 只让子查询返回 NULL，**不改变行数、不破坏 join**。要改的只有三个表达层的位置
+-- （`api.ts` 两处 DTO 类型 + `matter-detail.tsx` 的渲染分支），它们本来就是「显示什么」，
+-- 不是「能不能查出来」。
+--
+-- **写入侧不变**：`logActivity` 收的是 `Actor`（`activity.ts:14`），签名与非空语义原样保留；
+-- 系统动作走**新增的** `logSystemActivity`，两条路各自显式，不存在「忘了传 actor 就变成系统动作」
+-- 这种静默降级。
+--
+-- ## 外键保留（只放开 NOT NULL）
+--
+-- 只 `DROP NOT NULL`，**不动 FK**。理由：人类主体的写入仍然必须指向真实用户行，
+-- 那条完整性约束今天是对的、以后也是对的。放开的只是「允许没有主体」这一种情况。
+-- 若把 FK 一并删掉，将来一个拼错的 operator_id 会静默落库，而审计恰恰是最不该有这种行的地方。
+--> statement-breakpoint
+ALTER TABLE "mn_activity_log" ALTER COLUMN "operator_id" DROP NOT NULL;

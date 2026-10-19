@@ -12,7 +12,8 @@ import {
  * ## 它钉住的四件事
  *
  * 1. **列表读得到 9 条**，且每条都带 `executor` —— 页面靠它决定给不给开关；
- * 2. **没有执行体的两条不给假绿灯**：对规则 1 / 3 置 `isEnabled: true` 必须被 **422**
+ * 2. **没有执行体的规则不给假绿灯**：对规则 3（2026-10-19 起只剩这一条；
+ *    规则 1 当天接上了执行体）置 `isEnabled: true` 必须被 **422**
  *    拒掉。这是本页最重要的一条：页面控件与接口两道都挡，因为只挡界面挡不住直接打接口；
  * 3. **开关真的生效**：停用规则 2 → 落库为 false；再启用 → 落回 true
  *    （与 `smoke-rule-gate.mjs` 那条**行为**断言互补：那条证明停用后通知真的不发，
@@ -156,11 +157,13 @@ ok(
 );
 const missing = items.filter((r) => r.executor === "missing").map((r) => r.code);
 ok(
-  "**没有执行体的是规则 1 与 3**",
-  missing.length === 2 &&
-    missing.includes("preset_01_close_auto_archive") &&
-    missing.includes("preset_03_in_progress_create_node"),
+  "**没有执行体的只剩规则 3**（规则 1 已于 2026-10-19 接上执行体）",
+  missing.length === 1 && missing.includes("preset_03_in_progress_create_node"),
   missing.join(","),
+);
+ok(
+  "规则 1 现在是 `live`（执行体 `services/auto-archive.ts`）",
+  items.find((r) => r.code === "preset_01_close_auto_archive")?.executor === "live",
 );
 
 console.log(`\n══ ② 没有执行体的规则不许启用（不给假绿灯）══`);

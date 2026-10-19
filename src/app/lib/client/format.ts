@@ -60,6 +60,30 @@ export function money(value: string | null | undefined): string {
 }
 
 /**
+ * 审计记录的**动作主体**怎么显示（活动时间线两处共用）。
+ *
+ * ## 为什么必须有这个函数，而不是各处写 `a.operator ?? "…"`
+ *
+ * `operator` 为 `null` 表示**系统自动动作**（迁移 0016 放开了 `operator_id` 的 NOT NULL）。
+ * 两处消费点（案件详情的时间线、总览的近期活动）各写一遍兜底串，就是两个字面量，
+ * 改一处漏一处 —— 而这里改的正是"系统动作长什么样"这种会被人记住的展示口径。
+ *
+ * ## 为什么是「系统自动」而不是空串 / 破折号
+ *
+ * 空串与 `—` 已经是**别的意思**：前者像"数据缺了"，后者在本仓是"该字段没有值"
+ * （见上面几个函数的兜底）。而这里的事实是"**这一次动作本来就没有人**"，
+ * 是三种含义里唯一需要**说出来**的那种 —— 说不出来就等于把它和人做的动作混在一起，
+ * 而那正是 OWASP NHI Top 10 / NHI10:2025 列为风险的那件事
+ * （"Indistinguishable activity between humans and automation"）。
+ *
+ * 文案口径：`AGENTS.md`「UI 文案与结构」要求一句话要么是事实、要么是动作 ——
+ * 这是个事实（谁做的：系统），不是旁白。
+ */
+export function actorName(operator: string | null | undefined): string {
+  return operator ?? "系统自动";
+}
+
+/**
  * ⚠ 这里原先还有一个 `moneyCompact()`，**已删除**（2026-10-13）。
  *
  * 它长这样：

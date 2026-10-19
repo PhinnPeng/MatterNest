@@ -7,7 +7,7 @@ import { Flex, Grid, Listy, Skeleton, Tooltip } from "antd";
 import { useOverview } from "@/app/lib/client/api";
 import { PageHeader } from "@/app/components/page-header";
 import { StateBlock } from "@/app/components/ui/state-block";
-import { fromNow, dateTime } from "@/app/lib/client/format";
+import { actorName, fromNow, dateTime } from "@/app/lib/client/format";
 import { DEADLINE_TONE } from "@/app/theme/antd";
 
 /**
@@ -432,7 +432,8 @@ export function Workbench() {
                     </Link>
                   </span>
                   <div style={{ fontSize: 11, color: "var(--ink3)" }}>
-                    {r.operator} · {fromNow(r.createdAt)}
+                    {/* `actorName()` 把 null（系统自动动作）说成人话，与案件详情时间线同一口径 */}
+                    {actorName(r.operator)} · {fromNow(r.createdAt)}
                     {r.reason ? ` · ${r.reason}` : ""}
                   </div>
                 </div>

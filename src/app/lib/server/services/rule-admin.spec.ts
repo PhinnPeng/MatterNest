@@ -22,18 +22,15 @@ const SRC = readFileSync("src/app/lib/server/services/rule-admin.ts", "utf8");
 const countOf = (needle: string) => SRC.split(needle).length - 1;
 
 describe("没有执行体的规则名单", () => {
-  it("**恰好两条**：规则 1（结案自动归档）与规则 3（进入进行中创建节点）", () => {
-    // 与 `agent-work/probe-rule-executors.mjs` 的结论一致（2026-10-18：
-    // 7 有效 / 0 装饰 / 2 无执行体）。执行体补上之后这里要同批改。
-    expect([...RULES_WITHOUT_EXECUTOR]).toEqual([
-      "preset_01_close_auto_archive",
-      "preset_03_in_progress_create_node",
-    ]);
+  it("**只剩一条**：规则 3（进入进行中创建节点）；规则 1 已有执行体（`services/auto-archive.ts`）", () => {
+    // 与 `agent-work/probe-rule-executors.mjs` 的结论一致（2026-10-19：
+    // 9 有效 / 0 装饰 / 0 无执行体）。执行体补上之后这里要同批改。
+    expect([...RULES_WITHOUT_EXECUTOR]).toEqual(["preset_03_in_progress_create_node"]);
   });
 
   it("`hasExecutor` 对名单内为 false、名单外为 true", () => {
-    expect(hasExecutor("preset_01_close_auto_archive")).toBe(false);
     expect(hasExecutor("preset_03_in_progress_create_node")).toBe(false);
+    expect(hasExecutor("preset_01_close_auto_archive")).toBe(true);
     expect(hasExecutor("preset_02_status_changed_notify")).toBe(true);
     expect(hasExecutor("preset_04_stale_30d_notify")).toBe(true);
   });

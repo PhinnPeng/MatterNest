@@ -64,23 +64,38 @@ export type RuleListItem = {
   /**
    * **这一条的执行体存不存在**（不是"开关有没有被读"）。
    *
-   * 一期事实（2026-10-18 核对，`probe-rule-executors.mjs` + `probe-rule13-blockers.mjs`）：
-   * 规则 1 / 3 没有执行体，其余七条的执行体都认规则行。
-   * 页面据此把这两条的开关换成一句说明 —— 否则用户勾了它、什么也不会发生。
+   * 页面据此把没有执行体的规则的开关换成一句说明 —— 否则用户勾了它、什么也不会发生。
    *
    * ⚠ 这里**写死名单而不是现算**：现算要把"代码里有没有生产者在跑"变成运行时反射，
-   * 而那种反射在本仓没有先例、也挡不住误判。名单由上面两份 probe 支撑，
-   * 且 `rule-admin.spec.ts` 有一条断言钉住它与 probe 的结论一致（见该文件）。
-   * 执行体补上之后改这一行、跑 probe、把断言一起改 —— 三处同批。
+   * 而那种反射在本仓没有先例、也挡不住误判。名单由
+   * `agent-work/probe-rule-executors.mjs` 支撑，且 `rule-admin.spec.ts` 有一条断言
+   * 钉住它与 probe 的结论一致（见该文件）。执行体补上之后改这一行、跑 probe、
+   * 把断言一起改 —— 三处同批。
    */
   executor: "live" | "missing";
 };
 
-/** 一期**没有执行体**的规则 code（理由见 `RuleListItem.executor` 的注） */
-export const RULES_WITHOUT_EXECUTOR = [
-  "preset_01_close_auto_archive",
-  "preset_03_in_progress_create_node",
-] as const;
+/**
+ * **没有执行体**的规则 code（理由见 `RuleListItem.executor` 的注）。
+ *
+ * ## 2026-10-19：规则 1 从这份名单移出
+ *
+ * 规则 1「结案自动归档」补上了执行体（`services/auto-archive.ts`，挂在
+ * `changeStatus` 的事务里）。所以它现在**是一条约真的规则**：开关开着、状态推到
+ * `closed`，案件会被自动归档，并落一条 `operator_id = NULL` 的 `ARCHIVED` 审计
+ * （系统动作不冒充人，见迁移 0016 与 `docs/research-system-identity.md`）。
+ *
+ * ⚠ **它的作用面目前只有案件线**：`host_type` 是 `all`，但事项侧"已处理 → 已归档"
+ * 的自动化语义产品从未裁定过，所以 `applyCloseAutoArchive` 对事项显式跳过
+ * （那边的实现会在代码里写明是刻意不接，不是漏了）。
+ *
+ * ## 规则 3 为什么还在这份名单里
+ *
+ * 产品已明确**拒绝**它：不需要在"进入进行中"时自动生成节点
+ * （且它另有实现阻塞：缺 `node_type_config.template_code` 列，且与建案预设重叠）。
+ * 所以它如实标「暂不可用」，不画开关、接口拒绝启用。
+ */
+export const RULES_WITHOUT_EXECUTOR = ["preset_03_in_progress_create_node"] as const;
 
 export function hasExecutor(code: string): boolean {
   return !(RULES_WITHOUT_EXECUTOR as readonly string[]).includes(code);

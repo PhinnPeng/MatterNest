@@ -117,7 +117,10 @@ export async function overview(actor: Actor) {
         riskId: sql<
           string | null
         >`(select r.id from mn_risk_matter r where r.id = ${activityLog.riskMatterId})`,
-        operator: sql<string>`(select u.display_name from mn_app_user u where u.id = ${activityLog.operatorId})`,
+        /** **可空**：`operator_id` 可以为 NULL（迁移 0016 = 系统自动动作），见 `matters.ts` 同名字段的注 */
+        operator: sql<
+          string | null
+        >`(select u.display_name from mn_app_user u where u.id = ${activityLog.operatorId})`,
       })
       .from(activityLog)
       // 活动日志自己没有范围列，可见性**跟着宿主走**：

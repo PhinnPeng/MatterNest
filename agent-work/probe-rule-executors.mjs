@@ -69,11 +69,23 @@ const RULES = [
  * 由 `verify-anchors.mjs` 当场抓住）。所以这里也检**两个函数名**，
  * 并要求**两个都出现** —— 只取行不判定 = 取回来没用，只判定不取行 = 判的是空气。
  *
+ * ## 2026-10-19：规则 1 的判定链路被拆成了两处
+ *
+ * 规则 1「结案自动归档」的执行体在 `services/auto-archive.ts`，它取行用
+ * `loadRuleByCode()`，但判定用的是 `rule-gate.ts` 里的 `shouldAutoArchive` /
+ * `ruleCoversHost` / `statusChangedHits`（不是 `decideNotifyRule`：那条是通知规则的）。
+ * 所以单文件 `viaSeam` 判据在规则 1 上会漏掉——把这三个函数名加进判据。
+ *
  * 直接查 `automationRule.isEnabled` 的老写法**仍然认**（`archive-reminder.ts` /
  * `stale-reminder.ts` 就是那样，它们先于这次收敛存在）。
  */
 function honorsRuleRow(t) {
-  const viaSeam = t.includes("loadRuleByCode") && t.includes("decideNotifyRule");
+  const viaSeam =
+    t.includes("loadRuleByCode") &&
+    (t.includes("decideNotifyRule") ||
+      t.includes("shouldAutoArchive") ||
+      t.includes("ruleCoversHost") ||
+      t.includes("statusChangedHits"));
   const direct = t.includes("automationRule") && t.includes("isEnabled");
   return viaSeam || direct;
 }
@@ -90,7 +102,9 @@ let absent = 0;
 for (const r of RULES) {
   const hits = [];
   for (const [f, t] of text) {
-    if (t.includes(r.code) || (r.konst && t.includes(r.konst))) hits.push(f);
+    // 引用该规则的三种方式：直接写 code、引用它的通知常量（konst），或通过 presetRule(规则号) 取行
+    const ruleRef = `presetRule(${r.no})`;
+    if (t.includes(r.code) || (r.konst && t.includes(r.konst)) || t.includes(ruleRef)) hits.push(f);
   }
   // 读规则行：生产者里有一处既取行又判定（或直接查 isEnabled）
   const rowRead = hits.filter((f) => honorsRuleRow(text.get(f)));

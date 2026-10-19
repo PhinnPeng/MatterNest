@@ -29,7 +29,7 @@ import type { TableColumnsType } from "antd";
 import type { Dayjs } from "dayjs";
 
 import { api, ApiFailure, useMeta, type MatterDetail as Matter } from "@/app/lib/client/api";
-import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
+import { actorName, calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
 import { PageHeader } from "@/app/components/page-header";
 import { ExpensePanel } from "@/app/components/expense-panel";
 import { ExportFileButton } from "@/app/components/export-file-button";
@@ -626,7 +626,8 @@ export function MatterDetail({ id }: { id: string }) {
                           {meta?.enums.auditActions[a.action] ?? a.action}
                         </Tag>
                         <span style={{ fontSize: 13 }}>
-                          {a.operator}
+                          {/* `actorName()` 负责把 null（系统自动动作）说成人话，见 format.ts */}
+                          {actorName(a.operator)}
                           {a.reason ? <span className="mut3"> · {a.reason}</span> : ""}
                         </span>
                       </Flex>

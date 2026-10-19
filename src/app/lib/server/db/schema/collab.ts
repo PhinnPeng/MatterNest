@@ -87,9 +87,20 @@ export const activityLog = pgTable(
     targetId: fk("target_id").notNull(),
     matterId: fk("matter_id").references(() => matter.id, { onDelete: "restrict" }),
     riskMatterId: fk("risk_matter_id").references(() => riskMatter.id, { onDelete: "restrict" }),
-    operatorId: fk("operator_id")
-      .notNull()
-      .references(() => appUser.id, { onDelete: "restrict" }),
+    /**
+     * 动作主体。**可空**（迁移 0016）—— NULL = 系统自动动作，没有人类主体。
+     *
+     * 规格出处：权限草案 §3 末行「系统内部身份（`operator = SYSTEM`）**不建 `app_user` 行**」。
+     * 而 `NOT NULL + FK` 让规格那句话写不进去（MATT-72 阻塞 1），所以放开 NOT NULL。
+     *
+     * **FK 刻意保留**：人类主体的写入仍必须指向真实用户行；放开的只是「允许没有主体」。
+     * 删掉 FK 会让拼错的 operator_id 静默落库，而审计恰恰是最不该有这种行的地方。
+     *
+     * 读侧为什么不必改逻辑：两处读取走的是**子查询**（`matters.ts:300` / `overview.ts:120`），
+     * NULL 只让它返回 NULL，不改变行数、不破坏 join。详见迁移 0016 与
+     * `docs/research-system-identity.md`（含 Kubernetes / AWS / OWASP 的一手证据）。
+     */
+    operatorId: fk("operator_id").references(() => appUser.id, { onDelete: "restrict" }),
     action: varchar("action", { length: 40 }).notNull(),
     fieldDiffs: jsonb("field_diffs"),
     payload: jsonb("payload"),

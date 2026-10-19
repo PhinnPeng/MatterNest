@@ -40,6 +40,8 @@ import { initialStatusCode, hostStatusRows } from "./statuses";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
+import { applyCloseAutoArchive } from "./auto-archive";
+import { writeMatterStatus } from "./matter-status-write";
 import { configNameDict, csvText, exportAuditPayload, listExportLanding } from "./exports";
 import { isFavorited, syncFollowWatch } from "./watch";
 import { mentionPartsOf } from "./comment-mentions";
@@ -297,7 +299,14 @@ export async function getMatter(actor: Actor, id: string) {
         action: activityLog.action,
         reason: activityLog.reason,
         createdAt: activityLog.createdAt,
-        operator: sql<string>`(select u.display_name from mn_app_user u where u.id = ${activityLog.operatorId})`,
+        /**
+         * **可空**：`operator_id` 现在可以为 NULL（迁移 0016 = 系统自动动作），
+         * 子查询对 NULL 返回 NULL。标注成 `string` 会让类型对读侧说谎 ——
+         * 而这条链路的消费方（活动时间线）正要根据 null 与否决定显示什么。
+         */
+        operator: sql<
+          string | null
+        >`(select u.display_name from mn_app_user u where u.id = ${activityLog.operatorId})`,
       })
       .from(activityLog)
       .where(eq(activityLog.matterId, BigInt(id)))
@@ -765,17 +774,14 @@ export async function changeStatus(
      * 并把缺项清单记进审计。G4 指标"归档材料完整率"以这份清单为唯一数据源。
      */
     const readiness = archiving ? await judgeArchiveReadiness(tx, id) : null;
-    await tx
-      .update(matter)
-      .set({
-        status: to,
-        closingDate,
-        isArchived: archiving,
-        archivedAt: archiving ? now : null,
-        updatedBy: BigInt(actor.userId),
-        updatedAt: now,
-      })
-      .where(eq(matter.id, BigInt(id)));
+    await writeMatterStatus(tx, {
+      id: BigInt(id),
+      to,
+      closingDate,
+      archiving,
+      now,
+      updatedBy: BigInt(actor.userId),
+    });
     await logActivity(tx, actor, {
       matterId: BigInt(id),
       /**
@@ -827,6 +833,23 @@ export async function changeStatus(
       fromName: curRow?.name ?? cur.status,
       toName: target.name,
       isArchivedAfter: archiving,
+    });
+    /**
+     * 预置规则 1「结案自动归档」（MATT-72 阻塞 1 的落点）。
+     *
+     * **放在通知之后、同一事务之内**，两条理由：
+     *   · 同一事务：分开提交会留下"状态已变、归档未落"的中间态，而
+     *     `is_archived` 被列表 partial index 与「已结案缺材料」筛读取；
+     *   · 在通知之后：规则 1 的归档会**翻归档态**，而归档记录不再产生新通知（M4）。
+     *     先发再归档，本次 `→ closed` 的通知照旧发出（那一刻它还没归档），
+     *     语义与人工"先结案、再手动归档"一致。
+     *
+     * 规则没开 / 触发不命中时它什么都不做（`shouldAutoArchive` 判）。
+     */
+    await applyCloseAutoArchive(tx, {
+      hostId: BigInt(id),
+      toStatusCode: to,
+      now,
     });
   });
   return { ok: true };
