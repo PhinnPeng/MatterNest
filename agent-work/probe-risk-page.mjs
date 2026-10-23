@@ -61,7 +61,7 @@ async function call(method, path, cookie, payload) {
 }
 
 // ⚠ 账号创建必须在 `try` **之内**。原来它在外面：反向红那两轮正好在改 `risks.ts`、
-// dev server 正在重编译，于是登录那步抛错 → 账号从��被清 → 库里留了两个孤儿。
+// dev server 正在重编译，于是登录那步抛错 → 账号从没被清 → 库里留了两个孤儿。
 // 「测试装置自己漏清理」这种坑，只有真去反查残留才发现得了。
 const acct = await (async () => {
   try {

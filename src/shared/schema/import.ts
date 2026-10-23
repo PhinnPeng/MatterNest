@@ -324,7 +324,7 @@ export function parseImportFile(
 
   /**
    * Excel 在 Windows 上"另存为 CSV"默认写 ANSI/GBK，读成 UTF-8 就是一片 U+FFFD。
-   * 不提前识别的话，症状是"表头里有不认识的列：����" —— 用户会去改表头，
+   * 不提前识别的话，症状是"表头里有不认识的列：<U+FFFD>" —— 用户会去改表头，
    * 而真正要改的是保存格式。所以这一条单独一个码、单独一句话。
    */
   if (text.includes("\uFFFD")) {

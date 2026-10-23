@@ -179,7 +179,7 @@ jobs:
           #
           # 原注释写的是「值只经 GITHUB_ENV 进后续 step 的进程环境，**不进任何 echo / 日志**」——
           # **那句话是错的**：GitHub Actions 会把**每个 step 的完整 env** 打进日志，
-          # 于是 GITHUB_ENV 里的三把值在下一�� step 的 env 块里逐字出现。
+          # 于是 GITHUB_ENV 里的三把值在下一个 step 的 env 块里逐字出现。
           # 仓库里没注册成 secret，所以 GitHub 也不会自动抹。
           #
           # 不 echo 不够 —— 要显式告诉 GitHub 把这三个值从日志里抹掉。

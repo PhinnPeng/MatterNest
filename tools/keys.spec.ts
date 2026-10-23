@@ -48,7 +48,7 @@ function run(...args: string[]): { code: number; out: string } {
 const B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 /**
- * 把一�� 43 字符 base64url 改成一个**必定不同**、仍是 43 字符、仍解出 32 字节的值。
+ * 把一个 43 字符 base64url 改成一个**必定不同**、仍是 43 字符、仍解出 32 字节的值。
  *
  * ## 为什么不写成「交换第 5、6 两位」
  *
