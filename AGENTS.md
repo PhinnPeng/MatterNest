@@ -57,3 +57,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 源码与文档一律 **UTF-8（无 BOM）**，`pnpm verify` 的 `tools/encoding-check.mjs` 守着。
 
 Windows 下不要用 PowerShell 的 `>` / `Out-File` 写中文文件：5.1 默认 UTF-16LE，`Get-Content` 默认按 ANSI(GBK) 解码，来回一次就把中文固化成 U+FFFD，**不可逆**。写文件用编辑工具或显式 `-Encoding utf8`；临时产物落在 `.gitignore` 已忽略的目录。
+
+命令输出乱码不等于文件坏了：本机控制台代码页是 gb2312，先 `chcp 65001`（或 `[Console]::OutputEncoding = [Text.UTF8Encoding]::new()`）再跑 git / verify。
+
+### 本地起服务
+
+`pnpm dev` 用独立进程启动（`Start-Process cmd /c "pnpm dev > %TEMP%\mn-dev.log 2>&1"`），再轮询 `/login`。后台 shell 被判定结束时 Next 子进程可能残留并占住 3777：表现为页面 502、重跑 `EADDRINUSE`；先 `Get-NetTCPConnection -LocalPort 3777` 找到属主，再决定是否结束进程。
+
+### 改页面前
+
+先读 `.trellis/spec/frontend/index.md`。DataTable、`useListState`、`rulesFor` 这些硬约定写在分册里，不读就会在 review 被抓。
