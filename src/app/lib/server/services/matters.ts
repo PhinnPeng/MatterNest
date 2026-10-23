@@ -535,7 +535,7 @@ export async function getMatter(actor: Actor, id: string) {
         author: sql<string>`(select u.display_name from mn_app_user u where u.id = ${matterProgress.authorId})`,
       })
       .from(matterProgress)
-      .where(and(eq(matterProgress.matterId, BigInt(id)), sql`NOT ${matterProgress.isDeleted}`))
+      .where(and(eq(matterProgress.hostId, BigInt(id)), sql`NOT ${matterProgress.isDeleted}`))
       .orderBy(desc(matterProgress.progressDate)),
   ]);
 
@@ -1283,7 +1283,7 @@ export async function addProgress(actor: Actor, matterId: string, input: Progres
   await db.transaction(async (tx) => {
     await tx.insert(matterProgress).values({
       id,
-      matterId: BigInt(matterId),
+      hostId: BigInt(matterId),
       nodeId: input.nodeId ? BigInt(input.nodeId) : null,
       progressType: input.progressType,
       content: input.content,

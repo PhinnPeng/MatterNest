@@ -22,6 +22,7 @@ import {
   riskMatterExpense,
   riskMatterNode,
   riskMatterParty,
+  riskMatterProgress,
 } from "../db/schema";
 import { decryptField } from "../crypto/field-crypto";
 import { scopedWhere, type HostKind } from "../scope/visibility";
@@ -330,7 +331,7 @@ export async function exportHostFile(
         nextPlan: matterProgress.nextPlan,
       })
       .from(matterProgress)
-      .where(and(eq(matterProgress.matterId, id), sql`NOT ${matterProgress.isDeleted}`))
+      .where(and(eq(matterProgress.hostId, id), sql`NOT ${matterProgress.isDeleted}`))
       .orderBy(asc(matterProgress.progressDate), asc(matterProgress.id))
       .limit(EXPORT_SECTION_LIMIT + 1);
     const keptProgress = progressRows.slice(0, EXPORT_SECTION_LIMIT);
@@ -433,6 +434,30 @@ export async function exportHostFile(
         NODE_SOURCE_KIND_LABELS[n.sourceKind as keyof typeof NODE_SOURCE_KIND_LABELS] ??
           n.sourceKind,
         n.remark ?? "",
+      ]),
+    });
+
+    const riskProgressRows = await db
+      .select({
+        progressType: riskMatterProgress.progressType,
+        progressDate: riskMatterProgress.progressDate,
+        content: riskMatterProgress.content,
+        nextPlan: riskMatterProgress.nextPlan,
+      })
+      .from(riskMatterProgress)
+      .where(and(eq(riskMatterProgress.hostId, id), sql`NOT ${riskMatterProgress.isDeleted}`))
+      .orderBy(asc(riskMatterProgress.progressDate), asc(riskMatterProgress.id))
+      .limit(EXPORT_SECTION_LIMIT + 1);
+    const keptRiskProgress = riskProgressRows.slice(0, EXPORT_SECTION_LIMIT);
+    truncated ||= cap(riskProgressRows.length);
+    sections.push({
+      title: "事项进展",
+      header: ["类型", "日期", "内容", "下一步"],
+      rows: keptRiskProgress.map((p) => [
+        PROGRESS_TYPE_LABELS[p.progressType as keyof typeof PROGRESS_TYPE_LABELS] ?? p.progressType,
+        p.progressDate,
+        p.content,
+        p.nextPlan ?? "",
       ]),
     });
 

@@ -14,6 +14,7 @@ import {
   riskMatterCase,
   riskMatterNode,
   riskMatterParty,
+  riskMatterProgress,
   riskMatterStaff,
 } from "../db/schema";
 import {
@@ -38,6 +39,7 @@ import { needsChangeReason } from "@/shared/schema/status-transition";
 import { RISK_MATTER_TYPE_LABELS } from "@/shared/enums/business";
 import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
+import { type ProgressInput } from "@/shared/schema/hosts";
 import { canManageNode } from "./node-access";
 import { initialRemindDays } from "@/shared/node-reminder";
 // 撤销前置的"费用"那一条复用费用模块的谓词（MATT-47）：两处各写一遍 SQL，
@@ -958,7 +960,7 @@ export async function unconvertFromCase(
   const [progressRows] = await db
     .select({ n: dcount() })
     .from(matterProgress)
-    .where(and(eq(matterProgress.matterId, BigInt(caseId)), sql`NOT ${matterProgress.isDeleted}`));
+    .where(and(eq(matterProgress.hostId, BigInt(caseId)), sql`NOT ${matterProgress.isDeleted}`));
   if ((progressRows?.n ?? 0) > 0) blockers.push("progress");
 
   // **排除 preset**：系统在建案瞬间生成的那批节点不算用户投入。
@@ -1104,6 +1106,7 @@ export async function getRiskMatter(actor: Actor, id: string) {
       conversionStatus: riskMatter.conversionStatus,
       convertedCaseCount: riskMatter.convertedCaseCount,
       convertedAt: riskMatter.convertedAt,
+      lastProgressAt: riskMatter.lastProgressAt,
       createdAt: riskMatter.createdAt,
       updatedAt: riskMatter.updatedAt,
     })
@@ -1113,127 +1116,153 @@ export async function getRiskMatter(actor: Actor, id: string) {
   // 不可见一律 404（元规则 3），不返 403 —— 403 会替调用方确认"这条存在"
   if (!row) return null;
 
-  const [nodes, staff, parties, comments, activity, statuses, converted, ownerRow, nodeTypes] =
-    await Promise.all([
-      db
-        .select({
-          id: riskMatterNode.id,
-          nodeTypeId: riskMatterNode.nodeTypeId,
-          name: riskMatterNode.name,
-          timeType: riskMatterNode.timeType,
-          startTime: riskMatterNode.startTime,
-          endTime: riskMatterNode.endTime,
-          isTimeConfirmed: riskMatterNode.isTimeConfirmed,
-          deadlineTime: riskMatterNode.deadlineTime,
-          status: riskMatterNode.status,
-          sourceKind: riskMatterNode.sourceKind,
-          sortOrder: riskMatterNode.sortOrder,
-          remark: riskMatterNode.remark,
-          ownerId: riskMatterNode.ownerId,
-          cancelReason: riskMatterNode.cancelReason,
-          completedAt: riskMatterNode.completedAt,
-        })
-        .from(riskMatterNode)
-        .where(and(eq(riskMatterNode.hostId, BigInt(id)), sql`NOT ${riskMatterNode.isDeleted}`))
-        .orderBy(asc(riskMatterNode.sortOrder), asc(riskMatterNode.id)),
-      db
-        .select({
-          id: riskMatterStaff.id,
-          userId: riskMatterStaff.userId,
-          staffRole: riskMatterStaff.staffRole,
-          name: appUser.displayName,
-        })
-        .from(riskMatterStaff)
-        .innerJoin(appUser, eq(appUser.id, riskMatterStaff.userId))
-        .where(eq(riskMatterStaff.hostId, BigInt(id))),
-      listRiskParties(actor, id),
-      // 处置记录：COMMENT_CREATED / COMMENT_UPDATED 之外的东西是状态与节点变更，
-      // 它们进活动流不进这里。评论按"最新在最上"给（IQ-17）。
-      db
-        .select({
-          id: comment.id,
-          body: comment.body,
-          parentId: comment.parentId,
-          isEdited: comment.isEdited,
-          authorId: comment.authorId,
-          authorName: appUser.displayName,
-          createdAt: comment.createdAt,
-          updatedAt: comment.updatedAt,
-          /** @提及的 user id（MATT-68 / T4b2 的读取侧）；出 DTO 前换成 `parts`，见下 */
-          mentionIds: comment.mentionIds,
-        })
-        .from(comment)
-        .innerJoin(appUser, eq(appUser.id, comment.authorId))
-        .where(
-          and(
-            eq(comment.targetType, "risk_matter"),
-            eq(comment.targetId, BigInt(id)),
-            sql`NOT ${comment.isDeleted}`,
-          ),
-        )
-        .orderBy(desc(comment.createdAt)),
-      db
-        .select({
-          id: activityLog.id,
-          action: activityLog.action,
-          reason: activityLog.reason,
-          payload: activityLog.payload,
-          operatorId: activityLog.operatorId,
-          createdAt: activityLog.createdAt,
-        })
-        .from(activityLog)
-        .where(eq(activityLog.riskMatterId, BigInt(id)))
-        .orderBy(desc(activityLog.createdAt))
-        .limit(100),
-      // 状态配置按**宿主**取。事项与案件各有一套同名 code，混用会让流转判定指向另一端
-      db
-        .select({
-          code: statusConfig.code,
-          name: statusConfig.name,
-          semantics: statusConfig.semantics,
-          nextStatusCodes: statusConfig.nextStatusCodes,
-          sortOrder: statusConfig.sortOrder,
-        })
-        .from(statusConfig)
-        .where(eq(statusConfig.hostType, "risk_matter"))
-        .orderBy(asc(statusConfig.sortOrder)),
-      // 已转案件反查：详情页的「已转案件」列表靠它，不走事项列表
-      db
-        .select({
-          id: matter.id,
-          internalCode: matter.internalCode,
-          caseNo: matter.caseNo,
-          name: matter.name,
-          status: matter.status,
-          isArchived: matter.isArchived,
-        })
-        .from(riskMatterCase)
-        .innerJoin(matter, eq(matter.id, riskMatterCase.matterId))
-        .where(eq(riskMatterCase.riskMatterId, BigInt(id)))
-        .orderBy(asc(matter.id)),
-      // 经办人可能为空（IQ-5 事项侧可空），空值不查库——`eq` 不收 null
-      row.ownerId === null
-        ? Promise.resolve([] as { name: string }[])
-        : db
-            .select({ name: appUser.displayName })
-            .from(appUser)
-            .where(eq(appUser.id, row.ownerId))
-            .limit(1),
-      // 可选节点类型：**只有 time_type='point' 的**（IQ-5 事项节点只支持时间点）。
-      // 过滤放服务端而不是让前端记一条"这个别显示"——那条规则迟早会漏。
-      // addRiskNode 还会再拒一次：不给选项不等于拦得住手写请求。
-      db
-        .select({
-          id: nodeTypeConfig.id,
-          code: nodeTypeConfig.code,
-          name: nodeTypeConfig.name,
-        })
-        .from(nodeTypeConfig)
-        .where(
-          and(eq(nodeTypeConfig.hostType, "risk_matter"), eq(nodeTypeConfig.timeType, "point")),
-        )
-        .orderBy(asc(nodeTypeConfig.sortOrder)),
-    ]);
+  const [
+    nodes,
+    progress,
+    staff,
+    parties,
+    comments,
+    activity,
+    statuses,
+    converted,
+    ownerRow,
+    nodeTypes,
+  ] = await Promise.all([
+    db
+      .select({
+        id: riskMatterNode.id,
+        nodeTypeId: riskMatterNode.nodeTypeId,
+        name: riskMatterNode.name,
+        timeType: riskMatterNode.timeType,
+        startTime: riskMatterNode.startTime,
+        endTime: riskMatterNode.endTime,
+        isTimeConfirmed: riskMatterNode.isTimeConfirmed,
+        deadlineTime: riskMatterNode.deadlineTime,
+        status: riskMatterNode.status,
+        sourceKind: riskMatterNode.sourceKind,
+        sortOrder: riskMatterNode.sortOrder,
+        remark: riskMatterNode.remark,
+        ownerId: riskMatterNode.ownerId,
+        cancelReason: riskMatterNode.cancelReason,
+        completedAt: riskMatterNode.completedAt,
+      })
+      .from(riskMatterNode)
+      .where(and(eq(riskMatterNode.hostId, BigInt(id)), sql`NOT ${riskMatterNode.isDeleted}`))
+      .orderBy(asc(riskMatterNode.sortOrder), asc(riskMatterNode.id)),
+    // 事项进展（迁移 0021）：与案件侧同一个读法，最新发生日在上。
+    // 评论不再是"进展的唯一载体"——它退回对话（用户 2026-10-23 的口径）。
+    db
+      .select({
+        id: riskMatterProgress.id,
+        progressType: riskMatterProgress.progressType,
+        content: riskMatterProgress.content,
+        nextPlan: riskMatterProgress.nextPlan,
+        progressDate: riskMatterProgress.progressDate,
+        nodeId: riskMatterProgress.nodeId,
+        createdAt: riskMatterProgress.createdAt,
+        author: sql<string>`(select u.display_name from mn_app_user u where u.id = ${riskMatterProgress.authorId})`,
+      })
+      .from(riskMatterProgress)
+      .where(
+        and(eq(riskMatterProgress.hostId, BigInt(id)), sql`NOT ${riskMatterProgress.isDeleted}`),
+      )
+      .orderBy(desc(riskMatterProgress.progressDate)),
+    db
+      .select({
+        id: riskMatterStaff.id,
+        userId: riskMatterStaff.userId,
+        staffRole: riskMatterStaff.staffRole,
+        name: appUser.displayName,
+      })
+      .from(riskMatterStaff)
+      .innerJoin(appUser, eq(appUser.id, riskMatterStaff.userId))
+      .where(eq(riskMatterStaff.hostId, BigInt(id))),
+    listRiskParties(actor, id),
+    // 处置记录：COMMENT_CREATED / COMMENT_UPDATED 之外的东西是状态与节点变更，
+    // 它们进活动流不进这里。评论按"最新在最上"给（IQ-17）。
+    db
+      .select({
+        id: comment.id,
+        body: comment.body,
+        parentId: comment.parentId,
+        isEdited: comment.isEdited,
+        authorId: comment.authorId,
+        authorName: appUser.displayName,
+        createdAt: comment.createdAt,
+        updatedAt: comment.updatedAt,
+        /** @提及的 user id（MATT-68 / T4b2 的读取侧）；出 DTO 前换成 `parts`，见下 */
+        mentionIds: comment.mentionIds,
+      })
+      .from(comment)
+      .innerJoin(appUser, eq(appUser.id, comment.authorId))
+      .where(
+        and(
+          eq(comment.targetType, "risk_matter"),
+          eq(comment.targetId, BigInt(id)),
+          sql`NOT ${comment.isDeleted}`,
+        ),
+      )
+      .orderBy(desc(comment.createdAt)),
+    db
+      .select({
+        id: activityLog.id,
+        action: activityLog.action,
+        reason: activityLog.reason,
+        payload: activityLog.payload,
+        operatorId: activityLog.operatorId,
+        createdAt: activityLog.createdAt,
+      })
+      .from(activityLog)
+      .where(eq(activityLog.riskMatterId, BigInt(id)))
+      .orderBy(desc(activityLog.createdAt))
+      .limit(100),
+    // 状态配置按**宿主**取。事项与案件各有一套同名 code，混用会让流转判定指向另一端
+    db
+      .select({
+        code: statusConfig.code,
+        name: statusConfig.name,
+        semantics: statusConfig.semantics,
+        nextStatusCodes: statusConfig.nextStatusCodes,
+        sortOrder: statusConfig.sortOrder,
+      })
+      .from(statusConfig)
+      .where(eq(statusConfig.hostType, "risk_matter"))
+      .orderBy(asc(statusConfig.sortOrder)),
+    // 已转案件反查：详情页的「已转案件」列表靠它，不走事项列表
+    db
+      .select({
+        id: matter.id,
+        internalCode: matter.internalCode,
+        caseNo: matter.caseNo,
+        name: matter.name,
+        status: matter.status,
+        isArchived: matter.isArchived,
+      })
+      .from(riskMatterCase)
+      .innerJoin(matter, eq(matter.id, riskMatterCase.matterId))
+      .where(eq(riskMatterCase.riskMatterId, BigInt(id)))
+      .orderBy(asc(matter.id)),
+    // 经办人可能为空（IQ-5 事项侧可空），空值不查库——`eq` 不收 null
+    row.ownerId === null
+      ? Promise.resolve([] as { name: string }[])
+      : db
+          .select({ name: appUser.displayName })
+          .from(appUser)
+          .where(eq(appUser.id, row.ownerId))
+          .limit(1),
+    // 可选节点类型：**只有 time_type='point' 的**（IQ-5 事项节点只支持时间点）。
+    // 过滤放服务端而不是让前端记一条"这个别显示"——那条规则迟早会漏。
+    // addRiskNode 还会再拒一次：不给选项不等于拦得住手写请求。
+    db
+      .select({
+        id: nodeTypeConfig.id,
+        code: nodeTypeConfig.code,
+        name: nodeTypeConfig.name,
+      })
+      .from(nodeTypeConfig)
+      .where(and(eq(nodeTypeConfig.hostType, "risk_matter"), eq(nodeTypeConfig.timeType, "point")))
+      .orderBy(asc(nodeTypeConfig.sortOrder)),
+  ]);
 
   /**
    * 评论的 @提及分段（MATT-68 / T4b2），与案件侧同一实现：
@@ -1261,6 +1290,11 @@ export async function getRiskMatter(actor: Actor, id: string) {
       id: String(n.id),
       // 手工节点没有类型（0020 起可空）——不能 `String(null)` 成 "null"
       nodeTypeId: n.nodeTypeId === null ? null : String(n.nodeTypeId),
+    })),
+    progress: progress.map((p) => ({
+      ...p,
+      id: String(p.id),
+      nodeId: p.nodeId === null ? null : String(p.nodeId),
     })),
     staff: staff.map((s) => ({ ...s, id: String(s.id), userId: String(s.userId) })),
     parties: parties ?? [],
@@ -1583,7 +1617,70 @@ export async function updateRiskMatter(
   return { ok: true };
 }
 
-/** 发处置记录（评论）。事项核查走评论，不靠节点（IQ-5）。 */
+/**
+ * 写一条事项进展（迁移 0021）。
+ *
+ * 与案件侧 `addProgress` 逐条同构：先按范围谓词判可见（不可见连写都不给，404），
+ * 再在**同一事务**里插进展、落审计、刷新宿主 `last_progress_at`。
+ *
+ * ⚠ 事项的 `last_progress_at` **不接**规则 4（IQ-9 / Q37 只扫案件）。刷新它只是让
+ * 详情页与排序有同一个读数；哪天要把事项纳入提醒，列已经在了，不需要再补一次迁移。
+ *
+ * 冻结门：事项转过案件之后节点/状态都不可再推，进展也一样 —— 否则会出现
+ * "事项已经冻结、却还在往里写新事实"的形态。判据复用 `isRiskFrozen`。
+ */
+export async function addRiskProgress(
+  actor: Actor,
+  riskId: string,
+  input: ProgressInput,
+): Promise<{ ok: true; id: string } | { ok: false; why: "not_found" | "forbidden" | "frozen" }> {
+  const db = await getDb();
+  const [visible] = await db
+    .select({
+      id: riskMatter.id,
+      isArchived: riskMatter.isArchived,
+      conversionStatus: riskMatter.conversionStatus,
+    })
+    .from(riskMatter)
+    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(riskId))))
+    .limit(1);
+  if (!visible) return { ok: false, why: "not_found" };
+  // 冻结门排在归档之前：已转案件是这条记录的属性，与"你是不是经办人"无关
+  if (isRiskFrozen(visible.conversionStatus)) return { ok: false, why: "frozen" };
+  if (visible.isArchived) return { ok: false, why: "forbidden" };
+
+  const id = BigInt(nextId());
+  await db.transaction(async (tx) => {
+    await tx.insert(riskMatterProgress).values({
+      id,
+      hostId: BigInt(riskId),
+      nodeId: input.nodeId ? BigInt(input.nodeId) : null,
+      progressType: input.progressType,
+      content: input.content,
+      progressDate: businessDateKey(new Date(`${input.progressDate}T00:00:00+08:00`)),
+      nextPlan: input.nextPlan ? input.nextPlan : null,
+      authorId: BigInt(actor.userId),
+      createdBy: BigInt(actor.userId),
+      updatedBy: BigInt(actor.userId),
+    });
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(riskId),
+      action: "PROGRESS_CREATED",
+      targetType: "risk_matter_progress",
+      targetId: id,
+    });
+    await tx
+      .update(riskMatter)
+      .set({
+        lastProgressAt: new Date().toISOString(),
+        updatedBy: BigInt(actor.userId),
+      })
+      .where(eq(riskMatter.id, BigInt(riskId)));
+  });
+  return { ok: true, id: String(id) };
+}
+
+/** 处置记录 = 评论对话（2026-10-23 起）；结构化办理记录走进展页签。 */
 export async function addRiskComment(
   actor: Actor,
   riskId: string,

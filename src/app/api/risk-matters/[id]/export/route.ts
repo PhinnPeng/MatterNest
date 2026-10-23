@@ -6,8 +6,8 @@ import { json, notFound, pathId, query, requirePrivilege, withActor } from "@/ap
  * 事项整卷导出（与案件侧同构：同一份 `exportHostFile`，只换宿主）。
  *
  * 两档、特权门、`EXPORT` 审计的形状与案件侧逐字相同 —— 它们是同一件事在两个宿主上，
- * 不是两套实现。差别只有区段：事项侧没有"案件进展"那一段（`mn_matter_progress`
- * 是案件专属，§6.3）。
+ * 不是两套实现。区段按宿主各自取：事项侧是「事项进展」（迁移 0021），
+ * 案件侧是「案件进展」。
  */
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
