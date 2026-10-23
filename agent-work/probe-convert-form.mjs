@@ -192,7 +192,7 @@ try {
   await page.waitForSelector(".ant-modal .ant-result", { timeout: 20000 });
   await page.waitForTimeout(600);
   const resultText = await page.locator(".ant-modal-body").first().innerText();
-  const codeHits = resultText.match(/AJ-\d{8}-\d{3}/g) ?? [];
+  const codeHits = resultText.match(/A\d{12,}/g) ?? [];
   ok("提交成功屏列出 2 个内部编号", codeHits.length === 2, `codes=${codeHits.join(" / ")}`);
 
   // 回读库：两案都建出来了，且金额各是各的（12000 / 空→0）

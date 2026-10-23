@@ -223,7 +223,7 @@ export const activityLog = pgTable(
  * `day_key` 是**上海业务日**，写入必须是 `date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai')::date`。
  * 为什么不能用 `current_date` / `now()::date`：会话已钉 UTC（`db:check` C4），
  * 那样上海 0–8 点立案会归到**前一天**——C6 用同一个跨零点时刻实测过两者相差一天。
- * 溢出 999 后扩成 4 位（`AJ-20261015-1000`），号可跳不可复。
+ * 溢出后原样加宽（案件 4 位起：`A202610210001`；事项 3 位起：`FX-20261015-1000`），号可跳不可复。
  */
 export const codeSeq = pgTable(
   "mn_code_seq",
@@ -238,6 +238,3 @@ export const codeSeq = pgTable(
     primaryKey({ columns: [t.dayKey, t.prefix], name: "pk_mn_code_seq" }),
   ],
 );
-
-/** 取号用的前缀字面量：`AJ` 案件 / `FX` 事项（基线 1.1/1.2） */
-export const CODE_PREFIX = { matter: "AJ", riskMatter: "FX" } as const;

@@ -716,7 +716,7 @@ ok(
 const [m1] = await sql`
   select id, internal_code, case_no, amount, status, owner_id, filing_date::text as filing_date, court
   from mn_matter where name = ${`${P}-案件1`}`;
-ok("案号留空时取内部编号（AJ-…）", m1?.case_no === m1?.internal_code, `${m1?.case_no} / ${m1?.internal_code}`);
+ok("案号留空时取内部编号（A…）", m1?.case_no === m1?.internal_code, `${m1?.case_no} / ${m1?.internal_code}`);
 ok("案件金额 18 位有效数字不丢分（全程字符串，零 Number()）", m1?.amount === "1234567890123456.78", String(m1?.amount));
 ok("立案日期归一", m1?.filing_date === "2024-03-07", String(m1?.filing_date));
 const [initialM] = await sql`

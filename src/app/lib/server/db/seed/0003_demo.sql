@@ -35,34 +35,34 @@ INSERT INTO "mn_matter"
    "court", "amount", "level", "owner_id", "status", "is_archived", "filing_date", "closing_date",
    "last_progress_at", "description", "created_by", "updated_by", "updated_at")
 VALUES
-  (7001, 'AJ-20260921-001', '（2026）苏0102民初4821号', '恒基建设诉鼎泰房地产建设工程施工合同纠纷',
+  (7001, 'A202609210001', '（2026）苏0102民初4821号', '恒基建设诉鼎泰房地产建设工程施工合同纠纷',
    '建设工程施工合同纠纷', 'civil_commercial', 'first_instance', 'plaintiff',
    '南京市玄武区人民法院', '8420000.00', 'high', 101, 'in_progress', false, '2026-09-21', NULL,
    now() - interval '6 days', '一期主体施工合同结算争议，重点在签证单与工期索赔的举证责任分配。', 101, 101, now() - interval '6 days'),
-  (7002, 'AJ-20260921-002', '（2026）苏01民终1130号', '鼎泰房地产上诉建设工程施工合同纠纷二审',
+  (7002, 'A202609210002', '（2026）苏01民终1130号', '鼎泰房地产上诉建设工程施工合同纠纷二审',
    '建设工程施工合同纠纷', 'civil_commercial', 'second_instance', 'appellant',
    '南京市中级人民法院', '8420000.00', 'high', 101, 'in_progress', false, '2026-09-22', NULL,
    now() - interval '2 days', '一审判决后由发包人提起上诉，争议集中在鉴定意见的采信。', 101, 101, now() - interval '2 days'),
-  (7003, 'AJ-20260923-003', '（2026）苏0102民初5017号', '周敏诉南京云脉数据科技劳动争议',
+  (7003, 'A202609230003', '（2026）苏0102民初5017号', '周敏诉南京云脉数据科技劳动争议',
    '劳动合同纠纷', 'civil_commercial', 'first_instance', 'plaintiff',
    '南京市秦淮区人民法院', '186000.00', 'mid', 101, 'pending', false, '2026-09-23', NULL,
    now() - interval '1 day', '解除劳动关系经济补偿与未休年假工资，事实清楚，走简易程序。', 101, 101, now() - interval '1 day'),
-  (7004, 'AJ-20260925-004', '（2026）苏宁仲裁字第2210号', '云脉数据科技与被申请人借款合同纠纷',
+  (7004, 'A202609250004', '（2026）苏宁仲裁字第2210号', '云脉数据科技与被申请人借款合同纠纷',
    '金融借款合同纠纷', 'civil_commercial', 'arbitration', 'respondent',
    '南京仲裁委员会', '2350000.00', 'mid', 101, 'in_progress', false, '2026-09-25', NULL,
    now() - interval '3 hours', '银行主张提前到期，我方抗辩焦点在放款条件是否成就。', 101, 101, now() - interval '3 hours'),
-  (7005, 'AJ-20260918-005', '（2026）苏0102执1024号', '恒基建设申请执行建设工程施工合同纠纷',
+  (7005, 'A202609180005', '（2026）苏0102执1024号', '恒基建设申请执行建设工程施工合同纠纷',
    '执行实施类案件', 'civil_commercial', 'execution', 'applicant',
    '南京市玄武区人民法院', '5100000.00', 'low', 101, 'closed', false, '2026-09-18', '2026-09-25',
    now() - interval '9 days', '判决生效后申请强制执行，已到位部分款项，剩余以物抵债。', 101, 101, now() - interval '9 days'),
-  (7006, 'AJ-20260910-006', '（2026）苏0102民初3390号', '鼎泰房地产与云脉数据科技合作开发合同纠纷',
+  (7006, 'A202609100006', '（2026）苏0102民初3390号', '鼎泰房地产与云脉数据科技合作开发合同纠纷',
    '合作开发房地产合同纠纷', 'civil_commercial', 'first_instance', 'defendant',
    '南京市鼓楼区人民法院', '1200000.00', 'low', 101, 'archived', true, '2026-09-10', '2026-09-19',
    now() - interval '17 days', '调解结案后按归档流程处理，用于验证"归档终态 + 列表默认隐藏"。', 101, 101, now() - interval '8 days')
 ON CONFLICT ("internal_code") DO NOTHING;
 
 -- 已归档那行补归档时间（归档动作本身另有 activity_log 一条）
-UPDATE "mn_matter" SET "archived_at" = now() - interval '8 days', "archived_by" = 101 WHERE "internal_code" = 'AJ-20260910-006' AND "archived_at" IS NULL;
+UPDATE "mn_matter" SET "archived_at" = now() - interval '8 days', "archived_by" = 101 WHERE "internal_code" = 'A202609100006' AND "archived_at" IS NULL;
 
 -- ── 参与人：把 101 加成 7001 的协办（L2 能看见，L3 看不见）────────
 INSERT INTO "mn_matter_staff" ("id", "matter_id", "user_id", "staff_role")
@@ -233,12 +233,12 @@ ON CONFLICT ("id") DO NOTHING;
 -- ── 发号器与演示编号对齐：不写这行，后续真实取号会撞上演示号 ────
 INSERT INTO "mn_code_seq" ("day_key", "prefix", "value")
 VALUES
-  ('2026-09-10', 'AJ', 1),
-  ('2026-09-18', 'AJ', 1),
-  ('2026-09-21', 'AJ', 2),
-  ('2026-09-22', 'AJ', 1),
-  ('2026-09-23', 'AJ', 1),
-  ('2026-09-25', 'AJ', 1),
+  ('2026-09-10', 'A', 1),
+  ('2026-09-18', 'A', 1),
+  ('2026-09-21', 'A', 2),
+  ('2026-09-22', 'A', 1),
+  ('2026-09-23', 'A', 1),
+  ('2026-09-25', 'A', 1),
   ('2026-09-15', 'FX', 1),
   ('2026-09-22', 'FX', 1),
   ('2026-09-24', 'FX', 1),

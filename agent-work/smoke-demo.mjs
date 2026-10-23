@@ -365,8 +365,8 @@ const made = await fetch(`${BASE}/api/matters`, {
 const madeBody = await made.json();
 ok("建案 201", made.status === 201, `${made.status} · ${madeBody?.internalCode}`);
 ok(
-  "内部编号形如 AJ-YYYYMMDD-NNN",
-  /^AJ-\d{8}-\d{3,}$/.test(madeBody?.internalCode ?? ""),
+  "内部编号形如 A + YYYYMMDD + 4 位序号",
+  /^A\d{12,}$/.test(madeBody?.internalCode ?? ""),
   madeBody?.internalCode,
 );
 const madeDetail = await get(`/api/matters/${madeBody.id}`, l1.cookie);
@@ -461,7 +461,7 @@ ok(
 /* ── 11. 页面壳里不许有业务行（禁令⑥） ───────────────────────── */
 for (const p of ["/matters", "/risk-matters", "/config"]) {
   const r = await get(p);
-  const leaked = /AJ-\d{8}-\d{3}|FX-\d{8}-\d{3}/.test(r.text);
+  const leaked = /A\d{12,}|FX-\d{8}-\d{3}/.test(r.text);
   ok(`壳 ${p} 不含业务编号`, !leaked, leaked ? "SSR 里出现了真实编号" : "干净");
   ok(`壳 ${p} 有骨架（菜单/标题在）`, /MatterNest|风险事项|案件|配置/.test(r.text));
 }

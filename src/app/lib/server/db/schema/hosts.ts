@@ -52,7 +52,7 @@ export const matter = pgTable(
   "mn_matter",
   {
     id: id(),
-    /** `AJ-YYYYMMDD-XXX`，由 `mn_code_seq` 单语句取号，不可编辑（基线 1.2 + 修订稿 §12.3） */
+    /** `A + YYYYMMDD + 4 位顺序号`（如 `A202610210001`），由 `mn_code_seq` 单语句取号，不可编辑（基线 1.2 + 修订稿 §12.3 → 2026-10-23 用户裁定） */
     internalCode: varchar("internal_code", { length: 32 }).notNull(),
     /** 正式案号：非唯一（不同法院可重号），保存时提示重复（修订稿 §6.3） */
     caseNo: varchar("case_no", { length: 100 }).notNull(),

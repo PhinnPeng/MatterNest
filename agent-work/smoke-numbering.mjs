@@ -1,5 +1,5 @@
 /**
- * 编号门禁：`FX/AJ-YYYYMMDD-XXX` 的**唯一性**与**溢出扩展**。
+ * 编号门禁：`FX-YYYYMMDD-NNN` 与 `A + YYYYMMDD + 4 位序号` 的**唯一性**与**溢出扩展**。
  *
  * ## 为什么必须有它
  *
@@ -105,10 +105,10 @@ try {
     `去重后 ${new Set(codes.filter(Boolean)).size} / ${codes.filter(Boolean).length}`,
   );
 
-  const shape = /^AJ-\d{8}-(\d+)$/;
+  const shape = /^A\d{8}(\d{4,})$/;
   const serials = codes.filter(Boolean).map((c) => shape.exec(c)?.[1] ?? null);
   ok(
-    "号段格式正确（`AJ-YYYYMMDD-<数字>`）",
+    "号段格式正确（`A + YYYYMMDD + 4 位以上序号`）",
     serials.every((s) => s !== null),
     `serials=${serials.join(",")}`,
   );
@@ -116,9 +116,9 @@ try {
   // ④ 计数器已过千 ⇒ 号段应是 4 位原样十进制，且**连续**（撞号时会出现重复/跳变）
   const [seq] = await sql`
     select value from mn_code_seq
-     where prefix = 'AJ' and day_key = date_trunc('day', now() at time zone 'Asia/Shanghai')::date`;
+     where prefix = 'A' and day_key = date_trunc('day', now() at time zone 'Asia/Shanghai')::date`;
   const value = Number(seq?.value ?? 0);
-  ok("拿到了当日 AJ 计数器", Number.isFinite(value) && value > 0, `value=${value}`);
+  ok("拿到了当日 A 计数器", Number.isFinite(value) && value > 0, `value=${value}`);
   if (value >= 1000) {
     const nums = serials.filter(Boolean).map(Number);
     ok(
