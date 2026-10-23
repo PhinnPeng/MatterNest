@@ -411,7 +411,7 @@ CREATE INDEX ix_node_host ON matter_node (matter_id, sort_order);
 | 1.2 案件 | `amount` 语义「标的额」+ `currency`；`last_progress_at`（§6.4）；**删除 `source_risk_id` 与 `case_id`**（前者由 `risk_matter_case` 反查；后者随案例模块移出第一期） |
 | 1.2 `case_no` | 明确唯一性：**非唯一索引 + 保存时提示重复**（不同法院案号体系可重号），`internal_code` 才是唯一锚点 `UNIQUE`。原文 5.2 写"查重"但未定义阻止还是提示 |
 | 1.2 `procedure` | "一审/二审/再审/仲裁/执行等" 的"等"必须替换为闭集白名单，第一期：一审/二审/再审审查/再审/仲裁/执行/执行异议/破产/其他 |
-| 1.5 `MatterProgress` | 保持**案件专属**（拆表决策下不给事项加 `risk_matter_progress`，第一期事项无进展沉淀入口，需在文档明示）；`progress_type` 枚举闭合：日常推进/法院动作/对方动作/客户反馈/内部决议/材料提交；`node_id` 改为真 FK → `matter_node(id)` 可空；补 `next_plan`、`updated_at`、`is_deleted` |
+| 1.5 `MatterProgress` | ~~保持**案件专属**（拆表决策下不给事项加 `risk_matter_progress`，第一期事项无进展沉淀入口，需在文档明示）~~ → **2026-10-23 已由 [ADR 0007](adr/0007-risk-matter-progress.md) 取代**：事项补同构表 `risk_matter_progress`（迁移 0021），「处置记录」退回评论对话；`progress_type` 枚举闭合：日常推进/法院动作/对方动作/客户反馈/内部决议/材料提交；`node_id` 改为真 FK → `matter_node(id)` / `risk_matter_node(id)` 可空；补 `next_plan`、`updated_at`、`is_deleted` |
 | 1.6 `MatterExpense` | 同为案件专属；`status` 枚举闭合：`pending_pay`/`paid`/`void`（第一期无审批，不含 approved）；`amount` → `numeric(18,2) CHECK (amount >= 0)`；补 `currency`、`payer_id`、`updated_at`；详情页展示 `SUM(amount)` 合计（属明细统计，不违反清单#14「不做报表」） |
 | 1.7 `Comment` | 补 `attachment_ids [derived]`（→ `attachment` 横切表）、`updated_at`、`is_edited`、`deleted_by`、`deleted_at`；`parent_id` 限制**最多 1 层嵌套**（`CHECK parent_id IS NULL OR (SELECT ...) IS NOT NULL` 由服务层保证，DB 侧加 `idx_parent`） |
 | 1.8 `ActivityLog` | 新增 `reason varchar(500)`（A2 偏离确认原因）；`action` 枚举闭合表见枚举表 §3（B6 已交付，含后补的 `UNCONVERT`）；补 `matter_id` / `risk_matter_id` 双列（其一非空，`CHECK` 约束）以支撑"我的关注"与"我相关活动"的跨目标 feed |
@@ -582,7 +582,7 @@ scheduled 类: event_type + ":" + target_id + ":" + date_key
 ### 8.3 命名与类型（本轮已定）
 
 - **领域命名不改**：案件 = `Matter`，事项 = `RiskMatter`。原歧义（`matter_type ∈ {matter, risk}` 读起来像"事项"）来自那个并列枚举，**拆表后 `matter_type` 列整体消失**，歧义源随之消解。
-- 残余规则：**枚举值一律用全称 `risk_matter`，禁止缩写 `risk`**。横切表的 `target_type` 因此取值 `{matter, risk_matter, matter_node, risk_matter_node, matter_progress, matter_expense}`，`matter` 与 `risk_matter` 并列时读法清晰。
+- 残余规则：**枚举值一律用全称 `risk_matter`，禁止缩写 `risk`**。横切表的 `target_type` 因此取值 `{matter, risk_matter, matter_node, risk_matter_node, matter_progress, risk_matter_progress, matter_expense, app_user}`（`risk_matter_progress` 见 ADR 0007；`app_user` 见迁移 0006），`matter` 与 `risk_matter` 并列时读法清晰。
 - 表名 `RiskMatter_Matter` → **`risk_matter_case`**。
 - **禁止泛化抽象**（`AbstractMatter` / `host_id` 统一视图 / 泛型 `MatterLike` 基类），见 §1.0.2。
 - 展示名统一 `name`（1.3 `title` → `name`，1.9 `title` → `name`）；API 层用 `displayName`。

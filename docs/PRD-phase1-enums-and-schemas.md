@@ -32,7 +32,7 @@
 |---|---|---|---|---|
 | E01 | `app_user.status` 类 | — | — | 无此列，用 `is_enabled boolean` |
 | E02 | `role.data_scope` | `all` `participating` `owned` | `participating` | 权限草案 §1。**无 L4** |
-| E03 | `target_type` | `matter` `risk_matter` `matter_node` `risk_matter_node` `matter_progress` `matter_expense` `app_user` | — | 修订稿 §1.0.2。禁止缩写 `risk`；`case_study` 随模块移出。**`app_user`（MATT-10，迁移 0006，2026-10-12）**：账号维度落点，是**唯一不挂业务宿主**的一档——F6-9 开通本地凭据、F6-11 批准待开通这些动作每一步都要落审计，而本表原先六个取值里没有账号，于是这些动作写不进去。宿主列约束同步放宽为「业务六条线仍必须有宿主，账号维度除外」，业务侧原意未削弱 |
+| E03 | `target_type` | `matter` `risk_matter` `matter_node` `risk_matter_node` `matter_progress` `risk_matter_progress` `matter_expense` `app_user` | — | 修订稿 §1.0.2。禁止缩写 `risk`；`case_study` 随模块移出。**`app_user`（MATT-10，迁移 0006，2026-10-12）**：账号维度落点，是**唯一不挂业务宿主**的一档——F6-9 开通本地凭据、F6-11 批准待开通这些动作每一步都要落审计，而本表原先六个取值里没有账号，于是这些动作写不进去。宿主列约束同步放宽为「业务六条线仍必须有宿主，账号维度除外」，业务侧原意未削弱。**`risk_matter_progress`（2026-10-23，迁移 0021）**：事项补进展表后加的一档，否则事项进展的审计无处落地 |
 | E04 | `*_staff.staff_role` | `owner` `co_owner` `follower` | — | 除 `owner` 外可多行 |
 | E05 | `user_watch.watch_type` | `follow` `favorite` | — | `follow` 由 staff 同步生成；`favorite` 仅本人 |
 | E06 | `*_party.party_role` | 见 E12 | — | 复用诉讼地位取值。**语义钉（IQ-7/Q24）：指「对方」在该案中的地位，相对我方（本企业）视角——本企业永不入 party 表，我方地位是案件单值 `litigation_role`（见 E12）** |
@@ -53,7 +53,7 @@
 | E16 | `risk_matter.source` | `business_report` `external_dispute` `customer_complaint` ❌（作废保留，禁止从 CHECK 删值，见 §5.3） `lawyer_letter` `internal_check` `other` | 否 | 业务报备/对外纠纷/投诉/~~客户投诉~~/收到对方当事人律师函/内部检查/其他。**IQ-5 偏差5（律所残留词企业化，T0 已落）**：原 `customer_complaint`（中文"客户投诉"）是律所代理口径——企业当事方没有客户（见 GLOSSARY「对方当事人」_Avoid_），新写入改用 `external_dispute`（对外纠纷/投诉）；"律师函"保留、语义标注为**收到对方当事人律师函**。**走 §5.3 废弃流程（与 E13 同款）**：CHECK 与代码常量**同时保留** `customer_complaint` 标 `@deprecated`、禁止新写入与前端展示，历史行仍可反查中文名；写路径与下拉用 `RISK_MATTER_SOURCES_WRITABLE` |
 | E17 | `party.type` | `natural_person` `legal_person` `unincorporated_org` | 是 | 决定 E18 与 `id_number` 的校验规则 |
 | E18 | `party.id_type` | `id_card` `unified_social_credit` `passport` `hk_mo_tw_permit` `military_id` `foreign_residence` `other` | 否 | `type=natural_person` 时期望 `id_card`/`passport`/…；法人时期望 `unified_social_credit` |
-| E19 | `matter_progress.progress_type` | `routine` `court_action` `counterparty` `client_feedback` `internal_decision` `material_filing` | 是 | 日常推进/法院动作/对方动作/客户反馈/内部决议/材料提交 |
+| E19 | `matter_progress.progress_type` | `routine` `court_action` `counterparty` `client_feedback` `internal_decision` `material_filing` | 是 | 日常推进/法院动作/对方动作/客户反馈/内部决议/材料提交。**2026-10-23（迁移 0021）起 `risk_matter_progress.progress_type` 复用同一值域**——两张表由 `progressTable` 工厂产出，CHECK 名各按宿主命名 |
 | E20 | `matter_expense.status` | `pending_pay` `paid` `void` | 是 | 第一期**无审批流**，不含 `approved` |
 | E21 | `matter_node.status` / `risk_matter_node.status` | `in_progress` `completed` `cancelled` | `in_progress` | 修订稿 §3.5 生命周期；**2026-10-23 起三态**（`not_started` 删除：节点从创建起就在跑，提醒与归属都不依赖"未开始"） |
 | E22 | `*_node.source_kind` | `manual` `preset` `rule` | `manual` | 对应修订稿 §4 的 P1/P2 两路径。原命名 `preset_p1`/`rule_p2` 简化为本值，路径由 `source_ref` 区分 |
