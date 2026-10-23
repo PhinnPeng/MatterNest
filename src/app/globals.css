@@ -307,33 +307,96 @@
     color: var(--ink);
   }
   /*
-   * 菜单里的「系统颜色」：三枚图标横排。
+   * 身份菜单的弹出层（`Dropdown` 的 `classNames.root`）。
    *
-   * 选中态读的是**偏好**（`aria-pressed` 由上层的 `pref` 决定），不是当前深浅——
-   * `system` 档下这两者不同，旧实现靠 `html.dark` 反推会指错那一枚。
-   * 高亮用 `--accent-weak` + `--accent-line`（与导航项选中同一对令牌）。
+   * ## 2026-10-23 重设（用户口径：内容/大小/布局要协调，布局不动）
+   *
+   * 上一轮只修了"小巧"的三个刻度；这一轮把整块按**一个列宽、一支刻度**重排，
+   * 条目、分组、顺序、分隔线、键位、`onClick` 一个字没动。
+   *
+   *   1. **宽 216 = 左导航的列宽**（`--nav` 是 216）。菜单从此不是"从按钮里长出来的
+   *      一块"，而是与导航同宽的第二列：它在侧栏右侧弹出，两条竖边因此齐平。
+   *      （宽度下限只能落在内层 `ul`：antd 把 `min-width` 写成了 root 的行内样式，
+   *      等于触发按钮宽 123px —— 写在 `.idmenu-pop` 上的下限会被静默压掉。）
+   *   2. **行 34 / 字 13 / 图标 15**：34 与左导航项实测同高（`agent-work` 那条"32"
+   *      是 DESIGN.md 的旧值，真页一直是 34），13 是全站正文基准，图标 15 让记号与
+   *      汉字齐眉而不抢行。图标列固定 15 + 间距 10，于是**所有标签落在同一列**（x=42）。
+   *   3. **「系统颜色」三等分格条**：三枚 26px 的孤立小按钮换成占满内容宽的三个等分格
+   *      （与 `.seg` 同一族形态）。它是一组互斥开关，不是一个条目——格条让它自己
+   *      交代"三选一"，不靠读三个图标去猜。
+   *   4. **悬停只换颜色，不铺底色**（用户口径）。菜单里唯一会铺底色的状态是
+   *      `aria-pressed` 的那一格 + 条目悬停；外观格条整行不铺底（它是一个控件托盘，
+   *      不是一个可点的动作），格内悬停只加深图标、描 1px `--line` 给出可点边界。
+   *   5. **6px 圆角 / 1px 描边 / 一层淡投影**：本世界圆角只有一档，投影只有一层极淡的
+   *      （大投影是模态的专属，下拉不是模态）。
    */
+  .idmenu-pop .ant-dropdown-menu {
+    min-width: 216px;
+    max-width: 264px;
+    padding: 6px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .idmenu-pop .ant-dropdown-menu-item {
+    min-height: 34px;
+    padding: 0 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .idmenu-pop .ant-dropdown-menu-item:hover {
+    background: var(--hover);
+  }
+  /* 图标退一档墨色：它是条目的记号，词才是要读的东西 */
+  .idmenu-pop .ant-dropdown-menu-item .anticon {
+    font-size: 15px;
+    margin-inline-end: 10px;
+    color: var(--ink2);
+  }
+  .idmenu-pop .ant-dropdown-menu-item-divider {
+    margin: 6px 0;
+    background: var(--line);
+  }
+  /*
+   * 「系统颜色」那一行是**控件托盘**，不是条目：
+   * 整行不吃 antd 的条目内边距（格子自己撑满），悬停不铺底（用户口径），
+   * 于是鼠标扫过时唯一发光的是三格里的那一格，行本身保持安静。
+   */
+  .idmenu-pop .ant-dropdown-menu-item.idmenu-tray,
+  .idmenu-pop .ant-dropdown-menu-item.idmenu-tray:hover {
+    padding: 0;
+    background: transparent;
+  }
   .idmenu-modes {
-    display: inline-flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 4px;
+    width: 100%;
   }
   .idmenu-mode {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 24px;
+    width: 100%;
+    height: 26px;
     padding: 0;
-    font-size: 14px;
+    font-size: 15px;
     color: var(--ink2);
     background: none;
     border: 1px solid transparent;
     border-radius: 4px;
     cursor: pointer;
+    transition:
+      color 0.12s ease,
+      border-color 0.12s ease;
   }
   .idmenu-mode:hover {
-    background: var(--hover);
+    /* 只加深、只描边，不铺底色 */
+    background: none;
     color: var(--ink);
+    border-color: var(--line);
   }
   .idmenu-mode[aria-pressed="true"] {
     color: var(--nav-on-ink);
@@ -343,19 +406,6 @@
   .idmenu-mode:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
-  }
-  /*
-   * 身份菜单的弹出层（`Dropdown` 的 `classNames.root`）。
-   *
-   * 不给宽度时，宽度由内容撑开：三枚外观图标 + 三个四字条目，算下来正好与触发按钮
-   * 同宽（实测 123px），读起来像"菜单继承了按钮的宽度"。给一个下限让它与按钮解耦；
-   * 上限不设 —— 换成长条目时它该跟着长，而不是截断。
-   *
-   * 184 是这么来的：最长条目「个人设置」四字（14px × 4 ≈ 56）+ 图标 14 + 图标与文字
-   * 间距 8 + 左右内边距 24 + 选中底色的内缩留白 ≈ 110，再留出 70px 让条目右端不顶到边。
-   */
-  .idmenu-pop {
-    min-width: 184px;
   }
   /*
    * antd `Avatar` 的默认底色是 `colorTextPlaceholder`（`antd/es/avatar/style/index.js:136`

@@ -400,6 +400,11 @@ function IdentityCard({
              * 所以它贴顶；而「退出登录」是终止动作，贴底。
              */
             key: "appearance",
+            /*
+             * `idmenu-tray`：这一行是**控件托盘**不是条目，于是整行不吃条目内边距、
+             * 悬停也不铺底（`globals.css` 的 `.idmenu-tray`）。三格自己撑满宽度。
+             */
+            className: "idmenu-tray",
             label: (
               <span className="idmenu-modes" role="group" aria-label="系统颜色">
                 {APPEARANCE_ITEMS.map((it) => (
