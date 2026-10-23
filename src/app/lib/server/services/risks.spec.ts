@@ -269,7 +269,7 @@ describe("isRiskFrozen：转过案件的事项一律冻结", () => {
   });
 });
 
-describe("冻结判据：只写一处，且八条写路径都走它", () => {
+describe("冻结判据：只写一处，且十条写路径都走它", () => {
   const src = readFileSync("src/app/lib/server/services/risks.ts", "utf8");
 
   /**
@@ -302,13 +302,14 @@ describe("冻结判据：只写一处，且八条写路径都走它", () => {
     expect(hits).toEqual(["conversionStatus === 1"]);
   });
 
-  it("八条写路径的门都是**活的** `if (isRiskFrozen(...)) return frozen`，恰好八处", () => {
+  it("十条写路径的门都是**活的** `if (isRiskFrozen(...)) return frozen`，恰好十处", () => {
     // ⚠ 这一条是被反向红逼出来的：先前只查「函数体里出现过 isRiskFrozen(」，
     // 而把门改成 `if (false && isRiskFrozen(...))` 照样命中 —— 门被摘掉了，断言还是绿的。
     // 「门存在」与「门挡得住」是两件事，后者才需要断言。所以这里比对完整形态。
     //
     // 顺序 = 门在 `services/risks.ts` 里出现的顺序（跟着函数定义的先后走）：
-    //   追加当事人 / 摘除当事人 / 撤销转案件 / 改状态 / 改字段 / 加节点 / 改节点状态 / 软删。
+    //   追加当事人 / 摘除当事人 / 撤销转案件 / 改状态 / 改字段 / 加节点 / 改节点 / 删节点 /
+    //   改节点状态 / 软删。
     const gates = [
       ...src.matchAll(
         /if \(\s*isRiskFrozen\((\w+)\.conversionStatus\)\)\s*return \{[^}]*why: "frozen"\s*\}/g,
@@ -316,11 +317,11 @@ describe("冻结判据：只写一处，且八条写路径都走它", () => {
     ];
     expect(
       gates.map((m) => m[1]),
-      "八条写路径上少了一道活门，或门被短路了",
-    ).toEqual(["src", "src", "src", "cur", "cur", "vis", "node", "cur"]);
+      "十条写路径上少了一道活门，或门被短路了",
+    ).toEqual(["src", "src", "src", "cur", "cur", "vis", "node", "node", "node", "cur"]);
   });
 
-  it("追加当事人 / 摘除当事人 / 软删 / 撤销转案件 / 状态流转 / 字段编辑 / 新增节点 / 改节点状态 八条路径都先问 isRiskFrozen", () => {
+  it("追加当事人 / 摘除当事人 / 软删 / 撤销转案件 / 状态流转 / 字段编辑 / 新增节点 / 改节点 / 删节点 / 改节点状态 十条路径都先问 isRiskFrozen", () => {
     const guarded = functions
       .filter((f) => f.body.includes("isRiskFrozen("))
       .map((f) => f.name)
@@ -330,14 +331,16 @@ describe("冻结判据：只写一处，且八条写路径都走它", () => {
       "appendRiskParties",
       "changeRiskStatus",
       "deleteRiskMatter",
+      "deleteRiskNode",
       "removeRiskParty",
       "setRiskNodeStatus",
       "unconvertFromCase",
       "updateRiskMatter",
+      "updateRiskNode",
     ]);
   });
 
-  it("冻结门都排在归档与归属判定**之前**（八道门逐个点名；两道无可排前判定的跳过，不算过）", () => {
+  it("冻结门都排在归档与归属判定**之前**（十道门逐个点名；两道无可排前判定的跳过，不算过）", () => {
     // 门的先后不是风格：若把 `isRiskFrozen` 排在 `isArchived` / `ownsAttribution` 之后，
     // 冻结的事项会先被告知「已归档」或「你不是经办人」，用户照着那句去找特权或找经办人，
     // 而找到之后拿到的还是同一句拒绝。**答案要是"因为已冻结"，不是别的原因。**
@@ -350,6 +353,8 @@ describe("冻结判据：只写一处，且八条写路径都走它", () => {
       "changeRiskStatus",
       "updateRiskMatter",
       "addRiskNode",
+      "updateRiskNode",
+      "deleteRiskNode",
       "setRiskNodeStatus",
       "deleteRiskMatter",
     ];
@@ -458,7 +463,6 @@ describe("事项列表导出：CSV 形状（F1-20）", () => {
     type: "contract",
     level: "high",
     status: "in_progress",
-    amount: "500000.00",
     discoverDate: "2026-09-22",
     ownerName: "王小明",
     convertedCaseCount: 0,
@@ -470,9 +474,7 @@ describe("事项列表导出：CSV 形状（F1-20）", () => {
 
   it("BOM 开头、中文表头、列序与列表一致", () => {
     const csv = riskMattersExportCsv([row()], dict);
-    expect(csv.startsWith("\uFEFF编号,事项名称,类型,等级,状态,转案件,预估影响,发现日期")).toBe(
-      true,
-    );
+    expect(csv.startsWith("\uFEFF编号,事项名称,类型,等级,状态,转案件,发现日期")).toBe(true);
     expect(csv).toContain("合同");
     expect(csv).toContain("进行中");
     expect(csv).toContain("2026-09-22");

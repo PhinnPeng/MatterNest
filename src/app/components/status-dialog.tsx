@@ -39,12 +39,18 @@ export function StatusDialog({
   open,
   onOpenChange,
   onDone,
+  initialTo,
 }: {
   target: StatusTarget | null;
   statuses: StatusRow[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onDone: () => void;
+  /**
+   * 打开时预选的目标状态。行内点状态胶囊挑了一个**要填原因**的状态时，
+   * 由列表页把那个值带进来——否则用户要在弹窗里再选一次同一项。
+   */
+  initialTo?: string;
 }) {
   const [to, setTo] = useState<string | undefined>();
   const [reason, setReason] = useState("");
@@ -81,11 +87,11 @@ export function StatusDialog({
 
   useEffect(() => {
     if (open) {
-      setTo(undefined);
+      setTo(initialTo);
       setReason("");
       setError(null);
     }
-  }, [open, target?.id]);
+  }, [open, target?.id, initialTo]);
 
   async function submit() {
     if (unchanged || reasonMissing || !target) return;
@@ -123,7 +129,7 @@ export function StatusDialog({
           type={readiness?.missing.length ? "warning" : "info"}
           showIcon
           style={{ marginBottom: 12 }}
-          message={
+          title={
             readinessQ.isPending
               ? "正在核对归档材料…"
               : readinessQ.isError || !readiness
@@ -201,7 +207,7 @@ export function StatusDialog({
           ) : null}
         </Form.Item>
       </Form>
-      {error ? <Alert type="error" showIcon message={error} /> : null}
+      {error ? <Alert type="error" showIcon title={error} /> : null}
     </Modal>
   );
 }

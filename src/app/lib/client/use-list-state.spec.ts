@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import { REPORT_FILTER_KEYS, REPORT_OMITTED_KEYS } from "@/shared/schema/list-query";
 import { toExportQuery, toQuery, toReportQuery, type ListState } from "./use-list-state";
@@ -35,6 +35,12 @@ const FILTER_KEYS = [
   "archivedOnly",
   "ownerEmpty",
   "missingMaterials",
+  "caseType",
+  "procedure",
+  "owner",
+  "deadlineBucket",
+  "riskLevel",
+  "reportBucket",
 ] as const;
 
 /** 分页与排序不属于"筛选开关"——它们由 `toQuery` 无条件带上，不参与这条断言 */
@@ -64,6 +70,29 @@ const ALL_ON: ListState = {
   archivedOnly: true,
   ownerEmpty: "1",
   missingMaterials: "1",
+  caseType: "civil_commercial",
+  procedure: "first_instance",
+  owner: "9001",
+  deadlineBucket: "overdue",
+  riskLevel: "high",
+  reportBucket: "month",
+};
+
+/** 全部筛选关闭的那一份。**每个筛选键都要显式写回空值**——漏一个，那条"关闭时不该出现"的
+ *  断言就会拿到 `ALL_ON` 里的旧值而恒真地通过。 */
+const ALL_OFF: ListState = {
+  ...ALL_ON,
+  keyword: "",
+  status: "",
+  archivedOnly: false,
+  ownerEmpty: undefined,
+  missingMaterials: undefined,
+  caseType: undefined,
+  procedure: undefined,
+  owner: undefined,
+  deadlineBucket: undefined,
+  riskLevel: undefined,
+  reportBucket: undefined,
 };
 
 describe("toQuery：筛选开关不许被静默丢掉", () => {
@@ -83,15 +112,7 @@ describe("toQuery：筛选开关不许被静默丢掉", () => {
   });
 
   it.each(FILTER_KEYS)("筛选键 %s 在关闭时不出现（不发空参数）", (key) => {
-    const off: ListState = {
-      ...ALL_ON,
-      keyword: "",
-      status: "",
-      archivedOnly: false,
-      ownerEmpty: undefined,
-      missingMaterials: undefined,
-    };
-    expect(new URLSearchParams(toQuery(off)).has(key)).toBe(false);
+    expect(new URLSearchParams(toQuery(ALL_OFF)).has(key)).toBe(false);
   });
 
   it('三态筛选：`undefined` 是不限，`"1"` 才是开启（没有第三个值可写）', () => {
@@ -173,15 +194,7 @@ describe("toExportQuery：导出吃的就是列表那几个筛选，只是没有
   });
 
   it.each(FILTER_KEYS)("筛选键 %s 在关闭时不出现（不发空参数）", (key) => {
-    const off: ListState = {
-      ...ALL_ON,
-      keyword: "",
-      status: "",
-      archivedOnly: false,
-      ownerEmpty: undefined,
-      missingMaterials: undefined,
-    };
-    expect(new URLSearchParams(toExportQuery(off)).has(key)).toBe(false);
+    expect(new URLSearchParams(toExportQuery(ALL_OFF)).has(key)).toBe(false);
   });
 
   it("**不带 page/pageSize**（导出的是整批，不是这一页），排序照带", () => {
@@ -193,15 +206,7 @@ describe("toExportQuery：导出吃的就是列表那几个筛选，只是没有
   });
 
   it("筛选全关时串里只剩排序（不会带出 page=1 这种噪音）", () => {
-    const off: ListState = {
-      ...ALL_ON,
-      keyword: "",
-      status: "",
-      archivedOnly: false,
-      ownerEmpty: undefined,
-      missingMaterials: undefined,
-    };
-    expect([...new URLSearchParams(toExportQuery(off)).keys()].sort()).toEqual([
+    expect([...new URLSearchParams(toExportQuery(ALL_OFF)).keys()].sort()).toEqual([
       "sortBy",
       "sortDir",
     ]);

@@ -182,6 +182,34 @@ describe("守卫：案件列表导出的谓词与特权判定", () => {
     expect(fnBody("exportMatters")).toContain("mattersListWhere(actor, q)");
   });
 
+  /**
+   * 2026-10-19 新增的四格（案件类型 / 程序 / 经办人 / 期限范围）与指标带。
+   *
+   * 三条断言，各盯一个会静默失真的地方：
+   *   · 新筛选只住在 `mattersListWhere` 里 —— 指标带复用**同一个函数**，
+   *     若谁在指标那边另拼一份，"筛了三个条件、列表 3 行、卡片说 12 条"就会同时成立；
+   *   · 指标与列表的 where 调用是同一处；
+   *   · 指标那三个 `EXISTS` 的关联键写**裸限定名** `mn_matter.id` ——
+   *     写成 `${matter.id}` 会被解析成 `n.matter_id = n.id`（恒假、静默 0），
+   *     这个坑在本文件的 `nextDeadline` 上真实发生过一次。
+   */
+  it("新四格的谓词只写在 `mattersListWhere` 里（指标带复用同一处）", () => {
+    expect(code.match(/eq\(matter\.caseType/g) ?? []).toHaveLength(1);
+    expect(code.match(/eq\(matter\.procedure/g) ?? []).toHaveLength(1);
+    expect(code.match(/eq\(matter\.ownerId, BigInt\(q\.owner\)\)/g) ?? []).toHaveLength(1);
+    expect(code.match(/deadlineFilter\(q\.deadlineBucket\)/g) ?? []).toHaveLength(1);
+  });
+
+  it("指标带与列表**共用**那个 where（各拼一份就会对不上）", () => {
+    expect(fnBody("matterMetrics")).toContain("mattersListWhere(actor, q)");
+  });
+
+  it("指标的 EXISTS 关联键是裸限定名 `mn_matter.id`（写成 `${matter.id}` 会恒假、静默 0）", () => {
+    const metrics = fnBody("hasOpenNode") + fnBody("hasUnconfirmedNode");
+    expect(metrics).toContain("n.matter_id = mn_matter.id");
+    expect(metrics).not.toMatch(/n\.matter_id\s*=\s*"id"/);
+  });
+
   it("服务层不出现 `canReadPlain`（明文导出的门只在 HTTP 层那一处）", () => {
     expect(code).not.toContain("canReadPlain");
   });

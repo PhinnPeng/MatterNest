@@ -101,8 +101,8 @@ try {
 
   // markdown 以**纯文本**存储 → 直接对 description 列 ILIKE 就能命中，
   // 不需要为搜索另加纯文本投影列（这正是 ADR 选 markdown 而非 JSON 的理由）。
-  // ⚠ 注意：事项的关键词筛选器（keywordFilter）当前只搜 name/code/measure，**不含 description**
-  //   ——那是既有产品口径，本票没扩它。这里验的是"存储格式可被 ILIKE 直接命中"这条契约，
+  // ⚠ 注意：事项的关键词筛选器（keywordFilter）当前只搜 name/code，**不含 description**
+  //   ——「已采取措施」那一段已随迁移 0017 从筛选面撤下；描述不进关键词是既有产品口径，本票没扩它。这里验的是"存储格式可被 ILIKE 直接命中"这条契约，
   //   不是"描述进不进关键词筛选"。
   const [ilikeHit] = await sql`
     select count(*)::int as n from mn_risk_matter

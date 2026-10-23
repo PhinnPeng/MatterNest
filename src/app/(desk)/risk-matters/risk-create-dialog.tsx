@@ -128,7 +128,7 @@ export function RiskCreateDialog({
           type="error"
           showIcon
           style={{ marginBottom: 12 }}
-          message={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
+          title={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
         />
       ) : null}
       <Form
@@ -136,11 +136,13 @@ export function RiskCreateDialog({
         layout="vertical"
         requiredMark={false}
         scrollToFirstError={{ block: "center", behavior: "smooth" }}
-        initialValues={{ amount: "", source: "" }}
+        initialValues={{ source: "" }}
       >
         {/* 三个分区（canon `.fsec`）与字段顺序按 canon-spec §30 的逻辑配对：
-            事项名称 → 风险类型/等级 → 来源/发现日期 → 预估影响 → 描述（富文本）→ 已采取措施
-            → 处理人/关注人。**每行最多两个字段**（原为此前 span8 三格一行，违反契约）。 */}
+            事项名称 → 风险类型/等级 → 来源/发现日期 → 描述（富文本）
+            → 处理人/关注人。**每行最多两个字段**（原为此前 span8 三格一行，违反契约）。
+            「预估影响」「已采取措施」两栏已于 2026-10-22 撤下：处置过程走详情页的
+            处置记录（评论时间线），金额走费用台账。 */}
         <div className="fsec">基本信息</div>
         <Row gutter={[16, 0]}>
           <Col span={24}>
@@ -180,18 +182,9 @@ export function RiskCreateDialog({
               <DatePicker style={{ width: "100%" }} />
             </Form.Item>
           </Col>
-          <Col span={24}>
-            <Form.Item
-              label="预估影响（元）"
-              name="amount"
-              rules={rulesFor(riskCreateSchema, ["amount"])}
-            >
-              <Input placeholder="最多两位小数" />
-            </Form.Item>
-          </Col>
         </Row>
 
-        <div className="fsec">情况与处置</div>
+        <div className="fsec">情况</div>
         <Row gutter={[16, 0]}>
           <Col span={24}>
             {/* 描述是富文本（MATT-57 / ADR-0002）：markdown 存储，BlockNote 编辑。
@@ -206,15 +199,6 @@ export function RiskCreateDialog({
               rules={rulesFor(riskCreateSchema, ["description"])}
             >
               <RichTextFormField />
-            </Form.Item>
-          </Col>
-          <Col span={24}>
-            <Form.Item
-              label="已采取措施"
-              name="measure"
-              rules={rulesFor(riskCreateSchema, ["measure"])}
-            >
-              <Input.TextArea rows={2} maxLength={5000} />
             </Form.Item>
           </Col>
         </Row>

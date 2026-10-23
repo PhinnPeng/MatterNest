@@ -228,6 +228,9 @@ async function dropSmokeAccountStrict(sql, userId) {
   await sql`delete from mn_notification_delivery where user_id = ${userId}`;
   await sql`delete from mn_user_watch where user_id = ${userId}`;
   await sql`delete from mn_import_batch where created_by = ${userId}`;
+  // 附件（迁移 0018）：`uploaded_by` 是 NOT NULL + RESTRICT，不清就会挡住删账号。
+  // 挂到评论上的行也一并删：那是冒烟夹具的评论，不是演示数据。
+  await sql`delete from mn_attachment where uploaded_by = ${userId} or deleted_by = ${userId}`;
 
   // 2) 可空的归属列：只解除引用，不动业务行
   await sql`update mn_matter_node set owner_id = null where owner_id = ${userId}`;

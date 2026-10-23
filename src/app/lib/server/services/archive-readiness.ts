@@ -24,18 +24,18 @@ import { NODE_OPEN_STATUSES } from "@/shared/enums/business";
  *
  * **仅案件侧**：事项没有材料完整要求（与"事项是台账"一致），所以本文件只认 `matter`。
  *
- * ## 第①项为什么是 `unavailable` 而不是 `missing`
+ * ## 第①项为什么仍是 `unavailable`（虽然附件通道已打通）
  *
- * `mn_attachment` 是**一期故意不建**的三张表之一（`db/schema/collab.ts` 开篇写明：
- * MinIO 服务账号未开通，接了没有可写目标）。所以第①项**没有可查的数据源**。
+ * 2026-10-22 附件通道已经落地（`mn_attachment` + MinIO），但**这一项还判不了**：
+ * 判定要的是 `attachment.category='judgment'`，而目前的唯一入口是评论附件，
+ * 它不产生分类（`category` 为 NULL）。换句话说，数据源有了，**"这份是判决书"这个事实
+ * 还没有地方可以输入** —— 按 `category` 查会恒得 0，那就等于把每一条案件都判成缺材料。
  *
- * 它不能算绿（那是假齐备），也不能算红（那会把每一条案件都判成缺材料，而 G4 指标
- * "归档材料完整率"正是以 `missing_at_archive` 为唯一数据源的——假红直接污染那个指标）。
- * 所以单列第三种状态 **`unavailable`（暂不可判）**，并写进 `unavailable_at_archive`，
- * 让"空数组 = 齐备"这句话不会把没判过的项吞掉。
+ * 它不能算绿（那是假齐备），也不能算红（假红会污染 G4 指标「归档材料完整率」——
+ * 那个指标的唯一数据源就是 `missing_at_archive`）。所以继续单列 `unavailable`。
  *
- * 槽位在这里就留好了：MATT-15（附件通道）打通后，只需把这一项的 `state` 从
- * `unavailable` 换成对 `mn_attachment` 的查询——判定结构、落库字段、两个出口都不用动。
+ * 槽位仍在原位：等附件页签（能选分类）落地后，把这一项的 `state` 从 `unavailable`
+ * 换成对 `mn_attachment` 的查询——判定结构、落库字段、两个出口都不用动。
  */
 
 /** 事务句柄：从 `transaction` 的回调参数上取，比自己拼 PgTransaction 泛型稳（仓内既有写法） */
@@ -90,7 +90,7 @@ export type ArchiveReadiness = {
 export const READINESS_CHECKS: readonly { key: ReadinessCheckKey; label: string }[] = [
   { key: "judgment", label: "裁判文书已归档" },
   { key: "closingDate", label: "结案日期已填" },
-  { key: "openNodes", label: "无未决工作节点" },
+  { key: "openNodes", label: "无未决时间节点" },
 ];
 
 /**
@@ -135,7 +135,7 @@ export async function judgeArchiveReadiness(
   const openNodes = Number(nodeRow?.n ?? 0);
 
   const checks: ReadinessCheck[] = [
-    // ① 附件：见文件头注（表未建 ⇒ 暂不可判，既不算绿也不算红）
+    // ① 附件：见文件头注（表已建，但还没有"给附件分类"的入口 ⇒ 仍暂不可判）
     { key: "judgment", state: "unavailable", reason: "attachment_not_built" },
     { key: "closingDate", state: row.closingDate ? "ok" : "missing" },
     { key: "openNodes", state: openNodes === 0 ? "ok" : "missing", count: openNodes },

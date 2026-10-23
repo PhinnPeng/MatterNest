@@ -14,7 +14,6 @@ import {
   Modal,
   Row,
   Select,
-  Space,
   Typography,
 } from "antd";
 import type { Dayjs } from "dayjs";
@@ -268,7 +267,7 @@ export function MatterCreateDialog({
             type="error"
             showIcon
             style={{ marginBottom: 12 }}
-            message={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
+            title={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
           />
         ) : null}
 
@@ -368,73 +367,96 @@ export function MatterCreateDialog({
         <Form.List name="parties">
           {(fields, { add, remove }) => (
             <Form.Item label="当事人" style={{ marginBottom: 0 }}>
-              <Space orientation="vertical" size={6} style={{ display: "flex" }}>
-                {fields.map((f) => (
-                  <Row key={f.key} gutter={8} align="middle">
-                    <Col span={9}>
-                      <Form.Item
-                        name={[f.name, "name"]}
-                        rules={rulesFor(matterCreateSchema, ["parties", 0, "name"])}
-                        style={{ marginBottom: 0 }}
-                      >
-                        <PartyNameInput
-                          onPick={(hit) => {
-                            // 名字之外的两格跟着引用行走：选了库里这一行，类型就不该再手挑一次
-                            form.setFieldValue(
-                              ["parties", f.name, "partyId"],
-                              hit?.id ?? undefined,
-                            );
-                            if (hit) form.setFieldValue(["parties", f.name, "type"], hit.type);
-                          }}
-                        />
-                      </Form.Item>
-                      {/* 引用态要显出来：没有这一句，用户分不清"改的是全局那一家"还是"只写进本案卷" */}
-                      {partyRows?.[f.name]?.partyId ? (
-                        <div style={{ fontSize: 12, marginTop: 2 }}>
-                          <Typography.Text type="secondary">
-                            已引用库中当事人 · 名称是共享信息，会同步到所有案卷
-                          </Typography.Text>
-                        </div>
-                      ) : null}
-                    </Col>
-                    <Col span={5}>
-                      <Form.Item name={[f.name, "type"]} style={{ marginBottom: 0 }}>
-                        <Select
-                          placeholder="类型"
-                          options={meta ? toOptions(meta.enums.partyTypes) : []}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col span={5}>
-                      <Form.Item name={[f.name, "partyRole"]} style={{ marginBottom: 0 }}>
-                        <Select
-                          placeholder="诉讼地位"
-                          options={meta ? toOptions(meta.enums.litigationRoles) : []}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col span={2}>
-                      <Button size="small" onClick={() => remove(f.name)}>
-                        删
-                      </Button>
-                    </Col>
-                  </Row>
-                ))}
-                <div>
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      add({
-                        name: "",
-                        type: "legal_person",
-                        partyRole: "plaintiff",
-                      })
-                    }
-                  >
-                    添加当事人
-                  </Button>
-                </div>
-              </Space>
+              {/*
+                表格形态（2026-10-21 用户裁定）：名称 / 类型 / 诉讼地位 / 操作 四列。
+                原来是每行四个平铺字段，列宽靠 `Col span` 猜；收成表格之后列头直接
+                交代"这一列填什么"，增删行时各列也天然对齐。走 `.tbform` 而不是
+                `DataTable`：这是表单控件排布，没有服务端分页/排序/筛选。
+              */}
+              <table className="tbform">
+                <thead>
+                  <tr>
+                    <th style={{ width: "48%" }}>名称</th>
+                    <th style={{ width: "20%" }}>类型</th>
+                    <th style={{ width: "22%" }}>诉讼地位</th>
+                    <th style={{ width: 56 }}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fields.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ color: "var(--ink3)", fontSize: 12 }}>
+                        尚未添加当事人
+                      </td>
+                    </tr>
+                  ) : null}
+                  {fields.map((f) => (
+                    <tr key={f.key}>
+                      <td>
+                        <Form.Item
+                          name={[f.name, "name"]}
+                          rules={rulesFor(matterCreateSchema, ["parties", 0, "name"])}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <PartyNameInput
+                            onPick={(hit) => {
+                              // 名字之外的两格跟着引用行走：选了库里这一行，类型就不该再手挑一次
+                              form.setFieldValue(
+                                ["parties", f.name, "partyId"],
+                                hit?.id ?? undefined,
+                              );
+                              if (hit) form.setFieldValue(["parties", f.name, "type"], hit.type);
+                            }}
+                          />
+                        </Form.Item>
+                        {/* 引用态要显出来：没有这一句，用户分不清"改的是全局那一家"还是"只写进本案卷" */}
+                        {partyRows?.[f.name]?.partyId ? (
+                          <div style={{ fontSize: 12, marginTop: 2 }}>
+                            <Typography.Text type="secondary">
+                              已引用库中当事人 · 名称是共享信息，会同步到所有案卷
+                            </Typography.Text>
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>
+                        <Form.Item name={[f.name, "type"]} style={{ marginBottom: 0 }}>
+                          <Select
+                            placeholder="类型"
+                            options={meta ? toOptions(meta.enums.partyTypes) : []}
+                          />
+                        </Form.Item>
+                      </td>
+                      <td>
+                        <Form.Item name={[f.name, "partyRole"]} style={{ marginBottom: 0 }}>
+                          <Select
+                            placeholder="诉讼地位"
+                            options={meta ? toOptions(meta.enums.litigationRoles) : []}
+                          />
+                        </Form.Item>
+                      </td>
+                      <td>
+                        <Button size="small" onClick={() => remove(f.name)}>
+                          删
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 8 }}>
+                <Button
+                  size="small"
+                  onClick={() =>
+                    add({
+                      name: "",
+                      type: "legal_person",
+                      partyRole: "plaintiff",
+                    })
+                  }
+                >
+                  添加当事人
+                </Button>
+              </div>
             </Form.Item>
           )}
         </Form.List>

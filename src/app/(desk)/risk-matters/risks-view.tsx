@@ -2,21 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { App as AntdApp, Checkbox, Form, Input, Modal, Select } from "antd";
+import { useQuery } from "@tanstack/react-query";
+import { App as AntdApp, Button, Form, Input, Modal, Select, Tooltip } from "antd";
 import type { TableColumnsType } from "antd";
+import { ReloadOutlined } from "@ant-design/icons";
 
 import { api, ApiFailure, useMeta, type Meta } from "@/app/lib/client/api";
-import { toQuery, useListState } from "@/app/lib/client/use-list-state";
-import { calDate, fromNow, money } from "@/app/lib/client/format";
+import { toQuery, useListState, type ListState } from "@/app/lib/client/use-list-state";
 import { BATCH_SKIP_REASON_LABELS, MAX_BATCH_IDS, type BatchSummary } from "@/shared/schema/batch";
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { FilterField, QueryFilter } from "@/app/components/query-filter";
 import { ExportListButton } from "@/app/components/export-file-button";
-import { ReportCards } from "@/app/components/report-cards";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { FlagMark, StatusMark } from "@/app/components/ui/status-mark";
+import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { ConvertDialog } from "./convert-dialog";
 import { RiskCreateDialog } from "./risk-create-dialog";
@@ -28,16 +27,29 @@ type RiskRow = {
   name: string;
   type: string;
   level: string;
-  amount: string;
   status: string;
   conversionStatus: number;
   convertedCaseCount: number;
+  /** 已转案件时第一个案卷的 id（`操作`列「查看案件」跳过去）；未转为 null */
+  convertedMatterId: string | null;
   isArchived: boolean;
   discoverDate: string;
+  /** 上报时间：登记进系统的时刻（`created_at`） */
+  createdAt: string;
   updatedAt: string;
   ownerName: string;
+  /** 最近一个未决节点的期限（服务端 `nextDeadline` 投影）。事项侧无预设节点，常见为空 */
+  nextDeadline: string | null;
 };
 type ListResult = { items: RiskRow[]; page: number; pageSize: number; total: number };
+
+/**
+ * 经办人下拉里「未指派」那一项的值。
+ *
+ * 不占 `owner` 的取值空间（那是指纹数字 id），也不与空串（= 全部）混淆：
+ * 三态是"全部 / 某个人 / 未指派"，后端用 `owner` 与 `ownerEmpty` 两个键分别承接。
+ */
+const UNASSIGNED = "__unassigned__";
 
 /**
  * 风险事项列表（在办）。
@@ -55,7 +67,7 @@ type ListResult = { items: RiskRow[]; page: number; pageSize: number; total: num
  */
 export function RisksView() {
   const router = useRouter();
-  const qc = useQueryClient();
+  const { message } = AntdApp.useApp();
   const { state, push } = useListState();
   const { data: meta } = useMeta("risk_matter");
   const [converting, setConverting] = useState<RiskRow | null>(null);
@@ -65,8 +77,9 @@ export function RisksView() {
   /**
    * 批量动作的选中集合（MATT-45）——**受控，且只装当前页的 id**。
    *
-   * 与案件列表逐条同构（那边写全了理由）：`DataTable` 不支持逐行勾选，所以选择面收敛成
-   * "当前页全选 / 全不选"，并把它摆在三个动作按钮旁边；翻页/换筛选后旧 id 一律丢掉。
+   * 与案件列表逐条同构：勾选列由 `DataTable` 的 `rowSelection` 画（44px，含表头全选），
+   * 选中之后才出现的那条工具条（改状态 / 归档 / 加标签）由 `toolbar` 承接；
+   * 翻页/换筛选后旧 id 一律丢掉。
    *
    * ⚠ 事项侧的批量动作**不含"转案件"**：转案件是 N 张卡片的表单（每张卡的案由/审级/
    * 诉讼地位/法院/金额逐案不同），批量做会让"哪张卡对应哪个事项"无从表达。
@@ -79,16 +92,41 @@ export function RisksView() {
 
   const [kw, setKw] = useState(state.keyword);
   const [st, setSt] = useState(state.status);
-  // 未指派筛选。undefined = 不限（后端 list-query.ts 的 ownerEmptyField 有注释）
-  const [ownerEmpty, setOwnerEmpty] = useState(Boolean(state.ownerEmpty));
+  /** 经办人：某个人的 id，或 `UNASSIGNED`（未指派）。空串 = 全部（含未指派） */
+  const [owner, setOwner] = useState(state.ownerEmpty ? UNASSIGNED : (state.owner ?? ""));
+  /** 风险等级 / 上报时间：与关键词、状态一样是**草稿**，点「查询」才进 URL（提交式筛选） */
+  const [lv, setLv] = useState(state.riskLevel ?? "");
+  const [report, setReport] = useState(state.reportBucket ?? "");
   useEffect(() => {
     setKw(state.keyword);
     setSt(state.status);
-  }, [state.keyword, state.status]);
+    setOwner(state.ownerEmpty ? UNASSIGNED : (state.owner ?? ""));
+    setLv(state.riskLevel ?? "");
+    setReport(state.reportBucket ?? "");
+  }, [
+    state.keyword,
+    state.status,
+    state.owner,
+    state.ownerEmpty,
+    state.riskLevel,
+    state.reportBucket,
+  ]);
 
   const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["risk-matters", state],
     queryFn: () => api.get<ListResult>(`/api/risk-matters?${toQuery(state)}`),
+  });
+
+  /**
+   * 经办人下拉的候选：**当前筛选下真实出现过的人**（端点口径同案件侧），
+   * 不是花名册。`owner` 自己清掉，否则选了一个人下拉就只剩他。
+   */
+  const owners = useQuery({
+    queryKey: ["risk-matter-owners", state.status, state.riskLevel, state.reportBucket],
+    queryFn: () =>
+      api.get<{ owners: { id: string; displayName: string }[] }>(
+        `/api/risk-matters/owners?${toQuery({ ...state, owner: "", ownerEmpty: undefined })}`,
+      ),
   });
 
   /** 当前页的行与 id：批量选中集合的取值域（`data` 不变时身份稳定，effect 才不会被空跑） */
@@ -117,128 +155,110 @@ export function RisksView() {
   );
 
   function submit() {
-    push({ keyword: kw.trim(), status: st, ownerEmpty: ownerEmpty ? "1" : undefined });
-  }
-
-  /** 未指派筛选是即时生效的：它就是一个开关，不需要再点一次"查询" */
-  function applyOwnerEmpty(v: boolean) {
-    setOwnerEmpty(v);
-    push(v ? { ownerEmpty: "1" } : { ownerEmpty: undefined });
+    push({
+      keyword: kw.trim(),
+      status: st,
+      // 二选一：选了具体的人就不能同时是「未指派」
+      owner: owner === UNASSIGNED || !owner ? "" : owner,
+      ownerEmpty: owner === UNASSIGNED ? "1" : undefined,
+      riskLevel: lv,
+      reportBucket: report || undefined,
+    });
   }
 
   function reset() {
     setKw("");
     setSt("");
-    setOwnerEmpty(false);
-    push({ keyword: "", status: "", ownerEmpty: undefined });
+    setLv("");
+    setReport("");
+    setOwner("");
+    push({
+      keyword: "",
+      status: "",
+      owner: "",
+      ownerEmpty: undefined,
+      riskLevel: "",
+      reportBucket: undefined,
+    });
   }
 
+  /**
+   * 列集照 canon 原型 `risk-matters.html`（2026-10-22 用户裁定"按原型对齐"），
+   * 读法与案件列表同一套：勾选列 44 → 事项编号 → 事项名称（伸缩）→ 风险等级 →
+   * 事项状态 → 经办人 → 上报时间 → 期限 → 转案件 → 操作。
+   *
+   * 相比旧列集移走三样，都不是丢数据：
+   *   · **类型** → 详情页「基本信息」（与案件侧去掉「类型」同一个理由：同一批事项
+   *     几乎全是同一个词，占着 76px 却几乎不携带信息）；
+   *   · **更新** → 那是"这一条最近动过没"，不是台账要读的日期；这一列的位置让给「期限」，
+   *     因为期限是会被引用、会过期的东西（规则 3：临期与逾期必须一眼扫得到）；
+   *   · **发现日** → 原型这一列是「上报时间」，即 `created_at`（报上来的时刻），
+   *     不是 `discover_date`（什么时候发现的）。两者在建号时就可以不同，所以不混用。
+   *
+   * ⚠ 「经办人」90 而不是原型的 76：这一列可排序，箭头要占约 18px，
+   * 76 会把表头本身裁成「经…」（案件侧同一个坑，见 `matters-view.tsx`）。
+   * 宽度合计 ≈ 44+150+96+96+90+100+118+88+96 ≈ 878 + 名称列的弹性。
+   */
   const columns = useMemo<TableColumnsType<RiskRow>>(
     () => [
       {
         key: "code",
-        title: "编号",
-        width: 128,
+        title: "事项编号",
+        width: 150,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("code", state.sortBy, state.sortDir),
-        render: (_, r) => (
-          <span className="num mut" style={{ fontSize: 12 }}>
-            {r.code}
-          </span>
-        ),
+        render: (_, r) => <span className="num">{r.code}</span>,
       },
       {
         key: "name",
         title: "事项名称",
-        width: 204,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("name", state.sortBy, state.sortDir),
+        /**
+         * 全名走 `Tooltip` 而不是原生 `title`：名称列吃剩余宽度，长名字会被省略号截断，
+         * 而"被截断的那半截"往往正是分不出是哪条事项的地方（与案件列表同一个做法）。
+         */
         render: (_, r) => (
-          <Link
-            href={`/risk-matters/${r.id}`}
-            title={r.name}
-            style={{
-              display: "block",
-              maxWidth: 200,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              fontWeight: 500,
-            }}
-          >
-            {r.name}
-          </Link>
+          <Tooltip title={r.name} mouseEnterDelay={0.2}>
+            <a href={`/risk-matters/${r.id}`} onClick={(e) => e.stopPropagation()}>
+              {r.name}
+            </a>
+          </Tooltip>
         ),
       },
       {
-        key: "type",
-        title: "类型",
-        width: 76,
-        ellipsis: true,
-        render: (_, r) => meta?.enums.riskTypes[r.type] ?? r.type,
-      },
-      {
         key: "risk_level",
-        title: "等级",
-        width: 76,
+        title: "风险等级",
+        width: 96,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("risk_level", state.sortBy, state.sortDir),
-        render: (_, r) => meta?.levels.find((l) => l.code === r.level)?.name ?? r.level,
+        /**
+         * 描边 `.tag` 而不是纯文字（原型：高风险红 / 中风险黄 / 低风险中性）。
+         * 词还得留着——颜色不能是唯一通道；配色只表达"这一条有多急"。
+         */
+        render: (_, r) => {
+          const name = meta?.levels.find((l) => l.code === r.level)?.name ?? r.level;
+          const tone = r.level === "high" ? "danger" : r.level === "mid" ? "warn" : "neutral";
+          // 原型写「高风险」——配置表里的名字是「高」；已经带"风险"两字的不再重复拼
+          return <FlagMark tone={tone}>{name.endsWith("风险") ? name : `${name}风险`}</FlagMark>;
+        },
       },
       {
         key: "status",
-        title: "状态",
-        width: 78,
+        title: "事项状态",
+        width: 96,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("status", state.sortBy, state.sortDir),
         render: (_, r) => <StatusMark host="risk_matter" code={r.status} />,
       },
       {
-        key: "conversion",
-        title: "转案件",
-        width: 88,
-        ellipsis: true,
-        render: (_, r) =>
-          r.conversionStatus === 1 ? (
-            <FlagMark tone="info" title={`已由该事项建了 ${r.convertedCaseCount} 个案卷`}>
-              已转 · {r.convertedCaseCount}
-            </FlagMark>
-          ) : (
-            <span className="mut3" style={{ fontSize: 12 }}>
-              未转
-            </span>
-          ),
-      },
-      {
-        key: "amount",
-        title: "预估影响",
-        width: 108,
-        ellipsis: true,
-        align: "right",
-        sorter: true,
-        sortOrder: sortOrderOf("amount", state.sortBy, state.sortDir),
-        render: (_, r) => <span className="num">{money(r.amount)}</span>,
-      },
-      {
-        key: "discover",
-        title: "发现日",
-        // 112 而不是 88：`calDate` 输出的是"2026年9月22日"，88 会把日号截成"2026年9月2…"。
-        // 日期被裁掉一位比名字被裁危险得多——它看起来仍像一个完整日期。
-        width: 112,
-        ellipsis: true,
-        render: (_, r) => (
-          <span className="num" style={{ fontSize: 12 }}>
-            {calDate(r.discoverDate)}
-          </span>
-        ),
-      },
-      {
         key: "owner_name",
-        title: "负责人",
-        width: 96,
+        title: "经办人",
+        width: 90,
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf("owner_name", state.sortBy, state.sortDir),
@@ -254,34 +274,68 @@ export function RisksView() {
           ),
       },
       {
-        key: "updated_at",
-        title: "更新",
-        width: 72,
+        key: "report",
+        title: "上报时间",
+        // 100 与案件侧「立案日期」同档：两边都是 ISO 日期（2026-10-12），
+        // 同一屏里两个日期列长得一样，扫读时才不用换一种解析方式。
+        width: 100,
         ellipsis: true,
-        sorter: true,
-        sortOrder: sortOrderOf("updated_at", state.sortBy, state.sortDir),
-        render: (_, r) => (
-          <span className="mut3" style={{ fontSize: 12 }}>
-            {fromNow(r.updatedAt)}
-          </span>
-        ),
+        // `created_at` 是时间戳，列里只要日子（原型的写法）
+        render: (_, r) => <span className="num">{r.createdAt.slice(0, 10)}</span>,
+      },
+      {
+        key: "next_deadline",
+        title: "期限",
+        width: 118,
+        ellipsis: true,
+        /**
+         * 逾期红 / 7 日内黄 / 其余灰，文案带"还剩几天"（`DeadlineMark`）。
+         * 事项侧没有预设节点（IQ-5），所以这里大部分行会是「未定」——那是一个真实的读数，
+         * 不是缺数据，所以不藏这一列。
+         */
+        render: (_, r) => <DeadlineMark iso={r.nextDeadline} />,
+      },
+      {
+        key: "conversion",
+        title: "转案件",
+        width: 88,
+        ellipsis: true,
+        /**
+         * 未转的行给**动作**，已转的行给**事实**（原型同一格两种形态）。
+         * 已转的行不再给按钮：转案件不可撤销，摆一个点了必被 409 挡下的按钮是骗人。
+         */
+        render: (_, r) =>
+          r.conversionStatus === 1 ? (
+            <FlagMark tone="info" title={`已由该事项建了 ${r.convertedCaseCount} 个案卷`}>
+              已转案件
+            </FlagMark>
+          ) : (
+            <Button
+              type="link"
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConverting(r);
+              }}
+            >
+              转案件
+            </Button>
+          ),
       },
       {
         key: "actions",
         title: "操作",
-        width: 72,
-        fixed: "right",
+        width: 96,
+        ellipsis: true,
         render: (_, r) => (
-          <button
-            type="button"
-            className="btn link"
-            onClick={(e) => {
-              e.stopPropagation();
-              setConverting(r);
-            }}
+          <Button
+            type="link"
+            size="small"
+            href={r.convertedMatterId ? `/matters/${r.convertedMatterId}` : `/risk-matters/${r.id}`}
+            onClick={(e) => e.stopPropagation()}
           >
-            转案件
-          </button>
+            {r.convertedMatterId ? "查看案件" : "查看"}
+          </Button>
         ),
       },
     ],
@@ -304,45 +358,78 @@ export function RisksView() {
   }
 
   return (
-    <div className="stack">
-      <QueryFilter onSearch={submit} onReset={reset} busy={isFetching}>
-        <FilterField label="关键词" htmlFor="risk-keyword" width={280}>
+    <div className="stack list">
+      <QueryFilter
+        onSearch={submit}
+        onReset={reset}
+        busy={isFetching}
+        searchType="default"
+        actions={
+          <Button type="primary" onClick={() => setCreating(true)}>
+            登记事项
+          </Button>
+        }
+      >
+        <FilterField label="关键词" htmlFor="risk-keyword" width={200}>
           <Input
             id="risk-keyword"
             allowClear
             value={kw}
-            placeholder="编号 / 名称 / 措施"
+            placeholder="编号 / 事项名称 / 描述"
             onChange={(e) => setKw(e.target.value)}
             onPressEnter={submit}
           />
         </FilterField>
-        <FilterField label="状态" width={160}>
+        <FilterField label="事项状态" htmlFor="risk-status" width={120}>
           <Select
+            id="risk-status"
             allowClear
-            placeholder="全部"
+            placeholder="全部状态"
             value={st || undefined}
             options={statusOptions}
             onChange={(v) => setSt(v ?? "")}
           />
         </FilterField>
-        <FilterField label="经办人" width={150}>
+        <FilterField label="风险等级" htmlFor="risk-level" width={120}>
           <Select
+            id="risk-level"
             allowClear
-            placeholder="全部"
-            value={ownerEmpty ? "1" : undefined}
-            options={[{ value: "1", label: "未指派" }]}
-            onChange={(v) => applyOwnerEmpty(Boolean(v))}
+            placeholder="全部等级"
+            value={lv || undefined}
+            options={(meta?.levels ?? []).map((l) => ({ value: l.code, label: l.name }))}
+            onChange={(v) => setLv(v ?? "")}
+          />
+        </FilterField>
+        <FilterField label="经办人" htmlFor="risk-owner" width={150}>
+          <Select
+            id="risk-owner"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="全部（含未指派）"
+            value={owner || undefined}
+            options={[
+              { value: UNASSIGNED, label: "未指派" },
+              ...(owners.data?.owners ?? []).map((o) => ({ value: o.id, label: o.displayName })),
+            ]}
+            onChange={(v) => setOwner(v ?? "")}
+          />
+        </FilterField>
+        <FilterField label="上报时间" htmlFor="risk-report" width={120}>
+          <Select
+            id="risk-report"
+            allowClear
+            placeholder="全部时间"
+            value={report || undefined}
+            options={[
+              { value: "week", label: "近 7 天" },
+              { value: "month", label: "近 30 天" },
+              { value: "quarter", label: "近 90 天" },
+            ]}
+            onChange={(v) => setReport(v ?? "")}
           />
         </FilterField>
       </QueryFilter>
-
-      {/*
-        统计卡（MATT-46 / F8-1 + F8-2）。位置：查询区**下面**、表格上面——
-        它是查询区那几个筛选的读数（改筛选 → 数字跟着变），所以紧挨着筛选；
-        而查询区本身留在全站列表页的第一屏位置（五个列表页的查询区都在同一处，
-        把卡片插到它上面会让本页与其余四页的结构对不上）。
-      */}
-      <ReportCards host="risk_matter" filters={state} />
 
       {batchResult ? (
         <div role="status" className="card" style={{ padding: "12px 16px", fontSize: 13 }}>
@@ -376,85 +463,81 @@ export function RisksView() {
 
       <DataTable<RiskRow>
         title="事项列表"
+        rowSelection={{
+          type: "checkbox",
+          /** canon `risk-matters.html` 的勾选列 44px，与案件列表同一口径 */
+          columnWidth: 44,
+          selectedRowKeys: selected,
+          /**
+           * 一次批量最多 `MAX_BATCH_IDS`（50）条，而 `pageSize` 可以到 `MAX_PAGE_SIZE`（100）：
+           * 表头全选会选出一个**注定 400** 的集合。所以在入口处截断并说明，而不是等提交后
+           * 才让用户知道——静默只选前 50 条更糟，用户会以为全选就是全选（案件侧同款处理）。
+           */
+          onChange: (keys) => {
+            const next = keys.map(String);
+            if (next.length > MAX_BATCH_IDS) {
+              setSelected(next.slice(0, MAX_BATCH_IDS));
+              void message.warning(
+                `一次批量最多 ${MAX_BATCH_IDS} 条，已保留前 ${MAX_BATCH_IDS} 条`,
+              );
+              return;
+            }
+            setSelected(next);
+          },
+          /** 已到上限时，未选中的行不能再勾——让上限在控件上看得见 */
+          getCheckboxProps: (r) => ({
+            disabled: !selected.includes(r.id) && selected.length >= MAX_BATCH_IDS,
+          }),
+        }}
+        refresh={
+          /*
+            刷新是**视图控件**，与「列设置」并排放在右端（2026-10-21 用户定的次序）。
+            本页顶部的统计卡已按原型撤掉（2026-10-22），所以只刷列表这一份读数。
+          */
+          <Button size="small" icon={<ReloadOutlined />} onClick={() => void refetch()} />
+        }
         tools={
+          /*
+            右端只留**不依赖选中**的两个入口，次序与案件列表一致：导入 → 导出。
+            登记事项按原型搬到了查询区右端（`QueryFilter` 的 `actions`），
+            它是本页的主色按钮，与「查询」并排时「查询」降为次要形态。
+          */
           <>
             {/*
-              选中集合的入口就在三个动作按钮旁边：`DataTable` 不支持逐行勾选（见上面 `selected`
-              的注释），所以这里必须把"选了多少条"说出来——否则用户是按了按钮才知道作用范围的。
-
-              `pageSize` 可以到 100（`MAX_PAGE_SIZE`），而一次批量最多 `MAX_BATCH_IDS`（50）条：
-              两者不等时"全选当前页"会**做出一个注定 400 的选择**。所以那一档直接禁掉并把原因
-              写出来——静默只选前 50 条更糟，用户会以为"全选"就是全选。
-            */}
-            <Checkbox
-              checked={pageIds.length > 0 && selected.length === pageIds.length}
-              disabled={!pageIds.length || pageIds.length > MAX_BATCH_IDS}
-              onChange={(e) => setSelected(e.target.checked ? pageIds : [])}
-            >
-              全选当前页
-            </Checkbox>
-            {pageIds.length > MAX_BATCH_IDS ? (
-              <span className="mut3" style={{ fontSize: 12 }}>
-                当前页 <span className="num">{pageIds.length}</span> 条，超过一次批量的上限{" "}
-                <span className="num">{MAX_BATCH_IDS}</span> 条
-              </span>
-            ) : null}
-            {selected.length ? (
-              <span className="mut" style={{ fontSize: 12 }}>
-                已选 <span className="num">{selected.length}</span> 条
-              </span>
-            ) : null}
-            <button
-              type="button"
-              className="btn sm"
-              disabled={!selected.length}
-              onClick={() => setBatch("status")}
-            >
-              改状态
-            </button>
-            <button
-              type="button"
-              className="btn sm"
-              disabled={!selected.length}
-              onClick={() => setBatch("archive")}
-            >
-              归档
-            </button>
-            <button
-              type="button"
-              className="btn sm"
-              disabled={!selected.length}
-              onClick={() => setBatch("tag")}
-            >
-              加标签
-            </button>
-
-            <button
-              type="button"
-              className="btn sm"
-              onClick={() => {
-                void refetch();
-                // 统计卡是同一页的另一份读数：只刷列表会让"列表 21 行、卡片 20"同时成立
-                // （工作台的刷新也是这个口径：一次刷掉本页所有读数）
-                void qc.invalidateQueries({ queryKey: ["reports"] });
-              }}
-            >
-              刷新
-            </button>
-            {/* 导出吃的是**当前筛选**（含「未指派」那一档）：`state` 自己进控件 */}
-            <ExportListButton path="/api/risk-matters/export" fileBase="事项列表" state={state} />
-            {/*
-              批量导入（MATT-102）：入口从系统组的独立页搬到这里、弹层形式。
-              类型由**本页**锁定为 `risk_matter`（弹层里不给类型选择器）。
+              批量导入（MATT-102）：类型由**本页**锁定为 `risk_matter`（弹层里不给类型选择器）。
               `canImport` 由服务端每个端点判（403），前端不镜像谓词（见 ImportDialog 文件头）。
             */}
-            <button type="button" className="btn sm" onClick={() => setImporting(true)}>
+            <Button size="small" onClick={() => setImporting(true)}>
               批量导入
-            </button>
-            <button type="button" className="btn pri sm" onClick={() => setCreating(true)}>
-              新建事项
-            </button>
+            </Button>
+            {/* 导出吃的是**当前筛选**（含「未指派」与新增两档）：`state` 自己进控件 */}
+            <ExportListButton path="/api/risk-matters/export" fileBase="事项列表" state={state} />
           </>
+        }
+        toolbar={
+          /*
+            canon `.tool`：**选中之后才有意义**的动作放这一条（与案件列表分工相同）。
+            放进卡片头会让"依赖选中"和"一直都在"的动作混成一行，也看不出谁要选中。
+          */
+          selected.length ? (
+            <>
+              <span className="selbar-count">
+                已选 <span className="num">{selected.length}</span> 项
+              </span>
+              <Button className="primary" size="small" onClick={() => setBatch("status")}>
+                改状态
+              </Button>
+              <Button size="small" onClick={() => setBatch("archive")}>
+                归档
+              </Button>
+              <Button size="small" onClick={() => setBatch("tag")}>
+                加标签
+              </Button>
+              <Button size="small" type="link" onClick={() => setSelected([])}>
+                取消选择
+              </Button>
+            </>
+          ) : null
         }
         columns={columns}
         rows={pageRows}
@@ -463,19 +546,21 @@ export function RisksView() {
         page={state.page}
         pageSize={state.pageSize}
         loading={isFetching}
+        onRowOpen={(r) => router.push(`/risk-matters/${r.id}`)}
         onPageChange={(p) => push({ page: p })}
+        onPageSizeChange={(size) => push({ pageSize: size })}
         onSortChange={(k, d) => push({ sortBy: k, sortDir: d })}
         hideable={[
-          { key: "type", title: "类型" },
-          { key: "discover", title: "发现日" },
+          { key: "report", title: "上报时间" },
+          { key: "next_deadline", title: "期限" },
         ]}
         empty={
           <StateBlock
-            title={state.keyword || state.status ? "当前筛选下没有可见事项" : "还没有在办事项"}
+            title={hasRiskFilter(state) ? "当前筛选下没有可见事项" : "还没有在办事项"}
             hint={
-              state.keyword || state.status
+              hasRiskFilter(state)
                 ? "清掉条件再看一次；范围不同看到的条数就不同。"
-                : "点右上「新建事项」报备一条。"
+                : "点查询区右侧「登记事项」报备一条。"
             }
           />
         }
@@ -506,9 +591,26 @@ export function RisksView() {
   );
 }
 
+/**
+ * 空态文案要能区分"筛空了"与"本来就没有"。
+ *
+ * 与 `matters-view.tsx` 的 `hasFilter` 同类，键集是事项侧的那一份：
+ * 关键词 / 状态 / 风险等级 / 上报时间 / 经办人（两种形态）/ 归档视图。
+ */
+function hasRiskFilter(s: ListState) {
+  return Boolean(
+    s.keyword ||
+    s.status ||
+    s.riskLevel ||
+    s.reportBucket ||
+    s.owner ||
+    s.ownerEmpty ||
+    s.archivedOnly,
+  );
+}
+
 /** 三个批量动作，与 `shared/schema/batch.ts` 的 `BATCH_ACTIONS` 是同一个集合（少一个就编译不过） */
 type BatchMode = "status" | "archive" | "tag";
-
 /**
  * 摘要 + **提交那一刻的编号字典**。
  *

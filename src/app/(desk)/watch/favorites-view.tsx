@@ -13,8 +13,9 @@ import { PageHeader } from "@/app/components/page-header";
 /**
  * 我关注的（F1-13）。
  *
- * ⚠ 界面词是「关注」，而 `WATCH_TYPE_LABELS.favorite` 的中文仍是「收藏」——勘误第 7 条
- * 本票不动字典（它同时被通知与筛选消费，面更大），所以这一页的可见文案与字典**刻意不一致**。
+ * **2026-10-22：这一页读的是公开关注名单**（`*_staff.staff_role='follower'`），
+ * 与详情页「n 人关注」同一个源——用户裁定「收藏和关注的口径一致」之后，
+ * 私人收藏那一支不再由界面写入（详见 `services/watch.ts` 的 `listMyWatches`）。
  *
  * ## 为什么类型与编号是两列
  *
@@ -95,9 +96,9 @@ export function FavoritesView() {
 
         ⚠ 原来标题右侧还有一句「只有你自己看得见」，已删。它是**旁白**：
         念出来听，读者会问"这不是一眼就看出来吗"——标题就写着「我关注的」。
-        私密语义不是靠一句标语守的：它由服务端保证（`api/watch` 只回当前用户的收藏），
-        并在 `favorite-button.tsx` 的文件头记着口径。页面头没有第二行插槽（刻意的，
-        见 `page-header.tsx` 的头注），这句落不进四种允许的落点。
+        没有第二行插槽（刻意的，见 `page-header.tsx` 的头注），这句落不进四种允许的落点。
+        2026-10-22 起关注是**公开名单**（「n 人关注」里人人都看得见），那句"只有自己看得见"
+        也从事实变成了假话。
       */}
       <PageHeader title="我关注的" />
 
@@ -115,7 +116,10 @@ export function FavoritesView() {
       ) : isPending ? (
         <Card size="small" loading />
       ) : favorites.length === 0 ? (
-        <StateBlock title="还没有关注" hint="在案件或事项详情页点右上角的 ⭐，就会出现在这里。" />
+        <StateBlock
+          title="还没有关注"
+          hint="在案件或事项详情页点右上角的「关注」，就会出现在这里。"
+        />
       ) : (
         <Card size="small">
           <Table<FavoriteRow>

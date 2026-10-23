@@ -393,7 +393,7 @@ const tagRisk = (id, status = ST, level = LV) =>
  */
 function bucketOf({ days, remind, confirmed = true, status = "in_progress" }) {
   if (!confirmed) return null;
-  if (status !== "not_started" && status !== "in_progress") return null;
+  if (status !== "in_progress" && status !== "in_progress") return null;
   if (days === null) return null;
   if (days < 0) return "overdue";
   return days < windowOf({ remind }) ? "soon" : "later";

@@ -32,6 +32,8 @@ import { canManageStaffList, ownsAttribution } from "../scope/guards";
 import { assertAssignable, listSelectableUsers, type UnassignableUser } from "./selectable-users";
 import { decryptField } from "../crypto/field-crypto";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
+import { canManageNode } from "./node-access";
+import { initialRemindDays } from "@/shared/node-reminder";
 import { insertNewParties, planPartyLinks } from "./parties";
 import type { PartyLinkInput } from "./parties";
 import type { Actor } from "../auth/auth";
@@ -45,6 +47,12 @@ import { writeMatterStatus } from "./matter-status-write";
 import { configNameDict, csvText, exportAuditPayload, listExportLanding } from "./exports";
 import { isFavorited, syncFollowWatch } from "./watch";
 import { mentionPartsOf } from "./comment-mentions";
+import {
+  attachToComment,
+  attachmentsOfComments,
+  discardDrafts,
+  verifyDraftAttachments,
+} from "./attachments";
 import {
   enqueueCommentIntent,
   notifyStatusChanged,
@@ -105,7 +113,16 @@ const SORTABLE: Record<(typeof SORTABLE_COLUMNS)[number], SQL> = {
  */
 function mattersListWhere(
   actor: Actor,
-  q: { status?: string; keyword?: string; archivedOnly?: boolean; missingMaterials?: boolean },
+  q: {
+    status?: string;
+    keyword?: string;
+    archivedOnly?: boolean;
+    missingMaterials?: boolean;
+    caseType?: string;
+    procedure?: string;
+    owner?: string;
+    deadlineBucket?: "overdue" | "soon" | "later" | "none";
+  },
 ): SQL | undefined {
   return and(
     scopedWhere("matter", actor),
@@ -116,7 +133,43 @@ function mattersListWhere(
     // 这里只传开关，不重算判定——两个出口各写一份的漂移不会报错，
     // 只会让"列表说有缺、详情页说齐备"同时成立。
     q.missingMaterials ? archiveMissingSql() : undefined,
+    // 案件类型 / 程序：两个闭集 code 直接等值比较（值域由库里的 CHECK 守着）
+    q.caseType ? eq(matter.caseType, q.caseType) : undefined,
+    q.procedure ? eq(matter.procedure, q.procedure) : undefined,
+    q.owner ? eq(matter.ownerId, BigInt(q.owner)) : undefined,
+    deadlineFilter(q.deadlineBucket),
   );
+}
+
+/**
+ * 期限范围筛选（原型查询区的「期限范围」一格）。
+ *
+ * **口径与 `nextDeadline` 那一列不同**，不要合并：那一列答"最近的那个未决节点还剩几天"，
+ * 本筛选答"这条案卷有没有一个未决节点落在这一档"。差别在有两个以上节点时显形——
+ * 一个逾期、一个更远，两列的读数会给出不同结论，而它们回答的确实是两个问题。
+ *
+ * 未决节点的判据与报表的 `nodeScan` 同一套（`NOT is_deleted` + `is_time_confirmed`
+ * + `NODE_OPEN_STATUSES` + `deadline_time IS NOT NULL`）：时间没确认的节点算不出"还剩几天"，
+ * 归进任何一档都是编的。`none` 就是"连一个这样的节点都没有"。
+ */
+function deadlineFilter(
+  bucket: "overdue" | "soon" | "later" | "none" | undefined,
+): SQL | undefined {
+  if (!bucket) return undefined;
+  const openNode = sql`from mn_matter_node n
+    where n.matter_id = mn_matter.id
+      and not n.is_deleted
+      and n.is_time_confirmed
+      and n.status = 'in_progress'
+      and n.deadline_time is not null`;
+  if (bucket === "none") return sql`not exists (select 1 ${openNode})`;
+  const cond =
+    bucket === "overdue"
+      ? sql`n.deadline_time < now()`
+      : bucket === "soon"
+        ? sql`n.deadline_time >= now() and n.deadline_time < now() + interval '7 days'`
+        : sql`n.deadline_time >= now() + interval '7 days'`;
+  return sql`exists (select 1 ${openNode} and ${cond})`;
 }
 
 /**
@@ -142,8 +195,12 @@ function matterListSelection() {
     status: matter.status,
     isArchived: matter.isArchived,
     archivedAt: matter.archivedAt,
+    /** 行内「变更处理人」要拿它判"选中的人是不是当前这个" */
+    ownerId: matter.ownerId,
     ownerName: appUserName(),
     updatedAt: matter.updatedAt,
+    /** 立案日期（canon `matters.html` 的「立案日期」列）。可空：未立案的案卷有案号但没日期 */
+    filingDate: matter.filingDate,
     /**
      * 最近一个未决节点的期限。
      *
@@ -156,7 +213,7 @@ function matterListSelection() {
      */
     nextDeadline: sql<string | null>`(select min(n.deadline_time) from mn_matter_node n
       where n.matter_id = mn_matter.id and not n.is_deleted
-        and n.status in ('not_started','in_progress'))`,
+        and n.status = 'in_progress')`,
   };
 }
 
@@ -181,6 +238,7 @@ export async function listMatters(actor: Actor, q: ListQuery) {
     items: rows.map((r) => ({
       ...r,
       id: String(r.id),
+      ownerId: String(r.ownerId),
       amount: r.amount,
       nextDeadline: r.nextDeadline ?? null,
     })),
@@ -190,9 +248,162 @@ export async function listMatters(actor: Actor, q: ListQuery) {
   };
 }
 
+/**
+ * 「经办人」筛选项的候选集：**当前可见案卷上真实出现过的负责人**。
+ *
+ * ## 为什么不是"全体在册用户"
+ *
+ * `/api/meta` 按规格**不下发 users**（权限草案 §4.1：裸花名册是探测面），
+ * `selectable-users` 又要宿主 id（列表页没有）。而"能筛的经办人"本来就不该是
+ * 全公司名单——筛选项里出现一个**你一条案卷都看不见的人**，选中之后列表恒空，
+ * 那是把人往死路上引。
+ *
+ * 所以这里返回的是 `DISTINCT owner` 且经过 `scopedWhere` 的那批人：
+ * 它是"我可见的案卷上都有谁在办"，不是花名册。名单只含当前页宿主的负责人，
+ * 泄露面与列表本身相同——不多一个比特。
+ *
+ * ⚠ 忽略 `owner` 这一筛选本身（否则选中一个经办人之后，下拉里就只剩他一个人，
+ * 再也换不回别人）。其余筛选照常生效：换一个状态，候选人也跟着变。
+ */
+export async function listMatterOwners(
+  actor: Actor,
+  q: ListQuery,
+): Promise<{ id: string; displayName: string }[]> {
+  const db = await getDb();
+  const where = mattersListWhere(actor, { ...q, owner: undefined });
+  const rows = await db
+    .selectDistinct({
+      id: matter.ownerId,
+      displayName: sql<string>`(select u.display_name from mn_app_user u where u.id = ${matter.ownerId})`,
+    })
+    .from(matter)
+    .where(where)
+    .orderBy(asc(matter.ownerId));
+  return rows.map((r) => ({ id: String(r.id), displayName: r.displayName }));
+}
+
 /** 负责人姓名：同一次查询里带出来，避免列表页 N+1 */
 function appUserName() {
   return sql<string>`(select u.display_name from mn_app_user u where u.id = ${matter.ownerId})`;
+}
+
+/**
+ * 案件列表顶部的六格指标（canon `matters.html` 的 `.metrics`）。
+ *
+ * ## 为什么是一个独立函数而不是"让前端按当页数出来"
+ *
+ * 禁令⑧：列表只持有**当前页**（一页最多 100 行），按当页求和得到的是"这一页的读数"，
+ * 而指标带要回答的是"整个筛选结果里有几个这样子的案卷"。两者在第二页就会分叉，
+ * 且分叉时不报错——用户看到"在办案件 6"而列表底部写着"共 21 条"。
+ *
+ * ## 六格的口径（每一格都能被一句话解释，且彼此不重叠到让人怀疑）
+ *
+ *   · 在办案件 —— 当前筛选下的案卷数（就是列表的 `total`）；
+ *   · 已逾期 / 7 日内到期 —— 按**未决节点**算，一个案卷只要有一个节点落在该区间就计一次；
+ *   · 未指派负责人 —— `owner_id` 为空的案卷。**案件侧 NOT NULL（IQ-6）**，所以恒为 0：
+ *     这不是"没数"，是"这条约束成立"的读数（事项侧才有意义，但本页只画案件）；
+ *   · 限期未确认 —— 有未决节点、且 `is_time_confirmed = false` 的案卷；
+ *   · 本月新增 —— 当前筛选下、按上海业务时区算本月创建的案卷。
+ *
+ * 后五格都是**对"在办案件"这个集合的划分**（同一批行按不同维度数），不是五个独立全集——
+ * 所以它们会互相重叠（一个逾期的案卷也可能有未确认的节点），卡片不是饼图，不能相加。
+ *
+ * ## 谓词只有一份
+ *
+ * 底下那个 `where` 与列表**逐字同一个函数**（`mattersListWhere`）：筛选一变，
+ * 指标跟着变，而列表也跟着变——两处各写一遍的失败形态是"筛了三个条件，列表 3 行、
+ * 卡片说 12 条"，且两边都不会报错。
+ */
+export async function matterMetrics(actor: Actor, q: ListQuery): Promise<MatterMetrics> {
+  const db = await getDb();
+  const where = mattersListWhere(actor, q);
+
+  const [row] = await db
+    .select({
+      total: dcount(),
+      /**
+       * 三个节点相关的读数塞进同一条语句：它们扫的是同一批节点行，
+       * 分三次 count 会让三个数各自取一次 `now()`（跨秒时"逾期 + 7 日内 > 在办"这种
+       * 自相矛盾的一屏就能出现，工作台的 `overview.ts` 里有同款注释）。
+       */
+      overdue: sql<number>`count(*) filter (where ${hasOpenNode("overdue")})::int`,
+      soon: sql<number>`count(*) filter (where ${hasOpenNode("soon")})::int`,
+      unassigned: sql<number>`count(*) filter (where ${matter.ownerId} is null)::int`,
+      timeUnconfirmed: sql<number>`count(*) filter (where ${hasUnconfirmedNode()})::int`,
+      /**
+       * 本月新增按**上海业务时区**截月，与工作台 `overview.ts` 同款写法：
+       * 服务器 TimeZone 是 UTC，直接 `date_trunc('month', now())` 会把上海
+       * 1 号 00:00–08:00 建的行算进上个月。
+       */
+      createdThisMonth: sql<number>`count(*) filter (
+        where (${matter.createdAt} at time zone 'Asia/Shanghai')
+              >= date_trunc('month', now() at time zone 'Asia/Shanghai')
+      )::int`,
+    })
+    .from(matter)
+    .where(where);
+
+  return {
+    total: Number(row?.total ?? 0),
+    overdue: Number(row?.overdue ?? 0),
+    soon: Number(row?.soon ?? 0),
+    unassigned: Number(row?.unassigned ?? 0),
+    timeUnconfirmed: Number(row?.timeUnconfirmed ?? 0),
+    createdThisMonth: Number(row?.createdThisMonth ?? 0),
+  };
+}
+
+/** 指标带返回的那六个数。键名即语义，界面不再二次解释 */
+export type MatterMetrics = {
+  /** 在办案件：当前筛选下的案卷数（= 列表 total） */
+  total: number;
+  /** 已逾期：至少有一个未决节点已过期限 */
+  overdue: number;
+  /** 7 日内到期：至少有一个未决节点落在今天起 7 天内 */
+  soon: number;
+  /** 未指派负责人（案件侧 NOT NULL，恒 0；见上面函数注释） */
+  unassigned: number;
+  /** 限期未确认：有未决节点且其时间未确认 */
+  timeUnconfirmed: number;
+  /** 本月新增 */
+  createdThisMonth: number;
+};
+
+/**
+ * 「这个案卷有没有一个落在该档的未决节点」——`EXISTS` 而不是 join：
+ *
+ * join 会让一个有三个逾期节点的案卷在三格里各数一次（指标带要数的是**案卷**，
+ * 不是节点），而 `EXISTS` 天然是"最多数一次"。
+ *
+ * 未决节点的判据与报表的 `nodeScan` 同一套（`reports.ts`）：未软删、时间已确认、
+ * 状态是未开始/进行中、期限非空。时间没确认的节点算不出"还剩几天"，
+ * 归进任何一档都是编的——它自己单独占一格（`timeUnconfirmed`）。
+ *
+ * ⚠ 关联键写**裸限定名** `mn_matter.id`：理由同 `matterListSelection` 里那段注释
+ * （select 上下文里 `${matter.id}` 渲染成无限定的 `"id"`，子查询自己被解析成
+ * `n.matter_id = n.id` ⇒ 恒假且静默）。
+ */
+function hasOpenNode(bucket: "overdue" | "soon"): SQL {
+  const cond =
+    bucket === "overdue"
+      ? sql`n.deadline_time < now()`
+      : sql`n.deadline_time >= now() and n.deadline_time < now() + interval '7 days'`;
+  return sql`exists (select 1 from mn_matter_node n
+    where n.matter_id = mn_matter.id
+      and not n.is_deleted
+      and n.is_time_confirmed
+      and n.status = 'in_progress'
+      and n.deadline_time is not null
+      and ${cond})`;
+}
+
+/** 「有限期未确认的未决节点」：与上面同一批节点，只是换成 `is_time_confirmed = false` */
+function hasUnconfirmedNode(): SQL {
+  return sql`exists (select 1 from mn_matter_node n
+    where n.matter_id = mn_matter.id
+      and not n.is_deleted
+      and not n.is_time_confirmed
+      and n.status = 'in_progress')`;
 }
 
 export async function getMatter(actor: Actor, id: string) {
@@ -339,14 +550,25 @@ export async function getMatter(actor: Actor, id: string) {
    */
   const commentParts = await mentionPartsOf(db, comments);
 
+  /** 评论附件（§7.1 / §1.7 的 `attachment_ids [derived]`）：与提及同一形状，按评论 id 索引 */
+  const commentAttachments = await attachmentsOfComments(
+    db,
+    comments.map((c) => c.id),
+  );
+
   return {
     ...row,
     id: String(row.id),
     ownerId: String(row.ownerId),
+    /**
+     * 创建人（2026-10-22）：关注组的管理权判定要它（§6：经办人 / L1 / **创建人**）。
+     * `...row` 里那个 `createdBy` 也会被 `toWire` 转成字符串，但名字与事项侧不一致
+     * （`creatorId`），两处页面各写一个字段名迟早拼错——这里显式归一。
+     */
+    creatorId: row.createdBy === null ? null : String(row.createdBy),
     nodes: nodes.map((n) => ({ ...n, id: String(n.id), hostId: String(n.hostId) })),
     staff: staff.map((s) => ({ ...s, id: String(s.id), userId: String(s.userId) })),
-    // ⚠ 当事人证件号必须解密（MATT-40 之后库里存的是密文信封）——
-    //   直接回原文会把 `v1:<base64url>` 画到案件详情的当事人块上。
+    // ⚠ 当事人证件号必须解密（MATT-40 之后库里存的是密文信封）——    //   直接回原文会把 `v1:<base64url>` 画到案件详情的当事人块上。
     parties: parties.map((p) => ({ ...p, id: String(p.id), idNumber: decryptField(p.idNumber) })),
     comments: comments.map((c) => ({
       id: String(c.id),
@@ -355,6 +577,7 @@ export async function getMatter(actor: Actor, id: string) {
       parentId: c.parentId === null ? null : String(c.parentId),
       author: c.author,
       parts: commentParts.get(String(c.id)) ?? [],
+      attachments: commentAttachments.get(String(c.id)) ?? [],
     })),
     activity: activity.map((a) => ({ ...a, id: String(a.id) })),
     progress: progress.map((p) => ({ ...p, id: String(p.id) })),
@@ -856,6 +1079,112 @@ export async function changeStatus(
 }
 
 /**
+ * 案件主表字段的编辑：**变更处理人**与**程序/审级**（2026-10-22 用户要求行内可改）。
+ *
+ * 为什么是一条通用编辑而不是两个专属端点：两者都是**普通字段编辑**（GLOSSARY「变更处理人」条），
+ * 不新增状态、不新造审计动作。给"改经办人"开一个 `/claim` 之类的入口，
+ * 等于把被否决的"认领"流程概念请回来（事项侧 `updateRiskMatter` 同一个理由）。
+ *
+ * 门在哪（与权限草案一致）：
+ *   · 可见性 —— `scopedWhere`，不可见一律 404；
+ *   · 归属 —— 只有**当前经办人**与持 L1 数据范围（`dataScope = all`）的人能改，
+ *     管理员走逃生口。草案 §6 原话：「只有 `owner` 和具备 L1 数据范围的用户能变更处理人」；
+ *   · 被指派者 —— 必须落在我**这一卷**的可见用户集内（`listSelectableUsers`）。
+ *     这条校验必须在写路径上：只收窄下拉是装饰，直接 PATCH 一个任意 id 就绕过了；
+ *   · 归档态 —— 只读终态（§5.2），要改先撤销归档，所以直接 403。
+ *
+ * 逐字段记审计：`ownerId` 走 `OWNER_CHANGED`（§3.2 状态与归属），`procedure` 走
+ * `MATTER_UPDATED`（§3.1）。两件事合写成一条会让"谁接的手"与"改了什么"混在一次记录里。
+ */
+export async function updateMatter(
+  actor: Actor,
+  id: string,
+  patch: { ownerId?: string; procedure?: string },
+): Promise<
+  { ok: true } | { ok: false; why: "not_found" | "forbidden" | "empty" | "owner_not_selectable" }
+> {
+  const db = await getDb();
+  const [cur] = await db
+    .select({
+      ownerId: matter.ownerId,
+      procedure: matter.procedure,
+      isArchived: matter.isArchived,
+    })
+    .from(matter)
+    .where(scopedWhere("matter", actor, eq(matter.id, BigInt(id))))
+    .limit(1);
+  if (!cur) return { ok: false, why: "not_found" };
+  if (cur.isArchived) return { ok: false, why: "forbidden" };
+  const isL1 = actor.isAdmin || actor.dataScope === "all";
+  if (!isL1 && !ownsAttribution(actor, cur.ownerId)) return { ok: false, why: "forbidden" };
+
+  const set: Record<string, unknown> = {};
+  const diffs: Record<string, { from: unknown; to: unknown }> = {};
+
+  if (patch.procedure !== undefined && patch.procedure !== cur.procedure) {
+    set.procedure = patch.procedure;
+    diffs.procedure = { from: cur.procedure, to: patch.procedure };
+  }
+
+  if (patch.ownerId !== undefined && patch.ownerId !== String(cur.ownerId)) {
+    // 被指派者必须在"我这一卷"的可见用户集里（权限草案 §6 被加者条件）
+    const selectable = await listSelectableUsers(actor, "matter", id);
+    if (selectable === null) return { ok: false, why: "not_found" };
+    if (!selectable.some((u) => u.id === patch.ownerId)) {
+      return { ok: false, why: "owner_not_selectable" };
+    }
+    set.ownerId = BigInt(patch.ownerId!);
+    diffs.ownerId = { from: String(cur.ownerId), to: patch.ownerId };
+  }
+
+  // 什么都没变就别说"改成功了"——前端会据此弹一个空提示
+  if (Object.keys(set).length === 0) return { ok: false, why: "empty" };
+
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(matter)
+      .set({ ...set, updatedBy: BigInt(actor.userId), updatedAt: now })
+      .where(eq(matter.id, BigInt(id)));
+
+    if (diffs.ownerId) {
+      await logActivity(tx, actor, {
+        matterId: BigInt(id),
+        targetType: "matter",
+        targetId: BigInt(id),
+        action: "OWNER_CHANGED",
+        diffs: { ownerId: diffs.ownerId },
+      });
+      /**
+       * 人员表跟着换（`staffRole = owner`），否则按人员筛会漏掉这卷——
+       * 与事项侧 `updateRiskMatter` 同一处理。旧 owner 那一行**不删**：
+       * 它是"在这卷上办过事"的事实，删掉会让历史筛不出来。
+       */
+      await tx
+        .insert(matterStaff)
+        .values({
+          id: BigInt(nextId()),
+          hostId: BigInt(id),
+          userId: BigInt(patch.ownerId!),
+          staffRole: "owner",
+        })
+        .onConflictDoNothing();
+    }
+
+    if (diffs.procedure) {
+      await logActivity(tx, actor, {
+        matterId: BigInt(id),
+        targetType: "matter",
+        targetId: BigInt(id),
+        action: "MATTER_UPDATED",
+        diffs: { procedure: diffs.procedure },
+      });
+    }
+  });
+  return { ok: true };
+}
+
+/**
  * 软删案件（MATT-62 / F2-5）。
  *
  * ## 与事项侧的关系：**同一形状**，不是两套写法
@@ -994,6 +1323,8 @@ export async function addComment(
   matterId: string,
   body: string,
   parentId?: string | null,
+  /** §7.1：已上传（草稿态）的附件 id；空/不传 = 没有附件 */
+  attachmentIds: readonly string[] = [],
 ) {
   const db = await getDb();
   const [visible] = await db
@@ -1008,47 +1339,75 @@ export async function addComment(
    * （一次全表读，十人组织里就是十行）。放进事务只会把这段读拉进写锁的持有期。
    */
   const mentionIds = await resolveMentionIds(db, body);
-  await db.transaction(async (tx) => {
-    await tx.insert(comment).values({
-      id,
-      targetType: "matter",
-      targetId: BigInt(matterId),
-      body,
-      parentId: parentId ? BigInt(parentId) : null,
-      // `mention_ids` 是基线 0000 就有的列，列注写着「通知链路将来靠它展开」——
-      // 本票就是那个"将来"。落库让"谁被 @ 了"成为可查的事实，而不是只活在通知里。
-      mentionIds: mentionIds.map(BigInt),
-      authorId: BigInt(actor.userId),
-      createdBy: BigInt(actor.userId),
-      updatedBy: BigInt(actor.userId),
+  /**
+   * 附件草稿同样在**事务外**核（会读对象存储，一次最多 10 个）：
+   * 归属/宿主/对象存在与大小在这里判完，事务里只剩 `comment_id` 的赋值。
+   */
+  const drafts = await verifyDraftAttachments(actor, "matter", matterId, attachmentIds);
+  try {
+    await db.transaction(async (tx) => {
+      await tx.insert(comment).values({
+        id,
+        targetType: "matter",
+        targetId: BigInt(matterId),
+        body,
+        parentId: parentId ? BigInt(parentId) : null,
+        // `mention_ids` 是基线 0000 就有的列，列注写着「通知链路将来靠它展开」——
+        // 本票就是那个"将来"。落库让"谁被 @ 了"成为可查的事实，而不是只活在通知里。
+        mentionIds: mentionIds.map(BigInt),
+        authorId: BigInt(actor.userId),
+        createdBy: BigInt(actor.userId),
+        updatedBy: BigInt(actor.userId),
+      });
+      await attachToComment(tx, actor, {
+        host: "matter",
+        hostId: matterId,
+        commentId: id,
+        rows: drafts,
+      });
+      await logActivity(tx, actor, {
+        matterId: BigInt(matterId),
+        action: "COMMENT_CREATED",
+        targetType: "matter",
+        targetId: BigInt(matterId),
+      });
+      /**
+       * 新评论的通知意图 —— **只写 outbox，不在这里发**（预置规则 8 的触发是
+       * `comment_added` 领域事件，属 E32/E33 的值域）。
+       *
+       * 事件名落 outbox、由消费者展开成通知，是"投递走 outbox 不直发"的兑现方式：
+       * 业务事务只管把"发生了什么"记下来，真正生成通知的动作发生在消费侧，而那一侧可重入。
+       * 归档宿主由 `enqueueCommentIntent` 直接返回 false（归档记录不再产生新通知），
+       * 但**评论照写**——基线 1.7 明写"归档后仍可新增评论"，只是不发通知。
+       */
+      await enqueueCommentIntent(actor, tx, {
+        host: "matter",
+        hostId: BigInt(matterId),
+        commentId: id,
+        quoted: quoteOf(body),
+        mentionIds,
+      });
     });
-    await logActivity(tx, actor, {
-      matterId: BigInt(matterId),
-      action: "COMMENT_CREATED",
-      targetType: "matter",
-      targetId: BigInt(matterId),
-    });
-    /**
-     * 新评论的通知意图 —— **只写 outbox，不在这里发**（预置规则 8 的触发是
-     * `comment_added` 领域事件，属 E32/E33 的值域）。
-     *
-     * 事件名落 outbox、由消费者展开成通知，是"投递走 outbox 不直发"的兑现方式：
-     * 业务事务只管把"发生了什么"记下来，真正生成通知的动作发生在消费侧，而那一侧可重入。
-     * 归档宿主由 `enqueueCommentIntent` 直接返回 false（归档记录不再产生新通知），
-     * 但**评论照写**——基线 1.7 明写"归档后仍可新增评论"，只是不发通知。
-     */
-    await enqueueCommentIntent(actor, tx, {
-      host: "matter",
-      hostId: BigInt(matterId),
-      commentId: id,
-      quoted: quoteOf(body),
-      mentionIds,
-    });
-  });
+  } catch (e) {
+    // 评论没落库 ⇒ 刚传上去的附件也就不该留下（草稿行 + 对象一起清）。补偿不抛。
+    await discardDrafts(attachmentIds);
+    throw e;
+  }
   return { id: String(id) };
 }
 
-/** 完成/取消节点：取消必须带原因（E21 的 CHECK 与 §6.1 同源） */
+/**
+ * 节点状态（2026-10-23 三态）。
+ *
+ * 迁移矩阵按裁定保持"任意跳"（本轮 Q1 B）：三态之间不再设 from→to 白名单。
+ * 只留三条硬约束：
+ *   · 取消必须带原因（E21 的 CHECK 与 §6.1 同源）；
+ *   · 当前状态与目标相同 → 422（与事项侧同一口径，避免空转的审计行）；
+ *   · 归档宿主只读（本轮 Q3）。
+ *
+ * 权限（Q2）：开始/完成是进度事实，能看见宿主就能标；取消会抹掉一条期限，
+ * 与编辑/删除同一条门槛（`canManageNode`）。
+ */
 export async function setNodeStatus(
   actor: Actor,
   /**
@@ -1069,8 +1428,10 @@ export async function setNodeStatus(
       name: matterNode.name,
       matterId: matterNode.hostId,
       status: matterNode.status,
-      startTime: matterNode.startTime,
-      isTimeConfirmed: matterNode.isTimeConfirmed,
+      ownerId: matterNode.ownerId,
+      isArchived: matter.isArchived,
+      hostOwnerId: matter.ownerId,
+      hostCreatorId: matter.createdBy,
     })
     .from(matterNode)
     .innerJoin(matter, eq(matter.id, matterNode.hostId))
@@ -1080,35 +1441,31 @@ export async function setNodeStatus(
         actor,
         eq(matterNode.id, BigInt(nodeId)),
         eq(matterNode.hostId, BigInt(matterId)),
+        sql`NOT ${matterNode.isDeleted}`,
       ),
     )
     .limit(1);
   if (!node) return null;
+  if (node.isArchived) return { ok: false as const, why: "forbidden" as const };
+  if (status === node.status) return { ok: false as const, why: "unchanged" as const };
   if (status === "cancelled" && !cancelReason?.trim())
     return { ok: false as const, why: "reason_required" as const };
-  if (status === "confirm_time" && !node.startTime)
-    return { ok: false as const, why: "time_missing" as const };
-
-  /**
-   * `pending`（时间待定）与 `confirm_time`（标已确认）是**命令**，不是第五、第六个状态：
-   * 它们只翻 `is_time_confirmed`，`status` 一列保持原值。
-   *
-   * 三条理由：
-   *   · E21 只有四值，库里塞进 `pending` 会撞 `ck_mn_matter_node_status`（表现是一条 500）；
-   *   · 之前把这一步写成"待定 ⇒ status=not_started"，于是给一个**进行中**的举证节点改待定
-   *     会把它拉回未开始 —— 时间没定 ≠ 活儿没在干；
-   *   · `confirm_time` 要求 `start_time` 已填：确认一个空时间会让节点带 `deadline_time=null`
-   *     进提醒扫描的 partial index，扫到了也算不出"还剩几天"。
-   */
-  const isTimeCommand = status === "pending" || status === "confirm_time";
-  const toStatus = isTimeCommand ? node.status : status;
+  if (
+    status === "cancelled" &&
+    !(await canManageNode(db, actor, "matter", node.matterId, {
+      nodeOwnerId: node.ownerId,
+      hostOwnerId: node.hostOwnerId,
+      hostCreatorId: node.hostCreatorId,
+    }))
+  ) {
+    return { ok: false as const, why: "forbidden" as const };
+  }
 
   await db.transaction(async (tx) => {
     await tx
       .update(matterNode)
       .set({
-        status: toStatus,
-        ...(isTimeCommand ? { isTimeConfirmed: status === "confirm_time" } : {}),
+        status,
         cancelReason: status === "cancelled" ? cancelReason : null,
         completedAt: status === "completed" ? new Date().toISOString() : null,
         completedBy: status === "completed" ? BigInt(actor.userId) : null,
@@ -1127,19 +1484,214 @@ export async function setNodeStatus(
       targetType: "matter_node",
       targetId: node.id,
       reason: status === "cancelled" ? cancelReason : null,
-      // 时间命令记的是那一对布尔，不是一条"状态从 X 到 X"的空 diff —— 活动日志要能看出
-      // "谁把它标成待定的"，而 `status` 那列当时根本没动
-      diffs: isTimeCommand
-        ? {
-            is_time_confirmed: {
-              from: node.isTimeConfirmed,
-              to: status === "confirm_time",
-            },
-          }
-        : { status: { from: node.status, to: toStatus, label: NODE_STATUS_LABELS } },
+      diffs: { status: { from: node.status, to: status, label: NODE_STATUS_LABELS } },
     });
   });
   return { ok: true as const };
+}
+
+/** 节点写操作的统一返回：404（不可见/不存在）与 403（看得见但轮不到你）分开 */
+export type NodeWriteOutcome =
+  { ok: true; id: string } | { ok: false; why: "not_found" | "forbidden" };
+
+/**
+ * 新增案件节点（2026-10-23）。
+ *
+ * 字段只有三个：名称、描述（入 `remark` 列）、时间。**不选类型**：类型是模板的概念，
+ * 手工节点没有模板可依，所以 `node_type_id` 留空（迁移 0020 已放开 NOT NULL）。
+ *
+ * 提醒档位按用户规则收一次：时间落在最大窗口内 → 只挂最近一档（默认 1 天），
+ * 规则本体在 `shared/node-reminder.ts`（带单测）。
+ */
+export async function createMatterNode(
+  actor: Actor,
+  matterId: string,
+  input: { name: string; description?: string; startTime: string },
+): Promise<NodeWriteOutcome> {
+  const db = await getDb();
+  const [host] = await db
+    .select({ id: matter.id, ownerId: matter.ownerId, isArchived: matter.isArchived })
+    .from(matter)
+    .where(scopedWhere("matter", actor, eq(matter.id, BigInt(matterId))))
+    .limit(1);
+  if (!host) return { ok: false, why: "not_found" };
+  if (host.isArchived) return { ok: false, why: "forbidden" };
+
+  const id = BigInt(nextId());
+  const startTime = new Date(input.startTime).toISOString();
+  const [last] = await db
+    .select({ max: sql<number | null>`max(${matterNode.sortOrder})` })
+    .from(matterNode)
+    .where(eq(matterNode.hostId, BigInt(matterId)));
+
+  await db.transaction(async (tx) => {
+    await tx.insert(matterNode).values({
+      id,
+      hostId: BigInt(matterId),
+      nodeTypeId: null,
+      name: input.name.trim(),
+      timeType: "point",
+      startTime,
+      endTime: null,
+      isTimeConfirmed: true,
+      status: "in_progress",
+      sourceKind: "manual",
+      ownerId: host.ownerId,
+      remindDays: initialRemindDays(startTime),
+      sortOrder: Number(last?.max ?? -1) + 1,
+      remark: input.description?.trim() ? input.description.trim() : null,
+      createdBy: BigInt(actor.userId),
+      updatedBy: BigInt(actor.userId),
+    });
+    await logActivity(tx, actor, {
+      matterId: BigInt(matterId),
+      action: "NODE_CREATED",
+      targetType: "matter_node",
+      targetId: id,
+      diffs: { node: { from: null, to: input.name.trim() } },
+    });
+  });
+  return { ok: true, id: String(id) };
+}
+
+/**
+ * 编辑节点（时间、名称、描述）—— 用户裁定「允许随时编辑」。
+ *
+ * 状态不在这里改：状态是三个按钮的动作，编辑只改这条期限"是什么、什么时候"。
+ * 改时间会按新增同一规则重算提醒档位（已进入窗口就只留最近一档）。
+ */
+export async function updateMatterNode(
+  actor: Actor,
+  matterId: string,
+  nodeId: string,
+  input: { name: string; description?: string; startTime: string },
+): Promise<NodeWriteOutcome> {
+  const db = await getDb();
+  const [node] = await db
+    .select({
+      id: matterNode.id,
+      name: matterNode.name,
+      startTime: matterNode.startTime,
+      ownerId: matterNode.ownerId,
+      hostOwnerId: matter.ownerId,
+      hostCreatorId: matter.createdBy,
+      isArchived: matter.isArchived,
+    })
+    .from(matterNode)
+    .innerJoin(matter, eq(matter.id, matterNode.hostId))
+    .where(
+      scopedWhere(
+        "matter",
+        actor,
+        eq(matterNode.id, BigInt(nodeId)),
+        eq(matterNode.hostId, BigInt(matterId)),
+        sql`NOT ${matterNode.isDeleted}`,
+      ),
+    )
+    .limit(1);
+  if (!node) return { ok: false, why: "not_found" };
+  if (node.isArchived) return { ok: false, why: "forbidden" };
+  const allowed = await canManageNode(db, actor, "matter", BigInt(matterId), {
+    nodeOwnerId: node.ownerId,
+    hostOwnerId: node.hostOwnerId,
+    hostCreatorId: node.hostCreatorId,
+  });
+  if (!allowed) return { ok: false, why: "forbidden" };
+
+  const startTime = new Date(input.startTime).toISOString();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(matterNode)
+      .set({
+        name: input.name.trim(),
+        remark: input.description?.trim() ? input.description.trim() : null,
+        timeType: "point",
+        startTime,
+        endTime: null,
+        // 手工填了时间就是"已确认"：三态之后没有"待定/已确认"这根轴了
+        isTimeConfirmed: true,
+        remindDays: initialRemindDays(startTime),
+        updatedBy: BigInt(actor.userId),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(matterNode.id, BigInt(nodeId)));
+    await logActivity(tx, actor, {
+      matterId: BigInt(matterId),
+      action: "NODE_UPDATED",
+      targetType: "matter_node",
+      targetId: node.id,
+      diffs: {
+        name: { from: node.name, to: input.name.trim() },
+        start_time: { from: node.startTime, to: startTime },
+      },
+    });
+  });
+  return { ok: true, id: String(nodeId) };
+}
+
+/**
+ * 删除节点 —— 用户裁定「允许删除」。
+ *
+ * 走**软删**（`is_deleted`）：节点是提醒与归档判定的输入，硬删会让"这条期限曾经存在过"
+ * 从审计里消失。删除后列表与提醒扫描都看不到它（扫描的 partial index 不带 is_deleted？
+ * 带 —— 见查询里的 `NOT is_deleted`）。
+ */
+export async function deleteMatterNode(
+  actor: Actor,
+  matterId: string,
+  nodeId: string,
+): Promise<NodeWriteOutcome> {
+  const db = await getDb();
+  const [node] = await db
+    .select({
+      id: matterNode.id,
+      name: matterNode.name,
+      status: matterNode.status,
+      ownerId: matterNode.ownerId,
+      hostOwnerId: matter.ownerId,
+      hostCreatorId: matter.createdBy,
+      isArchived: matter.isArchived,
+    })
+    .from(matterNode)
+    .innerJoin(matter, eq(matter.id, matterNode.hostId))
+    .where(
+      scopedWhere(
+        "matter",
+        actor,
+        eq(matterNode.id, BigInt(nodeId)),
+        eq(matterNode.hostId, BigInt(matterId)),
+        sql`NOT ${matterNode.isDeleted}`,
+      ),
+    )
+    .limit(1);
+  if (!node) return { ok: false, why: "not_found" };
+  if (node.isArchived) return { ok: false, why: "forbidden" };
+  const allowed = await canManageNode(db, actor, "matter", BigInt(matterId), {
+    nodeOwnerId: node.ownerId,
+    hostOwnerId: node.hostOwnerId,
+    hostCreatorId: node.hostCreatorId,
+  });
+  if (!allowed) return { ok: false, why: "forbidden" };
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(matterNode)
+      .set({
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+        updatedBy: BigInt(actor.userId),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(matterNode.id, BigInt(nodeId)));
+    await logActivity(tx, actor, {
+      matterId: BigInt(matterId),
+      action: "NODE_DELETED",
+      targetType: "matter_node",
+      targetId: node.id,
+      payload: { name: node.name, status: node.status },
+    });
+  });
+  return { ok: true, id: String(nodeId) };
 }
 
 /* ─────────────── 参与人名单（MATT-49：案件侧补上写路径） ─────────────── */
@@ -1250,13 +1802,26 @@ export async function addMatterStaff(
   const src = await loadMatterForStaff(db, actor, matterId);
   if (!src) return { ok: false, why: "not_found" };
   if (src.isArchived) return { ok: false, why: "archived" };
-  if (!canManageStaffList(actor, src)) return { ok: false, why: "forbidden" };
+  /**
+   * 自我关注（2026-10-22）：把**自己**加进关注人名单，唯一的门是「现在就能看见这条记录」
+   * ——`loadMatterForStaff` 已经走过 `scopedWhere`，它本身就是那道门。
+   *
+   * 与事项侧 `addRiskFollowers` 同一条口径，理由也一样：关注组的左段对**任何**看得见的人
+   * 都得能点，否则"我关注了"只剩名单管理员能代做，而关注本来就是个人的事。
+   *
+   * 只放 `follower` 这一档：`co_owner` 的意思是"我要办这卷"，那是参与人不是关注，
+   * 顺手用自我关注取得它等于绕过 §6 的名单管理权。
+   */
+  const me = String(actor.userId);
+  const selfOnly = staffRole === "follower" && userIds.length > 0 && userIds.every((u) => u === me);
+  if (!selfOnly && !canManageStaffList(actor, src)) return { ok: false, why: "forbidden" };
 
   // 门 3：可见用户集（带宿主上下文）
   const selectable = await listSelectableUsers(actor, "matter", matterId);
   if (selectable === null) return { ok: false, why: "not_found" };
   const allowed = new Set(selectable.map((u) => u.id));
-  const outside = userIds.filter((u) => !allowed.has(u));
+  // 自己永远在自己可见的范围内（能走到这里就说明看得见这条案卷），所以自我关注不必查表
+  const outside = selfOnly ? [] : userIds.filter((u) => !allowed.has(u));
   if (outside.length) {
     // 不在可见用户集里的人：**不告诉调用方他是谁**（否则这个端点就成了花名册探测面）
     return {
@@ -1333,7 +1898,13 @@ export async function removeMatterStaff(
   const src = await loadMatterForStaff(db, actor, matterId);
   if (!src) return { ok: false, why: "not_found" };
   if (src.isArchived) return { ok: false, why: "archived" };
-  if (!canManageStaffList(actor, src)) return { ok: false, why: "forbidden" };
+  /**
+   * 自我取关（2026-10-22）：摘掉**自己**那一行只看可见性（上面那道 `loadMatterForStaff`），
+   * 与 `addMatterStaff` 的自我关注对称——能加自己就能撤自己，否则点错了只能找管理员。
+   * 别人那几行仍要 §6 的名单管理权。
+   */
+  const isSelf = String(userId) === String(actor.userId);
+  if (!isSelf && !canManageStaffList(actor, src)) return { ok: false, why: "forbidden" };
   if (src.ownerId !== null && String(src.ownerId) === String(userId)) {
     return { ok: false, why: "owner_protected" };
   }

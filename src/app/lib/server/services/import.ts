@@ -249,8 +249,6 @@ async function createRecord(
           level: String(data.level),
           description: String(data.description),
           source: s(data.source) ?? null,
-          measure: s(data.measure) ?? null,
-          amount: s(data.amount),
           discoverDate: s(data.discoverDate) ?? null,
           ownerId: s(data.ownerId),
           parties: (data.parties ?? []) as PartyLinkInput[],

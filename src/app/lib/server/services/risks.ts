@@ -1,6 +1,6 @@
 import { and, asc, count as dcount, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
-import { SORTABLE_COLUMNS, type RiskMatterListExportQuery } from "@/shared/schema/list-query";
+import type { RiskMatterListExportQuery, RiskSortableColumn } from "@/shared/schema/list-query";
 import { assertAssignable, listSelectableUsers } from "./selectable-users";
 import { decryptField } from "../crypto/field-crypto";
 import { getDb } from "../db/client";
@@ -38,6 +38,8 @@ import { needsChangeReason } from "@/shared/schema/status-transition";
 import { RISK_MATTER_TYPE_LABELS } from "@/shared/enums/business";
 import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
+import { canManageNode } from "./node-access";
+import { initialRemindDays } from "@/shared/node-reminder";
 // 撤销前置的"费用"那一条复用费用模块的谓词（MATT-47）：两处各写一遍 SQL，
 // 失效时不会报错 —— 只会让费用录满的案件也能被撤。
 import { hasMatterExpenses } from "./expenses";
@@ -49,6 +51,12 @@ import { logActivity } from "./activity";
 import { configNameDict, csvText, exportAuditPayload, listExportLanding } from "./exports";
 import { isFavorited, syncFollowWatch } from "./watch";
 import { mentionPartsOf } from "./comment-mentions";
+import {
+  attachToComment,
+  attachmentsOfComments,
+  discardDrafts,
+  verifyDraftAttachments,
+} from "./attachments";
 // 通知意图的两个生产点（MATT-41 / T4）：状态变更**同事务**落事件，新评论**只落 outbox**。
 // 两者都不在业务事务里做"投递"这个动作本身 —— 见 services/notifications.ts 文件头。
 import {
@@ -126,21 +134,32 @@ export const RISK_UNCONVERT_FROZEN_MESSAGE =
   "这条事项已经转过案件（已冻结），转案件后不可撤销 —— 这是规则，不是出错了。后续推进请在案件上做。";
 
 /**
- * 排序键 → 列，与案件侧共用同一套白名单（`shared/schema/list-query` 的 `SORTABLE_COLUMNS`）。
+ * 排序键 → 列，白名单是 `shared/schema/list-query` 的 `RISK_SORTABLE_COLUMNS`
+ * （案件那份减去 `amount`：事项侧的「预估影响」随迁移 0017 撤下，没有列可排）。
  *
  * 写成 `Record<白名单, SQL>` 而不是 `Record<string, SQL>`：少一个键编译期就报缺属性，
  * 不会出现"表头点了、数据没动"（本表此前只收 `sortDir`、不收 `sortBy`，
  * 前端那一列排序箭头全是死控件——这个映射就是来补上的）。
  */
-const SORTABLE: Record<(typeof SORTABLE_COLUMNS)[number], SQL> = {
+const SORTABLE: Record<RiskSortableColumn, SQL> = {
   code: sql`${riskMatter.code}`,
   name: sql`${riskMatter.name}`,
   status: sql`${riskMatter.status}`,
   risk_level: sql`${riskMatter.level}`,
   owner_name: sql`(select u.display_name from mn_app_user u where u.id = ${riskMatter.ownerId})`,
-  amount: sql`${riskMatter.amount}`,
   created_at: sql`${riskMatter.createdAt}`,
   updated_at: sql`${riskMatter.updatedAt}`,
+};
+
+/**
+ * 上报时间三档窗口的天数。与 `shared/schema/list-query.ts` 的 `reportBucket` 枚举一一对应。
+ *
+ * 写成 `Record<枚举, number>`：那边少一档或多一档，这里就取不到键 —— 编译期而不是运行时。
+ */
+const REPORT_WINDOW_DAYS: Record<"week" | "month" | "quarter", number> = {
+  week: 7,
+  month: 30,
+  quarter: 90,
 };
 
 /**
@@ -153,16 +172,43 @@ const SORTABLE: Record<(typeof SORTABLE_COLUMNS)[number], SQL> = {
  */
 function riskMattersListWhere(
   actor: Actor,
-  q: { status?: string; keyword?: string; archivedOnly?: boolean; ownerEmpty?: boolean },
+  q: {
+    status?: string;
+    keyword?: string;
+    archivedOnly?: boolean;
+    ownerEmpty?: boolean;
+    owner?: string;
+    riskLevel?: string;
+    reportBucket?: "week" | "month" | "quarter";
+  },
 ): SQL | undefined {
   return and(
     scopedWhere("risk_matter", actor),
     archivedFilter("risk_matter", Boolean(q.archivedOnly)),
     q.status ? eq(riskMatter.status, q.status) : undefined,
+    q.riskLevel ? eq(riskMatter.level, q.riskLevel) : undefined,
+    // 经办人（canon 查询区那一格）：与 `ownerEmpty` 互斥，前端二选一。
+    // `owner_id` 是 bigint 列，schema 只保证它是数字串，这里才把它变成 bigint。
+    q.owner ? eq(riskMatter.ownerId, BigInt(q.owner)) : undefined,
     keywordFilter("risk_matter", q.keyword),
     // 未指派 = `owner_id IS NULL`。事项侧经办人可空（IQ-5），所以判空值；
     // `= ''` 与 `NOT EXISTS` 是另外两种"空"，别混。
     q.ownerEmpty ? isNull(riskMatter.ownerId) : undefined,
+    /**
+     * 上报时间滚动窗口（canon `risk-matters.html` 的「上报时间」那一格）。
+     *
+     * 筛 `created_at`（登记进系统的时刻），不筛 `discover_date`：
+     * 后者是"风险什么时候被发现"，建号时可以填一个早得多的日期。
+     *
+     * 天数用 `sql.raw` 内联而不是参数：`$1 * interval '1 day'` 在 pg 侧会得到
+     * "operator is not unique"（参数类型待定），而这里的天数来自**闭集枚举**，
+     * 不是用户输入，内联没有注入面。窗口是闭区间，含今天。
+     */
+    q.reportBucket
+      ? sql`${riskMatter.createdAt} >= current_date - interval '${sql.raw(
+          String(REPORT_WINDOW_DAYS[q.reportBucket]),
+        )} days'`
+      : undefined,
   );
 }
 
@@ -173,10 +219,16 @@ export async function listRiskMatters(
     pageSize: number;
     keyword?: string;
     status?: string;
-    sortBy?: (typeof SORTABLE_COLUMNS)[number];
+    sortBy?: RiskSortableColumn;
     archivedOnly?: boolean;
     /** 只看未指派处理人的事项（T1）。`owner_id IS NULL`，不是 `= ''` */
     ownerEmpty?: boolean;
+    /** 经办人（`owner_id`），与 `ownerEmpty` 互斥 */
+    owner?: string;
+    /** 风险等级（`mn_risk_level_config.code`） */
+    riskLevel?: string;
+    /** 上报时间滚动窗口（近 7 / 30 / 90 天） */
+    reportBucket?: "week" | "month" | "quarter";
     sortDir?: "asc" | "desc";
   },
 ) {
@@ -192,14 +244,43 @@ export async function listRiskMatters(
       type: riskMatter.type,
       level: riskMatter.level,
       source: riskMatter.source,
-      amount: riskMatter.amount,
       status: riskMatter.status,
       conversionStatus: riskMatter.conversionStatus,
       convertedCaseCount: riskMatter.convertedCaseCount,
+      /**
+       * 已转案件时，`操作`列要跳去的那个案卷（canon `risk-matters.html`：已转的行
+       * 写「查看案件」而不是「查看」）。
+       *
+       * 一个事项可以建多张卡（`mn_risk_matter_case` 是 N:N），这里取最早的一张 ——
+       * `convertedCaseCount` 只是计数，点进去必须落到某一份具体案卷上。
+       * `::text` 是为了避开 bigint 在 JSON 里丢精度（列表的 `id` 同一个处理）。
+       * 关联键同样必须是裸限定名（理由见下面 `nextDeadline` 那条注）。
+       */
+      convertedMatterId: sql<
+        string | null
+      >`(select min(rmc.matter_id)::text from mn_risk_matter_case rmc
+        where rmc.risk_matter_id = mn_risk_matter.id)`,
       isArchived: riskMatter.isArchived,
       archivedAt: riskMatter.archivedAt,
       discoverDate: riskMatter.discoverDate,
+      /** 上报时间（canon `risk-matters.html` 那一列）：登记进系统的时刻 */
+      createdAt: riskMatter.createdAt,
       updatedAt: riskMatter.updatedAt,
+      /**
+       * 最近一个未决节点的期限（canon `risk-matters.html` 的「期限」列）。
+       *
+       * ⚠ 关联键必须是**裸限定名** `mn_risk_matter.id`，不能写 `${riskMatter.id}` ——
+       * 在 select 列表上下文里 drizzle 会把它渲染成无限定的 `"id"`，而子查询里的
+       * `mn_risk_matter_node` 自己也有 `id` ⇒ 条件变成 `rn.risk_matter_id = rn.id`，
+       * **恒假且不报错**，这一列就静默全空（案件侧 `matterListSelection` 踩过同一个坑）。
+       *
+       * 判据与案件侧逐字相同（未删除 + 未完成/进行中的节点，取最早期限），
+       * 只是事项侧没有预设节点（IQ-5），所以大多数行会是「未定」。
+       */
+      nextDeadline: sql<string | null>`(select min(rn.deadline_time) from mn_risk_matter_node rn
+        where rn.risk_matter_id = mn_risk_matter.id
+          and not rn.is_deleted
+          and rn.status = 'in_progress')`,
       // ownerId 与 ownerName **成对**返回：筛选用的是 owner_id，
       // 而行里只有 ownerName 的话，"被筛掉了哪些"就说不清了，前端也判不了未指派。
       ownerId: riskMatter.ownerId,
@@ -233,11 +314,46 @@ export async function listRiskMatters(
     .offset((q.page - 1) * q.pageSize);
 
   return {
-    items: rows.map((r) => ({ ...r, id: String(r.id) })),
+    items: rows.map((r) => ({ ...r, id: String(r.id), nextDeadline: r.nextDeadline ?? null })),
     page: q.page,
     pageSize: q.pageSize,
     total: Number(total?.n ?? 0),
   };
+}
+
+/**
+ * 「经办人」筛选下拉的候选集（canon `risk-matters.html` 查询区，口径同案件侧
+ * `listMatterOwners`）：当前筛选下**真实出现过**的经办人。
+ *
+ * 与 `listRiskMatters` **同一个 where**，只去掉 `owner` 自己——否则一旦选了一个人，
+ * 下拉里就只剩他一个，换人得先清空再选。
+ *
+ * `owner_id` 可空（IQ-5）：`DISTINCT` 会带回一行 `null`，那不是一个人，
+ * 由前端固定的「未指派」选项承担，这里过滤掉。
+ */
+export async function listRiskMatterOwners(
+  actor: Actor,
+  q: {
+    status?: string;
+    keyword?: string;
+    archivedOnly?: boolean;
+    ownerEmpty?: boolean;
+    riskLevel?: string;
+    reportBucket?: "week" | "month" | "quarter";
+  },
+): Promise<{ id: string; displayName: string }[]> {
+  const db = await getDb();
+  const where = riskMattersListWhere(actor, { ...q, owner: undefined });
+  const rows = await db
+    .selectDistinct({
+      id: riskMatter.ownerId,
+      displayName: appUser.displayName,
+    })
+    .from(riskMatter)
+    .innerJoin(appUser, eq(appUser.id, riskMatter.ownerId))
+    .where(where)
+    .orderBy(asc(appUser.displayName));
+  return rows.map((r) => ({ id: String(r.id), displayName: r.displayName }));
 }
 
 type Db = Awaited<ReturnType<typeof getDb>>;
@@ -259,8 +375,6 @@ export async function createRiskMatter(
     level: string;
     source?: string | null;
     description: string;
-    measure?: string | null;
-    amount?: string;
     discoverDate?: string | null;
     ownerId?: string;
     /** 创建时的关注人（IQ-5 + IQ-14 的创建期例外），见 `riskCreateSchema` 注释 */
@@ -318,8 +432,6 @@ export async function createRiskMatter(
       level: input.level,
       source: input.source ?? null,
       description: input.description,
-      measure: input.measure ?? null,
-      amount: input.amount ?? "0",
       /**
        * 发现日期：留空按「今天」记。
        *
@@ -981,9 +1093,6 @@ export async function getRiskMatter(actor: Actor, id: string) {
       level: riskMatter.level,
       source: riskMatter.source,
       description: riskMatter.description,
-      measure: riskMatter.measure,
-      amount: riskMatter.amount,
-      currency: riskMatter.currency,
       status: riskMatter.status,
       ownerId: riskMatter.ownerId,
       // 创建人进 DTO：关注名单的管理权（§6 经办人/L1/创建人）要在界面上判
@@ -1019,6 +1128,8 @@ export async function getRiskMatter(actor: Actor, id: string) {
           status: riskMatterNode.status,
           sourceKind: riskMatterNode.sourceKind,
           sortOrder: riskMatterNode.sortOrder,
+          remark: riskMatterNode.remark,
+          ownerId: riskMatterNode.ownerId,
           cancelReason: riskMatterNode.cancelReason,
           completedAt: riskMatterNode.completedAt,
         })
@@ -1132,6 +1243,12 @@ export async function getRiskMatter(actor: Actor, id: string) {
    */
   const commentParts = await mentionPartsOf(db, comments);
 
+  /** 评论附件（§7.1 / §1.7）：与案件侧同一实现 */
+  const commentAttachments = await attachmentsOfComments(
+    db,
+    comments.map((c) => c.id),
+  );
+
   return {
     ...row,
     id: String(row.id),
@@ -1139,7 +1256,12 @@ export async function getRiskMatter(actor: Actor, id: string) {
     creatorId: row.creatorId === null ? null : String(row.creatorId),
     ownerName: ownerRow[0]?.name ?? null,
     nodeTypes: nodeTypes.map((t) => ({ id: String(t.id), code: t.code, name: t.name })),
-    nodes: nodes.map((n) => ({ ...n, id: String(n.id), nodeTypeId: String(n.nodeTypeId) })),
+    nodes: nodes.map((n) => ({
+      ...n,
+      id: String(n.id),
+      // 手工节点没有类型（0020 起可空）——不能 `String(null)` 成 "null"
+      nodeTypeId: n.nodeTypeId === null ? null : String(n.nodeTypeId),
+    })),
     staff: staff.map((s) => ({ ...s, id: String(s.id), userId: String(s.userId) })),
     parties: parties ?? [],
     comments: comments.map((c) => ({
@@ -1152,6 +1274,7 @@ export async function getRiskMatter(actor: Actor, id: string) {
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
       parts: commentParts.get(String(c.id)) ?? [],
+      attachments: commentAttachments.get(String(c.id)) ?? [],
     })),
     activity: activity.map((a) => ({ ...a, id: String(a.id), operatorId: String(a.operatorId) })),
     statuses,
@@ -1313,8 +1436,6 @@ export async function updateRiskMatter(
     name?: string;
     level?: string;
     description?: string;
-    measure?: string | null;
-    amount?: string;
     ownerId?: string | null;
   },
 ): Promise<
@@ -1330,8 +1451,6 @@ export async function updateRiskMatter(
       name: riskMatter.name,
       level: riskMatter.level,
       description: riskMatter.description,
-      measure: riskMatter.measure,
-      amount: riskMatter.amount,
       ownerId: riskMatter.ownerId,
       isArchived: riskMatter.isArchived,
       conversionStatus: riskMatter.conversionStatus,
@@ -1383,11 +1502,12 @@ export async function updateRiskMatter(
 
   const diffs: Record<string, { from: unknown; to: unknown }> = {};
   const set: Record<string, unknown> = {};
-  // 正文类字段（描述 / 处置措施）：改动要落库、要触发 RISK_UPDATED，但**审计不落正文**
+  // 正文类字段（描述）：改动要落库、要触发 RISK_UPDATED，但**审计不落正文**
   // （ADR-0002 + logging-guidelines 既有禁令）。所以这些字段只记「改过」，不记 from/to 的值。
-  const BODY_FIELDS = new Set(["description", "measure"]);
+  // 原先与描述并列的「处置措施」已随迁移 0017 撤下，所以这一组只剩描述。
+  const BODY_FIELDS = new Set(["description"]);
   const bodyChanged: string[] = [];
-  const consider = (key: "name" | "level" | "description" | "measure" | "amount") => {
+  const consider = (key: "name" | "level" | "description") => {
     const v = patch[key];
     if (v === undefined) return;
     if (v === cur[key]) return;
@@ -1398,8 +1518,6 @@ export async function updateRiskMatter(
   consider("name");
   consider("level");
   consider("description");
-  consider("measure");
-  consider("amount");
   if (changingOwner && nextOwner !== cur.ownerId) {
     diffs["ownerId"] = {
       from: cur.ownerId === null ? null : String(cur.ownerId),
@@ -1471,6 +1589,8 @@ export async function addRiskComment(
   riskId: string,
   body: string,
   parentId?: string | null,
+  /** §7.1：已上传（草稿态）的附件 id；空/不传 = 没有附件 */
+  attachmentIds: readonly string[] = [],
 ): Promise<{ id: string } | null> {
   const db = await getDb();
   const [visible] = await db
@@ -1482,35 +1602,49 @@ export async function addRiskComment(
   const id = BigInt(nextId());
   // @提及在事务外解析（候选人是全体在职账号，与这次写入无一致性要求）。与案件侧同一口径
   const mentionIds = await resolveMentionIds(db, body);
-  await db.transaction(async (tx) => {
-    await tx.insert(comment).values({
-      id,
-      targetType: "risk_matter",
-      targetId: BigInt(riskId),
-      body,
-      parentId: parentId ? BigInt(parentId) : null,
-      // 列注「通知链路将来靠它展开」的落点（基线 0000 就有这一列）
-      mentionIds: mentionIds.map(BigInt),
-      authorId: BigInt(actor.userId),
-      createdBy: BigInt(actor.userId),
-      updatedBy: BigInt(actor.userId),
+  // 附件草稿也在事务外核（要读对象存储）；事务里只剩 `comment_id` 的赋值
+  const drafts = await verifyDraftAttachments(actor, "risk_matter", riskId, attachmentIds);
+  try {
+    await db.transaction(async (tx) => {
+      await tx.insert(comment).values({
+        id,
+        targetType: "risk_matter",
+        targetId: BigInt(riskId),
+        body,
+        parentId: parentId ? BigInt(parentId) : null,
+        // 列注「通知链路将来靠它展开」的落点（基线 0000 就有这一列）
+        mentionIds: mentionIds.map(BigInt),
+        authorId: BigInt(actor.userId),
+        createdBy: BigInt(actor.userId),
+        updatedBy: BigInt(actor.userId),
+      });
+      await attachToComment(tx, actor, {
+        host: "risk_matter",
+        hostId: riskId,
+        commentId: id,
+        rows: drafts,
+      });
+      await logActivity(tx, actor, {
+        riskMatterId: BigInt(riskId),
+        targetType: "risk_matter",
+        targetId: BigInt(riskId),
+        action: "COMMENT_CREATED",
+      });
+      // 新评论的通知意图：**只写 outbox**（预置规则 8 的触发是 `comment_added` 领域事件）。
+      // 归档事项返回 false（不发通知），但评论照写 —— 基线 1.7 明写"归档后仍可新增评论"。
+      await enqueueCommentIntent(actor, tx, {
+        host: "risk_matter",
+        hostId: BigInt(riskId),
+        commentId: id,
+        quoted: quoteOf(body),
+        mentionIds,
+      });
     });
-    await logActivity(tx, actor, {
-      riskMatterId: BigInt(riskId),
-      targetType: "risk_matter",
-      targetId: BigInt(riskId),
-      action: "COMMENT_CREATED",
-    });
-    // 新评论的通知意图：**只写 outbox**（预置规则 8 的触发是 `comment_added` 领域事件）。
-    // 归档事项返回 false（不发通知），但评论照写 —— 基线 1.7 明写"归档后仍可新增评论"。
-    await enqueueCommentIntent(actor, tx, {
-      host: "risk_matter",
-      hostId: BigInt(riskId),
-      commentId: id,
-      quoted: quoteOf(body),
-      mentionIds,
-    });
-  });
+  } catch (e) {
+    // 评论没落库 ⇒ 刚传上去的附件不该留下（草稿行 + 对象一起清）。补偿不抛。
+    await discardDrafts(attachmentIds);
+    throw e;
+  }
   return { id: String(id) };
 }
 
@@ -1568,24 +1702,19 @@ export async function editRiskComment(
 /**
  * 手动新增事项节点（IQ-5：事项侧**无预设节点**，只能手动加）。
  *
- * **只支持时间点**：节点类型配置里若 `time_type='range'`，这里直接拒。
- * 不是"前端不给控件"就够了——服务层不拒的话，一个手写请求就能建出时间段节点，
- * 而事项侧的提醒扫描与展示都按"只有时间点"写的。
+ * 2026-10-23 起与案件侧同形：字段只有名称、描述（入 `remark`）、时间；不再选节点类型
+ * （类型是模板的概念，手工节点没有模板可依），新节点从「进行中」起算。
  *
  * **冻结（MATT-80 / ADR 0005）**：事项转过案件之后**节点也不能再加** —— 判据是
  * `isRiskFrozen`。事项节点常是硬期限（举证期、开庭日、答复期），转案件之后期限的
- * 实际推进已在案件侧，此刻还能在台账上加一条，**没人会察觉那条期限是后补的** ——
- * 这是这条链上唯一"改错了不出声"的形态。要紧急调期限请去**案件**侧改。
- * 排在归档与归属判定之前：冻结是这条记录的属性，与"你是不是经办人"无关。
+ * 实际推进已在案件侧，此刻还能在台账上加一条，**没人会察觉那条期限是后补的**。
+ * 排在归档判定之前：冻结是这条记录的属性，与"你是不是经办人"无关。
  */
 export async function addRiskNode(
   actor: Actor,
   riskId: string,
-  input: { nodeTypeId: string; name?: string; startTime?: string | null; remark?: string | null },
-): Promise<
-  | { ok: true; id: string }
-  | { ok: false; why: "not_found" | "forbidden" | "range_not_allowed" | "frozen" }
-> {
+  input: { name: string; description?: string; startTime: string },
+): Promise<{ ok: true; id: string } | { ok: false; why: "not_found" | "forbidden" | "frozen" }> {
   const db = await getDb();
   const [vis] = await db
     .select({
@@ -1600,74 +1729,185 @@ export async function addRiskNode(
   if (!vis) return { ok: false, why: "not_found" };
   if (isRiskFrozen(vis.conversionStatus)) return { ok: false, why: "frozen" };
   if (vis.isArchived) return { ok: false, why: "forbidden" };
-  if (vis.ownerId !== null && !ownsAttribution(actor, vis.ownerId))
-    return { ok: false, why: "forbidden" };
 
-  // 节点类型必须属于**事项侧**：拿案件侧的 nodeTypeId 来建事项节点会让类型与宿主不符
-  const [type] = await db
-    .select({
-      id: nodeTypeConfig.id,
-      name: nodeTypeConfig.name,
-      timeType: nodeTypeConfig.timeType,
-      remindDays: nodeTypeConfig.defaultRemindDays,
-    })
-    .from(nodeTypeConfig)
-    .where(
-      and(
-        eq(nodeTypeConfig.id, BigInt(input.nodeTypeId)),
-        eq(nodeTypeConfig.hostType, "risk_matter"),
-      ),
-    )
-    .limit(1);
-  if (!type) return { ok: false, why: "not_found" };
-  if (type.timeType !== "point") return { ok: false, why: "range_not_allowed" };
-
+  const startTime = new Date(input.startTime).toISOString();
   const [last] = await db
     .select({ max: sql<number | null>`max(${riskMatterNode.sortOrder})` })
     .from(riskMatterNode)
     .where(eq(riskMatterNode.hostId, BigInt(riskId)));
   const id = BigInt(nextId());
+
   await db.transaction(async (tx) => {
     await tx.insert(riskMatterNode).values({
       id,
       hostId: BigInt(riskId),
-      nodeTypeId: type.id,
-      name: input.name?.trim() || type.name,
+      nodeTypeId: null,
+      name: input.name.trim(),
       timeType: "point",
-      startTime: input.startTime ?? null,
-      // 时间点节点没有结束时间；`deadline_time` 是生成列，不用管
+      startTime,
       endTime: null,
-      isTimeConfirmed: Boolean(input.startTime),
-      status: "not_started",
-      // 手动新增 —— 与撤销转案件那条口径一致：系统生成才算 preset，这里是人的动作
+      isTimeConfirmed: true,
+      status: "in_progress",
+      // 手动新增 —— 系统生成才算 preset，这里是人的动作
       sourceKind: "manual",
-      remindDays: type.remindDays,
+      ownerId: vis.ownerId,
+      remindDays: initialRemindDays(startTime),
       sortOrder: Number(last?.max ?? -1) + 1,
-      remark: input.remark ?? null,
+      remark: input.description?.trim() ? input.description.trim() : null,
       createdBy: BigInt(actor.userId),
       updatedBy: BigInt(actor.userId),
     });
     await logActivity(tx, actor, {
       riskMatterId: BigInt(riskId),
-      targetType: "risk_matter",
-      targetId: BigInt(riskId),
+      targetType: "risk_matter_node",
+      targetId: id,
       action: "NODE_CREATED",
-      diffs: { node: { from: null, to: input.name?.trim() || type.name } },
+      diffs: { node: { from: null, to: input.name.trim() } },
     });
   });
   return { ok: true, id: String(id) };
 }
 
+/** 事项节点写操作的统一返回 */
+export type RiskNodeWriteOutcome =
+  { ok: true; id: string } | { ok: false; why: "not_found" | "forbidden" | "frozen" };
+
+/** 编辑事项节点：名称 / 描述 / 时间，随时可改（归档与冻结除外） */
+export async function updateRiskNode(
+  actor: Actor,
+  riskId: string,
+  nodeId: string,
+  input: { name: string; description?: string; startTime: string },
+): Promise<RiskNodeWriteOutcome> {
+  const db = await getDb();
+  const [node] = await db
+    .select({
+      id: riskMatterNode.id,
+      name: riskMatterNode.name,
+      startTime: riskMatterNode.startTime,
+      nodeOwnerId: riskMatterNode.ownerId,
+      hostOwnerId: riskMatter.ownerId,
+      hostCreatorId: riskMatter.createdBy,
+      isArchived: riskMatter.isArchived,
+      conversionStatus: riskMatter.conversionStatus,
+    })
+    .from(riskMatterNode)
+    .innerJoin(riskMatter, eq(riskMatter.id, riskMatterNode.hostId))
+    .where(
+      and(
+        eq(riskMatterNode.hostId, BigInt(riskId)),
+        eq(riskMatterNode.id, BigInt(nodeId)),
+        scopedWhere("risk_matter", actor),
+        sql`NOT ${riskMatterNode.isDeleted}`,
+      ),
+    )
+    .limit(1);
+  if (!node) return { ok: false, why: "not_found" };
+  if (isRiskFrozen(node.conversionStatus)) return { ok: false, why: "frozen" };
+  if (node.isArchived) return { ok: false, why: "forbidden" };
+  const allowed = await canManageNode(db, actor, "risk_matter", BigInt(riskId), {
+    nodeOwnerId: node.nodeOwnerId,
+    hostOwnerId: node.hostOwnerId,
+    hostCreatorId: node.hostCreatorId,
+  });
+  if (!allowed) return { ok: false, why: "forbidden" };
+
+  const startTime = new Date(input.startTime).toISOString();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(riskMatterNode)
+      .set({
+        name: input.name.trim(),
+        remark: input.description?.trim() ? input.description.trim() : null,
+        timeType: "point",
+        startTime,
+        endTime: null,
+        isTimeConfirmed: true,
+        remindDays: initialRemindDays(startTime),
+        updatedBy: BigInt(actor.userId),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(riskMatterNode.id, BigInt(nodeId)));
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter_node",
+      targetId: node.id,
+      action: "NODE_UPDATED",
+      diffs: {
+        name: { from: node.name, to: input.name.trim() },
+        start_time: { from: node.startTime, to: startTime },
+      },
+    });
+  });
+  return { ok: true, id: String(nodeId) };
+}
+
+/** 删除事项节点（软删 + NODE_DELETED 审计） */
+export async function deleteRiskNode(
+  actor: Actor,
+  riskId: string,
+  nodeId: string,
+): Promise<RiskNodeWriteOutcome> {
+  const db = await getDb();
+  const [node] = await db
+    .select({
+      id: riskMatterNode.id,
+      name: riskMatterNode.name,
+      status: riskMatterNode.status,
+      nodeOwnerId: riskMatterNode.ownerId,
+      hostOwnerId: riskMatter.ownerId,
+      hostCreatorId: riskMatter.createdBy,
+      isArchived: riskMatter.isArchived,
+      conversionStatus: riskMatter.conversionStatus,
+    })
+    .from(riskMatterNode)
+    .innerJoin(riskMatter, eq(riskMatter.id, riskMatterNode.hostId))
+    .where(
+      and(
+        eq(riskMatterNode.hostId, BigInt(riskId)),
+        eq(riskMatterNode.id, BigInt(nodeId)),
+        scopedWhere("risk_matter", actor),
+        sql`NOT ${riskMatterNode.isDeleted}`,
+      ),
+    )
+    .limit(1);
+  if (!node) return { ok: false, why: "not_found" };
+  if (isRiskFrozen(node.conversionStatus)) return { ok: false, why: "frozen" };
+  if (node.isArchived) return { ok: false, why: "forbidden" };
+  const allowed = await canManageNode(db, actor, "risk_matter", BigInt(riskId), {
+    nodeOwnerId: node.nodeOwnerId,
+    hostOwnerId: node.hostOwnerId,
+    hostCreatorId: node.hostCreatorId,
+  });
+  if (!allowed) return { ok: false, why: "forbidden" };
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(riskMatterNode)
+      .set({
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+        updatedBy: BigInt(actor.userId),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(riskMatterNode.id, BigInt(nodeId)));
+    await logActivity(tx, actor, {
+      riskMatterId: BigInt(riskId),
+      targetType: "risk_matter_node",
+      targetId: node.id,
+      action: "NODE_DELETED",
+      payload: { name: node.name, status: node.status },
+    });
+  });
+  return { ok: true, id: String(nodeId) };
+}
+
 /**
- * 事项节点的完成 / 取消 / 确认时间。
+ * 事项节点的状态（三态，2026-10-23）。
  *
- * 状态只有四值（E21），`pending` / `confirm_time` 是**命令**不是状态：
- * 前者把 `is_time_confirmed` 落下去，后者抬上来，`status` 一列不动。
- *
- * **冻结（MATT-80 / ADR 0005）**：事项转过案件之后节点状态也不可再改 —— 判据是
- * `isRiskFrozen`。与 `addRiskNode` 同一条理由：把一条已移交的硬期限在事项侧标成
- * "已完成/已取消"，会直接改写"这条期限还算不算数"，而案件侧并不知情。
- * 排在归档与归属判定之前（同既有三道：冻结是记录自身的属性）。
+ * 与案件侧同一套：三态之间自由跳、取消必填原因、状态没变 422；
+ * **冻结（MATT-80 / ADR 0005）** 与归档仍挡在最前面（记录自身属性，先于归属判定）。
+ * 完成是进度事实，能看见就能标；取消会抹掉期限，限 `canManageNode`。
  */
 export async function setRiskNodeStatus(
   actor: Actor,
@@ -1685,9 +1925,10 @@ export async function setRiskNodeStatus(
       id: riskMatterNode.id,
       name: riskMatterNode.name,
       status: riskMatterNode.status,
-      isTimeConfirmed: riskMatterNode.isTimeConfirmed,
+      nodeOwnerId: riskMatterNode.ownerId,
+      hostOwnerId: riskMatter.ownerId,
+      hostCreatorId: riskMatter.createdBy,
       isArchived: riskMatter.isArchived,
-      ownerId: riskMatter.ownerId,
       conversionStatus: riskMatter.conversionStatus,
     })
     .from(riskMatterNode)
@@ -1705,21 +1946,23 @@ export async function setRiskNodeStatus(
   if (!node) return { ok: false, why: "not_found" };
   if (isRiskFrozen(node.conversionStatus)) return { ok: false, why: "frozen" };
   if (node.isArchived) return { ok: false, why: "forbidden" };
-  if (node.ownerId !== null && !ownsAttribution(actor, node.ownerId))
-    return { ok: false, why: "forbidden" };
-
-  const isTimeCommand = status === "pending" || status === "confirm_time";
-  const toStatus = isTimeCommand ? node.status : status;
-  if (!isTimeCommand && toStatus === node.status) return { ok: false, why: "unchanged" };
+  if (status === node.status) return { ok: false, why: "unchanged" };
   if (status === "cancelled" && !cancelReason?.trim()) return { ok: false, why: "reason_required" };
+  if (status === "cancelled") {
+    const allowed = await canManageNode(db, actor, "risk_matter", BigInt(riskId), {
+      nodeOwnerId: node.nodeOwnerId,
+      hostOwnerId: node.hostOwnerId,
+      hostCreatorId: node.hostCreatorId,
+    });
+    if (!allowed) return { ok: false, why: "forbidden" };
+  }
 
   const now = new Date().toISOString();
   await db.transaction(async (tx) => {
     await tx
       .update(riskMatterNode)
       .set({
-        status: toStatus,
-        ...(isTimeCommand ? { isTimeConfirmed: status === "confirm_time" } : {}),
+        status,
         cancelReason: status === "cancelled" ? cancelReason : null,
         completedAt: status === "completed" ? now : null,
         completedBy: status === "completed" ? BigInt(actor.userId) : null,
@@ -1730,8 +1973,8 @@ export async function setRiskNodeStatus(
     // 取消必须带原因 —— 这是 `NODE_CANCELLED` 在枚举表 §3.2 里的必填口径
     await logActivity(tx, actor, {
       riskMatterId: BigInt(riskId),
-      targetType: "risk_matter",
-      targetId: BigInt(riskId),
+      targetType: "risk_matter_node",
+      targetId: node.id,
       action:
         status === "completed"
           ? "NODE_COMPLETED"
@@ -1739,7 +1982,7 @@ export async function setRiskNodeStatus(
             ? "NODE_CANCELLED"
             : "NODE_UPDATED",
       reason: status === "cancelled" ? (cancelReason ?? null) : null,
-      diffs: { nodeStatus: { from: node.status, to: toStatus } },
+      diffs: { nodeStatus: { from: node.status, to: status } },
     });
   });
   return { ok: true };
@@ -2222,7 +2465,6 @@ export type RiskExportRow = {
   type: string;
   level: string;
   status: string;
-  amount: string;
   discoverDate: string;
   ownerName: string | null;
   conversionStatus: number | null;
@@ -2252,7 +2494,6 @@ export function riskMattersExportCsv(
     "等级",
     "状态",
     "转案件",
-    "预估影响",
     "发现日期",
     "负责人",
     "更新",
@@ -2267,8 +2508,6 @@ export function riskMattersExportCsv(
     // `isRiskFrozen` —— 不在导出里再写一遍 `=== 1`。`risks.spec.ts` 那条
     // 「只出现一次」的源码守卫就是为这件事存在的（本票的第一次实现正是被它拦下的）。
     isRiskFrozen(r.conversionStatus) ? `已转 · ${r.convertedCaseCount}` : "未转",
-    // 金额是 `numeric` 的原样字符串（两位小数）：导出不重算、不格式化
-    r.amount,
     r.discoverDate,
     // 空值与列表同口径：留白会被读成"数据缺失"，而它是一个有业务含义的状态（待人接手）
     r.ownerName ?? "未指派",
@@ -2304,7 +2543,6 @@ export async function exportRiskMatters(
       type: riskMatter.type,
       level: riskMatter.level,
       status: riskMatter.status,
-      amount: riskMatter.amount,
       discoverDate: riskMatter.discoverDate,
       ownerName: appUser.displayName,
       conversionStatus: riskMatter.conversionStatus,

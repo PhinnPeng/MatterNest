@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -52,6 +52,33 @@ export type ListState = {
    * 类型同样是字面量 `"1"`（理由见 `ownerEmpty`）。
    */
   missingMaterials?: "1";
+  /**
+   * 案件类型 / 案件程序 / 经办人 / 期限范围（canon `matters.html` 查询区）。
+   *
+   * 四个都是**案件页专有**，事项页没有对应控件；空串 = 不限。类型收成 `string`
+   * 而不是枚举联合：值域来自 `/api/meta` 的字典（运营可改的配置驱动字典之外，
+   * 这里两个是闭集枚举），在这里再写一份联合就等于把 `shared/enums` 抄第二遍。
+   */
+  caseType?: string;
+  procedure?: string;
+  /**
+   * 经办人（`owner_id`）。两个列表页共用这一格：案件侧必有负责人，
+   * 事项侧可空（IQ-5），空的那一侧由 `ownerEmpty` 表达。
+   */
+  owner?: string;
+  /**
+   * 期限范围。四档里的 `none` = 没有任何未决节点期限——它不是"不限"（那是 `undefined`），
+   * 而是一个要筛出来的状态，所以必须能和"未选"区分开。
+   */
+  deadlineBucket?: "overdue" | "soon" | "later" | "none";
+  /**
+   * 风险等级 / 上报时间范围（canon `risk-matters.html` 查询区）。**事项页专有**，空串 = 不限。
+   *
+   * 等级收成 `string` 而不是联合：值域来自 `/api/meta` 的配置驱动字典（理由同 `caseType`）。
+   * 上报时间只有三档滚动窗口，是闭集，所以收成联合——URL 上粘了别的值就当"不限"。
+   */
+  riskLevel?: string;
+  reportBucket?: "week" | "month" | "quarter";
 };
 
 export function useListState(defaults?: Partial<ListState>) {
@@ -75,6 +102,17 @@ export function useListState(defaults?: Partial<ListState>) {
         sp.get("missingMaterials") === "1" || sp.get("missingMaterials") === "true"
           ? "1"
           : undefined,
+      caseType: sp.get("caseType") ?? "",
+      procedure: sp.get("procedure") ?? "",
+      owner: sp.get("owner") ?? "",
+      // 四档里只有这四个合法值；URL 上粘了别的值就当"不限"，不原样发给服务端（那边会 400）
+      deadlineBucket: (["overdue", "soon", "later", "none"] as const).find(
+        (b) => b === sp.get("deadlineBucket"),
+      ),
+      riskLevel: sp.get("riskLevel") ?? "",
+      reportBucket: (["week", "month", "quarter"] as const).find(
+        (b) => b === sp.get("reportBucket"),
+      ),
     }),
     [sp, defaults?.pageSize, defaults?.sortBy],
   );
@@ -129,6 +167,12 @@ export function toQuery(s: ListState): string {
   //   那条结构性断言：**ListState 里每个筛选键都必须出现在 toQuery 的输出里**。
   if (s.ownerEmpty) p.set("ownerEmpty", "1");
   if (s.missingMaterials) p.set("missingMaterials", "1");
+  if (s.caseType) p.set("caseType", s.caseType);
+  if (s.procedure) p.set("procedure", s.procedure);
+  if (s.owner) p.set("owner", s.owner);
+  if (s.deadlineBucket) p.set("deadlineBucket", s.deadlineBucket);
+  if (s.riskLevel) p.set("riskLevel", s.riskLevel);
+  if (s.reportBucket) p.set("reportBucket", s.reportBucket);
   return p.toString();
 }
 
@@ -158,6 +202,12 @@ export function toExportQuery(s: ListState): string {
   if (s.archivedOnly) p.set("archivedOnly", "1");
   if (s.ownerEmpty) p.set("ownerEmpty", "1");
   if (s.missingMaterials) p.set("missingMaterials", "1");
+  if (s.caseType) p.set("caseType", s.caseType);
+  if (s.procedure) p.set("procedure", s.procedure);
+  if (s.owner) p.set("owner", s.owner);
+  if (s.deadlineBucket) p.set("deadlineBucket", s.deadlineBucket);
+  if (s.riskLevel) p.set("riskLevel", s.riskLevel);
+  if (s.reportBucket) p.set("reportBucket", s.reportBucket);
   return p.toString();
 }
 

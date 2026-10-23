@@ -58,6 +58,40 @@ describe("listQuerySchema", () => {
     expect(listQuerySchema.parse({}).archivedOnly).toBe(false);
     expect(listQuerySchema.safeParse({ archivedOnly: "yes" }).success).toBe(false);
   });
+
+  /**
+   * 案件查询区的四格（2026-10-19，canon `matters.html`）。
+   *
+   * 这四条盯的是**值域**而不是"能不能传"：`deadlineBucket` 是个闭集，写错一个字母
+   * （`"due"` 而不是 `"soon"`）若被静默当成"不限"，用户会看到"筛选点了没反应"——
+   * 与 `ownerEmpty` 那类事故同一个长相。
+   */
+  describe("案件查询区新增的四格", () => {
+    it("caseType / procedure 收非空字符串（值域由库里的 CHECK 回答，不在前端收枚举）", () => {
+      expect(listQuerySchema.safeParse({ caseType: "civil_commercial" }).success).toBe(true);
+      expect(listQuerySchema.safeParse({ procedure: "first_instance" }).success).toBe(true);
+      // 空串不算筛选值：「全部」发的是**不发这个键**
+      expect(listQuerySchema.safeParse({ caseType: "" }).success).toBe(false);
+      expect(listQuerySchema.safeParse({ caseType: "x".repeat(25) }).success).toBe(false);
+    });
+
+    it("owner 只认数字串（它要转 bigint 进 SQL，非数字该在这里 400 而不是 BigInt 抛 500）", () => {
+      expect(listQuerySchema.safeParse({ owner: "7001" }).success).toBe(true);
+      expect(listQuerySchema.safeParse({ owner: "abc" }).success).toBe(false);
+      expect(listQuerySchema.safeParse({ owner: "7001; drop table" }).success).toBe(false);
+    });
+
+    it("deadlineBucket 四值闭集；`none` 是「未定期限」不是「不限」", () => {
+      for (const v of ["overdue", "soon", "later", "none"] as const) {
+        expect(listQuerySchema.parse({ deadlineBucket: v }).deadlineBucket).toBe(v);
+      }
+      // 拼错的值要被拒，而不是当成"不限"静默通过
+      expect(listQuerySchema.safeParse({ deadlineBucket: "due" }).success).toBe(false);
+      expect(listQuerySchema.safeParse({ deadlineBucket: "1" }).success).toBe(false);
+      // 不传 = 不限（undefined），与 `none` 是两件事
+      expect(listQuerySchema.parse({}).deadlineBucket).toBeUndefined();
+    });
+  });
 });
 
 describe("searchParamsToRecord", () => {
@@ -90,30 +124,34 @@ const keysOf = (shape: Record<string, unknown>, drop: readonly string[]) =>
 
 describe("列表导出的查询面与列表同源", () => {
   it("案件导出吃的筛选键就是列表那几个（多一个少一个都红）", () => {
-    // 这六个是**列表**的筛选面（分页不算，导出没有分页）；`plain` 是导出自己的档位。
-    expect(keysOf(matterListExportQuerySchema.shape, ["plain"])).toEqual([
+    // 这是**列表**的筛选面（分页不算，导出没有分页）；`plain` 是导出自己的档位。
+    // 2026-10-19 加了原型查询区的四格：案件类型 / 案件程序 / 经办人 / 期限范围。
+    // 它们必须同时出现在这两份 shape 里——只加列表那一侧，导出会少筛一层而不报错，
+    // 用户拿到的行数与列表对不上。
+    const EXPECTED = [
       "archivedOnly",
+      "caseType",
+      "deadlineBucket",
       "keyword",
       "missingMaterials",
+      "owner",
+      "procedure",
       "sortBy",
       "sortDir",
       "status",
-    ]);
-    expect(keysOf(listQuerySchema.shape, ["page", "pageSize"])).toEqual([
-      "archivedOnly",
-      "keyword",
-      "missingMaterials",
-      "sortBy",
-      "sortDir",
-      "status",
-    ]);
+    ];
+    expect(keysOf(matterListExportQuerySchema.shape, ["plain"])).toEqual(EXPECTED);
+    expect(keysOf(listQuerySchema.shape, ["page", "pageSize"])).toEqual(EXPECTED);
   });
 
   it("事项导出比案件侧多 `ownerEmpty`（案件必有负责人，事项可空，IQ-5）", () => {
     expect(keysOf(riskMatterListExportQuerySchema.shape, ["plain"])).toEqual([
       "archivedOnly",
       "keyword",
+      "owner",
       "ownerEmpty",
+      "reportBucket",
+      "riskLevel",
       "sortBy",
       "sortDir",
       "status",
@@ -128,6 +166,10 @@ describe("列表导出的查询面与列表同源", () => {
       "keyword",
       "archivedOnly",
       "missingMaterials",
+      "caseType",
+      "procedure",
+      "owner",
+      "deadlineBucket",
       "sortBy",
       "sortDir",
     ] as const;

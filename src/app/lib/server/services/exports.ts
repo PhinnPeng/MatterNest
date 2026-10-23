@@ -249,7 +249,6 @@ export async function exportHostFile(
         ["我方诉讼地位", row.litigationRole],
         ["受理法院", row.court ?? ""],
         ["标的额", row.amount],
-        ["币种", row.currency],
         ["风险等级", row.level],
         ["状态", row.status],
         ["立案日期", row.filingDate ?? ""],
@@ -308,7 +307,7 @@ export async function exportHostFile(
     const keptNodes = nodeRows.slice(0, EXPORT_SECTION_LIMIT);
     truncated ||= cap(nodeRows.length);
     sections.push({
-      title: "工作节点",
+      title: "时间节点",
       header: ["名称", "时间形态", "开始", "结束", "期限", "状态", "来源", "备注"],
       rows: keptNodes.map((n) => [
         n.name,
@@ -368,9 +367,8 @@ export async function exportHostFile(
         ["风险等级", row.level],
         ["来源", row.source ?? ""],
         ["描述", row.description],
-        ["处置措施", row.measure ?? ""],
-        ["涉及金额", row.amount],
-        ["币种", row.currency],
+        // 「处置措施」「涉及金额」两行已随事项侧那两列一起撤下（迁移 0017）；
+        // 「币种」随迁移 0019 撤下：一期只有 CNY，金额口径不需要第二列。
         ["状态", row.status],
         ["发现日期", row.discoverDate],
         ["是否转案件", row.conversionStatus === 1 ? `已转 ${row.convertedCaseCount} 个` : "未转"],

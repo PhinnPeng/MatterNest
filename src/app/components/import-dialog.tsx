@@ -333,14 +333,14 @@ function SummaryPanel({
           type="info"
           showIcon
           style={{ marginBottom: 8 }}
-          message="这是预检，还没有写入。确认无误后再点「开始导入」。"
+          title="这是预检，还没有写入。确认无误后再点「开始导入」。"
         />
       ) : summary.replayed ? (
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 8 }}
-          message="这一份文件之前导过，本次一行都没有新增"
+          title="这一份文件之前导过，本次一行都没有新增"
           description="已经导入的行按内容命中被跳过；坏行照旧报它原来的原因。若要补录，请只保留没进去的行再传一次。"
         />
       ) : counts.error > 0 ? (
@@ -348,7 +348,7 @@ function SummaryPanel({
           type="warning"
           showIcon
           style={{ marginBottom: 8 }}
-          message={`${counts.error} 行没有导入`}
+          title={`${counts.error} 行没有导入`}
           description={
             shown < counts.error
               ? `下面是最前面的 ${shown} 条，完整清单在错误报告里。`

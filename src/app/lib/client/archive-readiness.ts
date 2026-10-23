@@ -30,14 +30,14 @@ export type Readiness = {
 export const READINESS_LABELS: Record<ReadinessKey, string> = {
   judgment: "裁判文书已归档",
   closingDate: "结案日期已填",
-  openNodes: "无未决工作节点",
+  openNodes: "无未决时间节点",
 };
 
 /** 点这一项该去哪一页签补录（AC：点击跳到对应页签）
  *
- * ⚠ `judgment` 是 `null`：附件页签**不存在**（`mn_attachment` 一期未建），
+ * ⚠ `judgment` 是 `null`：附件页签**不存在**（`mn_attachment` 有了，但详情页还没有附件页签），
  * 而"裁判文书已归档 · 暂不可判"这一项**点进去也无处补录**——跳到"参与人"页签是错的
- * （那里加不了附件）。所以它不挂跳转，等 MATT-15 打通附件、页签真出现时再补上。
+ * （那里加不了附件）。所以它不挂跳转，等附件页签真出现时再补上。
  */
 export const READINESS_TAB: Record<ReadinessKey, string | null> = {
   judgment: null,
@@ -51,11 +51,21 @@ export const STATE_LABEL: Record<CheckState, string> = {
   unavailable: "暂不可判",
 };
 
-export const STATE_COLOR: Record<CheckState, string> = {
-  ok: "green",
-  missing: "red",
-  // 灰不是"没检查"，是"没有数据源"——它不能画成绿（假齐备）也不能画成红（假缺项）
-  unavailable: "default",
+/**
+ * 三种状态 → canon 药丸档（`.pill` 的修饰类，与 `StatusMark` / `DeadlineMark` 同一套记号）。
+ *
+ * ⚠ 灰不是"没检查"，是"没有数据源"——它不能画成绿（假齐备）也不能画成红（假缺项），
+ * 所以 `unavailable` 走中性的 `.pill gray` 而不是借用缺口色。
+ *
+ * 2026-10-21 从 `STATE_COLOR`（antd `Tag` 的色名）换过来：详情页的「归档就绪」按原型
+ * `matter-detail.html` 改成 `.tb` 表格后，状态格与全站其余状态读法统一成"点 + 词"，
+ * 不再是一枚有底色的 Tag。键类型仍是 `Record<CheckState, string>`——服务端加一档而这里
+ * 没跟上，是编译错。
+ */
+export const STATE_PILL: Record<CheckState, string> = {
+  ok: "pill ok",
+  missing: "pill over",
+  unavailable: "pill gray",
 };
 
 /**
@@ -85,8 +95,29 @@ export const READINESS_MISSING_PREFIX = "还缺：";
  * 就是这么做的，这里不该例外。
  */
 export const UNAVAILABLE_HINT: Record<NonNullable<ReadinessCheck["reason"]>, string> = {
-  attachment_not_built: "附件功能尚未上线（存储服务未开通），这一项暂时无法判定",
+  attachment_not_built: "附件已能上传，但还没有给附件分类的入口，这一项暂时无法判定",
 };
+
+/**
+ * 「归档就绪」表格**说明列**的一句话（详情页 `.tb` 的第三列）。
+ *
+ * 三种来源，按"这条现在能不能动手、动了去哪"挑，不按状态硬编码文案：
+ *   · 没有数据源 → 说清为什么判不了（这条是事实，不是旁白：它回答"这格为什么是灰的"）；
+ *   · 有缺口 → 「还有 N 个未决节点」＋「点此去补录」，后者只在**真有页签可去**时出现；
+ *   · 已具备 → `—`。**已具备的行绝不写"点此去补录"**——那是在叫用户做一件不需要做的事
+ *     （2026-10-21 第一版就踩了：三行里两行"已具备"却都挂着补录引导）。
+ */
+export function readinessNote(c: ReadinessCheck, jump: string | null): string {
+  if (c.reason) return UNAVAILABLE_HINT[c.reason];
+  if (c.state === "missing") {
+    const note = [c.count ? `还有 ${c.count} 个未决节点` : null, jump ? "点此去补录" : null]
+      .filter(Boolean)
+      .join(" · ");
+    // 缺项但没有可去的页签：状态格已经说了"缺"，说明格不重复也不留空格子
+    return note || "—";
+  }
+  return "—";
+}
 
 /** 读不到就绪数据时的统一说法（`isError` 与 `readiness === null` 共用同一句） */
 export const READINESS_UNREADABLE = "核对不了归档材料（这不影响归档，但缺项清单这次给不出来）";

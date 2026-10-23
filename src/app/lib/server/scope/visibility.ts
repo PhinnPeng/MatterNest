@@ -219,7 +219,13 @@ export function canSeeHostFrom(
   return mine || acl.staffIds.has(userId);
 }
 
-/** 关键词命中案号/名称/案由；ILIKE 前后模糊，走不了 btree —— 一期接受，量大时再上 pg_trgm */
+/**
+ * 关键词命中：案件搜名称/内部编号/案号/案由，事项搜名称/编号。ILIKE 前后模糊，
+ * 走不了 btree —— 一期接受，量大时再上 pg_trgm。
+ *
+ * 事项侧原先还搜「已采取措施」，那一列已随迁移 0017 撤下，所以这里少一段；
+ * 描述本来就不进关键词（见 `agent-work/smoke-rich-text.mjs` 那条注）。
+ */
 export function keywordFilter(host: HostKind, keyword: string | undefined): SQL | undefined {
   if (!keyword) return undefined;
   const like = `%${keyword}%`;
@@ -233,6 +239,5 @@ export function keywordFilter(host: HostKind, keyword: string | undefined): SQL 
     : or(
         sql`lower(${riskMatter.name}) like lower(${like})`,
         sql`lower(${riskMatter.code}) like lower(${like})`,
-        sql`lower(coalesce(${riskMatter.measure}, '')) like lower(${like})`,
       );
 }

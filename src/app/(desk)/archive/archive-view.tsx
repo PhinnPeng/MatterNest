@@ -28,7 +28,8 @@ type ArchiveRow = {
   cause?: string | null;
   type?: string | null;
   level: string;
-  amount: string;
+  /** 只在案件档有（标的额）；事项档的 DTO 已无此字段（迁移 0017），渲染也整列不挂 */
+  amount?: string;
   ownerName: string;
   archivedAt: string | null;
 };
@@ -61,8 +62,21 @@ export function ArchiveView() {
   /**
    * 恒为归档视图：`archivedOnly` 与 `status` 都在这里定死，
    * 不走 URL（否则一条被分享出去的链接可能把归档页变成在办页）。
+   *
+   * `sortBy` 要按宿主收一下：这个排序键由 `useListState` 跨宿主沿用，案件档按「标的额」
+   * 排完切到事项档时，事项接口的白名单里已经没有 `amount`（迁移 0017），会 400。
+   * 这里落回 `updated_at`，而不是让用户自己去找那个看不见的排序。
    */
-  const query = useMemo(() => toQuery({ ...state, status: "", archivedOnly: true }), [state]);
+  const query = useMemo(
+    () =>
+      toQuery({
+        ...state,
+        sortBy: host === "risk_matter" && state.sortBy === "amount" ? "updated_at" : state.sortBy,
+        status: "",
+        archivedOnly: true,
+      }),
+    [state, host],
+  );
 
   const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["archive", host, state],
@@ -74,7 +88,7 @@ export function ArchiveView() {
     const params = new URLSearchParams(sp.toString());
     if (next === "matter") params.delete("host");
     else params.set("host", next);
-    // 换宿主回第一页；关键词也不沿用——案件搜的是案号/案由，事项搜的是编号/措施
+    // 换宿主回第一页；关键词也不沿用——案件搜的是案号/案由，事项搜的是名称/编号
     params.delete("page");
     params.delete("keyword");
     // 「缺材料」同样只在案件侧有意义（材料完整要求不对事项成立，见 `archive-readiness.ts`）。
@@ -153,16 +167,22 @@ export function ArchiveView() {
         sortOrder: sortOrderOf("risk_level", state.sortBy, state.sortDir),
         render: (_, r) => levelName(r.level),
       },
-      {
-        key: "amount",
-        title: isMatter ? "标的额" : "预估影响",
-        width: 116,
-        align: "right",
-        ellipsis: true,
-        sorter: true,
-        sortOrder: sortOrderOf("amount", state.sortBy, state.sortDir),
-        render: (_, r) => <span className="num">{money(r.amount)}</span>,
-      },
+      // 「标的额」只在案件档有：事项侧那列（原「预估影响」）随迁移 0017 撤下，
+      // 所以整列按宿主条件挂载，不是渲染成空白——空白列会让人以为数据缺失。
+      ...(isMatter
+        ? [
+            {
+              key: "amount",
+              title: "标的额",
+              width: 116,
+              align: "right" as const,
+              ellipsis: true,
+              sorter: true,
+              sortOrder: sortOrderOf("amount", state.sortBy, state.sortDir),
+              render: (_: unknown, r: ArchiveRow) => <span className="num">{money(r.amount)}</span>,
+            },
+          ]
+        : []),
       {
         key: "owner_name",
         title: "负责人",
@@ -202,7 +222,7 @@ export function ArchiveView() {
   }
 
   return (
-    <div className="stack">
+    <div className="stack list">
       <div className="pagehead">
         <span className="seg">
           <button

@@ -47,12 +47,6 @@ const patchSchema = z
     name: z.string().trim().min(2, "请输入事项名称").max(200).optional(),
     level: z.string().trim().min(1).max(32).optional(),
     description: z.string().trim().min(2, "请填写描述").max(5000).optional(),
-    measure: z.string().trim().max(5000).nullable().optional(),
-    amount: z
-      .string()
-      .trim()
-      .regex(/^\d+(\.\d{1,2})?$/, "金额最多两位小数")
-      .optional(),
     ownerId: z.string().regex(/^\d+$/, "经办人必须是数字字符串").nullable().optional(),
   })
   .strict();

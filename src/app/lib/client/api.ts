@@ -207,6 +207,16 @@ export type HostFileExport = {
  * 类型写在这里而不是 `page.tsx` 里现取现用：字段名与列名一一对应，
  * 服务层改了 select 列时这里会先红，比页面上 undefined 好找。
  */
+/** 评论附件（§7.1）：`id` 用于换下载签名，其余是展示所需的最小集 */
+export type CommentAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploadedBy: string;
+};
+
 export type MatterDetail = {
   id: string;
   internalCode: string;
@@ -218,12 +228,13 @@ export type MatterDetail = {
   litigationRole: string;
   court: string | null;
   amount: string;
-  currency: string;
   level: string;
   ownerId: string;
   status: string;
   isArchived: boolean;
   archivedAt: string | null;
+  /** 关注名单管理权判定的第三档（§6：经办人 / L1 / 创建人），与事项侧同名 */
+  creatorId: string | null;
   filingDate: string | null;
   closingDate: string | null;
   lastProgressAt: string | null;
@@ -233,8 +244,9 @@ export type MatterDetail = {
   nodes: {
     id: string;
     hostId: string;
-    nodeTypeId: string;
-    nodeType: string;
+    /** 手工节点没有类型（模板才有）：2026-10-23 起可空 */
+    nodeTypeId: string | null;
+    nodeType: string | null;
     name: string;
     timeType: string;
     startTime: string | null;
@@ -271,6 +283,8 @@ export type MatterDetail = {
      * 重解析会在"编辑过的正文"和"改过名字的同事"上画出与通知不一致的高亮。
      */
     parts: CommentPart[];
+    /** §7.1：这条评论挂的附件（读取侧按 `is_deleted` 过滤过） */
+    attachments: CommentAttachment[];
   }[];
   progress: {
     id: string;
@@ -299,7 +313,7 @@ export type MatterDetail = {
    * 「归档就绪」三项（F2-26）。**服务端算好给**，前端不重算——
    * 判定只实现一次（`services/archive-readiness.ts`），列表筛选是它的另一个出口。
    *
-   * `unavailable` 是第三种状态：既不是绿也不是红（附件表一期未建，那项没有数据源）。
+   * `unavailable` 是第三种状态：既不是绿也不是红（附件表已建，但还没有给附件分类的入口 ⇒ 判不了）。
    * 界面必须把它画成第三态，不能当绿也不能当红。
    */
   archiveReadiness: {
@@ -360,9 +374,7 @@ export type RiskDetail = {
   level: string;
   source: string | null;
   description: string;
-  measure: string | null;
-  amount: string;
-  currency: string;
+  /** ⚠ `measure`/`amount` 已随迁移 0017 撤下；`currency` 随迁移 0019 撤下（一期只有元） */
   status: string;
   /** 可空：事项侧经办人可空（IQ-5） */
   ownerId: string | null;
@@ -379,7 +391,8 @@ export type RiskDetail = {
   updatedAt: string;
   nodes: {
     id: string;
-    nodeTypeId: string;
+    /** 手工节点没有类型：2026-10-23 起可空 */
+    nodeTypeId: string | null;
     name: string;
     timeType: "point";
     startTime: string | null;
@@ -389,6 +402,8 @@ export type RiskDetail = {
     status: string;
     sourceKind: "manual" | "preset" | "rule";
     sortOrder: number;
+    remark: string | null;
+    ownerId: string | null;
     cancelReason: string | null;
     completedAt: string | null;
   }[];
@@ -405,6 +420,8 @@ export type RiskDetail = {
     updatedAt: string;
     /** @提及的可渲染分段（MATT-68 / T4b2），与 `MatterDetail.comments[].parts` 同一实现 */
     parts: CommentPart[];
+    /** §7.1：这条评论挂的附件（与案件侧同一实现） */
+    attachments: CommentAttachment[];
   }[];
   activity: {
     id: string;

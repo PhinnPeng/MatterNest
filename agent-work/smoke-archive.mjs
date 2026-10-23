@@ -419,7 +419,7 @@ try {
            min(n.deadline_time)::text as min_deadline
       from mn_matter_node n
      where n.matter_id = ${f.body.id} and not n.is_deleted
-       and n.status in ('not_started','in_progress')`;
+       and n.status in ('in_progress','in_progress')`;
   ok(
     "**列表的「下一期限」是真的**（不是恒 NULL、也不是 500）",
     listF.status === 200 && !!rowF?.nextDeadline,

@@ -470,7 +470,6 @@ const riskRows = [
     风险等级: tplLevel,
     风险描述: "对方拖欠货款三个月",
     发现日期: "2024/1/5",
-    涉及金额: "1,234,567.89",
     处理人: admin.username,
     对方当事人: `${P}-对手甲`,
     对方当事人证件号: uscc(4),
@@ -548,7 +547,7 @@ const [riskRowsDb] = await sql`
   select count(*)::int as n from mn_risk_matter where name like ${`${P}%`}`;
 ok("坏行**一条记录都没建**（3 条好行 = 库里 3 条）", riskRowsDb.n === 3, `n=${riskRowsDb.n}`);
 const [good1] = await sql`
-  select code, status, amount, discover_date::text as discover_date, owner_id, source, type, level
+  select code, status, discover_date::text as discover_date, owner_id, source, type, level
   from mn_risk_matter where name = ${`${P}-事项1`}`;
 ok("事项编号走 FX 生成器（不是空、不是手写）", /^FX-\d{8}-\d{3,}$/.test(good1?.code ?? ""), good1?.code);
 const [initial] = await sql`
@@ -558,7 +557,6 @@ ok(
   good1?.status === initial?.code,
   `落库=${good1?.status} 配置=${initial?.code}`,
 );
-ok("金额带千分位也认，且落库精确到分", good1?.amount === "1234567.89", String(good1?.amount));
 ok("日期 2024/1/5 归一成 2024-01-05", good1?.discover_date === "2024-01-05", String(good1?.discover_date));
 ok("处理人按账号解析成 id", String(good1?.owner_id) === String(admin.id));
 ok("枚举中文名解析成码（合同→contract）", good1?.type === "contract" && good1?.level === "high");
@@ -670,7 +668,8 @@ const matterRows = [
     我方诉讼地位: "原告",
     受理法院: "南京市中级人民法院",
     立案日期: "2024/3/7",
-    标的额: "1234567890123456.78",
+    // 带千分位：Excel 会给含逗号的格加引号，这条夹具同时覆盖「引号路径」与 18 位精度
+    标的额: "1,234,567,890,123,456.78",
     风险等级: "高",
     案件描述: "历史案件",
     处理人: adminName,

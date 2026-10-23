@@ -29,7 +29,7 @@ export async function overview(actor: Actor) {
   /**
    * 节点到期分桶。三个条件缺一不可，都是规格里写死的：
    *   · `is_time_confirmed` —— 未确认时间不参与提醒（修订稿 A8：提醒只认这个开关）；
-   *   · `status in (not_started, in_progress)` —— 已完成/已取消不再算临期；
+   *   · `status = in_progress` —— 已完成/已取消不再算临期；
    *   · `deadline_time` 是生成列 `COALESCE(end_time, start_time)`，
    *     所以时间点与时间段在这里被统一成一个可比较的时刻，不需要分支。
    * `filter (where …)` 而不是三次 count：一次扫描出三个数，也保证三者不会因并发而互相错开。

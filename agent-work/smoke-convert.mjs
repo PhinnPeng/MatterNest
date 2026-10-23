@@ -124,8 +124,6 @@ const created = await call("POST", "/api/risk-matters", cookie, {
   type: "contract",
   level: "high",
   description: "冒烟用临时事项",
-  // 给一个显眼的敞口：用来证明**金额不继承**（映射矩阵 §2.4 逐案自填）
-  amount: "999999.00",
 });
 ok("建事项", created.status === 201, `status=${created.status}`);
 const riskId = created.body?.id;
@@ -231,11 +229,6 @@ ok(
   amounts.length === 2 &&
     amounts.some((a) => a.amount === "1000.00") &&
     amounts.some((a) => a.amount === "2000.00"),
-  amounts.map((a) => a.amount).join(" / "),
-);
-ok(
-  "**金额不继承事项敞口**（没有一案拿到 999999）",
-  amounts.every((a) => a.amount !== "999999.00"),
   amounts.map((a) => a.amount).join(" / "),
 );
 

@@ -1,8 +1,8 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
 import { WATCH_TARGET_TYPES } from "@/shared/schema/watch";
 import { getDb } from "../db/client";
-import { matter, riskMatter, userWatch } from "../db/schema";
+import { matter, matterStaff, riskMatter, riskMatterStaff, userWatch } from "../db/schema";
 import { HOSTS, scopedWhere, type HostKind } from "../scope/visibility";
 import type { Actor } from "../auth/auth";
 
@@ -12,6 +12,17 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
  * 收藏 ⭐（F1-13）与关注同步（ADR-0003 的落实）—— `mn_user_watch` 的**唯一写入方**。
+ *
+ * ## ⚠ 2026-10-22：「收藏」不再是界面概念
+ *
+ * 用户裁定「收藏和关注的口径一致」之后，详情页右上那组控件只有一个动作：**公开关注**
+ * （写 `*_staff.staff_role='follower'`，经下面 `syncFollowWatch` 连带写 `user_watch(follow)`）。
+ * 「我关注的」页也改成读名单（`listMyWatches`），不再读 `favorite`。
+ *
+ * 于是 `setFavorite` 这条写 `favorite` 的路**界面已不再调用**，保留它会与名单各说一套
+ * ——本文件的 `favorited` 字段同理。清理这两处（端点 + DTO 字段 + schema）是独立一票，
+ * 因为它还牵着 `agent-work/smoke-watch.mjs` 与 `shared/schema/watch.spec.ts`；
+ * 在那之前，**新代码不要再接这两个入口**。
  *
  * ## 这张表此前零写入方
  *
@@ -136,71 +147,88 @@ export type FavoriteRow = {
 };
 
 /**
- * 我收藏的（F1-13 的查询面）。
+ * 我关注的（F1-13 的查询面）。
  *
- * **权限问题，不是过滤问题**（票面原话）：不可见的记录**不出现**在结果里，
- * 而不是"出现了再标灰"。做法是逐宿主过 `scopedWhere`——两个宿主各一次查询再合并，
- * 而不是把 `mn_user_watch` 全捞回来再过滤：那样"我收藏的"会随我的范围收缩而
+ * **2026-10-22：数据源从「私人收藏」改成「公开关注」**（用户裁定「收藏和关注的口径一致」）。
+ *
+ * 详情页右上角那颗 ⭐ 原本写 `mn_user_watch(favorite)`，而「n 人关注」名单读的是
+ * `*_staff.staff_role='follower'`——同一句"我关注了"在两处各有一份真相，
+ * 于是可以出现"我点了关注，名单里却没有我"。现在只留后者：关注就是**进名单**，
+ * 页面与名单同源。
+ *
+ * 因此这里直接查两张 `*_staff` 表，而不是查 `mn_user_watch`：
+ * 后者是**同步产物**（`syncFollowWatch`），历史关注行可能没有对应的 watch 行
+ * （本表此前零写入方的积压，见 `services/watch.ts` 文件头），拿它当读源会漏人。
+ * 名单表才是关注关系的事实。
+ *
+ * **权限问题，不是过滤问题**（票面原话）：不可见的记录**不出现**在结果里。
+ * 做法是逐宿主过 `scopedWhere`——两个宿主各一次查询再合并，
+ * 而不是把名单全捞回来再过滤：那样"我关注的"会随我的范围收缩而
  * 越捞越多无用的行，且把可见性判定散到了两处。
  *
- * 已归档的**保留**（`isArchived` 如实带出）：收藏是"我还想看这条"，
+ * 已归档的**保留**（`isArchived` 如实带出）：关注是"我还想看这条"，
  * 归档恰恰是"它结束了、我可能还要回看"——不在这里替用户做减法。
  */
-export async function listMyFavorites(actor: Actor): Promise<FavoriteRow[]> {
+export async function listMyWatches(actor: Actor): Promise<FavoriteRow[]> {
   const db = await getDb();
   const me = BigInt(actor.userId);
 
-  const mine = await db
+  const matterRows = await db
     .select({
-      targetType: userWatch.targetType,
-      targetId: userWatch.targetId,
-      createdAt: userWatch.createdAt,
+      id: matter.id,
+      name: matter.name,
+      subtitle: matter.internalCode,
+      isArchived: matter.isArchived,
+      createdAt: matterStaff.createdAt,
     })
-    .from(userWatch)
-    .where(and(eq(userWatch.userId, me), eq(userWatch.watchType, "favorite")))
-    .orderBy(desc(userWatch.createdAt));
-  if (mine.length === 0) return [];
+    .from(matterStaff)
+    .innerJoin(matter, eq(matter.id, matterStaff.hostId))
+    .where(
+      and(
+        eq(matterStaff.userId, me),
+        eq(matterStaff.staffRole, "follower"),
+        scopedWhere("matter", actor),
+      ),
+    );
 
-  const out: FavoriteRow[] = [];
+  const riskRows = await db
+    .select({
+      id: riskMatter.id,
+      name: riskMatter.name,
+      subtitle: riskMatter.code,
+      isArchived: riskMatter.isArchived,
+      createdAt: riskMatterStaff.createdAt,
+    })
+    .from(riskMatterStaff)
+    .innerJoin(riskMatter, eq(riskMatter.id, riskMatterStaff.hostId))
+    .where(
+      and(
+        eq(riskMatterStaff.userId, me),
+        eq(riskMatterStaff.staffRole, "follower"),
+        scopedWhere("risk_matter", actor),
+      ),
+    );
 
-  for (const host of WATCH_HOST_KINDS) {
-    const ids = mine.filter((m) => m.targetType === host).map((m) => m.targetId);
-    if (ids.length === 0) continue;
+  const out: FavoriteRow[] = [
+    ...matterRows.map((r) => ({
+      targetType: "matter" as const,
+      targetId: String(r.id),
+      title: r.name,
+      subtitle: r.subtitle ?? "",
+      isArchived: r.isArchived,
+      createdAt: r.createdAt,
+    })),
+    ...riskRows.map((r) => ({
+      targetType: "risk_matter" as const,
+      targetId: String(r.id),
+      title: r.name,
+      subtitle: r.subtitle ?? "",
+      isArchived: r.isArchived,
+      createdAt: r.createdAt,
+    })),
+  ];
 
-    const t = HOSTS[host].table;
-    // 两个宿主的编号列不同名（`internal_code` / `code`），所以这里分支取——
-    // 与 `keywordFilter` 同一种做法（它也为两宿主各写一份条件）。
-    const rows = await db
-      .select({
-        id: t.id,
-        name: t.name,
-        isArchived: t.isArchived,
-        subtitle:
-          host === "matter"
-            ? sql<string>`${(t as typeof matter).internalCode}`
-            : sql<string>`${(t as typeof riskMatter).code}`,
-      })
-      .from(t)
-      .where(scopedWhere(host, actor, inArray(t.id, ids)));
-
-    const byId = new Map(rows.map((r) => [String(r.id), r]));
-    for (const m of mine) {
-      if (m.targetType !== host) continue;
-      const r = byId.get(String(m.targetId));
-      // 不可见 / 已硬删 ⇒ 不出现（权限问题，不是过滤问题）
-      if (!r) continue;
-      out.push({
-        targetType: host,
-        targetId: String(m.targetId),
-        title: r.name,
-        subtitle: r.subtitle ?? "",
-        isArchived: r.isArchived,
-        createdAt: m.createdAt,
-      });
-    }
-  }
-
-  // 合并后按收藏时间倒序（两个宿主各自有序，合起来要重排一次）
+  // 合并后按关注时间倒序（两个宿主各自有序，合起来要重排一次）
   out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
   return out;
 }

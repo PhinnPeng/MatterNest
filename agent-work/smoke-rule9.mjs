@@ -382,7 +382,7 @@ ok(
 );
 const [openNodes] = await sql`
   select count(*)::int as n from mn_matter_node
-   where matter_id = ${matterId} and not is_deleted and status in ('not_started','in_progress')`;
+   where matter_id = ${matterId} and not is_deleted and status in ('in_progress','in_progress')`;
 ok(
   "此刻材料**不全**（有未决节点）——这是本规则要提醒的那一档",
   openNodes.n > 0,

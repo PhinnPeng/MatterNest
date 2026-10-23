@@ -1,7 +1,7 @@
 "use client";
 
 import { INK } from "@/app/theme/brand";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -62,14 +62,13 @@ type CaseForm = Partial<Omit<MatterCreateInput, "filingDate" | "parties">> & {
  *    手抄正是本功能要消灭的动作。
  *
  * N>1 时案件名按「事项名 -N」派生并高亮"待确认"（矩阵 §2.1），不改也能提交。
- * 金额留空逐案填；合计与事项敞口明显不符时**非阻断提示**（可关，提交不被拦）。
+ * 金额逐案自填（矩阵 §2.4：**不继承**事项金额；事项侧那列已撤，也没有可比的基准）。
  */
 type RiskSource = {
   id: string;
   code: string;
   name: string;
   level: string;
-  amount?: string;
   ownerName?: string;
   parties?: { name: string; partyRole: string }[];
 } | null;
@@ -99,7 +98,6 @@ export function ConvertDialog({
   const [form] = Form.useForm<{ cases: CaseForm[] }>();
   const open = source !== null;
   const [active, setActive] = useState(0);
-  const [amountWarn, setAmountWarn] = useState<string | null>(null);
 
   const mut = useMutation({
     mutationFn: (values: ConvertRequest) =>
@@ -119,7 +117,6 @@ export function ConvertDialog({
   useEffect(() => {
     if (source) {
       setActive(0);
-      setAmountWarn(null);
       mut.reset();
       form.setFieldsValue({
         cases: [{ name: source.name, level: source.level }],
@@ -215,15 +212,10 @@ export function ConvertDialog({
     mut.mutate(parsed.data);
   }
 
-  // 金额合计 vs 事项敞口的**非阻断**提示（矩阵 §2.4）：只在明显不符时提一句，可关，提交不拦。
-  // 用 watch 现算，不写进提交路径——它不该有能力拦下提交。
+  // 卡的增删与必填完成度都从这一份 watch 现算（不写进提交路径）。
+  // 原先这里还有一条"各案金额合计 vs 事项敞口"的非阻断提示——事项侧 `amount` 已随
+  // 迁移 0017 撤下，没有对账基准，提示随之删除（逐案金额照常必填可空）。
   const watchedCases = (Form.useWatch("cases", { form, preserve: true }) ?? []) as CaseForm[];
-  const derived = useMemo(() => {
-    const sum = watchedCases.reduce((acc, c) => acc + (Number(c?.amount) || 0), 0);
-    const exposure = Number(source?.amount) || 0;
-    const mismatch = exposure > 0 && sum > 0 && (sum > exposure * 1.5 || sum < exposure * 0.5);
-    return { sum, exposure, mismatch };
-  }, [watchedCases, source?.amount]);
 
   const caseCount = watchedCases.length || 1;
   const doneCount = watchedCases.filter(cardComplete).length;
@@ -276,7 +268,7 @@ export function ConvertDialog({
           showIcon
           closable
           style={{ marginBottom: 12 }}
-          message={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
+          title={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
         />
       ) : null}
 
@@ -346,18 +338,6 @@ export function ConvertDialog({
             );
           })}
         </div>
-      )}
-
-      {/* 金额非阻断提示：合计与敞口明显不符时提一句，可关，提交不拦 */}
-      {derived.mismatch && !amountWarn && (
-        <Alert
-          type="warning"
-          showIcon
-          closable
-          onClose={() => setAmountWarn("dismissed")}
-          style={{ marginBottom: 12 }}
-          message={`各案金额合计 ${derived.sum} 与事项敞口 ${derived.exposure} 差得较多——多案分摊通常不等，确认无误即可照常提交。`}
-        />
       )}
 
       <Form
@@ -575,7 +555,7 @@ function CaseFields({
           <li>标的金额不继承——多起诉讼按案分摊，逐案填才准。</li>
           <li>案由不自动映射——事项类型到案由没有可靠对照表。</li>
           <li>发现日期不映射为立案日期——两者含义不同，误填污染期限计算。</li>
-          <li>描述与处置措施不复制——案件保留来源卡片可跳转，只建引用不留副本。</li>
+          <li>描述不复制——案件保留来源卡片可跳转，只建引用不留副本。</li>
           <li>节点与附件不复制——节点由案件侧按模板生成，附件引用同一份证据。</li>
         </ul>
       </details>

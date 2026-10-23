@@ -12,7 +12,8 @@ import { json, notFound, pathId, withActor } from "@/app/lib/server/http";
  * ## 与详情页那张卡、列表筛选是**同一条判定**的三个出口
  *
  * 三个出口都出自 `judgeArchiveReadiness`（判定只实现一次）。这里不做任何再判定——
- * 尤其**不许**把附件那项"补"成绿：它是 `unavailable`（`mn_attachment` 一期未建），
+ * 尤其**不许**把附件那项"补"成绿：它是 `unavailable`（表已建，但还没有给附件分类的入口，
+ * 按 `category='judgment'` 查会恒得 0），
  * 三个出口必须给出同一个答案。
  *
  * ## 为什么复用 `getMatter` 而不是自己写一次 `scopedWhere`
