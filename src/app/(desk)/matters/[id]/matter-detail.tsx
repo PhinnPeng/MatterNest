@@ -196,6 +196,14 @@ export function MatterDetail({ id }: { id: string }) {
   }
 
   const m = data;
+  /**
+   * 参与人 = **经办 + 协办**（有读写权的内部同事）。
+   *
+   * 关注人（`follower`）只收通知、不取得读写权（GLOSSARY），归页头的关注组管理，
+   * 不算参与人；当事人是外部主体，单独成卡。把三者混进一个数字里会让「参与人 (n)」
+   * 读不出到底数的是什么。
+   */
+  const handlers = m.staff.filter((s) => s.staffRole !== "follower");
   const target: StatusTarget = { id: m.id, code: m.internalCode, name: m.name, status: m.status };
 
   const invalidate = () => {
@@ -594,12 +602,12 @@ export function MatterDetail({ id }: { id: string }) {
             },
             {
               key: "people",
-              label: `参与人 (${m.staff.length + m.parties.length})`,
+              label: `参与人与当事人 (${handlers.length + m.parties.length})`,
               children: (
                 <Flex gap={16} wrap align="flex-start">
                   <Card
                     size="small"
-                    title={`承办与协办 (${m.staff.length})`}
+                    title={`承办与协办 (${handlers.length})`}
                     style={{ flex: "1 1 320px" }}
                     extra={
                       <Space size={4}>
@@ -610,19 +618,12 @@ export function MatterDetail({ id }: { id: string }) {
                           existingUserIds={m.staff.map((s) => s.userId)}
                           onDone={refetchDetail}
                         />
-                        <StaffPicker
-                          matterId={id}
-                          staffRole="follower"
-                          label="加关注"
-                          existingUserIds={m.staff.map((s) => s.userId)}
-                          onDone={refetchDetail}
-                        />
                       </Space>
                     }
                   >
-                    {m.staff.length ? (
+                    {handlers.length ? (
                       <Listy
-                        items={m.staff}
+                        items={handlers}
                         // ⚠ 不能只用 `userId`：同一个人可以**两种身份**都在名单里（案 7001 就是
                         // owner + co_owner 各一行）。老 `List` 没传 `rowKey`，key 取的是下标，
                         // 所以这个重复一直藏着；迁移后按 `userId` 取 key 立刻变成 React 的

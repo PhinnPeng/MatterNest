@@ -171,6 +171,11 @@ export function RiskDetail({ id }: { id: string }) {
   if (!data) return null;
 
   const risk = data;
+  /**
+   * 参与人 = 经办 + 协办（有读写权）；关注人只收通知，归页头关注组。
+   * 与案件详情同一口径（GLOSSARY「经办人 / 协办人 / 关注人」）。
+   */
+  const handlers = risk.staff.filter((s) => s.staffRole !== "follower");
   const statusTarget: StatusTarget | null = {
     id: risk.id,
     code: risk.code,
@@ -483,7 +488,7 @@ export function RiskDetail({ id }: { id: string }) {
                 },
                 {
                   key: "people",
-                  label: `参与人 (${risk.staff.length + risk.parties.length})`,
+                  label: `参与人与当事人 (${handlers.length + risk.parties.length})`,
                   children: (
                     <Space orientation="vertical" size={12} style={{ width: "100%" }}>
                       <Card size="small" title={`当事人 (${risk.parties.length})`}>
@@ -504,17 +509,12 @@ export function RiskDetail({ id }: { id: string }) {
                           </Space>
                         )}
                       </Card>
-                      <Card size="small" title={`参与人 (${risk.staff.length})`}>
+                      <Card size="small" title={`承办与协办 (${handlers.length})`}>
                         <Space size={8} wrap>
-                          {risk.staff.length === 0 && <Dash />}
-                          {risk.staff.map((s) => (
+                          {handlers.length === 0 && <Dash />}
+                          {handlers.map((s) => (
                             <Tag key={s.id}>
-                              {s.name}·
-                              {s.staffRole === "owner"
-                                ? "经办"
-                                : s.staffRole === "co_owner"
-                                  ? "协办"
-                                  : "关注"}
+                              {s.name}·{s.staffRole === "owner" ? "经办" : "协办"}
                             </Tag>
                           ))}
                         </Space>
