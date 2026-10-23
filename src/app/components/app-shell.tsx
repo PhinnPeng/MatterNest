@@ -40,7 +40,7 @@ import { CONFIG_KIND_LABELS, isConfigKind } from "@/shared/schema/config";
  *
  * ## 菜单分组与"个人的入口"（US 13/15/16、问题陈述 5）
  *
- * 三组：概要（工作台）、业务（案件 / 事项 / 当事人 / 已归档）、
+ * 三组：概要（工作台）、业务（事项 / 案件 / 当事人 / 已归档）、
  * 系统（功能配置 / 自动化规则 / 用户管理 / 角色权限）。
  * **批量导入不在导航里**（MATT-102 把入口搬到案件页/事项页的弹层，`/config/import` 只留报告找回）。
  * 「我关注的」也**不占导航格**：它是**个人的**入口，收在侧栏底部的身份区，
@@ -74,8 +74,8 @@ const NAV: { label: string; items: { href: string; label: string }[] }[] = [
   {
     label: "业务",
     items: [
-      { href: "/matters", label: "案件" },
       { href: "/risk-matters", label: "事项" },
+      { href: "/matters", label: "案件" },
       { href: "/parties", label: "当事人" },
       { href: "/archive", label: "已归档" },
     ],
