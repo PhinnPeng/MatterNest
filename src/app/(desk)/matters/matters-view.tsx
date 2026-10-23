@@ -29,6 +29,7 @@ import { BATCH_SKIP_REASON_LABELS, MAX_BATCH_IDS, type BatchSummary } from "@/sh
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { FilterField, QueryFilter } from "@/app/components/query-filter";
 import { ExportListButton } from "@/app/components/export-file-button";
+import { ReportCards } from "@/app/components/report-cards";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { InlineSelect } from "@/app/components/ui/inline-select";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
@@ -521,6 +522,11 @@ export function MattersView() {
 
           与原型 `matters.html` 对齐：一张带、六格、格间竖线分隔，而不是六张独立小卡。 */}
       <MetricsBand q={metrics} layout="strip" />
+
+      {/* 报表两卡（MATT-46）。工作台的「案件报表」用 `#reports` 锚到这里 */}
+      <div id="reports">
+        <ReportCards host="matter" filters={state} />
+      </div>
 
       <QueryFilter onSearch={submit} onReset={reset} busy={isFetching}>
         <FilterField label="关键词" htmlFor="matter-keyword" width={200}>

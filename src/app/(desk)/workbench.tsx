@@ -2,18 +2,18 @@
 
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
-import { Flex, Grid, Listy, Skeleton, Tooltip } from "antd";
+import { Flex, Listy, Skeleton, Space, Tooltip } from "antd";
 
 import { useOverview } from "@/app/lib/client/api";
 import { PageHeader } from "@/app/components/page-header";
 import { StateBlock } from "@/app/components/ui/state-block";
-import { actorName, fromNow, dateTime } from "@/app/lib/client/format";
+import { actorName, fromNow } from "@/app/lib/client/format";
 import { DEADLINE_TONE } from "@/app/theme/antd";
 
 /**
  * 工作台。三段，都是整宽：
  *   ① **指标带** —— 5 张等宽等高的读数卡（PRD 那四问 + 本月新增案件）；
- *   ② **待办节点** —— 今天该动手的清单，一行一个节点（节点名 / 案件号 / 案件名 / 期限 四列对齐）；
+ *   ② **近期活动** —— 有最近进展的案件/事项，按 `last_progress_at` 倒序（2026-10-24 用户裁定）；
  *   ③ **最近动作** —— 这里刚发生了什么，垂直单列 10 条，行等分卡片余量。
  *
  * 【2026-10-16 改版，原型见 `prototype` 分支的 `prototype-wb-optimize.html`】此前是
@@ -27,17 +27,12 @@ import { DEADLINE_TONE } from "@/app/theme/antd";
  * 下面留一大片空。改成单列后用 `grid-auto-rows: minmax(44px, 1fr)` 让 10 行等分这段高度，
  * 不留空白，同时保持像素行高下限（行数少时不会把一行拉成一条横幅）。
  *
- * **待办节点仍是第一段内容**：这张页要回答的第一问是"今天有什么会过期"，
- * 指标带只是背景事实。
+ * **近期活动取代了原「待办节点」**：第一问从"今天有什么会过期"改成"最近在推进什么"，
+ * 期限仍在指标带里给数；节点清单回案件详情的「时间节点」看。
  *
  * 与列表页共用同一套后端口径：所有数字都来自 `/api/overview`，
  * 那里每个读数都过 `scopedWhere`，且**归档不计入**（归档是终态且列表默认隐藏）。
  */
-function daysLeft(iso: string | null): number | null {
-  if (!iso) return null;
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
-}
-
 /**
  * 指标带的一格：标签在上、数字贴底。五张同一个 `minHeight` + `space-between`
  * ⇒ 数字落在同一条基线上。
@@ -133,12 +128,6 @@ function Metric({
 export function Workbench() {
   const { data, isPending, isFetching, isError, error } = useOverview();
   const qc = useQueryClient();
-  /**
-   * 四列节点行与两列动作只在 `md` 以上成立，窄屏回落到"标题 + 说明一行"的竖排。
-   * `useBreakpoint` 首帧给 `{}`，但那一帧 `Card` 还在骨架里（`loading={isPending}`），
-   * 看不到布局跳变。
-   */
-  const wide = !!Grid.useBreakpoint().md;
 
   if (isError) {
     return (
@@ -159,7 +148,7 @@ export function Workbench() {
     );
   }
 
-  const upcoming = data?.upcoming ?? [];
+  const progress = data?.recentProgress ?? [];
   /** 品牌新库：一个案件都还没有。两种空态文案不同，数字不用特殊处理（本来就是真值） */
   const fresh = !!data && data.matters.total === 0;
 
@@ -244,24 +233,32 @@ export function Workbench() {
         ))}
       </div>
 
-      {/* ② 待办节点 */}
+      {/* ② 近期活动：有最近进展的案件/事项，按 last_progress_at 倒序（2026-10-24 用户裁定）。
+          原「待办节点」把"今天会过期什么"摊成 10 行；现在期限仍在指标带里给数，
+          这一块回答"最近在推进什么"。报表入口也放这里：两页的报表卡在列表页顶部，
+          用 `#reports` 锚点落过去。 */}
       <div className="card">
         <div className="card-h">
-          <h2>待办节点</h2>
+          <h2>近期活动</h2>
           <span className="sp" />
-          <span className="mut" style={{ fontSize: 12 }}>
-            含已逾期，按期限升序
+          <span style={{ display: "flex", gap: 8, marginLeft: 12 }}>
+            <Link href="/matters#reports" className="btn sm">
+              案件报表
+            </Link>
+            <Link href="/risk-matters#reports" className="btn sm">
+              事项报表
+            </Link>
           </span>
         </div>
-        <div style={{ padding: upcoming.length ? 0 : 24 }}>
+        <div style={{ padding: progress.length ? 0 : 24 }}>
           {isPending ? <div className="empty">…</div> : null}
-          {!upcoming.length ? (
+          {!progress.length ? (
             <StateBlock
-              title={fresh ? "还没有案件" : "没有待办节点"}
+              title={fresh ? "还没有案件" : "还没有进展记录"}
               hint={
                 fresh
-                  ? "先建第一个案件，再在案件详情页的「时间节点」里加节点。"
-                  : "所有已确认时间的节点都完成了。新建节点在案件详情页的「时间节点」里。"
+                  ? "建第一个案件，在详情的「进展」里记一条，就会出现在这里。"
+                  : "在案件或事项详情的「进展」里记一条，就会出现在这里。"
               }
               action={
                 <Link href="/matters" className="btn sm pri">
@@ -271,121 +268,55 @@ export function Workbench() {
             />
           ) : (
             <Listy
-              items={upcoming}
-              rowKey={(n) => n.id}
-              styles={{ item: { padding: wide ? "9px 16px" : "8px 12px" } }}
-              itemRender={(n) => {
-                const d = daysLeft(n.deadlineTime);
-                const overdue = d !== null && d < 0;
-                const soon = d !== null && d >= 0 && d <= 3;
-                const color = overdue
-                  ? DEADLINE_TONE.overdue.color
-                  : soon
-                    ? DEADLINE_TONE.soon.color
-                    : "transparent";
-                const due =
-                  d === null ? "未定" : d < 0 ? `逾期 ${-d} 天` : d === 0 ? "今天" : `剩 ${d} 天`;
-                // 左侧一条 3px 色带承担"危险程度"，文字里那个天数才是唯一通道
-                // （色带只让扫读更快，对色觉障碍用户等于没有）
-                const band = (
-                  <span style={{ width: 3, height: 22, borderRadius: 2, background: color }} />
-                );
-                const dueCell = (
-                  <span
-                    style={{
-                      color: color === "transparent" ? undefined : color,
-                      fontSize: 12.5,
-                      fontWeight: overdue || soon ? 600 : 400,
-                      fontVariantNumeric: "tabular-nums",
-                      textAlign: "right",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {due}
-                  </span>
-                );
-
-                if (!wide) {
-                  return (
-                    <Flex justify="space-between" align="center" gap={8}>
-                      <div style={{ display: "flex", gap: 10, minWidth: 0, flex: 1 }}>
-                        {band}
-                        <div style={{ minWidth: 0 }}>
-                          <Link href={`/matters/${n.hostId}`} style={{ color: "inherit" }}>
-                            <span style={{ fontSize: 13, fontWeight: 600 }}>{n.name}</span>
-                          </Link>
-                          <div style={{ fontSize: 12, color: "var(--ink3)" }}>
-                            <span className="num">{n.hostCode}</span> · {n.hostName}
-                            {n.owner ? ` · ${n.owner}` : ""} · {dateTime(n.deadlineTime)}
-                          </div>
-                        </div>
-                      </div>
-                      {dueCell}
-                    </Flex>
-                  );
-                }
-
+              items={progress}
+              rowKey={(p) => `${p.kind}-${p.hostId}`}
+              styles={{ item: { padding: "9px 16px" } }}
+              itemRender={(p) => {
+                const href = `/${p.kind === "matter" ? "matters" : "risk-matters"}/${p.hostId}`;
                 return (
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "3px 208px 132px minmax(0,1fr) 92px",
-                      alignItems: "center",
-                      gap: 12,
-                    }}
-                  >
-                    {band}
-                    <Link
-                      href={`/matters/${n.hostId}`}
-                      style={{
-                        minWidth: 0,
-                        color: "inherit",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {n.name}
-                    </Link>
-                    <span
-                      className="num"
-                      style={{ fontSize: 12, color: "var(--ink2)", whiteSpace: "nowrap" }}
-                    >
-                      {n.hostCode}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: "var(--ink2)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {n.hostName}
-                    </span>
-                    {/* 四列里放不下"精确时刻"和"谁在办"（这一行只留判断要不要现在动手的那四样）：
-                      挂在期限上，想查的人不用为此点进案件 */}
-                    <Tooltip
-                      title={[
-                        n.deadlineTime ? dateTime(n.deadlineTime) : "未定时间",
-                        n.owner ? `经办 ${n.owner}` : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    >
-                      {dueCell}
-                    </Tooltip>
-                  </div>
+                  <Flex justify="space-between" align="flex-start" gap={12} wrap>
+                    <Space size={8} align="baseline" style={{ minWidth: 0 }}>
+                      <span className="tag" style={{ fontSize: 11 }}>
+                        {p.kind === "matter" ? "案件" : "事项"}
+                      </span>
+                      <Link href={href} className="num" style={{ fontSize: 12 }}>
+                        {p.hostCode}
+                      </Link>
+                      <Link href={href} style={{ fontSize: 13, fontWeight: 600, color: "inherit" }}>
+                        {p.hostName}
+                      </Link>
+                    </Space>
+                    <Space size={10} style={{ flex: "none" }}>
+                      {p.progressLabel ? (
+                        <span className="mut3" style={{ fontSize: 12 }}>
+                          {p.progressLabel}
+                        </span>
+                      ) : null}
+                      <span className="mut3 num" style={{ fontSize: 12 }}>
+                        {fromNow(p.progressAt)}
+                      </span>
+                    </Space>
+                    {p.content ? (
+                      <div
+                        className="mut3"
+                        style={{
+                          flexBasis: "100%",
+                          fontSize: 12,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {p.content}
+                      </div>
+                    ) : null}
+                  </Flex>
                 );
               }}
             />
           )}
         </div>
       </div>
-
       <div className="card" style={{ display: "flex", flexDirection: "column" }}>
         <div className="card-h">
           <h2>最近动作</h2>

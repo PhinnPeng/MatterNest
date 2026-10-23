@@ -13,6 +13,7 @@ import { BATCH_SKIP_REASON_LABELS, MAX_BATCH_IDS, type BatchSummary } from "@/sh
 import { needsChangeReason } from "@/shared/schema/status-transition";
 import { FilterField, QueryFilter } from "@/app/components/query-filter";
 import { ExportListButton } from "@/app/components/export-file-button";
+import { ReportCards } from "@/app/components/report-cards";
 import { DataTable, sortOrderOf } from "@/app/components/ui/data-table/DataTable";
 import { FlagMark, StatusMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
@@ -359,6 +360,11 @@ export function RisksView() {
 
   return (
     <div className="stack list">
+      {/* 报表两卡（MATT-46）。工作台的「事项报表」用 `#reports` 锚到这里 */}
+      <div id="reports">
+        <ReportCards host="risk_matter" filters={state} />
+      </div>
+
       <QueryFilter onSearch={submit} onReset={reset} busy={isFetching}>
         <FilterField label="关键词" htmlFor="risk-keyword" width={200}>
           <Input

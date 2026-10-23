@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { App as AntdApp, Button, DatePicker, Flex, Form, Input, Listy, Modal, Select } from "antd";
 import type { Dayjs } from "dayjs";
 
@@ -152,6 +152,7 @@ export function ProgressLogDialog({
 }) {
   const { message } = AntdApp.useApp();
   const { data: meta } = useMeta(host);
+  const qc = useQueryClient();
   const [form] = Form.useForm<{
     progressType: string;
     progressDate: Dayjs;
@@ -171,6 +172,9 @@ export function ProgressLogDialog({
     onSuccess: () => {
       onClose();
       message.success("进展已记录");
+      // 工作台的「近期活动」按 last_progress_at 排序：记完就该立刻变，
+      // 别等 60s 的 stale 窗口（其余写路径也都失效 overview）。
+      void qc.invalidateQueries({ queryKey: ["overview"] });
       onDone();
     },
     onError: (e) => {

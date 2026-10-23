@@ -1,8 +1,15 @@
-import { and, asc, desc, eq, exists, inArray, or, sql, count } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, or, sql, count } from "drizzle-orm";
 import { getDb } from "../db/client";
-import { activityLog, matter, matterNode, riskMatter } from "../db/schema";
+import {
+  activityLog,
+  matter,
+  matterNode,
+  matterProgress,
+  riskMatter,
+  riskMatterProgress,
+} from "../db/schema";
 import { AUDIT_ACTION_LABELS, type AuditAction } from "@/shared/enums/audit";
-import { NODE_OPEN_STATUSES } from "@/shared/enums/business";
+import { NODE_OPEN_STATUSES, PROGRESS_TYPE_LABELS } from "@/shared/enums/business";
 import { scopedWhere } from "../scope/visibility";
 import type { Actor } from "../auth/auth";
 
@@ -40,30 +47,7 @@ export async function overview(actor: Actor) {
     inArray(matterNode.status, NODE_OPEN_STATUSES),
   );
 
-  /**
-   * 今天该动手的东西：最近到期的 10 个节点（含已逾期的）。
-   * 工作台若只给三个数字，用户还是得回列表挨个翻 —— 那这张页就没起作用。
-   * 排序按 `deadline_time` 升序，逾期的自然排在最前（负数时间在前）。
-   */
-  const [upcomingNodes, byStatus, nodes, risks, recent] = await Promise.all([
-    db
-      .select({
-        id: matterNode.id,
-        name: matterNode.name,
-        status: matterNode.status,
-        deadlineTime: matterNode.deadlineTime,
-        hostId: matter.id,
-        hostCode: matter.internalCode,
-        hostName: matter.name,
-        owner: sql<
-          string | null
-        >`(select u.display_name from mn_app_user u where u.id = ${matterNode.ownerId})`,
-      })
-      .from(matterNode)
-      .innerJoin(matter, eq(matterNode.hostId, matter.id))
-      .where(and(mScope, live, nodeScan))
-      .orderBy(asc(matterNode.deadlineTime))
-      .limit(10),
+  const [byStatus, nodes, risks, recent, matterProgressRows, riskProgressRows] = await Promise.all([
     db
       .select({
         status: matter.status,
@@ -133,7 +117,109 @@ export async function overview(actor: Actor) {
       )
       .orderBy(desc(activityLog.createdAt))
       .limit(10),
+    /**
+     * 近期活动：有 `last_progress_at` 的案件/事项，按最近进展倒序。
+     * 内容取该宿主最新一条进展（`progress_date desc, id desc`）——列表要回答
+     * "最近推进到哪一步"，只给时间戳不够。
+     */
+    db
+      .select({
+        kind: sql<"matter">`'matter'`,
+        hostId: matter.id,
+        hostCode: matter.internalCode,
+        hostName: matter.name,
+        progressAt: matter.lastProgressAt,
+        owner: sql<
+          string | null
+        >`(select u.display_name from mn_app_user u where u.id = ${matter.ownerId})`,
+      })
+      .from(matter)
+      .where(
+        and(
+          mScope,
+          live,
+          sql`${matter.lastProgressAt} IS NOT NULL`,
+          // 建案时 `last_progress_at` 就写 now() —— 它只说明"刚建"，不代表有进展。
+          // 必须有至少一条进展行才进「近期活动」，否则新案件会以空正文占住第一屏。
+          sql`exists (select 1 from mn_matter_progress p where p.matter_id = ${matter.id} and not p.is_deleted)`,
+        ),
+      )
+      .orderBy(desc(matter.lastProgressAt))
+      .limit(8),
+    db
+      .select({
+        kind: sql<"risk_matter">`'risk_matter'`,
+        hostId: riskMatter.id,
+        hostCode: riskMatter.code,
+        hostName: riskMatter.name,
+        progressAt: riskMatter.lastProgressAt,
+        owner: sql<
+          string | null
+        >`(select u.display_name from mn_app_user u where u.id = ${riskMatter.ownerId})`,
+      })
+      .from(riskMatter)
+      .where(
+        and(
+          rScope,
+          liveRisk,
+          sql`${riskMatter.lastProgressAt} IS NOT NULL`,
+          sql`exists (select 1 from mn_risk_matter_progress p where p.risk_matter_id = ${riskMatter.id} and not p.is_deleted)`,
+        ),
+      )
+      .orderBy(desc(riskMatter.lastProgressAt))
+      .limit(8),
   ]);
+
+  /**
+   * 每个宿主最新一条进展：`distinct on (host_id)` + 日期/ id 倒序。
+   *
+   * 不用相关子查询：同一条 SQL 里既要 `last_progress_at` 排序、又要取正文，
+   * 子查询在多态表上容易写成"看着对、实际恒 NULL"（这次就先踩了一次）。
+   * 两步查询的代价是两次往返，换的是每一列都能被单独验证。
+   */
+  const matterIds = matterProgressRows.map((r) => r.hostId);
+  const riskIds = riskProgressRows.map((r) => r.hostId);
+  const [matterLatest, riskLatest] = await Promise.all([
+    matterIds.length
+      ? db
+          .selectDistinctOn([matterProgress.hostId], {
+            hostId: matterProgress.hostId,
+            progressType: matterProgress.progressType,
+            content: matterProgress.content,
+          })
+          .from(matterProgress)
+          .where(
+            and(inArray(matterProgress.hostId, matterIds), sql`NOT ${matterProgress.isDeleted}`),
+          )
+          .orderBy(
+            matterProgress.hostId,
+            desc(matterProgress.progressDate),
+            desc(matterProgress.id),
+          )
+      : [],
+    riskIds.length
+      ? db
+          .selectDistinctOn([riskMatterProgress.hostId], {
+            hostId: riskMatterProgress.hostId,
+            progressType: riskMatterProgress.progressType,
+            content: riskMatterProgress.content,
+          })
+          .from(riskMatterProgress)
+          .where(
+            and(
+              inArray(riskMatterProgress.hostId, riskIds),
+              sql`NOT ${riskMatterProgress.isDeleted}`,
+            ),
+          )
+          .orderBy(
+            riskMatterProgress.hostId,
+            desc(riskMatterProgress.progressDate),
+            desc(riskMatterProgress.id),
+          )
+      : [],
+  ]);
+  const matterLatestMap = new Map(matterLatest.map((r) => [String(r.hostId), r]));
+  const riskLatestMap = new Map(riskLatest.map((r) => [String(r.hostId), r]));
 
   const first = byStatus.reduce<Record<string, number>>((acc, r) => {
     acc[r.status] = Number(r.n);
@@ -159,16 +245,6 @@ export async function overview(actor: Actor) {
       total: Number(riskRow?.total ?? 0),
       converted: Number(riskRow?.converted ?? 0),
     },
-    upcoming: upcomingNodes.map((n) => ({
-      id: String(n.id),
-      name: n.name,
-      status: n.status,
-      deadlineTime: n.deadlineTime,
-      hostId: String(n.hostId),
-      hostCode: n.hostCode,
-      hostName: n.hostName,
-      owner: n.owner,
-    })),
     recent: recent.map((r) => ({
       id: String(r.id),
       action: r.action,
@@ -180,6 +256,33 @@ export async function overview(actor: Actor) {
       hostId: r.hostId ?? r.riskId,
       kind: r.hostId ? ("matter" as const) : ("risk_matter" as const),
     })),
+    recentProgress: [
+      ...matterProgressRows.map((r) => ({ ...r, kind: "matter" as const })),
+      ...riskProgressRows.map((r) => ({ ...r, kind: "risk_matter" as const })),
+    ]
+      .sort((a, b) => Date.parse(String(b.progressAt)) - Date.parse(String(a.progressAt)))
+      .slice(0, 8)
+      .map((r) => {
+        const latest =
+          r.kind === "matter"
+            ? matterLatestMap.get(String(r.hostId))
+            : riskLatestMap.get(String(r.hostId));
+        const progressType = latest?.progressType ?? null;
+        return {
+          kind: r.kind,
+          hostId: String(r.hostId),
+          hostCode: r.hostCode,
+          hostName: r.hostName,
+          progressAt: r.progressAt,
+          progressType,
+          progressLabel: progressType
+            ? (PROGRESS_TYPE_LABELS[progressType as keyof typeof PROGRESS_TYPE_LABELS] ??
+              progressType)
+            : "",
+          content: latest?.content ?? null,
+          owner: r.owner,
+        };
+      }),
   };
 }
 

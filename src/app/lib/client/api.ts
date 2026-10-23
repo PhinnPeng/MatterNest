@@ -533,16 +533,6 @@ export type Overview = {
   matters: { total: number; byStatus: Record<string, number>; createdThisMonth: number };
   nodes: { overdue: number; within7: number; later: number };
   risks: { total: number; converted: number };
-  upcoming: {
-    id: string;
-    name: string;
-    status: string;
-    deadlineTime: string | null;
-    hostId: string;
-    hostCode: string;
-    hostName: string;
-    owner: string | null;
-  }[];
   recent: {
     id: string;
     action: string;
@@ -554,6 +544,18 @@ export type Overview = {
     hostCode: string | null;
     hostId: string | null;
     kind: HostKind;
+  }[];
+  /** 近期活动：有最近进展的案件/事项，按 `last_progress_at` 倒序（最多 8 条） */
+  recentProgress: {
+    kind: HostKind;
+    hostId: string;
+    hostCode: string;
+    hostName: string;
+    progressAt: string;
+    progressType: string | null;
+    progressLabel: string;
+    content: string | null;
+    owner: string | null;
   }[];
 };
 
