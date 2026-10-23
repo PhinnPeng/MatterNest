@@ -31,15 +31,14 @@ import { BRAND, INK } from "@/app/theme/brand";
 export type FollowFollower = { id: string; userId: string; name: string };
 
 /**
- * 右段的紧凑规格（2026-10-22 批注「宽度小一点，紧凑布局」；2026-10-23 再收一档）。
+ * 页头操作行的统一规格（2026-10-23 用户裁定「整体一行统一」）。
  *
- * 只收**左右内边距、字号与高度**。高度从 antd 默认档（主题 `controlHeight = 30`）
- * 压到 26：同排的「变更状态」仍保持常规尺寸，这一组靠垂直居中对齐行中心，
- * 不再靠等高——用户 2026-10-23 明确要求「再小一点」，等高的旧理由让位。
- * 也不缩「人关注」三个字——它是这一段的全部信息，省掉就只剩一个数字。
+ * 同排的「变更状态 / 转案件 / 变更经办人 / 删除」都是原生 `.btn`：高 32、字号 13。
+ * 关注组之前单独压到 26，导致一行里只有它矮一截；现在高度、字号都跟 `.btn` 对齐，
+ * 只把左右内边距收紧一点（antd Button 默认比 `.btn` 宽）。
  */
-const GROUP_H = 26;
-const COUNT_BTN = { height: GROUP_H, paddingInline: 7, fontSize: 12 } as const;
+const GROUP_H = 32;
+const COUNT_BTN = { height: GROUP_H, paddingInline: 10, fontSize: 13 } as const;
 /** 眼睛按钮与计数按钮同高：Space.Compact 内两颗高度不一致会看出接缝 */
 const ICON_BTN = { width: GROUP_H, minWidth: GROUP_H, height: GROUP_H, padding: 0 } as const;
 const CARET = { fontSize: 9, marginRight: 4 } as const;
