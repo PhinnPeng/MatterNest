@@ -6,7 +6,7 @@
  * §8.2 给两张节点表各定了一个 partial index：
  *
  * ```sql
- * ix_node_scan (status, deadline_time) WHERE is_time_confirmed AND status IN ('not_started','in_progress')
+ * ix_node_scan (status, deadline_time) WHERE is_time_confirmed AND status = 'in_progress'
  * ```
  *
  * 于是扫描器只有一条合法路径：**过滤条件与索引谓词逐字相同**。
@@ -31,7 +31,7 @@ import { businessDateKey, businessDaysBetween } from "@/shared/time/zh-cn";
 import { NODE_STATUSES } from "@/shared/enums/business";
 
 /** 参与扫描的两个节点状态。与 `ix_node_scan` 的谓词**逐字相同**，改一处就要改两处 */
-export const SCANNABLE_NODE_STATUSES = ["not_started", "in_progress"] as const;
+export const SCANNABLE_NODE_STATUSES = ["in_progress"] as const;
 
 /**
  * 扫描窗口的上界：`remind_days` 的合法上界。

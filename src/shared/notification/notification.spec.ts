@@ -194,7 +194,7 @@ describe("节点到期扫描（只走带 is_time_confirmed 的 partial index 那
     deadlineTime: "2026-10-17T02:00:00.000Z", // 上海 10-17 10:00
     remindDays: [3, 1],
     isTimeConfirmed: true,
-    status: "not_started",
+    status: "in_progress",
   };
   const now = "2026-10-14T03:00:00.000Z"; // 上海 10-14 11:00 ⇒ 还有 3 天
 
@@ -286,7 +286,7 @@ describe("节点提醒的 scheduled dateKey（档位稳定，不是扫描日）"
     deadlineTime: deadline,
     remindDays: [7],
     isTimeConfirmed: true,
-    status: "not_started",
+    status: "in_progress",
   };
   /** 复刻服务层的两步：先判定命中哪一档（`pickDueReminders`），再按「截止日 + 档位」算 key */
   const keyOfScanDay = (now: string): string | null => {

@@ -72,7 +72,7 @@ const NODE_SCAN = (table, fkCol) => `
   select id, ${fkCol}, name, time_type, deadline_time, remind_days, status, is_time_confirmed
     from ${table}
    where is_time_confirmed = true
-     and status in ('not_started','in_progress')
+     and status in ('in_progress','in_progress')
      and deadline_time is not null
      and not is_deleted
      and deadline_time >= now()
@@ -96,10 +96,10 @@ const counts = await sql`
   union all select 'mn_event_outbox 未投递', count(*)::int from mn_event_outbox where published_at is null
   union all select 'mn_matter_node', count(*)::int from mn_matter_node
   union all select 'mn_matter_node 可扫', count(*)::int from mn_matter_node
-    where is_time_confirmed and status in ('not_started','in_progress') and deadline_time is not null and not is_deleted
+    where is_time_confirmed and status in ('in_progress','in_progress') and deadline_time is not null and not is_deleted
   union all select 'mn_risk_matter_node', count(*)::int from mn_risk_matter_node
   union all select 'mn_risk_matter_node 可扫', count(*)::int from mn_risk_matter_node
-    where is_time_confirmed and status in ('not_started','in_progress') and deadline_time is not null and not is_deleted
+    where is_time_confirmed and status in ('in_progress','in_progress') and deadline_time is not null and not is_deleted
   union all select 'mn_matter', count(*)::int from mn_matter
   union all select 'mn_matter closed未归档', count(*)::int from mn_matter where status='closed' and not is_archived and not is_deleted
 `;

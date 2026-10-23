@@ -1075,7 +1075,7 @@ type ScanNodeRow = {
  * 到期扫描。**取数路径与 `ix_node_scan` 的谓词逐字相同**：
  *
  * ```sql
- * ix_node_scan (status, deadline_time) WHERE is_time_confirmed AND status IN ('not_started','in_progress')
+ * ix_node_scan (status, deadline_time) WHERE is_time_confirmed AND status = 'in_progress'
  * ```
  *
  * 所以这里的 WHERE 必须同时给出 `is_time_confirmed`、`status IN (...)` 与 `deadline_time` 的窗口
@@ -1316,20 +1316,34 @@ export function hostKindOfTarget(targetType: string): HostKind {
   return targetType.startsWith("risk_matter") ? "risk_matter" : "matter";
 }
 
-/** 一批宿主里，当前 actor 看得见哪些。走 `scopedWhere`（可见性唯一出口） */
-async function visibleHostIds(
+/**
+ * 一批宿主里，当前 actor 看得见哪些，连同它们的**编号与名称**。
+ *
+ * 返回 Map 而不是 Set：列表要显示"这条通知指的是哪条记录"（`AJ-… 案名`），
+ * 而编号与名称必须与"可不可见"来自**同一次**查询——分两次取会出现
+ * "编号取到了、可见性判定说不可见"这种没人查得出来的不一致。
+ *
+ * ⚠ **不可见的宿主在这里就消失**（不出现在 Map 里），所以调用方拿到的 code/name
+ * 天然只在可见行上有值。这正是权限草案 §7.1 要的：降级占位行一个摘要字段都不发。
+ *
+ * 编号列两张表不同名（案件是 `internal_code`、事项是 `code`），所以按 host 取列。
+ */
+type VisibleHost = { code: string; name: string };
+
+async function visibleHosts(
   r: Reader,
   actor: Actor,
   host: HostKind,
   ids: readonly bigint[],
-): Promise<Set<string>> {
-  if (ids.length === 0) return new Set();
+): Promise<Map<string, VisibleHost>> {
+  if (ids.length === 0) return new Map();
   const t = HOSTS[host].table;
+  const codeCol = host === "matter" ? matter.internalCode : riskMatter.code;
   const rows = await r
-    .select({ id: t.id })
+    .select({ id: t.id, code: codeCol, name: t.name })
     .from(t)
     .where(scopedWhere(host, actor, inArray(t.id, [...new Set(ids.map(String))].map(BigInt))));
-  return new Set(rows.map((x) => String(x.id)));
+  return new Map(rows.map((x) => [String(x.id), { code: x.code, name: x.name }]));
 }
 
 /**
@@ -1365,6 +1379,16 @@ export type NotificationItem = {
   hostKind: HostKind | null;
   hostId: string | null;
   targetType: string | null;
+  /**
+   * 宿主编号与名称（`AJ-20260918-005` / 案名）。**只在可见行上有值**——
+   * 降级占位行两个都是 null（§7.1「一个摘要字段都不发」）。
+   *
+   * 为什么补这两列：列表的「关联对象」原来只能写"查看案件"这种**动作**，
+   * 因为 DTO 只带 `hostKind`/`hostId`、前端拿不到"是哪条"。而通知的全部用处是
+   * "这条说的是哪个案子"——说不出是哪条的通知，收件人只能点进去才知道要不要点。
+   */
+  hostCode: string | null;
+  hostName: string | null;
 };
 
 export type NotificationPage = {
@@ -1425,14 +1449,15 @@ export async function listNotifications(
   const byHost: Record<HostKind, bigint[]> = { matter: [], risk_matter: [] };
   for (const r of rows) byHost[hostKindOfTarget(r.targetType)].push(r.hostId);
   const [visibleMatter, visibleRisk] = await Promise.all([
-    visibleHostIds(db, actor, "matter", byHost.matter),
-    visibleHostIds(db, actor, "risk_matter", byHost.risk_matter),
+    visibleHosts(db, actor, "matter", byHost.matter),
+    visibleHosts(db, actor, "risk_matter", byHost.risk_matter),
   ]);
   const templates = await loadTemplates(db);
 
   const items = rows.map((r): NotificationItem => {
     const hostKind = hostKindOfTarget(r.targetType);
-    const visible = (hostKind === "matter" ? visibleMatter : visibleRisk).has(String(r.hostId));
+    const host = (hostKind === "matter" ? visibleMatter : visibleRisk).get(String(r.hostId));
+    const visible = host !== undefined;
     const eventTypeLabel =
       NOTIFICATION_EVENT_TYPE_LABELS[r.eventType as NotificationEventType] ?? r.eventType;
     if (!visible) {
@@ -1449,6 +1474,8 @@ export async function listNotifications(
         hostKind: null,
         hostId: null,
         targetType: null,
+        hostCode: null,
+        hostName: null,
       };
     }
     const rendered = renderNotification(
@@ -1470,6 +1497,8 @@ export async function listNotifications(
       hostKind,
       hostId: String(r.hostId),
       targetType: r.targetType,
+      hostCode: host.code,
+      hostName: host.name,
     };
   });
 

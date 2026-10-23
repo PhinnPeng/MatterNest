@@ -144,8 +144,14 @@ const ANCHORS = {
     mode: "placeholder",
     file: F_SVC,
     tag: "placeholder",
-    needle: `    const visible = (hostKind === "matter" ? visibleMatter : visibleRisk).has(String(r.hostId));`,
-    replacement: `    const visible = true;`,
+    // 2026-10-19：`visibleHostIds`(Set) → `visibleHosts`(Map，连编号/名称一起取) 之后，
+    // 原来的 `.has(String(r.hostId))` 锚点命中 0 次——**失效的反向红比没有反向红更危险**
+    // （它给出一个绿的假证据），所以锚点跟着实现搬。注入的缺陷语义不变：
+    // 把"看不看得见"钉成 true，让不可见的行按可见渲染。
+    needle: `    const host = (hostKind === "matter" ? visibleMatter : visibleRisk).get(String(r.hostId));
+    const visible = host !== undefined;`,
+    replacement: `    const host = (hostKind === "matter" ? visibleMatter : visibleRisk).get(String(r.hostId));
+    const visible = true;`,
   },
   "unread-all": {
     mode: "unread-all",

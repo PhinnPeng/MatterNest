@@ -462,6 +462,16 @@ const sortedDesc = adminItems.every(
   (it, i) => i === 0 || Date.parse(adminItems[i - 1].createdAt) >= Date.parse(it.createdAt),
 );
 ok("**跨宿主倒序**（按事件时间从新到旧）", sortedDesc);
+// 2026-10-19：通知页从六列表格换成列表后，「关联对象」不再只写"查看案件"这个动作，
+// 而是直接给"编号 + 名称"。这两个字段因此是**页面的主要信息**而不是装饰——
+// 缺席时前端只能退回一句动作词，那正是这轮要修掉的形态。
+const visibleAdminItems = adminItems.filter((i) => i.visible);
+ok(
+  "可见行带宿主编号与名称（关联对象说得出是哪条）",
+  visibleAdminItems.length > 0 &&
+    visibleAdminItems.every((i) => i.hostCode && i.hostName),
+  `sample=${visibleAdminItems[0]?.hostCode ?? "null"} ${visibleAdminItems[0]?.hostName ?? "null"}`,
+);
 
 const addF = await call("POST", `/api/risk-matters/${riskId}/staff/followers`, adminC, {
   userIds: [String(follower.id)],
@@ -524,6 +534,12 @@ const fPlaceholder = fItems2.find((i) => i.visible === false);
 ok("**不可见降级占位**：行还在（不隐藏整行）", Boolean(fPlaceholder), `items=${fItems2.length}`);
 ok("占位行标题是「无权查看的记录」", fPlaceholder?.title === "无权查看的记录", `title=${fPlaceholder?.title}`);
 ok("占位行**不发摘要字段**（body/hostId 都是 null）", fPlaceholder?.body === null && fPlaceholder?.hostId === null);
+// 编号与名称是**摘要字段之一**：占位行如果漏出宿主编号，等于把"你看不到的那条"指认出来。
+ok(
+  "占位行**不发宿主编号/名称**",
+  fPlaceholder?.hostCode === null && fPlaceholder?.hostName === null,
+  `code=${fPlaceholder?.hostCode ?? "undefined"} name=${fPlaceholder?.hostName ?? "undefined"}`,
+);
 ok(
   "**未读计数按可见行计**（占位行不算未读）",
   fList2.body?.unread === 0 && (fList2.body?.total ?? 0) >= 1,
@@ -550,17 +566,17 @@ const utcWrong = `${new Date(deadlineIso).toISOString().slice(0, 10)} 22:00`;
 
 await sql`
   update mn_matter_node n set start_time = ${deadlineIso}, is_time_confirmed = true,
-    remind_days = '{3}', status = 'not_started'
+    remind_days = '{3}', status = 'in_progress'
   from mn_node_type_config c
   where c.id = n.node_type_id and n.matter_id = ${matterId} and c.code = 'filing'`;
 await sql`
   update mn_matter_node n set start_time = ${deadlineIso}::timestamptz - interval '10 days',
-    end_time = ${deadlineIso}, is_time_confirmed = true, remind_days = '{3}', status = 'not_started'
+    end_time = ${deadlineIso}, is_time_confirmed = true, remind_days = '{3}', status = 'in_progress'
   from mn_node_type_config c
   where c.id = n.node_type_id and n.matter_id = ${matterId} and c.code = 'evidence'`;
 await sql`
   update mn_matter_node n set start_time = ${deadlineIso}, is_time_confirmed = false,
-    remind_days = '{3}', status = 'not_started'
+    remind_days = '{3}', status = 'in_progress'
   from mn_node_type_config c
   where c.id = n.node_type_id and n.matter_id = ${matterId} and c.code = 'hearing'`;
 // 第 4 个：时间已确认但**已完成** —— 索引谓词的第二个条件要挡住它
@@ -621,7 +637,7 @@ const plan = await sql.begin(async (tx) => {
   await tx.unsafe("set local enable_seqscan = off");
   return tx.unsafe(
     `explain select id from mn_matter_node
-       where is_time_confirmed and status in ('not_started','in_progress')
+       where is_time_confirmed and status in ('in_progress','in_progress')
          and deadline_time >= $1 and deadline_time < $2 and not is_deleted`,
     [windowStart, windowEnd],
   );

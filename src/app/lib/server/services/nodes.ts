@@ -1,5 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
+import { NODE_REMIND_DEFAULT } from "@/shared/node-reminder";
 import { getDb } from "../db/client";
 import { matterNode, nodeTypeConfig, riskMatterNode } from "../db/schema";
 import type { HostKind } from "../scope/visibility";
@@ -21,15 +22,11 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
  */
 
 /**
- * 节点提醒的默认提前天数（修订稿 §4 末段 A9：删掉 `default_remind_days` 后由服务端常量给出）。
- *
- * ⚑ 一处已知的规格↔代码张力，留给下一轮裁：§4 要求把 `node_type_config.default_remind_days`
- * 删掉、提醒默认值只有这一个常量；但本仓的迁移与 seed 仍留着该列，且 seed 给了差异化值
- * （判决 `{3,1}`、举证 `{7,3,1}`）。这里的做法是**列还在就听列的，列为空才回落到常量**，
- * 因为静默忽略一个已配置、已 seed、后台页马上要维护的列，比多一个回落分支更糟。
- * 若裁定按 §4 执行：删列 + 删本函数的 `defaultRemindDays` 分支，一次做完，别留半套。
+ * 节点提醒的默认提前天数 —— **单一来源已挪到 `@/shared/node-reminder`**：
+ * 新增节点时按"是否落在窗口内"决定档位的规则与它共用一份常量。
+ * 这里保留 re-export，调用点不必全改。
  */
-export const NODE_REMIND_DEFAULT = [7, 3, 1] as const;
+export { NODE_REMIND_DEFAULT } from "@/shared/node-reminder";
 
 /** `node_type_config` 里参与 P1 的那几列（也用于单测构造，所以取窄） */
 export type PresetNodeTypeRow = {
@@ -124,7 +121,7 @@ export async function insertPlannedNodes(
     timeType: p.timeType,
     // start_time / end_time 留 null：时间待定（§4 P1 生成规则）
     isTimeConfirmed: false,
-    status: "not_started" as const,
+    status: "in_progress" as const,
     sourceKind: "preset" as const,
     remindDays: p.remindDays,
     sortOrder: p.sortOrder,
