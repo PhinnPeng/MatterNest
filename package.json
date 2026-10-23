@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "next dev --port 3777",
+    "gallery": "node agent-work/gallery-server.mjs",
+    "canon:check": "node agent-work/canon-check.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -28,10 +30,12 @@
     "db:migrate": "node tools/migrate.mjs --migrate-only",
     "db:seed": "node tools/migrate.mjs --seed-only",
     "smoke": "node tools/run-smokes.mjs",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs && pnpm anchors:check && pnpm deploy:check",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs && pnpm anchors:check && pnpm canon:check && pnpm deploy:check",
     "anchors:check": "node agent-work/verify-anchors.mjs",
     "prepare": "node tools/install-githooks.mjs",
-    "verify:all": "pnpm verify && cross-env MN_DB_CONFIRM=dev_matternest pnpm db:check && pnpm smoke"
+    "verify:all": "pnpm verify && cross-env MN_DB_CONFIRM=dev_matternest pnpm db:check && pnpm smoke",
+    "storage:setup": "node --experimental-strip-types tools/storage-setup.ts",
+    "storage:check": "node --experimental-strip-types tools/storage-check.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

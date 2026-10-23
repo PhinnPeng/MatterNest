@@ -35,6 +35,22 @@
  *     （它 `<` 后面是 `/`），所以报出来的每一条都对应**一个要改的标签**。
  *   · `\bdirection\s*=` —— 当前 13 处**全是** `<Space>`。
  *
+ * ## 第三笔账：`<Alert message=…>`（2026-10-18 补）
+ *
+ * `antd/es/alert/Alert.d.ts` 里 `message` 已标 `@deprecated please use \`title\` instead`，
+ * 运行时打 warning —— 与上面两笔同一种后果（dev overlay 常驻徽标）。
+ * 补它的直接起因：做个人设置页时用 `Alert message=` 实测报了一次，回头一看
+ * **全仓 12 处**都在报，而本条断言当时只记了 `List` / `Space` 两笔。
+ *
+ * 这一笔**不能像前两笔那样用裸正则**：`message=` 在本仓到处都是**合法**用法 ——
+ * antd `Form` 的校验规则就长成 `{ required: true, message: "…" }`（几十处），
+ * 裸匹配会把它们全报成违规，那种红没人会去读。所以它限定在 **`<Alert>` 的开标签之内**：
+ * 从 `<Alert` 起数着花括号深度走到收尾的 `>`，只在切出来的这一段里找 `message=`。
+ * 括号与字符串都要认（`message={a ? f(x) : g(y)}` 的花括号、`message={"a>b"}` 里的 `>`）。
+ *
+ * ⚠ 它抓不到什么：`<Alert {...props} />` 展开传递的 `message`（本仓 0 处），
+ * 以及换名成变量的用法 —— 与本节其余各笔同样的诚实边界。
+ *
  * ## 误伤面（说清代价后接受，与副标题纪律同款）
  *
  * `\bdirection\s*=` 只认属性形态，但**不认它挂在谁身上**：
@@ -50,8 +66,9 @@
  *
  *   · `React.createElement(List, props)` —— 本仓不用这种写法；
  *   · 别名/间接引用：`const L = List;` 之后再用 `L`；
- *   · `List` 之外的废弃 API：本禁令只记这两笔账，别指望它兜住 antd 6.6 的全套改名
- *     （`Space` 的 `split` → `separator` 就是同批的另一笔，本仓 0 处用法，故未纳入）；
+ *   · `List` / `Space direction` / `Alert message` 之外的废弃 API：本禁令只记这三笔账，
+ *     别指望它兜住 antd 6.6 的全套改名（`Space` 的 `split` → `separator` 就是同批的另一笔，
+ *     本仓 0 处用法，故未纳入 —— 要纳入就得先写一条会命中的自检样本，见文末）；
  *   · JSX 文本里写出来的 `<List>`（比如一段说明文字）会被当成用法 —— 方向也是误报。
  *
  * ## 迁移完之后的 canary 问题
@@ -94,7 +111,50 @@ const SELF_CHECK = [
   "<List dataSource={[]} renderItem={(x) => x} />",
   "<List.Item>内容</List.Item>",
   '<Space direction="vertical" size={2} />',
+  '<Alert message="x" />',
 ].join("\n");
+
+/**
+ * 数着花括号从 `from` 处走到 `<Alert …>` 开标签的收尾 `>`，返回那一段（不含收尾 `>`）。
+ *
+ * 为什么不用正则：`message={a ? f(x) : g(y)}` 里的 `}`、`<Alert description="a>b" />`
+ * 里的 `>` 都会让"到第一个 `>` 为止"提前截断。字符串引号与花括号深度两样都得跟。
+ * 找不到收尾（文件被截断）时返回 null，调用方按"没把握就不报"处理。
+ */
+function sliceOpeningTag(code, from) {
+  let depth = 0;
+  let quote = null;
+  for (let i = from; i < code.length; i++) {
+    const c = code[i];
+    if (quote) {
+      if (c === quote && code[i - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "{") depth++;
+    else if (c === "}") depth--;
+    else if (c === ">" && depth === 0) return code.slice(from, i);
+  }
+  return null;
+}
+
+/**
+ * `<Alert>` 开标签里的 `message=` 出现位置（相对全文的 index）。
+ *
+ * 逐个 `<Alert` 起点切开，避免把 `Form` 规则里合法的 `message:` 报成违规。
+ */
+function alertMessageHits(code) {
+  const out = [];
+  for (const m of code.matchAll(/<Alert(?=[\s/>])/g)) {
+    const tag = sliceOpeningTag(code, m.index);
+    if (!tag) continue;
+    for (const a of tag.matchAll(/\bmessage\s*=/g)) {
+      const idx = m.index + a.index;
+      out.push(code.slice(0, idx).split("\n").length);
+    }
+  }
+  return [...new Set(out)];
+}
 
 /** @returns {{ count: number, lines: number[] }} 命中次数，以及去重后的行号 */
 function hitsOn(code, re) {
@@ -140,6 +200,15 @@ export async function assertNoAntdDeprecated(failures) {
       if (count === 0) continue;
       failures.push(
         `${file} 有 ${count} 处 \`${name}\`（行 ${lines.join(" ")}）—— ${fix}。` +
+          "dev overlay 把 antd 的 warning 计成 console error，不修就会一直亮着「Open issues」徽标",
+      );
+    }
+    // 第三笔账单独走（要切 `<Alert …>` 开标签，不能用裸正则，理由见文件头）
+    const alertLines = alertMessageHits(code);
+    if (alertLines.length) {
+      failures.push(
+        `${file} 有 ${alertLines.length} 处 \`<Alert message=\`（行 ${alertLines.join(" ")}）—— ` +
+          "antd 6 已把它改名 `title`（`Alert.d.ts` 的 `@deprecated please use \\`title\\` instead`）。" +
           "dev overlay 把 antd 的 warning 计成 console error，不修就会一直亮着「Open issues」徽标",
       );
     }

@@ -104,7 +104,7 @@ export default tseslint.config(
   },
   {
     // 构建/校验脚本跑在 Node 上，给 globals 而不是关 no-undef
-    files: ["tools/**/*.mjs"],
+    files: ["tools/**/*.mjs", "tools/**/*.ts"],
     languageOptions: {
       globals: { process: "readonly", console: "readonly" },
     },

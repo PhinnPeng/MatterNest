@@ -56,9 +56,29 @@ agent-work/*
 # 探针共用的**浏览器路径取法**（2026-10-16）：11 个探针都 import 它，
 # 漏放行就会得到「本地能跑、别人 clone 下来 import 失败」——与 `_testacct.mjs` 同一条理由。
 !agent-work/_chrome.mjs
+# 画廊静态服务（2026-10-19 起是 `pnpm gallery` 的目标）。package.json 引着它，
+# 漏放行就成了「本地能跑、别人 clone 下来脚本悬空」——与 `_chrome.mjs` 同一条理由。
+!agent-work/gallery-server.mjs
+# 原型体检测据（2026-10-20 起是 `pnpm canon:check` 的目标，也在 `pnpm verify` 链上）。
+# 与 gallery-server.mjs 同一条理由，但更要紧：**门禁悬空**会让 verify 在别人的 clone 上
+# 直接红，而本地永远是绿的 —— 正是 `judge-portability` 头注里那种「覆盖为零却看起来跑过了」。
+# 它本身也属于本文件开头写的「验收门禁必须入库」那一类。
+!agent-work/canon-check.mjs
 # 冒烟脚本的**进程契约**测试（2026-10-15，MATT-88）。与 revred-*.mjs 同一类：
 # 都是「靠人记记不住」的证据，而 agent-work 是白名单制入库，所以要显式放行。
 !agent-work/*.spec.ts
 .mcp.json
 opencode.json
 .opencode/
+
+# 代理工具的本地状态（2026-10-23）
+# 三个目录都只存本机路径、会话流水与插件指针，换台机器即失效；
+# `.impeccable/mocks/` 才是要入库的原型契约，`.impeccable/live/` 是它跑起来时的会话缓存。
+.v2c/
+.video_agent/
+.impeccable/live/
+
+# 工作台原型的截图与独立页（2026-10-23）
+# 未挂进任何路由，`public/` 下会被 Next 原样发布到生产；证据留在本机，结论写进 DESIGN.md。
+/public/wb-shots/
+/public/prototype-wb-optimize.html
