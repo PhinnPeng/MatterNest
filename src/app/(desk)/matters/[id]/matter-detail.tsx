@@ -34,6 +34,7 @@ import { FollowGroup } from "@/app/components/follow-group";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
+import { ErrorArt } from "@/app/components/ui/error-art";
 import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
 import { ProgressLogDialog, ProgressPanel } from "@/app/components/progress-panel";
 import { CommentRail } from "@/app/components/comment-rail";
@@ -160,6 +161,7 @@ export function MatterDetail({ id }: { id: string }) {
     return (
       <StateBlock
         layout="page"
+        art={<ErrorArt variant={denied ? "not-found" : "error"} />}
         tone={denied ? "denied" : "error"}
         title={denied ? "打不开这条案件" : "读取出错"}
         hint={

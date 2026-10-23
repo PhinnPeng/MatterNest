@@ -31,6 +31,7 @@ import { dateTime, fromNow } from "@/app/lib/client/format";
 import { PageHeader } from "@/app/components/page-header";
 import { FlagMark, StatusMark } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
+import { ErrorArt } from "@/app/components/ui/error-art";
 import { applyServerIssues } from "@/app/components/form/zod-rules";
 
 /**
@@ -83,6 +84,7 @@ export function PartyDetail({ id }: { id: string }) {
     return (
       <StateBlock
         layout="page"
+        art={<ErrorArt variant={denied ? "not-found" : "error"} />}
         tone={denied ? "denied" : "error"}
         title={denied ? "打不开这份档案" : "读取出错"}
         hint={

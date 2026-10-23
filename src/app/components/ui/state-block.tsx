@@ -17,12 +17,15 @@ export function StateBlock({
   title,
   hint,
   action,
+  art,
   tone = "empty",
   layout = "inline",
 }: {
   title: string;
   hint?: ReactNode;
   action?: ReactNode;
+  /** 整页错误态的插图（见 `ui/error-art.tsx`）；行内态不显示 */
+  art?: ReactNode;
   tone?: "empty" | "error" | "denied";
   /**
    * `page`：整页居中（详情页读取出错、全局 404/error 边界）。
@@ -34,8 +37,21 @@ export function StateBlock({
   const color = tone === "error" ? "var(--red)" : "var(--amber)";
 
   if (tone === "empty" || layout === "page") {
+    // `page` 用列布局把「插图 / 标题 / 说明 / 动作」堆成一条中轴；
+    // 只靠 `text-align:center` 时，插图会被行内盒的宽度带偏。
+    const pageStyle =
+      layout === "page"
+        ? ({ display: "flex", flexDirection: "column", alignItems: "center" } as const)
+        : undefined;
     return (
-      <div className="empty" role={tone === "empty" ? undefined : "alert"}>
+      <div className="empty" role={tone === "empty" ? undefined : "alert"} style={pageStyle}>
+        {art ? (
+          <div
+            style={{ marginBottom: 14, width: "100%", display: "flex", justifyContent: "center" }}
+          >
+            {art}
+          </div>
+        ) : null}
         <div style={tone === "empty" ? undefined : { color }}>{title}</div>
         {hint ? (
           <div className="mut3" style={{ fontSize: 12, maxWidth: 460, margin: "4px auto 0" }}>

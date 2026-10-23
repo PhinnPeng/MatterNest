@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button } from "antd";
 
 import { StateBlock } from "@/app/components/ui/state-block";
+import { ErrorArt } from "@/app/components/ui/error-art";
 
 /**
  * 根级错误边界（Next App Router 约定）。
@@ -35,6 +36,7 @@ export default function AppError({
       <div style={{ width: "100%", maxWidth: 720 }}>
         <StateBlock
           layout="page"
+          art={<ErrorArt variant="error" />}
           tone="error"
           title="页面出错了"
           hint={error.message || "渲染这段内容时发生了异常，可以重试一次。"}

@@ -39,6 +39,7 @@ import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
 import { ProgressLogDialog, ProgressPanel } from "@/app/components/progress-panel";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
+import { ErrorArt } from "@/app/components/ui/error-art";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { RichTextView, RichTextEditorLazy } from "@/app/components/ui/rich-text";
 import { ConvertDialog } from "../convert-dialog";
@@ -141,6 +142,7 @@ export function RiskDetail({ id }: { id: string }) {
     return (
       <StateBlock
         layout="page"
+        art={<ErrorArt variant={denied ? "not-found" : "error"} />}
         tone={denied ? "denied" : "error"}
         title={denied ? "打不开这条事项" : "读取出错"}
         hint={
