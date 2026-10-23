@@ -210,11 +210,10 @@ function buildTheme(appearance: Appearance): ThemeConfig {
        * `statusSize` / `colorText`，与这三个值无关，不会被带偏。
        */
       Badge: {
-        // 2026-10-23 批注「角标要圆形」：16/10 那档在两位数（18）时被 padding 撑成药丸。
-        // 18 高 + 9px 字，两位数也放得下；宽度相等与 padding 归零见 globals.css 的
-        // `.navfoot .inbox .ant-badge-count`（token 管不到宽度）。
-        indicatorHeightSM: 18,
-        textFontSizeSM: 9,
+        // 2026-10-24 再收一档（用户批注「角标圆还要再小一点」）：16 高 + 8px 字，
+        // 两位数仍放得下；宽度相等与 padding 归零见 globals.css 的同名规则。
+        indicatorHeightSM: 16,
+        textFontSizeSM: 8,
         // ⚠ 必须写字符串：antd 6 的 cssinjs 只给「维度类」token 换算数字，
         // `font-weight` 这种非维度值传数字会被**静默丢掉**（实测 `textFontWeight: 600`
         // 计算值仍是 400，改成 `"600"` 才生效）。

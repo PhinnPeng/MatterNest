@@ -250,22 +250,22 @@
    * 内容用 flex 居中；两位数在 9px 字号下仍放得下。
    */
   .navfoot .inbox .ant-badge-count {
-    width: 18px;
-    min-width: 18px;
+    width: 16px;
+    min-width: 16px;
     padding: 0;
     border-radius: 50%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     /*
-     * 行高必须跟高度走。`line-height: 1` 在 9px 字号下只有 9px，而字实际高 12px，
-     * antd 的数字行盒按 9px 排，字从行盒上沿溢出——视觉上偏上 2–4px。
+     * 行高必须跟高度走。`line-height: 1` 在 8px 字号下只有 8px，而字实际高约 11px，
+     * antd 的数字行盒按 8px 排，字从行盒上沿溢出——视觉上偏上。
      */
-    line-height: 18px;
+    line-height: 16px;
   }
   .navfoot .inbox .ant-badge-count .ant-scroll-number-only {
-    height: 18px;
-    line-height: 18px;
+    height: 16px;
+    line-height: 16px;
   }
   /*
    * 身份卡：头像 + 昵称。**吃满底栏余量**（2026-10-20 用户裁定），通知胶囊保持方角。
