@@ -159,6 +159,8 @@ export const IN_DB_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
   E03: [
     ["mn_activity_log", "target_type", "ck_mn_activity_target_type"],
     ["mn_comment", "target_type", "ck_mn_comment_target_type"],
+    // 附件（迁移 0018）：与评论同一条窄化理由 —— `app_user` 不进 OwnerType。
+    ["mn_attachment", "owner_type", "ck_mn_attachment_owner_type"],
     // `mn_user_watch` 是 4.6 跨宿主 feed 与 ⭐收藏 的载体（迁移 0010）。
     // 它收**全值域**而不是像 comment 那样收窄：收藏/关注的目标类型由 UI 决定，
     // 而 comment 那一侧的收窄理由是 `app_user` 对评论**语义上不可能**（见 collab.ts 注释）。
@@ -204,10 +206,9 @@ export const IN_DB_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
     ["mn_matter_node", "source_kind", "ck_mn_matter_node_source_kind"],
     ["mn_risk_matter_node", "source_kind", "ck_mn_risk_matter_node_source_kind"],
   ],
-  E27: [
-    ["mn_matter", "currency", "ck_mn_matter_currency"],
-    ["mn_risk_matter", "currency", "ck_mn_risk_matter_currency"],
-  ],
+  // E26 随附件通道（迁移 0018）落库。`category` 可空：评论附件不需要分类，
+  // 归档就绪的「裁判文书」将来按 `judgment` 统计。
+  E26: [["mn_attachment", "category", "ck_mn_attachment_category"]],
   E28: [["mn_risk_matter", "conversion_status", "ck_mn_risk_matter_conversion"]],
   // E25/E29/E30/E31/E32：迁移 0010 把通知三表 + outbox 的值域一次落库。
   // outbox 那张表 0003 就建好了，但**值域一直没进 CHECK**（E32 此前是 pending-table）——
@@ -450,14 +451,17 @@ export const ENUM_REGISTRY: readonly EnumEntry[] = [
   entry({
     id: "E26",
     field: "attachment.category",
-    landing: "pending-table",
+    landing: "in-db",
     values: ATTACHMENT_CATEGORIES,
     labels: ATTACHMENT_CATEGORY_LABELS,
+    usedBy: ["attachment.category"],
   }),
+  // E27（币种）的列随迁移 0019 删除：一期只有 CNY，界面上从来没有第二种可选，
+  // 「金额单位是元」不需要一列来重复。值域保留在 shared 里，供将来真正多币种时再用。
   entry({
     id: "E27",
     field: "currency",
-    landing: "in-db",
+    landing: "pending-table",
     values: CURRENCIES,
     labels: CURRENCY_LABELS,
   }),

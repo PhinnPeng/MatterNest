@@ -3,10 +3,9 @@
  * 出处：基线 1.7 评论 / 1.8 活动日志、修订稿 §6.3（评论 ≤1 层嵌套、日志补 `matter_id`/`risk_matter_id`
  *      双列 + `reason` 列）、§12.3（编号 `code_seq` 单语句原子取号）。
  *
- * 一期**故意不建**的三张（不是漏了）：`mn_attachment`（MinIO 服务账号未开通，接了没有可写目标）、
- * `mn_notification_event`/`mn_notification_delivery`（通知链路属 M5）、
- * `mn_user_watch`/`mn_custom_reminder`（提醒链路属 M5/M6）。
- * 判断依据：Demo 里点不到的入口不该占一张表。
+ * 曾**故意不建**、后来按排期补齐的：`mn_attachment`（2026-10-22，MinIO 服务账号到位，
+ * 见下面 `attachment` 的注）、`mn_notification_*` 与 `mn_user_watch`（M5，迁移 0010）。
+ * 仍留待 M6：`mn_custom_reminder`（提醒链路）—— 判断依据不变：Demo 里点不到的入口不该占一张表。
  */
 import { sql } from "drizzle-orm";
 import {
@@ -21,9 +20,11 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   varchar,
 } from "drizzle-orm/pg-core";
 import { AUDIT_ACTIONS } from "@/shared/enums/audit";
+import { ATTACHMENT_CATEGORIES } from "@/shared/enums/business";
 import { TARGET_TYPES } from "@/shared/enums/targets";
 import { appUser } from "./identity";
 import { matter, riskMatter } from "./hosts";
@@ -69,6 +70,94 @@ export const comment = pgTable(
         TARGET_TYPES.filter((t) => t !== "app_user"),
       ),
     ),
+  ],
+);
+
+/**
+ * `mn_attachment`：附件（修订稿 §7.1 / A7，2026-10-22 打通）。
+ *
+ * ## 为什么单表、不按宿主拆
+ *
+ * §7.1 原文：「附件属**横切基础设施**，按 §1.0.2 分界线保持单表管线，不按宿主拆表
+ * （否则签名 URL 签发、病毒扫描、留存策略要各写一份）。」所以它跟 `mn_comment`
+ * 一样是多态表，`owner_type + owner_id` 指向**宿主**（案件 / 事项）。
+ *
+ * ## `comment_id` —— 规格表里没有的一列，为什么必须有
+ *
+ * §1.7 要求 Comment 带 `attachment_ids [derived]`，也就是"这条评论发了哪些附件"。
+ * 但 E03 `target_type` 是闭集且**没有 `comment`**（评论是明细，不是业务对象），
+ * 于是"附件挂在评论上"无法只靠 `owner_type` 表达：
+ *
+ *   · 若把 `owner_type` 写成 `matter`，那就分不出这条附件属于哪条评论；
+ *   · 若给 E03 加一个 `comment`，`mn_activity_log` 的 CHECK、`visibility()` 与
+ *     `TARGET_TYPE_LABELS` 都要跟着开一个没有人用的口子。
+ *
+ * 折中是**加一列**：`owner_type/owner_id` 仍然指向宿主（可见性判定直接复用
+ * `scopedWhere`），`comment_id` 才是评论那一条的归属。宿主删除时靠 RESTRICT
+ * （宿主是软删的，硬删带附件的宿主本来就不该发生）。
+ *
+ * ## 字段口径（逐条照 §7.1，不加戏）
+ *
+ * | 规格 | 这里 | 说明 |
+ * |---|---|---|
+ * | `storage_key` | `storage_key` | **不可猜测、不含业务含义**（= 随机 UUID），`UNIQUE` |
+ * | `mime_type` | `mime_type` | 服务端按扩展名白名单**自己定**，不信客户端声明 |
+ * | `checksum_sha256` | `checksum_sha256` | 客户端直传算不出来，由浏览器算好随评论提交（事后异步校验属 §7.1 的下一票） |
+ * | `category` | `category` | E26 闭集，可空（评论附件不需要分类）；归档就绪的「裁判文书」将来按 `judgment` 统计 |
+ * | `related_node_id` | —— | 本期没有"节点材料"视图，不建空列（建了没人写＝假能力） |
+ *
+ * 软删：`is_deleted` + `deleted_at`/`deleted_by`。§7.1 明写「`is_deleted` 保留对象
+ * 以便审计追溯，物理清理由 B 组定义」——所以删除只改行，不删对象存储里的字节。
+ */
+export const attachment = pgTable(
+  "mn_attachment",
+  {
+    id: id(),
+    ownerType: varchar("owner_type", { length: 24 }).notNull(),
+    ownerId: fk("owner_id").notNull(),
+    /** 评论附件才有值；§1.7 的 `attachment_ids [derived]` 由它反查 */
+    commentId: fk("comment_id").references(() => comment.id, { onDelete: "restrict" }),
+    /** 原始文件名，只用于展示与下载时的 `Content-Disposition` */
+    fileName: varchar("file_name", { length: 255 }).notNull(),
+    /** 对象键：`att/<uuid>`，不含宿主/人名/原名（§7.1 的要求） */
+    storageKey: varchar("storage_key", { length: 255 }).notNull(),
+    mimeType: varchar("mime_type", { length: 128 }).notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "bigint" }).notNull(),
+    /** 小写十六进制 SHA-256；用于完整性与将来的秒传去重 */
+    checksumSha256: varchar("checksum_sha256", { length: 64 }).notNull(),
+    category: varchar("category", { length: 24 }),
+    uploadedBy: fk("uploaded_by")
+      .notNull()
+      .references(() => appUser.id, { onDelete: "restrict" }),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    isDeleted: boolean("is_deleted").notNull().default(false),
+    deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "string" }),
+    deletedBy: fk("deleted_by").references(() => appUser.id, { onDelete: "restrict" }),
+  },
+  (t) => [
+    unique("uk_mn_attachment_storage_key").on(t.storageKey),
+    // 列表恒带 `NOT is_deleted`（与 ix_mn_comment_target 同口径的 partial index）
+    index("ix_mn_attachment_owner")
+      .on(t.ownerType, t.ownerId)
+      .where(sql`NOT ${t.isDeleted}`),
+    index("ix_mn_attachment_comment")
+      .on(t.commentId)
+      .where(sql`NOT ${t.isDeleted}`),
+    // `app_user` 不进 OwnerType：账号没有附件（与评论表同一条理由，见上方 comment 的注）
+    check(
+      "ck_mn_attachment_owner_type",
+      sqlInList(
+        "owner_type",
+        TARGET_TYPES.filter((t) => t !== "app_user"),
+      ),
+    ),
+    check(
+      "ck_mn_attachment_category",
+      sql`category IS NULL OR ${sqlInList("category", ATTACHMENT_CATEGORIES)}`,
+    ),
+    check("ck_mn_attachment_size", sql`size_bytes > 0`),
   ],
 );
 

@@ -27,7 +27,6 @@ import {
 import {
   CASE_TYPES,
   CASE_TYPE_LABELS,
-  CURRENCIES,
   EXPENSE_STATUSES,
   ID_TYPES,
   LITIGATION_ROLES,
@@ -65,7 +64,6 @@ export const matter = pgTable(
     court: varchar("court", { length: 200 }),
     /** 标的额；`numeric(18,2)`，禁 float（修订稿 §12.2） */
     amount: numeric("amount", { precision: 18, scale: 2 }).notNull().default("0"),
-    currency: varchar("currency", { length: 3 }).notNull().default("CNY"),
     /** 风险等级：配置驱动（枚举表 §0），存 `mn_risk_level_config.code`，故**不加 CHECK** */
     level: varchar("level", { length: 32 }).notNull(),
     tagIds: bigint("tag_ids", { mode: "bigint" })
@@ -104,7 +102,6 @@ export const matter = pgTable(
     check("ck_mn_matter_procedure", sqlInList("procedure", PROCEDURES)),
     check("ck_mn_matter_role", sqlInList("litigation_role", LITIGATION_ROLES)),
     check("ck_mn_matter_amount", sql`amount >= 0`),
-    check("ck_mn_matter_currency", sqlInList("currency", CURRENCIES)),
   ],
 );
 
@@ -121,9 +118,14 @@ export const riskMatter = pgTable(
     level: varchar("level", { length: 32 }).notNull(),
     source: varchar("source", { length: 28 }),
     description: text("description").notNull(),
-    measure: text("measure"),
-    amount: numeric("amount", { precision: 18, scale: 2 }).notNull().default("0"),
-    currency: varchar("currency", { length: 3 }).notNull().default("CNY"),
+    /**
+     * `measure` / `amount` 两列已于 2026-10-22 删除（迁移 0017）：处置过程走事项详情页的
+     * 评论时间线（那里就叫「处置记录」，事项没有进展表），金额敞口走费用台账
+     * （`mn_risk_matter_expense`）。
+     *
+     * `currency` 也于同日删除（迁移 0019）：一期只有 CNY，界面上从来没有第二种币种可选，
+     * 它只是把"金额单位是元"这件事再存一遍；金额展示固定按元。
+     */
     ownerId: fk("owner_id")
       // ⚠ **不做 notNull**：事项侧经办人可空（IQ-5）。空 = 未指派处理人，
       // 由持 L1 数据范围的角色「变更处理人」接手；案件侧则必填（IQ-6）。
@@ -165,8 +167,6 @@ export const riskMatter = pgTable(
       sql`source IS NULL OR ${sqlInList("source", RISK_MATTER_SOURCES)}`,
     ),
     check("ck_mn_risk_matter_conversion", sql`conversion_status IN (0, 1)`),
-    check("ck_mn_risk_matter_amount", sql`amount >= 0`),
-    check("ck_mn_risk_matter_currency", sqlInList("currency", CURRENCIES)),
   ],
 );
 
@@ -246,10 +246,14 @@ function nodeTable(host: HostKind) {
       hostId: fk(col)
         .notNull()
         .references(() => parent, { onDelete: "restrict" }),
-      /** 真外键到节点类型配置（原多态 `matter_type` 列已删，§1.0.2） */
-      nodeTypeId: fk("node_type_id")
-        .notNull()
-        .references(() => nodeTypeRef, { onDelete: "restrict" }),
+      /**
+       * 真外键到节点类型配置（原多态 `matter_type` 列已删，§1.0.2）。
+       *
+       * **可空**（2026-10-23）：手动新增的节点只要名称/描述/时间三个字段，不选类型。
+       * 类型是**模板的**概念（预置节点按类型生成、按类型的 `time_type` 决定点/段），
+       * 手工节点没有模板可依，硬塞一个"其他"只会让类型列变成噪音。
+       */
+      nodeTypeId: fk("node_type_id").references(() => nodeTypeRef, { onDelete: "restrict" }),
       name: varchar("name", { length: 128 }).notNull(),
       /** E11：时间点/段决定 `end_time` 的必填性，由下面的 CHECK 守住 */
       timeType: varchar("time_type", { length: 12 }).notNull().default("point"),
@@ -271,8 +275,8 @@ function nodeTable(host: HostKind) {
         .array()
         .notNull()
         .default(sql`'{7,3,1}'`),
-      /** E21 生命周期 */
-      status: varchar("status", { length: 16 }).notNull().default("not_started"),
+      /** E21 生命周期（2026-10-23 起三态，默认进行中 —— 见 `shared/enums/business.ts`） */
+      status: varchar("status", { length: 16 }).notNull().default("in_progress"),
       /** E22：manual / preset(P1) / rule(P2)，路径由 source_ref 区分 */
       sourceKind: varchar("source_kind", { length: 12 }).notNull().default("manual"),
       sourceRef: varchar("source_ref", { length: 64 }),
@@ -286,10 +290,10 @@ function nodeTable(host: HostKind) {
     },
     (t) => [
       index(`ix_mn_${host}_node_host`).on(t.hostId, t.sortOrder),
-      // 提醒扫描：跨宿主按期限全局扫（§6.1 的 ix_node_scan）
+      // 提醒扫描：跨宿主按期限全局扫（§6.1 的 ix_node_scan）。三态之后只剩「进行中」会被扫
       index(`ix_mn_${host}_node_scan`)
         .on(t.status, t.deadlineTime)
-        .where(sql`is_time_confirmed AND status IN ('not_started','in_progress')`),
+        .where(sql`is_time_confirmed AND status = 'in_progress'`),
       check(`ck_mn_${host}_node_status`, sqlInList("status", NODE_STATUSES)),
       check(`ck_mn_${host}_node_source_kind`, sqlInList("source_kind", NODE_SOURCE_KINDS)),
       check(

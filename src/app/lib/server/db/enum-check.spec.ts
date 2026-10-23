@@ -55,6 +55,8 @@ function stripSqlComments(sql: string): string {
 /** 只认 `CHECK (col IN ('a','b',…))` 这一种字面量集合形态：DDL 里带参数占位符的写法本身非法（禁令②） */
 export function parseEnumChecks(sql: string): ParsedCheck[] {
   const out: ParsedCheck[] = [];
+  /** 每个约束名最后一次出现的 CREATE 位置（用于区分"被删掉的"与"删后重建的"） */
+  const created = new Map<string, number>();
   const clean = stripSqlComments(sql);
   // 约束名**可带引号也可不带**：drizzle 产的是 "ck_x"，而枚举表 §5.2 的手写补丁模板写的是裸名 ck_x。
   // 只认带引号的形态，就等于给"尾部手写 CHECK 不被反向检查发现"留了个洞（本轮实测踩过）。
@@ -78,6 +80,7 @@ export function parseEnumChecks(sql: string): ParsedCheck[] {
   for (const m of clean.matchAll(re)) {
     const [, name, , column, inner] = m;
     if (!name || !column || inner === undefined) continue;
+    created.set(name, m.index ?? 0);
     out.push({
       name,
       table: tableAt(m.index ?? 0),
@@ -88,7 +91,19 @@ export function parseEnumChecks(sql: string): ParsedCheck[] {
         .filter((v) => v.length > 0),
     });
   }
-  return out;
+  /**
+   * 被后续迁移 `DROP CONSTRAINT` 掉的约束**不是现行事实**，不该再要求注册表认领。
+   *
+   * 触发这一条的实例是迁移 0019（删除两处 `currency`）：`ck_mn_matter_currency` 仍出现在
+   * 0000 的建表语句里，但列已经删了。反过来，如果同名约束在 DROP 之后又被重建（扩值域
+   * 的正规姿势是 `DROP + ADD`，但名字通常换新的），DROP 早于最后一处 CREATE 就仍算现行。
+   */
+  const retired = new Set<string>();
+  for (const m of clean.matchAll(/DROP\s+CONSTRAINT\s+"?([a-z0-9_]+)"?/gi)) {
+    const name = m[1];
+    if (name && (m.index ?? 0) > (created.get(name) ?? -1)) retired.add(name);
+  }
+  return out.filter((c) => !retired.has(c.name));
 }
 
 /**
@@ -885,8 +900,8 @@ const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
   //   不硬删 —— 修订稿 §12.4，FK 一律 RESTRICT），审计与 `RISK_DELETED` 同形。
   //   裁定：**已归档案件允许删除**（材料缺项已由 `ARCHIVED` 审计结清；
   //   删除要的是归属，不该与 `can_unarchive` 绑在一起）。判据：`agent-work/smoke-delete.mjs`。
-  NODE_DELETED:
-    "节点只有新增与状态变更，`matters/[id]/nodes/[nodeId]/route.ts` 仅导出 `POST`。节点是归档判定（`pending_nodes`）与到期卡的输入，现行口径是取消而非删除，**暂无票**。⚠ MATT-62 的描述里确实提到了它，但在「顺带核对（只报告、不改）」那一节 —— 关掉那票**不会**给它写入点，所以不能拿 MATT-62 当它的落点承诺。",
+  // ⚠ `NODE_DELETED` 原在这里登记"暂无票"，2026-10-23 随节点删除一起落地，整条删除
+  //   （写入点：`deleteMatterNode` / `deleteRiskNode`）。
   PROGRESS_UPDATED:
     "**MATT-59 只交付了创建路径**（`services/matters.ts` 的 `addProgress`），进展的编辑与删除没有端点。⚠ 演示库里已经有 `PROGRESS_CREATED` 一行（`db/seed/0003_demo.sql`）—— 那正是本门禁坚持只读 `.ts` 的理由：演示数据写进去过，不等于任何用户操作产生过它。",
   PROGRESS_DELETED:
@@ -895,10 +910,9 @@ const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
     "`parties/[id]/route.ts` 只有 `GET` 与 `PATCH`。**删除当事人走合并**：同一条留痕是 `PARTY_MERGED`（`party-merge.ts`，载荷含「谁活下来、谁被并走」）。当事人是费用/进展的引用源，硬删与 FK RESTRICT 冲突，这条大概率**永远不会单独出现** —— 若将来真要物理删除，先在这里写明理由再删本条。⚠ 同上：MATT-62 只在「顺带核对（只报告、不改）」那节提到它，不构成落点承诺。",
   COMMENT_DELETED:
     "评论只有发表与编辑：`matters/[id]/comments/route.ts` 仅导出 `POST`（对应 `COMMENT_CREATED` / `COMMENT_UPDATED`）。一期不做删除，**暂无票**。⚠ 同上：MATT-62 只在「顺带核对（只报告、不改）」那节提到它，不构成落点承诺。",
-  ATTACHMENT_UPLOADED:
-    "等 **MATT-15**（MinIO 附件通道）。附件表与对象存储都还没接，上传动作产生前不可能有写入点；该票当前被外部凭据阻塞。",
-  ATTACHMENT_DELETED:
-    "同 `ATTACHMENT_UPLOADED`，等 **MATT-15**（MinIO 附件通道，外部凭据阻塞中）。",
+  // ⚠ `ATTACHMENT_UPLOADED` / `ATTACHMENT_DELETED` 原在这里登记"等 MATT-15"，
+  //   2026-10-22 随附件通道交付**整条删除**（写入点：`attachments.ts` 的
+  //   `attachToComment` 与 `deleteAttachment`）。
   // ⚠ `UNARCHIVED` 原在这里登记"等 MATT-60"，2026-10-15 随该票交付**整条删除**
   //   （本门禁的规矩：已经有写入点的条目不许留着 —— 留着会让下一轮读者以为它还是缺口）。
   //   写入点是 `changeStatus` 的三档动作名：

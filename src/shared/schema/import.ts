@@ -127,9 +127,7 @@ export const IMPORT_TEMPLATES: Record<ImportKind, readonly ImportColumn[]> = {
       enumId: "E16",
       writable: RISK_MATTER_SOURCES_WRITABLE,
     },
-    { field: "amount", label: "涉及金额", required: false, kind: "amount" },
     { field: "description", label: "风险描述", required: true, kind: "text" },
-    { field: "measure", label: "处置措施", required: false, kind: "text" },
     {
       field: "ownerId",
       label: "处理人",
@@ -580,8 +578,6 @@ export type RiskImportRow = {
   level: string;
   description: string;
   source?: string;
-  measure?: string;
-  amount?: string;
   discoverDate?: string;
   ownerId?: string;
   parties: ImportPartyCandidate[];
@@ -875,7 +871,6 @@ export function buildImportRow(
 
   if (kind === "risk_matter") {
     const source = r.enumCode("source");
-    const measure = r.text("measure");
     const discoverDate = r.date("discoverDate");
     const input: RiskImportRow = {
       name: r.text("name", true),
@@ -883,8 +878,6 @@ export function buildImportRow(
       level,
       description: r.text("description", true),
       ...(source ? { source } : {}),
-      ...(measure ? { measure } : {}),
-      ...(amount ? { amount } : {}),
       ...(discoverDate ? { discoverDate } : {}),
       ...(ownerId ? { ownerId } : {}),
       parties,

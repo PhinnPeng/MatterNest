@@ -230,7 +230,9 @@ export const CONDITION_FIELDS_BY_HOST = {
     "amount",
     "court",
   ],
-  risk_matter: ["level", "type", "source", "owner_id", "tag_ids", "amount"],
+  // 事项侧没有 `amount`：「预估影响」列已随迁移 0017 删除，规则再无金额可判
+  // （案件的标的额仍在 `matter` 那一份里）。
+  risk_matter: ["level", "type", "source", "owner_id", "tag_ids"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

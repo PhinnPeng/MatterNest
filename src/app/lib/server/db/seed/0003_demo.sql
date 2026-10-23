@@ -98,36 +98,34 @@ INSERT INTO "mn_matter_node"
 VALUES
   (8201, 7001, 4001, '立案', 'point', now() - interval '6 days', NULL, true, 'completed', 'preset', 1, 101, NULL, 101, 101),
   (8202, 7001, 4002, '举证', 'range', now() + interval '1 day', now() + interval '13 days', true, 'in_progress', 'preset', 2, 101, NULL, 101, 101),
-  (8203, 7001, 4003, '开庭', 'point', now() + interval '2 days', NULL, true, 'not_started', 'preset', 3, 101, NULL, 101, 101),
+  (8203, 7001, 4003, '开庭', 'point', now() + interval '2 days', NULL, true, 'in_progress', 'preset', 3, 101, NULL, 101, 101),
   -- 「判决」时间待定：is_time_confirmed=false 且不参与提醒扫描（修订稿 §6.1）
-  (8204, 7001, 4004, '判决', 'point', NULL, NULL, false, 'not_started', 'preset', 4, 101, NULL, 101, 101),
-  (8205, 7002, 4003, '二审开庭', 'point', now() + interval '9 days', NULL, true, 'not_started', 'manual', 1, 101, NULL, 101, 101),
+  (8204, 7001, 4004, '判决', 'point', NULL, NULL, false, 'in_progress', 'preset', 4, 101, NULL, 101, 101),
+  (8205, 7002, 4003, '二审开庭', 'point', now() + interval '9 days', NULL, true, 'in_progress', 'manual', 1, 101, NULL, 101, 101),
   (8206, 7003, 4001, '立案', 'point', now() - interval '1 day', NULL, true, 'completed', 'preset', 1, 101, NULL, 101, 101),
-  (8207, 7003, 4002, '举证', 'range', now() + interval '4 days', now() + interval '18 days', true, 'not_started', 'preset', 2, 101, NULL, 101, 101),
-  (8208, 7004, 4003, '仲裁开庭', 'point', now() + interval '1 day', NULL, true, 'not_started', 'manual', 1, 101, NULL, 101, 101),
+  (8207, 7003, 4002, '举证', 'range', now() + interval '4 days', now() + interval '18 days', true, 'in_progress', 'preset', 2, 101, NULL, 101, 101),
+  (8208, 7004, 4003, '仲裁开庭', 'point', now() + interval '1 day', NULL, true, 'in_progress', 'manual', 1, 101, NULL, 101, 101),
   (8209, 7005, 4003, '执行财产查控', 'point', now() - interval '10 days', NULL, true, 'completed', 'manual', 1, 101, NULL, 101, 101),
   (8210, 7005, 4004, '以物抵债协商', 'point', NULL, NULL, true, 'cancelled', 'manual', 2, 101, '双方改按分期履行，无需以物抵债', 101, 101)
 ON CONFLICT ("id") DO NOTHING;
 
 -- ── 事项（其中 1 条已转案件，用来演示"第二徽标 + 与结案正交"）────
+-- 「已采取措施」「预估影响」两列随迁移 0017 一起撤下，所以这批演示行不再有它们。
 INSERT INTO "mn_risk_matter"
-  ("id", "code", "name", "type", "level", "source", "description", "measure", "amount",
+  ("id", "code", "name", "type", "level", "source", "description",
    "owner_id", "discover_date", "status", "conversion_status", "converted_case_count", "created_by", "updated_by", "updated_at")
 VALUES
   (8301, 'FX-20260922-001', '合作开发项目对外担保超授权风险', 'corporate_governance', 'high', 'internal_check',
-   '项目部以项目公司名义对外签订连带责任保证，超出授权额度且未走内部决议程序。',
-   '已要求补做决议并暂停后续担保用印；对存量担保逐笔核额。', '3000000.00',
+   '项目部以项目公司名义对外签订连带责任保证，超出授权额度且未走内部决议程序。已要求补做决议并暂停后续担保用印。',
    101, '2026-09-22', 'in_progress', 1, 1, 101, 101, now() - interval '2 days'),
   (8302, 'FX-20260924-002', '外包人员访问生产数据合规风险', 'compliance', 'high', 'business_report',
-   '外包团队持有生产库只读账号，可访问自然人姓名与证件号，超出必要范围。',
-   '回收账号并改为脱敏视图；补充外包协议的数据处理条款。', '0.00',
+   '外包团队持有生产库只读账号，可访问自然人姓名与证件号，超出必要范围。回收账号并改为脱敏视图，补充外包协议的数据处理条款。',
    101, '2026-09-24', 'pending', 0, 0, 101, 101, now() - interval '1 day'),
   (8303, 'FX-20260926-003', '拖欠外包研发费用被催告', 'debt', 'mid', 'lawyer_letter',
-   '收到对方律师函，主张两期研发服务费逾期未付并要求违约金。',
-   '核对验收节点与付款条件，拟按分期方案回函。', '760000.00',
+   '收到对方律师函，主张两期研发服务费逾期未付并要求违约金。正在核对验收节点与付款条件，拟按分期方案回函。',
    101, '2026-09-26', 'in_progress', 0, 0, 101, 101, now() - interval '3 hours'),
   (8304, 'FX-20260915-004', '历史劳动争议批量解除风险', 'labor_dispute', 'mid', 'customer_complaint',
-   '岗位调整后员工集中主张解除补偿，涉及 11 人。', '统一补偿口径并逐人协商。', '430000.00',
+   '岗位调整后员工集中主张解除补偿，涉及 11 人。统一补偿口径并逐人协商。',
    101, '2026-09-15', 'archived', 0, 0, 101, 101, now() - interval '10 days')
 ON CONFLICT ("code") DO NOTHING;
 
@@ -174,8 +172,8 @@ INSERT INTO "mn_risk_matter_node"
 VALUES
   (8501, 8301, 4101, '风险评估', 'point', now() - interval '5 days', NULL, true, 'completed', 'manual', 1, 101, 101, 101),
   (8502, 8301, 4102, '处置执行', 'point', now(), NULL, true, 'in_progress', 'manual', 2, 101, 101, 101),
-  (8503, 8302, 4101, '风险评估', 'point', now() + interval '2 days', NULL, true, 'not_started', 'manual', 1, 101, 101, 101),
-  (8504, 8303, 4102, '处置执行', 'point', now() + interval '1 day', NULL, true, 'not_started', 'manual', 1, 101, 101, 101)
+  (8503, 8302, 4101, '风险评估', 'point', now() + interval '2 days', NULL, true, 'in_progress', 'manual', 1, 101, 101, 101),
+  (8504, 8303, 4102, '处置执行', 'point', now() + interval '1 day', NULL, true, 'in_progress', 'manual', 1, 101, 101, 101)
 ON CONFLICT ("id") DO NOTHING;
 
 -- 转案件关联：事项的"来源"靠这张表反查，宿主表上没有 source_risk_id（修订稿 §6.3）
@@ -209,9 +207,9 @@ INSERT INTO "mn_activity_log"
 VALUES
   (8901, 'matter', 7001, 7001, NULL, 101, 'MATTER_CREATED', NULL, NULL, NULL, now() - interval '6 days'),
   (8902, 'matter', 7001, 7001, NULL, 101, 'STATUS_CHANGED', '{"status":{"from":"pending","to":"in_progress"}}', NULL, NULL, now() - interval '6 days'),
-  (8903, 'matter_node', 8202, 7001, NULL, 101, 'NODE_UPDATED', '{"status":{"from":"not_started","to":"in_progress"}}', NULL, NULL, now() - interval '5 days'),
+  (8903, 'matter_node', 8202, 7001, NULL, 101, 'NODE_UPDATED', '{"is_time_confirmed":{"from":false,"to":true}}', NULL, NULL, now() - interval '5 days'),
   (8904, 'matter', 7005, 7005, NULL, 101, 'STATUS_CHANGED', '{"status":{"from":"in_progress","to":"closed"}}', NULL, '执行款部分到位并达成以物抵债外的分期方案', now() - interval '9 days'),
-  (8905, 'matter', 7005, 7005, NULL, 101, 'NODE_CANCELLED', '{"status":{"from":"not_started","to":"cancelled"}}', NULL, '双方改按分期履行，无需以物抵债', now() - interval '10 days'),
+  (8905, 'matter', 7005, 7005, NULL, 101, 'NODE_CANCELLED', '{"status":{"from":"in_progress","to":"cancelled"}}', NULL, '双方改按分期履行，无需以物抵债', now() - interval '10 days'),
   (8906, 'matter', 7006, 7006, NULL, 101, 'ARCHIVED', '{"status":{"from":"closed","to":"archived"}}', NULL, '调解书已履行完毕，按归档流程处理', now() - interval '8 days'),
   (8907, 'risk_matter', 8301, NULL, 8301, 101, 'RISK_CREATED', NULL, NULL, NULL, now() - interval '5 days'),
   (8908, 'risk_matter', 8301, 7002, 8301, 101, 'CONVERTED_TO_CASE', NULL, '{"case_ids":["7002"],"from":"FX-20260922-001"}', NULL, now() - interval '6 days'),

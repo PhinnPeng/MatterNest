@@ -240,9 +240,9 @@ describe("文件级解析（结构错误一次性拒掉）", () => {
 
   it("表头 + 说明行 + 数据行 → 只回数据行，且列按模板顺序重排", () => {
     const hint = templateRows("risk_matter", deps)[1]?.join(",") ?? "";
-    // 只写前 7 列（事项名称/风险类型/风险等级/发现日期/来源/涉及金额/风险描述），
-    // 其余 7 列省略 —— 缺的格按空处理，与 Excel 里"右边没填"是同一种情况。
-    const csv = `${header}\n${hint}\n某事项,合同,高,,,,描述在这里\n`;
+    // 只写前 6 列（事项名称/风险类型/风险等级/发现日期/来源/风险描述），
+    // 其余列省略 —— 缺的格按空处理，与 Excel 里"右边没填"是同一种情况。
+    const csv = `${header}\n${hint}\n某事项,合同,高,,,描述在这里\n`;
     const r = parseImportFile("risk_matter", csv);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -250,7 +250,7 @@ describe("文件级解析（结构错误一次性拒掉）", () => {
     expect(r.rows[0]?.rowNo).toBe(3);
     expect(r.rows[0]?.cells[0]).toBe("某事项");
     expect(r.rows[0]?.cells[1]).toBe("合同");
-    expect(r.rows[0]?.cells[6]).toBe("描述在这里");
+    expect(r.rows[0]?.cells[5]).toBe("描述在这里");
   });
 
   it("列顺序可以不同（表头认得出就行），空行与说明行不占行号", () => {
@@ -263,7 +263,7 @@ describe("文件级解析（结构错误一次性拒掉）", () => {
     expect(r.rows[0]?.rowNo).toBe(3);
     expect(r.rows[0]?.cells[0]).toBe("名称");
     expect(r.rows[0]?.cells[1]).toBe("合同");
-    expect(r.rows[0]?.cells[6]).toBe("描述");
+    expect(r.rows[0]?.cells[5]).toBe("描述");
   });
 
   it("不认识的列 → 400 级问题，且点名是哪一列", () => {
@@ -517,18 +517,23 @@ describe("逐行构建", () => {
   });
 
   it("日期与金额的非法写法进报告，不是静默丢掉那一格", () => {
+    // 金额用案件模板测：事项侧的「涉及金额」已随迁移 0017 撤下，事项模板里没有这一格了；
+    // 案件侧 `amount`（标的额）仍是 `kind: "amount"`，解析口径一字未变。
     const r = buildImportRow(
-      "risk_matter",
-      cellsOf("risk_matter", {
-        name: "某事项",
-        type: "合同",
+      "matter",
+      cellsOf("matter", {
+        name: "某案件",
+        cause: "买卖合同纠纷",
+        caseType: "民商事",
+        procedure: "一审",
+        litigationRole: "原告",
         level: "高",
-        description: "描述",
-        discoverDate: "去年三月",
+        ownerId: "孙奕",
+        filingDate: "去年三月",
         amount: "十二万",
       }),
       deps,
     );
-    expect(!r.ok && r.issues.map((i) => i.field).sort()).toEqual(["amount", "discoverDate"]);
+    expect(!r.ok && r.issues.map((i) => i.field).sort()).toEqual(["amount", "filingDate"]);
   });
 });

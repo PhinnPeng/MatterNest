@@ -55,7 +55,7 @@
 | E18 | `party.id_type` | `id_card` `unified_social_credit` `passport` `hk_mo_tw_permit` `military_id` `foreign_residence` `other` | 否 | `type=natural_person` 时期望 `id_card`/`passport`/…；法人时期望 `unified_social_credit` |
 | E19 | `matter_progress.progress_type` | `routine` `court_action` `counterparty` `client_feedback` `internal_decision` `material_filing` | 是 | 日常推进/法院动作/对方动作/客户反馈/内部决议/材料提交 |
 | E20 | `matter_expense.status` | `pending_pay` `paid` `void` | 是 | 第一期**无审批流**，不含 `approved` |
-| E21 | `matter_node.status` / `risk_matter_node.status` | `not_started` `in_progress` `completed` `cancelled` | `not_started` | 修订稿 §3.5 生命周期 |
+| E21 | `matter_node.status` / `risk_matter_node.status` | `in_progress` `completed` `cancelled` | `in_progress` | 修订稿 §3.5 生命周期；**2026-10-23 起三态**（`not_started` 删除：节点从创建起就在跑，提醒与归属都不依赖"未开始"） |
 | E22 | `*_node.source_kind` | `manual` `preset` `rule` | `manual` | 对应修订稿 §4 的 P1/P2 两路径。原命名 `preset_p1`/`rule_p2` 简化为本值，路径由 `source_ref` 区分 |
 | E23 | `custom_reminder.status` | `pending` `sent` `cancelled` `failed` | `pending` | 取代原 `is_sent boolean`（无法承载 `repeat_type`） |
 | E24 | `custom_reminder.repeat_type` | `none` `daily` `weekly` `monthly` `yearly` | `none` | 有值时 `next_remind_time` 由发送成功后按此推进 |
@@ -292,7 +292,7 @@ ALTER TABLE matter ADD CONSTRAINT ck_matter_case_type
   CHECK (case_type IN ('civil_commercial','criminal','administrative','non_litigation'));
 
 ALTER TABLE matter_node ADD CONSTRAINT ck_node_status
-  CHECK (status IN ('not_started','in_progress','completed','cancelled'));
+  CHECK (status IN ('in_progress','completed','cancelled'));
 
 -- range 型必须同时有起止；point 型禁止填 end_time
 ALTER TABLE matter_node ADD CONSTRAINT ck_node_time_shape CHECK (

@@ -236,18 +236,23 @@ export const EXPENSE_STATUS_LABELS: Record<ExpenseStatus, string> = {
   void: "作废",
 };
 
-/** E21 `matter_node.status` / `risk_matter_node.status`（修订稿 §3.5 生命周期） */
-export const NODE_STATUSES = ["not_started", "in_progress", "completed", "cancelled"] as const;
+/**
+ * E21 `matter_node.status` / `risk_matter_node.status`。
+ *
+ * 2026-10-23 用户裁定：节点只保留**三态**。原来的「未开始」撤掉 —— 节点的主要功能是提醒，
+ * 而任何一条节点都带一个日期（或由模板带着待填日期诞生），"还没开始"这件事在期限面前
+ * 没有操作意义：它既挡不住提醒，也不改变谁该动手。新节点一律从「进行中」起算。
+ */
+export const NODE_STATUSES = ["in_progress", "completed", "cancelled"] as const;
 export type NodeStatus = (typeof NODE_STATUSES)[number];
 export const NODE_STATUS_LABELS: Record<NodeStatus, string> = {
-  not_started: "未开始",
   in_progress: "进行中",
   completed: "已完成",
   cancelled: "已取消",
 };
-export const DEFAULT_NODE_STATUS: NodeStatus = "not_started";
+export const DEFAULT_NODE_STATUS: NodeStatus = "in_progress";
 /** E21 与 E31/E23 的区别写在值上：节点"已取消"是用户动作，投递层没有这个值 */
-export const NODE_OPEN_STATUSES: readonly NodeStatus[] = ["not_started", "in_progress"];
+export const NODE_OPEN_STATUSES: readonly NodeStatus[] = ["in_progress"];
 
 /** E22 `*_node.source_kind`：原 `preset_p1`/`rule_p2` 命名作废，P1/P2 路径由 `source_ref` 区分 */
 export const NODE_SOURCE_KINDS = ["manual", "preset", "rule"] as const;

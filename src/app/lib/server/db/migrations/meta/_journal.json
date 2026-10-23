@@ -120,6 +120,34 @@
       "when": 1792828800000,
       "tag": "0016_activity_log_operator_nullable",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792915200000,
+      "tag": "0017_risk_matter_drop_amount_measure",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792918800000,
+      "tag": "0018_attachment",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792922400000,
+      "tag": "0019_drop_currency",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792926000000,
+      "tag": "0020_node_three_states",
+      "breakpoints": true
     }
   ]
 }

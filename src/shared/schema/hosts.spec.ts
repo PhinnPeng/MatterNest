@@ -4,6 +4,8 @@ import {
   CONVERT_CARD_NON_COPYABLE_FIELDS,
   convertCardSchema,
   copyConvertCard,
+  loginSchema,
+  matterPatchSchema,
 } from "./hosts";
 
 /**
@@ -76,5 +78,56 @@ describe("转案件卡：跨卡复制的字段白名单", () => {
     expect(out.name).toBe("甲案");
     // 关键：案号没被抄过去，目标卡自己的也没被抹掉
     expect(out.caseNo).toBe("KEEP-ME");
+  });
+});
+
+/**
+ * 登录 schema 的超长文案必须是中文。
+ *
+ * zod 的 `.max()` 默认文案是英文 `Too big: expected string to have <=64 characters`，
+ * 而这两个字段是登录页上唯一的输入 —— 少给一处 message，用户就会在中文界面里
+ * 看到一行开发者英文。这不是风格问题：它同时也是客户端唯一能显示的报错来源。
+ */
+describe("登录：超长时的文案", () => {
+  it("账号超过 64 字符给中文提示", () => {
+    const r = loginSchema.safeParse({ username: "a".repeat(65), password: "x" });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.message).toBe("账号最多 64 个字符");
+  });
+
+  it("密码超过 200 字符给中文提示", () => {
+    const r = loginSchema.safeParse({ username: "ab", password: "x".repeat(201) });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.message).toBe("密码最多 200 个字符");
+  });
+
+  it("边界值本身能通过（64 / 200 是允许的）", () => {
+    expect(
+      loginSchema.safeParse({ username: "a".repeat(64), password: "x".repeat(200) }).success,
+    ).toBe(true);
+  });
+});
+
+/**
+ * 行内改案件（2026-10-22）：只收两个字段，且**不许把经办人清空**。
+ *
+ * 两条都是会静默出错的边界：`ownerId: null` 在事项侧是合法值（退回未指派），
+ * 案件侧的 `owner_id` 是 NOT NULL —— 放进来会在服务层变成一次 500；
+ * 而键名拼错若被剥掉，接口回 `{ok:true}`、界面显示"改好了"，库里什么都没变。
+ */
+describe("案件行内编辑：字段边界", () => {
+  it("合法输入通过（两个字段都选填）", () => {
+    expect(
+      matterPatchSchema.safeParse({ ownerId: "123", procedure: "first_instance" }).success,
+    ).toBe(true);
+    expect(matterPatchSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("**拒绝**把经办人置空（案件必有负责人，与事项侧相反）", () => {
+    expect(matterPatchSchema.safeParse({ ownerId: null }).success).toBe(false);
+  });
+
+  it("拒绝未知键，而不是静默剥掉", () => {
+    expect(matterPatchSchema.safeParse({ status: "closed" }).success).toBe(false);
   });
 });

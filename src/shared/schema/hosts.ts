@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PROGRESS_TYPES } from "@/shared/enums/business";
+import { commentAttachmentIdsSchema } from "./attachments";
 import {
   CASE_TYPES,
   ID_TYPES,
@@ -102,19 +103,38 @@ export const matterCreateSchema = z.object({
 });
 export type MatterCreateInput = z.input<typeof matterCreateSchema>;
 
+/**
+ * 案件主表字段的**行内编辑**（2026-10-22 用户要求：列表里点单元格直接改经办人 / 程序）。
+ *
+ * 只收两个可逆、无副作用的字段：
+ *   · `ownerId` —— 变更处理人，记 `OWNER_CHANGED`（GLOSSARY：它是普通字段编辑，不新造动作）；
+ *   · `procedure` —— 程序/审级，记 `MATTER_UPDATED`。
+ *
+ * **状态不在这里**：它有自己的 `/api/matters/{id}/status`（要归档就绪、要原因、要特权判定）。
+ * 把状态并进这条通用编辑就等于把那三件事分到两处判。
+ *
+ * `.strict()`：键名拼错在 400 上暴露，而不是被 zod 剥掉、回一句"改成功了"。
+ * `ownerId` **不可空**：案件必有负责人（IQ-6），与事项侧 `null = 退回未指派` 正好相反。
+ */
+export const matterPatchSchema = z
+  .object({
+    ownerId: idField("负责人").optional(),
+    procedure: z.enum(PROCEDURES, { message: "请选择审级/程序" }).optional(),
+  })
+  .strict();
+export type MatterPatchInput = z.infer<typeof matterPatchSchema>;
+
 export const riskCreateSchema = z.object({
   name: z.string().trim().min(2, "请输入事项名称").max(200),
   type: z.enum(RISK_MATTER_TYPES, { message: "请选择风险类型" }),
   level: z.string().trim().min(1, "请选择风险等级").max(32),
   source: z.enum(RISK_MATTER_SOURCES).optional().or(z.literal("")),
   description: z.string().trim().min(2, "请填写描述").max(5000),
-  measure: z.string().trim().max(5000).optional().or(z.literal("")),
-  amount: z
-    .string()
-    .trim()
-    .regex(/^\d+(\.\d{1,2})?$/, "金额最多两位小数")
-    .optional()
-    .or(z.literal("")),
+  /**
+   * 「预估影响」与「已采取措施」两栏已于 2026-10-22 从事项侧整体撤下（表单、列表、
+   * 详情、导入导出、搜索、转案件对账到库列一条链），所以这里**没有**对应字段：
+   * 事项的金额敞口由费用台账承载，处置过程由处置记录承载。
+   */
   discoverDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "发现日期格式为 YYYY-MM-DD")
@@ -273,26 +293,17 @@ export const statusChangeSchema = z.object({
 export const commentSchema = z.object({
   body: z.string().trim().min(1, "评论不能为空").max(2000),
   parentId: idField("父评论").optional().or(z.literal("")),
+  /** §7.1 / §1.7：评论的附件——只收服务端发过的草稿 id（见 `schema/attachments.ts`） */
+  attachments: commentAttachmentIdsSchema,
 });
 
 export const nodeStatusSchema = z.object({
   /**
-   * `pending` / `confirm_time` **不是**第五、第六个节点状态（E21 只有四值），
-   * 它们是 §6.1 那个合并视图的两个**命令**：把 `is_time_confirmed` 落下去或抬上来，
-   * `status` 一列不动。库里永远只存四值之一 —— 真加一个 `pending` 状态等于给节点做
-   * 第二套生命周期，提醒扫描与规则 5/6 的 `status IN (...)` 立刻对不上。
-   *
-   * 服务层收到这两个值时不写 `status`（见 `setNodeStatus` 的 `toStatus`），
-   * 所以把 `pending` 当状态传给一个已完成的节点也不会把它拉回未开始。
+   * 2026-10-23 起节点只有三态。`pending` / `confirm_time` 两条命令随三态一起撤掉：
+   * 时间不再是"待定/已确认"的第二根轴，而是节点自己的一个必填字段（编辑时随时可改）。
+   * 真要在这条老数据上回退，去 `is_time_confirmed` 那一列，不要再走这个端点。
    */
-  status: z.enum([
-    "not_started",
-    "in_progress",
-    "completed",
-    "cancelled",
-    "pending",
-    "confirm_time",
-  ]),
+  status: z.enum(["in_progress", "completed", "cancelled"]),
   cancelReason: z.string().trim().max(200).optional().or(z.literal("")),
 });
 
@@ -305,8 +316,10 @@ export const partySearchSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  username: z.string().trim().min(2, "请输入账号").max(64),
-  password: z.string().min(1, "请输入密码").max(200),
+  // `.max()` 的文案必须显式给：zod 默认是英文 `Too big: expected string to have <=64 characters`，
+  // 而这两个字段是登录页唯一的输入，超长字符串会原样渲染进中文界面。
+  username: z.string().trim().min(2, "请输入账号").max(64, "账号最多 64 个字符"),
+  password: z.string().min(1, "请输入密码").max(200, "密码最多 200 个字符"),
 });
 /** 表单侧一律用 `z.input`（见本文件顶部第三条约定：不用 `.default()`，避免 input/output 类型分裂） */
 export type LoginInput = z.input<typeof loginSchema>;
