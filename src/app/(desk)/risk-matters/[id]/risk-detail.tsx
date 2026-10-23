@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   App as AntdApp,
   Button,
   Card,
-  Collapse,
+  Descriptions,
   Col,
   Dropdown,
   Empty,
@@ -17,7 +17,6 @@ import {
   Listy,
   Modal,
   Popconfirm,
-  Popover,
   Row,
   Select,
   Space,
@@ -30,13 +29,14 @@ import { PlusOutlined } from "@ant-design/icons";
 
 import { api, ApiFailure, useActor, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
 import { calDate, dateTime, fromNow } from "@/app/lib/client/format";
-import { SectionTitle } from "@/app/components/page-header";
+import { PageHeader, SectionTitle } from "@/app/components/page-header";
+import { AttachmentPanel } from "@/app/components/attachment-panel";
 import { ExpensePanel } from "@/app/components/expense-panel";
 import { ExportFileButton } from "@/app/components/export-file-button";
 import { FollowGroup } from "@/app/components/follow-group";
 import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
 import { ProgressLogDialog, ProgressPanel } from "@/app/components/progress-panel";
-import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
+import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { CommentBody } from "@/app/components/comment-body";
 import { MentionInput } from "@/app/components/mention-input";
@@ -66,6 +66,8 @@ import { NODE_STATUS_LABELS, LITIGATION_ROLE_LABELS } from "@/shared/enums/busin
  * 写成功一律失效 `["risk", id]` / `["risk-matters"]` / `["overview"]`：
  * 详情页要立刻看到，回列表与工作台也要看见。
  */
+const DETAIL_TABS = ["basic", "nodes", "people", "expenses", "progress", "activity"] as const;
+
 export function RiskDetail({ id }: { id: string }) {
   const qc = useQueryClient();
   const router = useRouter();
@@ -77,6 +79,12 @@ export function RiskDetail({ id }: { id: string }) {
   const [ownerOpen, setOwnerOpen] = useState(false);
   const [descOpen, setDescOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
+  const searchParams = useSearchParams();
+  /** 与案件详情同一条读法：非法值与不带参数都回落 basic */
+  const [tab, setTab] = useState(() => {
+    const t = searchParams.get("tab");
+    return t && (DETAIL_TABS as readonly string[]).includes(t) ? t : "basic";
+  });
 
   const { data, isPending, isError, error } = useQuery({
     queryKey: ["risk", id],
@@ -182,187 +190,291 @@ export function RiskDetail({ id }: { id: string }) {
             minHeight: "calc(100vh - 84px)",
           }}
         >
-          {/* 页头：整卡落在左列内 —— 编号与标题同行、动作在内容区最右 */}
-          <Card size="small">
-            <Flex justify="space-between" align="flex-start" gap={20} wrap>
-              <div style={{ minWidth: 0 }}>
-                <Space size={8} wrap style={{ marginBottom: 6 }}>
-                  <Typography.Text className="num mut3" style={{ fontSize: 12 }}>
-                    {risk.code}
-                  </Typography.Text>
-                  <StatusMark host="risk_matter" code={risk.status} />
-                  {/* 不再另挂「已归档」FlagMark：状态徽标本身就是「已归档」，
-                      同一屏说两遍是我们这一整轮在删的东西（归档日期在下面的字段行里）。 */}
-                  {!risk.ownerId && !risk.isArchived ? (
-                    <FlagMark tone="warn">未指派</FlagMark>
-                  ) : null}
-                  <FlagMark tone={risk.level === "high" ? "danger" : "neutral"}>
-                    {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
-                  </FlagMark>
-                </Space>
-                {/* 层级归位：顶栏 h1 是页名，这里是页面主区块标题 → h2（19px，与 canon .pagehead h2 同值） */}
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: 19,
-                    lineHeight: "28px",
-                    fontWeight: 600,
-                    letterSpacing: "-0.01em",
-                  }}
-                >
-                  {risk.name}
-                </h2>
-              </div>
-
-              <Space size={8} wrap style={{ flex: "none" }}>
-                {/* 「撤销归档」不单设按钮：它就是一条状态迁移，走同一个「变更状态」
-                    （archive-view.tsx 的注释写的也是这条）。单设按钮会造出第二条到同一状态的路。 */}
-                <button type="button" className="btn pri" onClick={() => setStatusOpen(true)}>
-                  变更状态
-                </button>
-                {/* ⭐ 私人收藏已并入右侧的关注组（2026-10-22「收藏和关注的口径一致」）：
-                    点一下就是进「n 人关注」名单，不再有"收藏了但名单里没有我"的第二形态。 */}
-                {/* 整卷导出：两档（脱敏 / 明文），与案件详情页同一个组件 */}
-                <ExportFileButton host="risk_matter" hostId={risk.id} code={risk.code} />
-                {/* 转案件是建案入口之一（IQ-3），详情页与列表页都要能发起（T2 验收原文）。
-                    归档态不给：归档是终态，服务层会 422 archived。 */}
-                {!risk.isArchived && (
-                  <button type="button" className="btn" onClick={() => setConvertOpen(true)}>
-                    转案件
-                  </button>
-                )}
-                {!risk.isArchived && (
-                  <button type="button" className="btn" onClick={() => setOwnerOpen(true)}>
-                    变更经办人
-                  </button>
-                )}
-                {/* 关注组（2026-10-22 用户裁定「收藏和关注的口径一致」）：左段=我关不关注，
-                    右段=「n 人关注」名单；与案件详情页同一个组件、同一条关系。 */}
-                <FollowGroup
-                  host="risk_matter"
-                  hostId={risk.id}
-                  followers={risk.staff
-                    .filter((s) => s.staffRole === "follower")
-                    .map((s) => ({ id: s.id, userId: s.userId, name: s.name }))}
-                  meId={actor?.userId ?? ""}
-                  canManage={
-                    !!actor &&
-                    (actor.dataScope === "all" ||
-                      risk.ownerId === actor.userId ||
-                      risk.creatorId === actor.userId)
-                  }
-                  isArchived={risk.isArchived}
-                  onChanged={invalidate}
-                />
-                {!risk.isArchived && (
-                  <Popconfirm
-                    title="删除这条事项？"
-                    description="删除后不再出现在列表里；库里仍保留，但没有回收站。"
-                    okText="删除"
-                    cancelText="取消"
-                    onConfirm={() => softDelete.mutate()}
-                  >
-                    <button type="button" className="btn danger" disabled={softDelete.isPending}>
-                      删除
+          <div className="stack">
+            <div>
+              <PageHeader
+                stacked
+                back={{ href: "/risk-matters", label: "返回事项列表" }}
+                title={risk.name}
+                code={risk.code}
+                status={<StatusMark host="risk_matter" code={risk.status} />}
+                flags={
+                  <>
+                    {!risk.ownerId && !risk.isArchived ? (
+                      <FlagMark tone="warn">未指派</FlagMark>
+                    ) : null}
+                    <FlagMark tone={risk.level === "high" ? "danger" : "neutral"}>
+                      {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
+                    </FlagMark>
+                  </>
+                }
+                actions={
+                  <>
+                    {/* 「撤销归档」不单设按钮：它就是一条状态迁移，走同一个「变更状态」
+                        （archive-view.tsx 的注释写的也是这条）。单设按钮会造出第二条到同一状态的路。 */}
+                    <FollowGroup
+                      host="risk_matter"
+                      hostId={risk.id}
+                      followers={risk.staff
+                        .filter((s) => s.staffRole === "follower")
+                        .map((s) => ({ id: s.id, userId: s.userId, name: s.name }))}
+                      meId={actor?.userId ?? ""}
+                      canManage={
+                        !!actor &&
+                        (actor.dataScope === "all" ||
+                          risk.ownerId === actor.userId ||
+                          risk.creatorId === actor.userId)
+                      }
+                      isArchived={risk.isArchived}
+                      onChanged={invalidate}
+                    />
+                    <ExportFileButton host="risk_matter" hostId={risk.id} code={risk.code} />
+                    <button type="button" className="btn" onClick={() => setStatusOpen(true)}>
+                      变更状态
                     </button>
-                  </Popconfirm>
-                )}
-              </Space>
-            </Flex>
+                    {/* 转案件是建案入口之一（IQ-3），详情页与列表页都要能发起（T2 验收原文）。
+                        归档态不给：归档是终态，服务层会 422 archived。 */}
+                    {!risk.isArchived && (
+                      <button type="button" className="btn" onClick={() => setConvertOpen(true)}>
+                        转案件
+                      </button>
+                    )}
+                    {!risk.isArchived && (
+                      <button type="button" className="btn" onClick={() => setOwnerOpen(true)}>
+                        变更经办人
+                      </button>
+                    )}
+                    {!risk.isArchived && (
+                      <Popconfirm
+                        title="删除这条事项？"
+                        description="删除后不再出现在列表里；库里仍保留，但没有回收站。"
+                        okText="删除"
+                        cancelText="取消"
+                        onConfirm={() => softDelete.mutate()}
+                      >
+                        <button
+                          type="button"
+                          className="btn danger"
+                          disabled={softDelete.isPending}
+                        >
+                          删除
+                        </button>
+                      </Popconfirm>
+                    )}
+                  </>
+                }
+              />
 
-            {/* 描述：主表业务字段，**整幅**——挤进动作按钮那一栏会被压到 ~300px 宽、白白多出两行。
-                描述是富文本（markdown 存储，ADR-0002）：只读走 RichTextView（react-markdown，
-                SSR 可渲染），编辑走懒加载的 BlockNote 弹层。
-                原先并列的「处置措施」已撤下（迁移 0017）：处置过程走下面的处置记录。 */}
-            <div style={{ marginTop: 13 }}>
-              <Flex align="center" justify="space-between" style={{ marginBottom: 5 }}>
-                <span style={{ fontSize: 12, color: "var(--ink3)" }}>描述</span>
-                {canEditBody && (
-                  <Button size="small" type="link" onClick={() => setDescOpen(true)}>
-                    编辑
-                  </Button>
+              {/* 描述：主表业务字段，整幅放在标题下（与案件详情同址）。
+                  富文本（markdown 存储，ADR-0002）：只读走 RichTextView，编辑走懒加载的 BlockNote 弹层。 */}
+              <div style={{ marginTop: 2 }}>
+                <Flex align="center" justify="space-between" style={{ marginBottom: 5 }}>
+                  <span style={{ fontSize: 12, color: "var(--ink3)" }}>描述</span>
+                  {canEditBody && (
+                    <Button size="small" type="link" onClick={() => setDescOpen(true)}>
+                      编辑
+                    </Button>
+                  )}
+                </Flex>
+                {risk.description ? (
+                  <div style={{ maxWidth: "74ch" }}>
+                    <RichTextView markdown={risk.description} />
+                  </div>
+                ) : (
+                  <Dash />
                 )}
-              </Flex>
-              {risk.description ? (
-                <div style={{ maxWidth: "74ch" }}>
-                  <RichTextView markdown={risk.description} />
-                </div>
-              ) : (
-                <Dash />
-              )}
+              </div>
             </div>
 
-            {/* 字段行：一行装完。已转案件只给"几件"，细节在 hover 里（Popover 而不是自绘 CSS hover，为了键盘可达） */}
-            <Flex
-              gap={18}
-              wrap
-              align="center"
-              style={{
-                marginTop: 13,
-                paddingTop: 12,
-                borderTop: "1px solid var(--line)",
-                fontSize: 12.5,
-              }}
-            >
-              <MetaLine label="风险类型">
-                <FlagMark>{meta?.enums.riskTypes[risk.type] ?? risk.type}</FlagMark>
-              </MetaLine>
-              <MetaLine label="等级">
-                <FlagMark tone={risk.level === "high" ? "danger" : "neutral"}>
-                  {meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level}
-                </FlagMark>
-              </MetaLine>
-              <MetaLine label="发现日期">{calDate(risk.discoverDate)}</MetaLine>
-              <MetaLine label="经办人">
-                {risk.ownerId ? risk.ownerName : <FlagMark tone="warn">未指派</FlagMark>}
-              </MetaLine>
-              {risk.archivedAt ? (
-                <MetaLine label="归档">{calDate(risk.archivedAt)}</MetaLine>
-              ) : null}
-              <MetaLine label="已转案件">
-                {risk.convertedCases.length === 0 ? (
-                  "0 件"
-                ) : (
-                  <Popover
-                    trigger={["hover", "focus"]}
-                    content={
-                      <Space orientation="vertical" size={8}>
-                        {risk.convertedCases.map((c) => (
-                          <Space key={c.id} size={8} align="baseline" wrap>
-                            <Link href={`/matters/${c.id}`} className="num">
-                              {c.internalCode}
-                            </Link>
-                            <span>{c.name}</span>
-                            <StatusMark host="matter" code={c.status} />
-                          </Space>
-                        ))}
-                      </Space>
-                    }
-                  >
-                    <span
-                      style={{
-                        cursor: "default",
-                        borderBottom: "1px dashed var(--control-line)",
-                      }}
-                    >
-                      {risk.convertedCases.length} 件
-                    </span>
-                  </Popover>
-                )}
-              </MetaLine>
-            </Flex>
-
-            {/* 参考材料：默认收起（描述已经上首屏，这里只剩查阅物） */}
-            <Collapse
-              ghost
-              style={{ marginTop: 10 }}
+            <Tabs
+              activeKey={tab}
+              onChange={setTab}
               items={[
                 {
-                  key: "ref",
-                  label: <SectionTitle>当事人 / 参与人 / 费用 / 附件 / 登记信息</SectionTitle>,
+                  key: "basic",
+                  label: "基本信息",
                   children: (
                     <Space orientation="vertical" size={12} style={{ width: "100%" }}>
-                      <DetailBlock title="当事人">
+                      <Card size="small" title="基本信息">
+                        <Descriptions
+                          column={2}
+                          size="small"
+                          items={[
+                            {
+                              key: "code",
+                              label: "编号",
+                              children: <span className="num">{risk.code}</span>,
+                            },
+                            {
+                              key: "type",
+                              label: "风险类型",
+                              children: meta?.enums.riskTypes[risk.type] ?? risk.type,
+                            },
+                            {
+                              key: "level",
+                              label: "等级",
+                              children:
+                                meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level,
+                            },
+                            {
+                              key: "status",
+                              label: "状态",
+                              children: <StatusMark host="risk_matter" code={risk.status} />,
+                            },
+                            {
+                              key: "discoverDate",
+                              label: "发现日期",
+                              children: calDate(risk.discoverDate),
+                            },
+                            {
+                              key: "owner",
+                              label: "经办人",
+                              children: risk.ownerId ? (
+                                risk.ownerName
+                              ) : (
+                                <FlagMark tone="warn">未指派</FlagMark>
+                              ),
+                            },
+                            {
+                              key: "lastProgressAt",
+                              label: "最近进展",
+                              children: dateTime(risk.lastProgressAt),
+                            },
+                            {
+                              key: "createdAt",
+                              label: "创建时间",
+                              children: dateTime(risk.createdAt),
+                            },
+                            {
+                              key: "updatedAt",
+                              label: "更新时间",
+                              children: dateTime(risk.updatedAt),
+                            },
+                            ...(risk.archivedAt
+                              ? [
+                                  {
+                                    key: "archivedAt",
+                                    label: "归档",
+                                    children: calDate(risk.archivedAt),
+                                  },
+                                ]
+                              : []),
+                            ...(risk.convertedAt
+                              ? [
+                                  {
+                                    key: "convertedAt",
+                                    label: "首次转案件",
+                                    children: dateTime(risk.convertedAt),
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
+                      </Card>
+
+                      <Card size="small" title="附件">
+                        <AttachmentPanel
+                          host="risk_matter"
+                          hostId={risk.id}
+                          archived={risk.isArchived}
+                        />
+                      </Card>
+
+                      {risk.convertedCases.length > 0 ? (
+                        <Card size="small" title={`已转案件 (${risk.convertedCases.length})`}>
+                          <Listy
+                            items={risk.convertedCases}
+                            rowKey={(c) => c.id}
+                            itemRender={(c) => (
+                              <Flex justify="space-between" align="center" gap={8}>
+                                <Space size={6}>
+                                  <Link href={`/matters/${c.id}`} className="num">
+                                    {c.internalCode}
+                                  </Link>
+                                  <span style={{ fontSize: 13 }}>{c.name}</span>
+                                </Space>
+                                <StatusMark host="matter" code={c.status} />
+                              </Flex>
+                            )}
+                          />
+                        </Card>
+                      ) : null}
+                    </Space>
+                  ),
+                },
+                {
+                  key: "nodes",
+                  label: `事项节点 (${risk.nodes.length})`,
+                  children: (
+                    <Card size="small">
+                      <div>
+                        {/* 手动添加节点只出现在这个面板里（它属于节点列表，不属于页头） */}
+                        {!risk.isArchived && (
+                          <Flex justify="flex-end" style={{ marginBottom: 8 }}>
+                            <Button
+                              size="small"
+                              icon={<PlusOutlined />}
+                              onClick={() => {
+                                setEditNode(null);
+                                setNodeOpen(true);
+                              }}
+                            >
+                              新增节点
+                            </Button>
+                          </Flex>
+                        )}
+                        {risk.nodes.length === 0 ? (
+                          <StateBlock
+                            title="还没有节点"
+                            // 说清为什么是空的：事项侧不预设节点（IQ-5），节点只在确有时限时手动加
+                            hint="事项不预置节点。只有确有时限时才手动加一个时间点。"
+                            action={
+                              risk.isArchived ? undefined : (
+                                <Button
+                                  size="small"
+                                  onClick={() => {
+                                    setEditNode(null);
+                                    setNodeOpen(true);
+                                  }}
+                                >
+                                  新增节点
+                                </Button>
+                              )
+                            }
+                          />
+                        ) : (
+                          <Listy
+                            items={risk.nodes}
+                            rowKey={(n: Risk["nodes"][number]) => String(n.id)}
+                            itemRender={(n: Risk["nodes"][number]) => (
+                              <NodeRow
+                                node={n}
+                                riskId={risk.id}
+                                readOnly={risk.isArchived}
+                                onDone={invalidate}
+                                onEdit={() => {
+                                  setEditNode({
+                                    id: n.id,
+                                    name: n.name,
+                                    remark: n.remark,
+                                    startTime: n.startTime,
+                                  });
+                                  setNodeOpen(true);
+                                }}
+                              />
+                            )}
+                          />
+                        )}
+                      </div>
+                    </Card>
+                  ),
+                },
+                {
+                  key: "people",
+                  label: `参与人 (${risk.staff.length + risk.parties.length})`,
+                  children: (
+                    <Space orientation="vertical" size={12} style={{ width: "100%" }}>
+                      <Card size="small" title={`当事人 (${risk.parties.length})`}>
                         {risk.parties.length === 0 ? (
                           <Dash hint="没有当事人时无法转案件——转案件要求每案至少 1 个当事人。" />
                         ) : (
@@ -379,8 +491,8 @@ export function RiskDetail({ id }: { id: string }) {
                             ))}
                           </Space>
                         )}
-                      </DetailBlock>
-                      <DetailBlock title="参与人">
+                      </Card>
+                      <Card size="small" title={`参与人 (${risk.staff.length})`}>
                         <Space size={8} wrap>
                           {risk.staff.length === 0 && <Dash />}
                           {risk.staff.map((s) => (
@@ -394,141 +506,65 @@ export function RiskDetail({ id }: { id: string }) {
                             </Tag>
                           ))}
                         </Space>
-                      </DetailBlock>
-                      <DetailBlock title="费用">
-                        {/* 费用在这里而不是新开一枚页签：F7-6 对事项侧的裁定是
-                            「两枚页签〔事项节点 / 活动日志〕」，加第三枚就是改形态。
-                            费用是台账上的一行，与当事人/参与人同级，所以进参考材料区。 */}
-                        <ExpensePanel
-                          host="risk_matter"
-                          hostId={risk.id}
-                          archived={risk.isArchived}
-                        />
-                      </DetailBlock>
-                      <DetailBlock title="登记信息">
-                        <Space orientation="vertical" size={4}>
-                          <MetaLine label="创建">{dateTime(risk.createdAt)}</MetaLine>
-                          <MetaLine label="更新">{dateTime(risk.updatedAt)}</MetaLine>
-                          <MetaLine label="最近进展">{dateTime(risk.lastProgressAt)}</MetaLine>
-                          {risk.convertedAt && (
-                            <MetaLine label="首次转案件">{dateTime(risk.convertedAt)}</MetaLine>
-                          )}
-                        </Space>
-                      </DetailBlock>
+                      </Card>
                     </Space>
                   ),
                 },
-              ]}
-            />
-          </Card>
-
-          {/* 内容卡：三枚页签。flex:1 让它在内容少时也把左列撑到与右栏同高（IQ-19 批注 ⑤） */}
-          <Card size="small" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-            <Tabs
-              defaultActiveKey="nodes"
-              items={[
                 {
-                  key: "nodes",
-                  label: `事项节点 (${risk.nodes.length})`,
+                  key: "expenses",
+                  label: "费用",
                   children: (
-                    <div>
-                      {/* 手动添加节点只出现在这个面板里（它属于节点列表，不属于页头） */}
-                      {!risk.isArchived && (
-                        <Flex justify="flex-end" style={{ marginBottom: 8 }}>
-                          <Button
-                            size="small"
-                            icon={<PlusOutlined />}
-                            onClick={() => {
-                              setEditNode(null);
-                              setNodeOpen(true);
-                            }}
-                          >
-                            新增节点
-                          </Button>
-                        </Flex>
-                      )}
-                      {risk.nodes.length === 0 ? (
-                        <StateBlock
-                          title="还没有节点"
-                          // 说清为什么是空的：事项侧不预设节点（IQ-5），节点只在确有时限时手动加
-                          hint="事项不预置节点。只有确有时限时才手动加一个时间点。"
-                          action={
-                            risk.isArchived ? undefined : (
-                              <Button
-                                size="small"
-                                onClick={() => {
-                                  setEditNode(null);
-                                  setNodeOpen(true);
-                                }}
-                              >
-                                新增节点
-                              </Button>
-                            )
-                          }
-                        />
-                      ) : (
-                        <Listy
-                          items={risk.nodes}
-                          rowKey={(n: Risk["nodes"][number]) => String(n.id)}
-                          itemRender={(n: Risk["nodes"][number]) => (
-                            <NodeRow
-                              node={n}
-                              riskId={risk.id}
-                              readOnly={risk.isArchived}
-                              onDone={invalidate}
-                              onEdit={() => {
-                                setEditNode({
-                                  id: n.id,
-                                  name: n.name,
-                                  remark: n.remark,
-                                  startTime: n.startTime,
-                                });
-                                setNodeOpen(true);
-                              }}
-                            />
-                          )}
-                        />
-                      )}
-                    </div>
+                    <Card size="small">
+                      <ExpensePanel
+                        host="risk_matter"
+                        hostId={risk.id}
+                        archived={risk.isArchived}
+                      />
+                    </Card>
                   ),
                 },
                 {
                   key: "progress",
                   label: `进展 (${risk.progress.length})`,
                   children: (
-                    <ProgressPanel
-                      host="risk_matter"
-                      hostId={risk.id}
-                      progress={risk.progress}
-                      onDone={invalidate}
-                      readOnly={risk.isArchived}
-                    />
+                    <Card size="small">
+                      <ProgressPanel
+                        host="risk_matter"
+                        hostId={risk.id}
+                        progress={risk.progress}
+                        onDone={invalidate}
+                        readOnly={risk.isArchived}
+                      />
+                    </Card>
                   ),
                 },
                 {
-                  key: "log",
+                  key: "activity",
                   label: `活动日志 (${risk.activity.length})`,
-                  children:
-                    risk.activity.length === 0 ? (
-                      <Dash />
-                    ) : (
-                      <Timeline
-                        items={risk.activity.slice(0, 20).map((a) => ({
-                          children: (
-                            <Space orientation="vertical" size={0}>
-                              <span>{meta?.enums.auditActions[a.action] ?? a.action}</span>
-                              <span style={{ color: "var(--ink3)", fontSize: 12 }}>
-                                {dateTime(a.createdAt)}
-                              </span>
-                            </Space>
-                          ),
-                        }))}
-                      />
-                    ),
+                  children: (
+                    <Card size="small">
+                      {risk.activity.length === 0 ? (
+                        <Dash />
+                      ) : (
+                        <Timeline
+                          items={risk.activity.slice(0, 20).map((a) => ({
+                            children: (
+                              <Space orientation="vertical" size={0}>
+                                <span>{meta?.enums.auditActions[a.action] ?? a.action}</span>
+                                <span style={{ color: "var(--ink3)", fontSize: 12 }}>
+                                  {dateTime(a.createdAt)}
+                                </span>
+                              </Space>
+                            ),
+                          }))}
+                        />
+                      )}
+                    </Card>
+                  ),
                 },
               ]}
             />
-          </Card>
+          </div>
         </Col>
 
         {/* ── 右列：评论（事项的主交互面）。sticky + 自带滚动 + 输入框钉底；
@@ -1047,15 +1083,6 @@ function OwnerDialog({
         />
       </Space>
     </Modal>
-  );
-}
-
-function DetailBlock({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div style={{ color: "var(--ink3)", fontSize: 12, marginBottom: 4 }}>{title}</div>
-      <div>{children}</div>
-    </div>
   );
 }
 
