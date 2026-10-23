@@ -24,7 +24,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { AUDIT_ACTIONS } from "@/shared/enums/audit";
-import { ATTACHMENT_CATEGORIES } from "@/shared/enums/business";
+import { ATTACHMENT_CATEGORIES, ATTACHMENT_SCOPES } from "@/shared/enums/business";
 import { TARGET_TYPES } from "@/shared/enums/targets";
 import { appUser } from "./identity";
 import { matter, riskMatter } from "./hosts";
@@ -119,6 +119,15 @@ export const attachment = pgTable(
     commentId: fk("comment_id").references(() => comment.id, { onDelete: "restrict" }),
     /** 原始文件名，只用于展示与下载时的 `Content-Disposition` */
     fileName: varchar("file_name", { length: 255 }).notNull(),
+    /** 材料名称（2026-10-23）；空则展示层回退 `fileName` */
+    displayName: varchar("display_name", { length: 255 }),
+    /** 材料描述（2026-10-23），可为空 */
+    description: text("description"),
+    /**
+     * E38（2026-10-23）：`comment` = 评论附件；`host` = 宿主级材料。
+     * 历史行全部是 `comment`；宿主级材料上传即归属，不挂评论。
+     */
+    scope: varchar("scope", { length: 16 }).notNull().default("comment"),
     /** 对象键：`att/<uuid>`，不含宿主/人名/原名（§7.1 的要求） */
     storageKey: varchar("storage_key", { length: 255 }).notNull(),
     mimeType: varchar("mime_type", { length: 128 }).notNull(),
@@ -145,6 +154,8 @@ export const attachment = pgTable(
     index("ix_mn_attachment_comment")
       .on(t.commentId)
       .where(sql`NOT ${t.isDeleted}`),
+    // 材料列表要能查「作废」，partial index 帮不上；这条覆盖宿主层级的全部状态
+    index("ix_mn_attachment_owner_all").on(t.ownerType, t.ownerId, t.scope, t.isDeleted),
     // `app_user` 不进 OwnerType：账号没有附件（与评论表同一条理由，见上方 comment 的注）
     check(
       "ck_mn_attachment_owner_type",
@@ -157,6 +168,7 @@ export const attachment = pgTable(
       "ck_mn_attachment_category",
       sql`category IS NULL OR ${sqlInList("category", ATTACHMENT_CATEGORIES)}`,
     ),
+    check("ck_mn_attachment_scope", sqlInList("scope", ATTACHMENT_SCOPES)),
     check("ck_mn_attachment_size", sql`size_bytes > 0`),
   ],
 );

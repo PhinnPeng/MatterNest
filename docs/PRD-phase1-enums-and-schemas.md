@@ -72,6 +72,7 @@
 | E35 | `auth_session.auth_via` | `local` `yunzhijia` | — | 只用于审计与差异化失效策略，**不参与权限判定** |
 | E36 | `app_user_external_identity.sync_status` | `active` `inactive` `unknown` | `unknown` | `inactive` = 云之家侧已不可见 → 触发 `is_enabled=false` + 吊销 session；同步失败保持 `unknown`，**不得当作 `inactive`**（否则一次网络抖动就把整个企业锁在门外） |
 | E37 | `app_user.activation_status` | `pending` `active` | `pending`（仅云之家首登自动建号路径） | 与 `is_enabled` 正交：`pending` = 已建号但管理员未批准（登录返回「等待开通」），`is_enabled=false` = 停用/离职。**两者都不参与数据范围判定**。技术选型 §7 假设 F 裁定 |
+| E38 | `attachment.scope` | `comment` `host` | `comment` | 2026-10-23（迁移 0023）：`comment` = 评论附件（历史行全部落在这里），`host` = 案件/事项详情页的宿主级材料，上传即归属、不挂评论。两种用途的读写权限与列表口径不同，所以用一列分开，而不是靠 `comment_id IS NULL` 猜（那同时也是上传草稿的形态） |
 
 > E29–E33 是 2026-09-26 补登：本表 §5.1 早已声明 `notify.ts` 要承载 `notification_event.event_type` 与 `source_type`，但取值一直只在修订稿 §7.2 的表里散落，权威源反而没记——这正是"单一事实源"最容易被绕过的形态。
 

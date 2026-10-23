@@ -283,6 +283,20 @@ export const ATTACHMENT_CATEGORY_LABELS: Record<AttachmentCategory, string> = {
   other: "其他",
 };
 
+/**
+ * E38 `attachment.scope`（2026-10-23）。
+ *
+ * `comment` 是历史行与评论附件的落点；`host` 是案件/事项详情页的「材料」——
+ * 上传即归属宿主，不挂评论。两种用途的读写权限与列表口径不同，所以用一列分开，
+ * 而不是靠 `comment_id IS NULL` 猜（那同时也是上传草稿的形态）。
+ */
+export const ATTACHMENT_SCOPES = ["comment", "host"] as const;
+export type AttachmentScope = (typeof ATTACHMENT_SCOPES)[number];
+export const ATTACHMENT_SCOPE_LABELS: Record<AttachmentScope, string> = {
+  comment: "评论附件",
+  host: "案件材料",
+};
+
 /** E27 通用 `currency`：`char(3)`，列先留、值锁死（避免日后加币种时改 numeric 精度） */
 export const CURRENCIES = ["CNY"] as const;
 export type Currency = (typeof CURRENCIES)[number];

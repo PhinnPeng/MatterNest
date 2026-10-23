@@ -132,11 +132,11 @@ const landed = ENUM_REGISTRY.filter((e) => e.landing === "in-db");
 const claims = claimedChecks();
 
 describe("枚举注册表自身", () => {
-  it("覆盖 E01–E37 全 37 行，不重不漏", () => {
+  it("覆盖 E01–E38 全 38 行，不重不漏", () => {
     const ids = ENUM_REGISTRY.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect([...ids].sort()).toEqual(
-      Array.from({ length: 37 }, (_, i) => `E${String(i + 1).padStart(2, "0")}`).sort(),
+      Array.from({ length: 38 }, (_, i) => `E${String(i + 1).padStart(2, "0")}`).sort(),
     );
   });
 
@@ -168,7 +168,7 @@ describe("枚举注册表自身", () => {
     expect(e28?.labels["0"]).toBe("未转案件");
   });
 
-  it("§3/§4 的结构取值另立注册表，不用 37/37 冒充全量登记", () => {
+  it("§3/§4 的结构取值另立注册表，不用 38/38 冒充全量登记", () => {
     expect(STRUCT_REGISTRY.length).toBeGreaterThanOrEqual(9);
     for (const s of STRUCT_REGISTRY) expect(s.values.length).toBeGreaterThan(0);
   });
@@ -422,8 +422,8 @@ describe("注册表 ↔ 枚举表原文", () => {
     );
   }
 
-  it("文档表格里确实解析出 37 行取值（解析器没空转）", () => {
-    expect(docRows.size).toBe(37);
+  it("文档表格里确实解析出 38 行取值（解析器没空转）", () => {
+    expect(docRows.size).toBe(38);
     expect(docRows.get("E12")).toContain("respondent_petition");
     // E29 现 8 值（IQ-16 追加 archive_incomplete）。这是"解析器真读到了行内容"的探针值：
     // 只断言行数的话，某一行的值整列丢失也可能照样绿。

@@ -1,6 +1,7 @@
 "use client";
 
 import { ApiFailure } from "./api";
+import type { AttachmentScope } from "@/shared/enums/business";
 import {
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_ACCEPT_TEXT,
@@ -26,8 +27,10 @@ import {
 export type UploadedAttachment = {
   id: string;
   fileName: string;
+  displayName?: string;
   mimeType: string;
   sizeBytes: number;
+  scope?: AttachmentScope;
 };
 
 /** 选文件时的**即时**预检；返回 null = 可以传。规则与服务端同一份（`shared/attachments.ts`） */
@@ -51,10 +54,14 @@ export async function uploadAttachment(args: {
   host: "matter" | "risk_matter";
   hostId: string;
   file: File;
+  /** 宿主级材料（2026-10-23）：scope=host 时上传即归属，名称与描述随元数据一起落库 */
+  scope?: AttachmentScope;
+  name?: string;
+  description?: string;
   signal?: AbortSignal;
   onProgress?: (percent: number) => void;
 }): Promise<UploadedAttachment> {
-  const { host, hostId, file, signal, onProgress } = args;
+  const { host, hostId, file, scope, name, description, signal, onProgress } = args;
   onProgress?.(0);
   const checksumSha256 = await sha256Hex(file);
   if (signal?.aborted) throw new DOMException("aborted", "AbortError");
@@ -66,6 +73,9 @@ export async function uploadAttachment(args: {
     sizeBytes: String(file.size),
     checksumSha256,
   });
+  if (scope) params.set("scope", scope);
+  if (name) params.set("name", name);
+  if (description) params.set("description", description);
 
   return new Promise<UploadedAttachment>((resolve, reject) => {
     const xhr = new XMLHttpRequest();

@@ -50,6 +50,7 @@ export const CRUD_ACTIONS = [
   "COMMENT_DELETED",
   "ATTACHMENT_UPLOADED",
   "ATTACHMENT_DELETED",
+  "ATTACHMENT_UPDATED",
 ] as const;
 
 /** §3.2 状态与归属：载荷 `field_diffs`（部分另需 `reason`） */
@@ -150,6 +151,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   COMMENT_DELETED: "删除评论",
   ATTACHMENT_UPLOADED: "上传附件",
   ATTACHMENT_DELETED: "删除附件",
+  ATTACHMENT_UPDATED: "编辑附件",
   STATUS_CHANGED: "状态变更",
   ARCHIVED: "归档",
   UNARCHIVED: "撤销归档",

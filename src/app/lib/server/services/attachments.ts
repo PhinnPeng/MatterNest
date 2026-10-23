@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 
 import type { Actor } from "../auth/auth";
@@ -16,12 +16,14 @@ import {
   type StorageConfig,
 } from "../storage/s3";
 import type { HostType } from "@/shared/enums/targets";
+import type { AttachmentScope } from "@/shared/enums/business";
+import type { AttachmentListState } from "@/shared/schema/attachments";
 import {
-  ATTACHMENT_ACCEPT_TEXT,
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_MAX_PER_COMMENT,
   ATTACHMENT_MAX_PER_HOST,
   ATTACHMENT_MIME_BY_EXT,
+  ATTACHMENT_ACCEPT_TEXT,
   mimeForFileName,
 } from "@/shared/attachments";
 
@@ -108,7 +110,12 @@ async function loadHost(
   return row ?? null;
 }
 
-/** 已挂到评论上的附件数（单宿主 ≤100 的口径） */
+/**
+ * 单宿主 ≤100 的口径：已挂到评论上的附件 + 宿主级材料。
+ *
+ * 草稿（`comment_id IS NULL` 且 `scope='comment'`）不占名额：它是"传了但没发评论"的中间态，
+ * 不该把用户的配额吃掉。宿主级材料一上传就是正式附件，必须计入。
+ */
 async function attachedCount(db: Db, host: HostType, hostId: string): Promise<number> {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
@@ -117,7 +124,7 @@ async function attachedCount(db: Db, host: HostType, hostId: string): Promise<nu
       and(
         eq(attachment.ownerType, host),
         eq(attachment.ownerId, BigInt(hostId)),
-        sql`${attachment.commentId} is not null`,
+        sql`(${attachment.commentId} is not null or ${attachment.scope} = 'host')`,
         sql`NOT ${attachment.isDeleted}`,
       ),
     );
@@ -131,13 +138,24 @@ export type UploadInput = {
   sizeBytes: number;
   /** 浏览器算好的 SHA-256（小写十六进制）—— 服务端边转发边重算，不一致就拒收 */
   checksumSha256: string;
+  /**
+   * 用途（2026-10-23 / 迁移 0023）：默认 `comment`（评论附件，落草稿等评论提交）；
+   * `host` 表示宿主级材料，上传即归属，不挂评论。
+   */
+  scope?: AttachmentScope;
+  /** 宿主级材料的名称；`scope=comment` 时忽略 */
+  displayName?: string;
+  /** 宿主级材料的描述；`scope=comment` 时忽略 */
+  description?: string;
 };
 
 export type UploadResult = {
   id: string;
   fileName: string;
+  displayName: string;
   mimeType: string;
   sizeBytes: number;
+  scope: AttachmentScope;
 };
 
 /**
@@ -162,7 +180,7 @@ export type UploadResult = {
  * 既然字节无论如何经过这里，就顺手把 SHA-256 与大小**当场核掉**：
  * 半截上传或前端算错，都不会变成评论里一份打不开的文件。
  */
-export async function receiveCommentUpload(
+export async function receiveUpload(
   actor: Actor,
   input: UploadInput,
   stream: ReadableStream<Uint8Array>,
@@ -173,6 +191,11 @@ export async function receiveCommentUpload(
   if (!host) throw new AttachmentRejected(404, "没有找到这条记录，或你没有访问它的权限");
   if (host.isArchived) throw new AttachmentRejected(409, "已归档的记录不再接收新附件");
 
+  const scope = input.scope ?? "comment";
+  // 路由层已经按 query 校验过；服务层再挡一次，避免"名称必填"只在某一层成立
+  if (scope === "host" && !input.displayName?.trim()) {
+    throw new AttachmentRejected(400, "附件名称不能为空");
+  }
   if (input.sizeBytes <= 0) throw new AttachmentRejected(400, "空文件不能作为附件");
   if (input.sizeBytes > MAX_BYTES) {
     throw new AttachmentRejected(413, "单个附件不能超过 50MB");
@@ -185,13 +208,16 @@ export async function receiveCommentUpload(
     throw new AttachmentRejected(400, "缺少文件校验值，请重新选择该文件");
   }
   if ((await attachedCount(db, input.host, input.hostId)) >= MAX_PER_HOST) {
-    throw new AttachmentRejected(409, `这条记录的附件已满 ${MAX_PER_HOST} 个`);
+    throw new AttachmentRejected(409, `这条记录的有效附件已满 ${MAX_PER_HOST} 个`);
   }
 
   const id = BigInt(nextId());
   const storageKey = `att/${randomUUID()}`;
   /** 文件名只留最后一段：浏览器给的是裸名，但服务端不假设这一点 */
   const fileName = (input.fileName.split(/[\\/]/).pop() ?? input.fileName).slice(0, 255);
+  /** 名称在上面已判非空；这里仍保留 trim（接口可能被脚本调用） */
+  const displayName = scope === "host" ? input.displayName!.trim() : null;
+  const description = scope === "host" ? input.description?.trim() || null : null;
 
   // 先落草稿行：对象键必须先有账，上传中途失败才有东西可清
   await db.insert(attachment).values({
@@ -199,6 +225,9 @@ export async function receiveCommentUpload(
     ownerType: input.host,
     ownerId: BigInt(input.hostId),
     commentId: null,
+    scope,
+    displayName,
+    description,
     fileName,
     storageKey,
     mimeType,
@@ -270,7 +299,14 @@ export async function receiveCommentUpload(
     throw e;
   }
 
-  return { id: String(id), fileName, mimeType, sizeBytes: input.sizeBytes };
+  return {
+    id: String(id),
+    fileName,
+    displayName: displayName ?? fileName,
+    mimeType,
+    sizeBytes: input.sizeBytes,
+    scope,
+  };
 }
 
 /** 补偿用的对象删除：失败只记一行日志，不覆盖真正的错误 */
@@ -323,6 +359,7 @@ export async function verifyDraftAttachments(
         inArray(attachment.id, ids.map(BigInt)),
         eq(attachment.ownerType, host),
         eq(attachment.ownerId, BigInt(hostId)),
+        eq(attachment.scope, "comment"),
         sql`${attachment.commentId} is null`,
         sql`NOT ${attachment.isDeleted}`,
       ),
@@ -437,6 +474,159 @@ export async function attachmentsOfComments(
  * 一条附件的下载签名。**可见性按宿主判**（§7.1：签发时逐条判定宿主可见性），
  * 归档与否不影响读。
  */
+/** `owner_type` → 宿主。未知值不可能是合法落点（CHECK 守着），按不可见处理。 */
+function hostOfOwnerType(ownerType: string): HostType | null {
+  return ownerType === "matter" || ownerType === "risk_matter" ? ownerType : null;
+}
+
+export type AttachmentState = AttachmentListState;
+
+export type HostAttachment = {
+  id: string;
+  displayName: string;
+  description: string | null;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploadedBy: string;
+  isDeleted: boolean;
+  deletedAt: string | null;
+};
+
+/**
+ * 宿主级材料列表（2026-10-23 / 迁移 0023）。
+ *
+ * 只查 `scope='host'`：评论附件已经在评论里展示，再列一遍会让同一份材料出现两次。
+ * `state` 是「全部 / 生效 / 作废」的口径；作废行故意可查——材料作废是业务事实，
+ * 归档追溯需要看得见。
+ */
+export async function listHostAttachments(
+  actor: Actor,
+  host: HostType,
+  hostId: string,
+  state: AttachmentState,
+): Promise<{ items: HostAttachment[]; counts: { active: number; deleted: number } } | null> {
+  const db = await getDb();
+  if (!(await loadHost(db, actor, host, hostId))) return null;
+
+  const base = and(
+    eq(attachment.ownerType, host),
+    eq(attachment.ownerId, BigInt(hostId)),
+    eq(attachment.scope, "host"),
+  );
+  const where =
+    state === "active"
+      ? and(base, sql`NOT ${attachment.isDeleted}`)
+      : state === "deleted"
+        ? and(base, eq(attachment.isDeleted, true))
+        : base;
+
+  const [rows, counts] = await Promise.all([
+    db
+      .select({
+        id: attachment.id,
+        displayName: attachment.displayName,
+        description: attachment.description,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        uploadedAt: attachment.uploadedAt,
+        uploadedBy: sql<string>`(select u.display_name from mn_app_user u where u.id = ${attachment.uploadedBy})`,
+        isDeleted: attachment.isDeleted,
+        deletedAt: attachment.deletedAt,
+      })
+      .from(attachment)
+      .where(where)
+      .orderBy(desc(attachment.uploadedAt)),
+    db
+      .select({ deleted: attachment.isDeleted, n: sql<number>`count(*)::int` })
+      .from(attachment)
+      .where(base)
+      .groupBy(attachment.isDeleted),
+  ]);
+
+  const countOf = (deleted: boolean) => counts.find((c) => c.deleted === deleted)?.n ?? 0;
+  return {
+    items: rows.map((r) => ({
+      ...r,
+      id: String(r.id),
+      displayName: r.displayName ?? r.fileName,
+      sizeBytes: Number(r.sizeBytes),
+    })),
+    counts: { active: countOf(false), deleted: countOf(true) },
+  };
+}
+
+/**
+ * 编辑材料元数据（名称 / 描述）。文件本身不可替换 —— 换文件是一次新的上传。
+ *
+ * **只收宿主材料**（`scope='host'`）：评论附件的显示名与评论渲染无关，允许改会变成
+ * 静默无效写。权限与删除同一把尺：上传者本人、或 L1/`is_admin`。归档宿主只读。
+ * 两个字段按**整体置位**语义写入（PATCH 缺省即清空），与编辑弹窗的提交形状一致。
+ * 审计走 `ATTACHMENT_UPDATED`，payload 同时留 before/after（改了什么可回看）。
+ */
+export async function updateAttachmentMeta(
+  actor: Actor,
+  id: string,
+  input: { displayName: string; description?: string | null },
+): Promise<"ok" | "forbidden" | null> {
+  const db = await getDb();
+  const [row] = await db
+    .select({
+      id: attachment.id,
+      ownerType: attachment.ownerType,
+      ownerId: attachment.ownerId,
+      uploadedBy: attachment.uploadedBy,
+      displayName: attachment.displayName,
+      description: attachment.description,
+    })
+    .from(attachment)
+    .where(
+      and(
+        eq(attachment.id, BigInt(id)),
+        eq(attachment.scope, "host"),
+        sql`NOT ${attachment.isDeleted}`,
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+  const host = hostOfOwnerType(row.ownerType);
+  if (!host) return null;
+  const hostRow = await loadHost(db, actor, host, String(row.ownerId));
+  if (!hostRow) return null;
+  if (hostRow.isArchived) return "forbidden";
+  const privileged = actor.isAdmin || actor.dataScope === "all";
+  if (!(privileged || String(row.uploadedBy) === actor.userId)) return "forbidden";
+
+  const nextName = input.displayName.trim().slice(0, 255);
+  const nextDesc = input.description?.trim() || null;
+  await db.transaction(async (tx) => {
+    await tx
+      .update(attachment)
+      .set({ displayName: nextName, description: nextDesc })
+      .where(eq(attachment.id, row.id));
+    await logActivity(tx, actor, {
+      [host === "matter" ? "matterId" : "riskMatterId"]: row.ownerId,
+      targetType: host,
+      targetId: row.ownerId,
+      action: "ATTACHMENT_UPDATED",
+      payload: {
+        attachmentId: String(row.id),
+        before: { displayName: row.displayName, description: row.description },
+        after: { displayName: nextName, description: nextDesc },
+      },
+    });
+  });
+  return "ok";
+}
+
+/**
+ * 换 60 秒下载签名。
+ *
+ * 作废的**宿主材料**仍可下载（2026-10-23）：作废是业务状态，字节还在，材料列表的
+ * 「作废」筛选明确承诺可回看；评论附件作废后仍按原口径不可下载（列表里也不再出现）。
+ */
 export async function signAttachmentDownload(actor: Actor, id: string): Promise<string | null> {
   const config = storage();
   const db = await getDb();
@@ -446,12 +636,16 @@ export async function signAttachmentDownload(actor: Actor, id: string): Promise<
       storageKey: attachment.storageKey,
       ownerType: attachment.ownerType,
       ownerId: attachment.ownerId,
+      scope: attachment.scope,
+      isDeleted: attachment.isDeleted,
     })
     .from(attachment)
-    .where(and(eq(attachment.id, BigInt(id)), sql`NOT ${attachment.isDeleted}`))
+    .where(eq(attachment.id, BigInt(id)))
     .limit(1);
   if (!row) return null;
-  const host = row.ownerType === "matter" ? "matter" : "risk_matter";
+  if (row.isDeleted && row.scope !== "host") return null;
+  const host = hostOfOwnerType(row.ownerType);
+  if (!host) return null;
   const visible = await loadHost(db, actor, host, String(row.ownerId));
   if (!visible) return null;
   return presignUrl(config, {
@@ -490,7 +684,8 @@ export async function deleteAttachment(
     .limit(1);
   if (!row) return null;
 
-  const host = row.ownerType === "matter" ? "matter" : "risk_matter";
+  const host = hostOfOwnerType(row.ownerType);
+  if (!host) return null;
   const hostRow = await loadHost(db, actor, host, String(row.ownerId));
   if (!hostRow) return null;
   if (hostRow.isArchived) return "forbidden";

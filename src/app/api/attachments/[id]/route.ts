@@ -1,9 +1,33 @@
-import { fail, json, notFound, pathId, withActor } from "@/app/lib/server/http";
-import { deleteAttachment } from "@/app/lib/server/services/attachments";
+import { body, fail, json, notFound, pathId, withActor } from "@/app/lib/server/http";
+import { deleteAttachment, updateAttachmentMeta } from "@/app/lib/server/services/attachments";
 import { StorageUnavailableError } from "@/app/lib/server/storage/s3";
+import { attachmentMetaSchema } from "@/shared/schema/attachments";
 
 /**
- * `DELETE /api/attachments/{id}` —— 删除附件。
+ * `PATCH /api/attachments/{id}` —— 编辑材料名称与描述（2026-10-23）。
+ *
+ * 只改元数据；文件本身不可替换（换文件是一次新的上传）。权限与删除同一把尺：
+ * 上传者本人或 L1/admin，归档宿主只读。
+ */
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const pid = pathId(id);
+  if (!pid.ok) return pid.res;
+  const parsed = await body(req, attachmentMetaSchema);
+  if (!parsed.ok) return parsed.res;
+
+  return withActor(async (actor) => {
+    const result = await updateAttachmentMeta(actor, id, parsed.data);
+    if (result === null) return notFound();
+    if (result === "forbidden") {
+      return fail(403, "forbidden", "已归档的记录不能编辑材料；其它情况下只有上传者或管理员能改");
+    }
+    return json({ ok: true });
+  });
+}
+
+/**
+ * `DELETE /api/attachments/{id}` —— 作废（软删）附件。
  *
  * **只软删行**：§7.1 原文「`is_deleted` 保留对象以便审计追溯，物理清理由 B 组定义」。
  * 所以这里不会去碰对象存储里的字节（唯一会删对象的地方是"评论没发出去"的补偿）。

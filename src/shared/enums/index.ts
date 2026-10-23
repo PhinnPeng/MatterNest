@@ -2,7 +2,7 @@
  * 枚举注册表（W0-3）。
  *
  * 本文件不含取值 —— 取值住在各分册里。它只做两件事：
- *   1. 给 E01–E37 每行一个**可被机器核对**的条目（含"这行不是枚举"的情况）；
+ *   1. 给 E01–E38 每行一个**可被机器核对**的条目（含"这行不是枚举"的情况）；
  *   2. 用 `IN_DB_CHECKS` 记录哪些值域已经进了库、落在哪个约束名上，让
  *      `src/app/lib/server/db/enum-check.spec.ts` 能做**双向**比对：
  *        · 注册表说已进库 ⇒ 迁移里必须找得到该 CHECK 且值集合逐字相等；
@@ -57,6 +57,8 @@ import {
 import {
   ATTACHMENT_CATEGORIES,
   ATTACHMENT_CATEGORY_LABELS,
+  ATTACHMENT_SCOPES,
+  ATTACHMENT_SCOPE_LABELS,
   CASE_TYPES,
   CASE_TYPE_LABELS,
   CONVERSION_STATUSES,
@@ -132,7 +134,7 @@ export type CheckTarget = readonly [table: string, column: string, name: string]
 export type EnumLanding = "in-db" | "pending-table" | "in-jsonb" | "not-an-enum";
 
 export type EnumEntry = {
-  /** 枚举表行号，E01…E37 */
+  /** 枚举表行号，E01…E38 */
   id: string;
   /** 文档里的字段写法 */
   field: string;
@@ -231,6 +233,9 @@ export const IN_DB_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
   E32: [["mn_event_outbox", "event_type", "ck_mn_outbox_event_type"]],
   E35: [["mn_auth_session", "auth_via", "ck_mn_auth_session_auth_via"]],
   E37: [["mn_app_user", "activation_status", "ck_mn_app_user_activation"]],
+  // E38（2026-10-23 / 迁移 0023）：附件用途。与 category 不同，它不是"分类"而是
+  // "归属语义"——评论附件与宿主级材料的读写口径不同。
+  E38: [["mn_attachment", "scope", "ck_mn_attachment_scope"]],
 };
 
 /** §3 的活动动作同样进了库，但它不占 E 行号，所以另立一份映射 */
@@ -542,11 +547,19 @@ export const ENUM_REGISTRY: readonly EnumEntry[] = [
     values: ACTIVATION_STATUSES,
     labels: ACTIVATION_STATUS_LABELS,
   }),
+  entry({
+    id: "E38",
+    field: "attachment.scope",
+    landing: "in-db",
+    values: ATTACHMENT_SCOPES,
+    labels: ATTACHMENT_SCOPE_LABELS,
+    usedBy: ["attachment.scope"],
+  }),
 ];
 
 /**
  * 枚举表 §3 / §4 里**不占 E 行号**但同样要守的结构取值。
- * 单列一份是为了让"注册表覆盖 37/37"这条断言不被拿来冒充全量登记。
+ * 单列一份是为了让"注册表覆盖 38/38"这条断言不被拿来冒充全量登记。
  */
 export const STRUCT_REGISTRY: readonly {
   key: string;

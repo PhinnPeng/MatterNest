@@ -3,7 +3,7 @@ import { fail, json, query, withActor } from "@/app/lib/server/http";
 import {
   AttachmentRejected,
   attachmentStorageReady,
-  receiveCommentUpload,
+  receiveUpload,
 } from "@/app/lib/server/services/attachments";
 import { StorageUnavailableError } from "@/app/lib/server/storage/s3";
 
@@ -18,7 +18,7 @@ import { StorageUnavailableError } from "@/app/lib/server/storage/s3";
  *
  * 社区版 MinIO 不实现桶级 CORS（`PutBucketCors` 固定 501），浏览器从 :3777 直传
  * :30090 会被预检拦死。服务级开关 `MINIO_API_CORS_ALLOW_ORIGIN` 要重启共享实例，
- * 不是应用能决定的事。完整理由见 `services/attachments.ts#receiveCommentUpload`。
+ * 不是应用能决定的事。完整理由见 `services/attachments.ts#receiveUpload`。
  *
  * 状态码：400 类型/大小/校验值不合格；404 宿主不可见；409 归档或配额满；
  * 413 超过 50MB；503 对象存储未开通。
@@ -37,7 +37,8 @@ export async function POST(req: Request) {
       );
     }
     try {
-      const out = await receiveCommentUpload(actor, parsed.data, req.body!);
+      const { name, ...rest } = parsed.data;
+      const out = await receiveUpload(actor, { ...rest, displayName: name }, req.body!);
       return json(out, 201);
     } catch (e) {
       if (e instanceof AttachmentRejected) {

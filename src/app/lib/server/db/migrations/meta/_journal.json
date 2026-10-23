@@ -155,6 +155,20 @@
       "when": 1792929600000,
       "tag": "0021_risk_matter_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792933200000,
+      "tag": "0022_matter_code_format",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792936800000,
+      "tag": "0023_attachment_host_scope",
+      "breakpoints": true
     }
   ]
 }
