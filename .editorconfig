@@ -1,0 +1,6 @@
+# 源码与文档一律 UTF-8。编辑器会读这个文件；真正的门禁在
+# tools/encoding-check.mjs（不依赖编辑器是否遵守）。
+root = true
+
+[*]
+charset = utf-8

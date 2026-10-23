@@ -30,7 +30,7 @@
     "db:migrate": "node tools/migrate.mjs --migrate-only",
     "db:seed": "node tools/migrate.mjs --seed-only",
     "smoke": "node tools/run-smokes.mjs",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs && pnpm anchors:check && pnpm canon:check && pnpm deploy:check",
+    "verify": "pnpm format:check && node tools/encoding-check.mjs && pnpm lint && pnpm typecheck && pnpm test && node tools/lint-guard/check.mjs && pnpm anchors:check && pnpm canon:check && pnpm deploy:check",
     "anchors:check": "node agent-work/verify-anchors.mjs",
     "prepare": "node tools/install-githooks.mjs",
     "verify:all": "pnpm verify && cross-env MN_DB_CONFIRM=dev_matternest pnpm db:check && pnpm smoke",

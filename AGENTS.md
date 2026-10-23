@@ -51,3 +51,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+### 文件编码
+
+源码与文档一律 **UTF-8（无 BOM）**，`pnpm verify` 的 `tools/encoding-check.mjs` 守着。
+
+Windows 下不要用 PowerShell 的 `>` / `Out-File` 写中文文件：5.1 默认 UTF-16LE，`Get-Content` 默认按 ANSI(GBK) 解码，来回一次就把中文固化成 U+FFFD，**不可逆**。写文件用编辑工具或显式 `-Encoding utf8`；临时产物落在 `.gitignore` 已忽略的目录。
