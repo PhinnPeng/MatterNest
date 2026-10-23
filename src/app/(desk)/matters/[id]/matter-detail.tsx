@@ -335,63 +335,89 @@ export function MatterDetail({ id }: { id: string }) {
           返回案件列表
         </Link>
 
-        <PageHeader
-          title={m.name}
-          /**
-           * 原型 `matter-detail.html` 的页头是「编号 + 案名」一起当标题读的
-           * （`AJ-20260819-002 苏州万顺机械 承揽合同纠纷`）。编号是主键不是副标题，
-           * 所以走 `PageHeader` 的 `code`（与标题同行），不开第二行。
-           */
-          code={m.internalCode}
-          status={<StatusMark host="matter" code={m.status} />}
-          flags={m.isArchived ? <FlagMark>已归档</FlagMark> : null}
-          /*
+        {/* 页头与描述同组：描述属于标题的读数，不跟下方页签抢同一档间距 */}
+        <div>
+          <PageHeader
+            title={m.name}
+            /**
+             * 原型 `matter-detail.html` 的页头是「编号 + 案名」一起当标题读的
+             * （`AJ-20260819-002 苏州万顺机械 承揽合同纠纷`）。编号是主键不是副标题，
+             * 所以走 `PageHeader` 的 `code`（与标题同行），不开第二行。
+             */
+            code={m.internalCode}
+            status={<StatusMark host="matter" code={m.status} />}
+            flags={m.isArchived ? <FlagMark>已归档</FlagMark> : null}
+            /*
           「已结案」这枚 flag 撤了（2026-10-21）：状态药片念的就是"已结案"，旁边再挂一枚
           同词的 Tag 是把紧邻已经写着的东西说第二遍。结案日期本身在下面的字段表里，
           那里才是它的落点。
         */
-          actions={
-            <>
-              {/* 关注组（2026-10-22 用户裁定「收藏和关注的口径一致」）：左段是我关不关注、
+            actions={
+              <>
+                {/* 关注组（2026-10-22 用户裁定「收藏和关注的口径一致」）：左段是我关不关注、
                 右段是「n 人关注」的名单，两者是同一条关系（`staff_role='follower'`）。
                 原先那颗 ⭐ 走的是私人收藏，会出现"我点了关注、名单里却没有我"——已并入这里。 */}
-              <FollowGroup
-                host="matter"
-                hostId={m.id}
-                followers={m.staff
-                  .filter((s) => s.staffRole === "follower")
-                  .map((s) => ({ id: s.id, userId: s.userId, name: s.displayName }))}
-                meId={meta?.actor.userId ?? ""}
-                canManage={
-                  !!meta &&
-                  (meta.actor.dataScope === "all" ||
-                    m.ownerId === meta.actor.userId ||
-                    m.creatorId === meta.actor.userId)
-                }
-                isArchived={m.isArchived}
-                onChanged={refetchDetail}
-              />
-              <ExportFileButton host="matter" hostId={m.id} code={m.internalCode} />
-              <button type="button" className="btn" onClick={() => setStatusOpen(true)}>
-                变更状态
-              </button>
-              {/* 删除（MATT-62 / F2-5）：文案与事项详情页逐字相同。
+                <FollowGroup
+                  host="matter"
+                  hostId={m.id}
+                  followers={m.staff
+                    .filter((s) => s.staffRole === "follower")
+                    .map((s) => ({ id: s.id, userId: s.userId, name: s.displayName }))}
+                  meId={meta?.actor.userId ?? ""}
+                  canManage={
+                    !!meta &&
+                    (meta.actor.dataScope === "all" ||
+                      m.ownerId === meta.actor.userId ||
+                      m.creatorId === meta.actor.userId)
+                  }
+                  isArchived={m.isArchived}
+                  onChanged={refetchDetail}
+                />
+                <ExportFileButton host="matter" hostId={m.id} code={m.internalCode} />
+                <button type="button" className="btn" onClick={() => setStatusOpen(true)}>
+                  变更状态
+                </button>
+                {/* 删除（MATT-62 / F2-5）：文案与事项详情页逐字相同。
                 归档态**也摆** —— 与「转案件 / 变更经办人」那几个按钮不同，
                 删除不要求先撤归档（裁定见 deleteMatter 的注释）。 */}
-              <Popconfirm
-                title="删除这条案件？"
-                description="删除后不再出现在列表里；库里仍保留，但没有回收站。"
-                okText="删除"
-                cancelText="取消"
-                onConfirm={() => softDelete.mutate()}
+                <Popconfirm
+                  title="删除这条案件？"
+                  description="删除后不再出现在列表里；库里仍保留，但没有回收站。"
+                  okText="删除"
+                  cancelText="取消"
+                  onConfirm={() => softDelete.mutate()}
+                >
+                  <button type="button" className="btn danger" disabled={softDelete.isPending}>
+                    删除
+                  </button>
+                </Popconfirm>
+              </>
+            }
+          />
+
+          {/*
+        案件描述（2026-10-23 用户裁定：描述数据放标题下方）。
+        它是**主表业务数据**，不是字段表里的第 10 项：原先无标签地贴在 9 项字段之后，
+        读起来像一段落单的说明，也破坏了"基本信息只留 9 项"的口径。
+        移到页头标题下，与事项详情同址（那边同样在标题下、带「描述」标签）。
+        空值不占位：字段表里写"没有填写"是在补一句不存在的事实。
+      */}
+          {m.description?.trim() ? (
+            <div style={{ maxWidth: "74ch" }}>
+              <div style={{ fontSize: 12, color: "var(--ink3)", marginBottom: 4 }}>描述</div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 13,
+                  lineHeight: 1.75,
+                  whiteSpace: "pre-wrap",
+                }}
               >
-                <button type="button" className="btn danger" disabled={softDelete.isPending}>
-                  删除
-                </button>
-              </Popconfirm>
-            </>
-          }
-        />
+                {m.description}
+              </p>
+            </div>
+          ) : null}
+        </div>
 
         <Tabs
           activeKey={tab}
@@ -476,11 +502,6 @@ export function MatterDetail({ id }: { id: string }) {
                         { key: "updatedAt", label: "更新时间", children: dateTime(m.updatedAt) },
                       ]}
                     />
-                    <Typography.Paragraph
-                      style={{ fontSize: 13, whiteSpace: "pre-wrap", marginBottom: 0 }}
-                    >
-                      {m.description?.trim() ? m.description : "没有填写基本情况。"}
-                    </Typography.Paragraph>
                   </Card>
 
                   {/* 「归档就绪」三项（F2-26）。**服务端算好给**（详情 DTO 的
