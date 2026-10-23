@@ -18,16 +18,25 @@ export function StateBlock({
   hint,
   action,
   tone = "empty",
+  layout = "inline",
 }: {
   title: string;
   hint?: ReactNode;
   action?: ReactNode;
   tone?: "empty" | "error" | "denied";
+  /**
+   * `page`：整页居中（详情页读取出错、全局 404/error 边界）。
+   * 默认 `inline` 是行内卡片——贴在内容区左上角，适合"某个小组件没拿到数据"，
+   * **不适合整页失败**：那会让人以为只是页面某一块坏了。
+   */
+  layout?: "inline" | "page";
 }) {
-  if (tone === "empty") {
+  const color = tone === "error" ? "var(--red)" : "var(--amber)";
+
+  if (tone === "empty" || layout === "page") {
     return (
-      <div className="empty">
-        <div>{title}</div>
+      <div className="empty" role={tone === "empty" ? undefined : "alert"}>
+        <div style={tone === "empty" ? undefined : { color }}>{title}</div>
         {hint ? (
           <div className="mut3" style={{ fontSize: 12, maxWidth: 460, margin: "4px auto 0" }}>
             {hint}
@@ -38,7 +47,6 @@ export function StateBlock({
     );
   }
 
-  const color = tone === "error" ? "var(--red)" : "var(--amber)";
   return (
     <div
       role="alert"

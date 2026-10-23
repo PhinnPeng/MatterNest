@@ -111,7 +111,7 @@ export function MatterDetail({ id }: { id: string }) {
     setStatusOpen(true);
   }, []);
 
-  const { data, isPending, isError, error } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["matter", id],
     queryFn: () => api.get<Matter>(`/api/matters/${id}`),
   });
@@ -159,8 +159,9 @@ export function MatterDetail({ id }: { id: string }) {
     const denied = error instanceof ApiFailure && error.status === 404;
     return (
       <StateBlock
+        layout="page"
         tone={denied ? "denied" : "error"}
-        title={denied ? "这条案件打不开" : "读取出错"}
+        title={denied ? "打不开这条案件" : "读取出错"}
         hint={
           denied
             ? "它要么不存在，要么不在你的数据范围内 —— 这两种情况系统给的是同一个响应，不区分。"
@@ -169,11 +170,24 @@ export function MatterDetail({ id }: { id: string }) {
               : "未知错误"
         }
         action={
-          <Link href="/matters">
-            <Button size="small" icon={<ArrowLeftOutlined />}>
-              回案件列表
-            </Button>
-          </Link>
+          denied ? (
+            <Link href="/matters">
+              <Button size="small" icon={<ArrowLeftOutlined />}>
+                回案件列表
+              </Button>
+            </Link>
+          ) : (
+            <div className="rowflex" style={{ gap: 8, justifyContent: "center" }}>
+              <Button size="small" onClick={() => void refetch()}>
+                重试
+              </Button>
+              <Link href="/matters">
+                <Button size="small" icon={<ArrowLeftOutlined />}>
+                  回案件列表
+                </Button>
+              </Link>
+            </div>
+          )
         }
       />
     );

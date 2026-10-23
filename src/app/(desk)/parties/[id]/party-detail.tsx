@@ -4,7 +4,18 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Alert, App as AntdApp, Form, Input, Modal, Radio, Select, Table, Typography } from "antd";
+import {
+  Alert,
+  App as AntdApp,
+  Button,
+  Form,
+  Input,
+  Modal,
+  Radio,
+  Select,
+  Table,
+  Typography,
+} from "antd";
 import type { TableColumnsType } from "antd";
 
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
@@ -50,7 +61,7 @@ export function PartyDetail({ id }: { id: string }) {
   const [editOpen, setEditOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
 
-  const { data, isPending, isError, error } = useParty(id);
+  const { data, isPending, isError, error, refetch } = useParty(id);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["party", id] });
@@ -68,14 +79,29 @@ export function PartyDetail({ id }: { id: string }) {
   }
   // 404 走"不可见或不存在"这一句措辞：服务层对两者都给 404（元规则 3），界面不许替它区分
   if (isError) {
+    const denied = error instanceof ApiFailure && error.status === 404;
     return (
       <StateBlock
-        tone="denied"
-        title="看不到这份档案"
+        layout="page"
+        tone={denied ? "denied" : "error"}
+        title={denied ? "打不开这份档案" : "读取出错"}
         hint={
-          error instanceof ApiFailure && error.status === 404
-            ? "它不存在，或你没有查看它的权限。"
-            : "加载失败，请重试。"
+          denied
+            ? "它要么不存在，要么不在你的数据范围内 —— 这两种情况系统给的是同一个响应，不区分。"
+            : error instanceof Error
+              ? error.message
+              : "未知错误"
+        }
+        action={
+          denied ? (
+            <Link href="/parties">
+              <Button size="small">回当事人列表</Button>
+            </Link>
+          ) : (
+            <Button size="small" onClick={() => void refetch()}>
+              重试
+            </Button>
+          )
         }
       />
     );

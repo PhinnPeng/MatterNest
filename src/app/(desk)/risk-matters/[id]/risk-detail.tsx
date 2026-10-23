@@ -25,7 +25,7 @@ import {
   Timeline,
   Typography,
 } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
 
 import { api, ApiFailure, useActor, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
 import { calDate, dateTime } from "@/app/lib/client/format";
@@ -79,7 +79,7 @@ export function RiskDetail({ id }: { id: string }) {
     return t && (DETAIL_TABS as readonly string[]).includes(t) ? t : "basic";
   });
 
-  const { data, isPending, isError, error } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["risk", id],
     queryFn: () => api.get<Risk>(`/api/risk-matters/${id}`),
   });
@@ -137,14 +137,31 @@ export function RiskDetail({ id }: { id: string }) {
   }
   // 404 走"不可见或不存在"这一句措辞，不写"事项不存在"——服务层对两者都给 404
   if (isError) {
+    const denied = error instanceof ApiFailure && error.status === 404;
     return (
       <StateBlock
-        tone="denied"
-        title="看不到这条事项"
+        layout="page"
+        tone={denied ? "denied" : "error"}
+        title={denied ? "打不开这条事项" : "读取出错"}
         hint={
-          error instanceof ApiFailure && error.status === 404
-            ? "它不存在，或你没有查看它的权限。"
-            : "加载失败，请重试。"
+          denied
+            ? "它要么不存在，要么不在你的数据范围内 —— 这两种情况系统给的是同一个响应，不区分。"
+            : error instanceof Error
+              ? error.message
+              : "未知错误"
+        }
+        action={
+          denied ? (
+            <Link href="/risk-matters">
+              <Button size="small" icon={<ArrowLeftOutlined />}>
+                回事项列表
+              </Button>
+            </Link>
+          ) : (
+            <Button size="small" onClick={() => void refetch()}>
+              重试
+            </Button>
+          )
         }
       />
     );
