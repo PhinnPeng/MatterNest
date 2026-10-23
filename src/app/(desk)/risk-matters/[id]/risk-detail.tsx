@@ -28,8 +28,9 @@ import {
 import { PlusOutlined } from "@ant-design/icons";
 
 import { api, ApiFailure, useActor, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
-import { calDate, dateTime, fromNow } from "@/app/lib/client/format";
-import { PageHeader, SectionTitle } from "@/app/components/page-header";
+import { calDate, dateTime } from "@/app/lib/client/format";
+import { PageHeader } from "@/app/components/page-header";
+import { CommentRail } from "@/app/components/comment-rail";
 import { AttachmentPanel } from "@/app/components/attachment-panel";
 import { ExpensePanel } from "@/app/components/expense-panel";
 import { ExportFileButton } from "@/app/components/export-file-button";
@@ -38,14 +39,6 @@ import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
 import { ProgressLogDialog, ProgressPanel } from "@/app/components/progress-panel";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
-import { CommentBody } from "@/app/components/comment-body";
-import { MentionInput } from "@/app/components/mention-input";
-import {
-  AttachmentChips,
-  AttachmentPicker,
-  CommentAttachmentList,
-  useCommentAttachments,
-} from "@/app/components/attachment-input";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { RichTextView, RichTextEditorLazy } from "@/app/components/ui/rich-text";
 import { ConvertDialog } from "../convert-dialog";
@@ -585,22 +578,25 @@ export function RiskDetail({ id }: { id: string }) {
               flexDirection: "column",
             }}
           >
-            <Card
-              size="small"
-              title={<SectionTitle count={risk.comments.length}>评论</SectionTitle>}
-              style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
-              styles={{
-                body: {
-                  flex: 1,
-                  minHeight: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  padding: 12,
-                },
-              }}
-            >
-              <CommentList risk={risk} readOnly={risk.isArchived} onDone={invalidate} />
-            </Card>
+            <div className="card chat" style={{ flex: 1, minHeight: 0 }}>
+              <CommentRail
+                host="risk_matter"
+                hostId={risk.id}
+                comments={risk.comments.map((c) => ({
+                  id: c.id,
+                  parentId: c.parentId,
+                  author: c.authorName,
+                  body: c.body,
+                  parts: c.parts,
+                  createdAt: c.createdAt,
+                  isEdited: c.isEdited,
+                  attachments: c.attachments,
+                }))}
+                onDone={invalidate}
+                readOnly={risk.isArchived}
+                editable
+              />
+            </div>
           </div>
         </Col>
       </Row>
@@ -874,149 +870,6 @@ function NodeRow({
   );
 }
 
-/** 处置记录：最新在最上；作者本人可编辑，改完显示「（已编辑）」 */
-function CommentList({
-  risk,
-  readOnly,
-  onDone,
-}: {
-  risk: Risk;
-  readOnly: boolean;
-  onDone: () => void;
-}) {
-  const { message } = AntdApp.useApp();
-  const [body, setBody] = useState("");
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editText, setEditText] = useState("");
-  /** 附件：选完立刻传，发布时只带已经传完的 id（与案件侧同一实现） */
-  const att = useCommentAttachments("risk_matter", risk.id);
-
-  const post = useMutation({
-    mutationFn: () =>
-      api.post(`/api/risk-matters/${risk.id}/comments`, {
-        body,
-        attachments: att.readyIds,
-      }),
-    onSuccess: () => {
-      setBody("");
-      att.reset();
-      message.success("已记入处置记录");
-      onDone();
-    },
-    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "发送失败"),
-  });
-  const edit = useMutation({
-    mutationFn: (vars: { id: string; text: string }) =>
-      api.patch(`/api/risk-matters/${risk.id}/comments?commentId=${vars.id}`, { body: vars.text }),
-    onSuccess: () => {
-      setEditing(null);
-      onDone();
-    },
-    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "编辑失败"),
-  });
-
-  return (
-    /* D2：列表在上、输入框钉在底部（评论是这条事项的主交互面，不该滚到底才写得进）。
-       外层 flex 列 + minHeight:0 是让内层列表真正可滚的前提——少一个都滚不起来。 */
-    <div style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
-      <div style={{ flex: 1, minHeight: 80, overflow: "auto", paddingRight: 2 }}>
-        {risk.comments.length === 0 ? (
-          <Dash hint="还没有处置记录。讨论、@同事与附件放这里；结构化办理过程走上方的「进展」。" />
-        ) : (
-          <Listy
-            items={risk.comments}
-            rowKey={(c: Risk["comments"][number]) => String(c.id)}
-            itemRender={(c: Risk["comments"][number]) => (
-              <Space orientation="vertical" size={4} style={{ width: "100%" }}>
-                <Space size={8} align="baseline" wrap>
-                  <Typography.Text strong>{c.authorName}</Typography.Text>
-                  <span style={{ color: "var(--ink3)", fontSize: 12 }}>{fromNow(c.createdAt)}</span>
-                  {c.isEdited && (
-                    <span style={{ color: "var(--ink3)", fontSize: 12 }}>（已编辑）</span>
-                  )}
-                </Space>
-                {editing === c.id ? (
-                  <Space orientation="vertical" size={6} style={{ width: "100%" }}>
-                    <Input.TextArea
-                      autoSize={{ minRows: 2, maxRows: 6 }}
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                    />
-                    <Space size={6}>
-                      <Button
-                        size="small"
-                        type="primary"
-                        loading={edit.isPending}
-                        disabled={!editText.trim()}
-                        onClick={() => edit.mutate({ id: c.id, text: editText })}
-                      >
-                        保存
-                      </Button>
-                      <Button size="small" onClick={() => setEditing(null)}>
-                        取消
-                      </Button>
-                    </Space>
-                  </Space>
-                ) : (
-                  <>
-                    <Typography.Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                      <CommentBody body={c.body} parts={c.parts} />
-                    </Typography.Paragraph>
-                    <CommentAttachmentList items={c.attachments} />
-                    {!readOnly && (
-                      <Button
-                        size="small"
-                        type="link"
-                        onClick={() => {
-                          setEditing(c.id);
-                          setEditText(c.body);
-                        }}
-                      >
-                        编辑
-                      </Button>
-                    )}
-                  </>
-                )}
-              </Space>
-            )}
-          />
-        )}
-      </div>
-      {!readOnly && (
-        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, marginTop: 10 }}>
-          {/*
-            `Space.Compact` 在这里换成 Flex：`Mentions` 不参与 antd 的 compact 拼边
-            （它没有 `useCompactItemContext`），塞进去只会得到两个各自圆角的控件。
-            8px 间隙 + 顶对齐，读起来仍是一组「附件 + 输入 + 发布」。
-          */}
-          <AttachmentChips items={att.items} onRemove={att.remove} />
-          <Flex gap={8} align="flex-end">
-            <AttachmentPicker onFiles={att.add} disabled={post.isPending} />
-            <MentionInput
-              host="risk_matter"
-              hostId={risk.id}
-              style={{ flex: 1 }}
-              autoSize={{ minRows: 2, maxRows: 6 }}
-              placeholder="写一条评论：核查结论、已做的动作、需要别人接的事；用 @姓名 提及同事"
-              value={body}
-              onChange={setBody}
-            />
-            <Button
-              type="primary"
-              loading={post.isPending}
-              disabled={!body.trim() || att.busy}
-              onClick={() => post.mutate()}
-            >
-              发布
-            </Button>
-          </Flex>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 变更处理人：普通字段编辑，不是独立流程（GLOSSARY 明写） */
 function OwnerDialog({
   open,
   onClose,

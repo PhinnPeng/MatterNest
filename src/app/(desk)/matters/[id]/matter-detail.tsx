@@ -26,7 +26,7 @@ import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
 import type { TableColumnsType } from "antd";
 
 import { api, ApiFailure, useMeta, type MatterDetail as Matter } from "@/app/lib/client/api";
-import { actorName, calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
+import { actorName, dateTime, money } from "@/app/lib/client/format";
 import { PageHeader } from "@/app/components/page-header";
 import { ExpensePanel } from "@/app/components/expense-panel";
 import { ExportFileButton } from "@/app/components/export-file-button";
@@ -34,16 +34,9 @@ import { FollowGroup } from "@/app/components/follow-group";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
-import { CommentBody } from "@/app/components/comment-body";
-import { MentionInput } from "@/app/components/mention-input";
 import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
 import { ProgressLogDialog, ProgressPanel } from "@/app/components/progress-panel";
-import {
-  AttachmentChips,
-  AttachmentPicker,
-  CommentAttachmentList,
-  useCommentAttachments,
-} from "@/app/components/attachment-input";
+import { CommentRail } from "@/app/components/comment-rail";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { AttachmentPanel } from "@/app/components/attachment-panel";
 import { StaffPicker } from "./staff-picker";
@@ -768,7 +761,7 @@ export function MatterDetail({ id }: { id: string }) {
       {/* 右栏：评论。写接口与快捷键口径与原「过程记录」页签里的同一份，只是换到常驻位置 */}
       <aside aria-label="评论">
         <div className="card chat">
-          <CommentRail matterId={m.id} comments={m.comments} onDone={invalidate} />
+          <CommentRail host="matter" hostId={m.id} comments={m.comments} onDone={invalidate} />
         </div>
       </aside>
     </div>
@@ -920,176 +913,4 @@ function NodeActions({
       />
     </>
   );
-}
-
-type Comment = Matter["comments"][number];
-
-/**
- * 右栏「评论」（原型 `matter-detail.html` 的 `.chat`：头 + 可滚消息区 + 钉底输入区）。
- *
- * ## 为什么是常驻一栏而不是一个页签
- *
- * 评论是"这件案子正在被怎么说"的活文本，读它的次数远高于任何一块字段；原先它和进展
- * 并排塞在第六个页签里，未读列表页的人根本看不到它。原型把它立成右栏，读与写都在
- * 眼前：消息区自己滚，输入框钉底。
- *
- * ## 三层结构各自的高度口径
- *
- * `.chat` 是 flex 列：头与输入区不伸缩、`.chat-b` 吃余量并 `overflow:auto`。
- * `min-height:0` 是滚动的真正前提（少了它整栏会被消息撑高，钉底当场失效）——
- * 数值链与 sticky 的实测坑一并记在 `globals.css` 的 `.detail` 段。
- */
-function CommentRail({
-  matterId,
-  comments,
-  onDone,
-}: {
-  matterId: string;
-  comments: Comment[];
-  onDone: () => void;
-}) {
-  const { message } = AntdApp.useApp();
-  const [body, setBody] = useState("");
-  /** 附件：选完立刻传，发布时只带已经传完的 id（见 `attachment-input.tsx`） */
-  const att = useCommentAttachments("matter", matterId);
-
-  const mut = useMutation({
-    mutationFn: () =>
-      api.post(`/api/matters/${matterId}/comments`, {
-        body: body.trim(),
-        attachments: att.readyIds,
-      }),
-    onSuccess: () => {
-      setBody("");
-      att.reset();
-      onDone();
-      message.success("评论已发布");
-    },
-    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "提交失败"),
-  });
-
-  const threads = useCommentThreads(comments);
-
-  return (
-    <>
-      <div className="chat-h">
-        <h3>评论</h3>
-        <span className="sp" />
-        {/* 条数用 `.num` 等宽字形：新评论进来时数字变化不推动栏宽 */}
-        <span className="num">{comments.length} 条</span>
-      </div>
-
-      <div className="chat-b">
-        {threads.length ? (
-          threads.map((g) => (
-            <div key={g.day}>
-              <div className="chat-day">{g.day}</div>
-              {g.items.map((t) => (
-                <div key={t.root.id}>
-                  <CommentMessage c={t.root} />
-                  {t.replies.map((r) => (
-                    <div className="msg-reply" key={r.id}>
-                      <CommentMessage c={r} />
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          ))
-        ) : (
-          <div className="chat-empty">还没有评论。</div>
-        )}
-      </div>
-
-      <div className="chat-f">
-        <AttachmentChips items={att.items} onRemove={att.remove} />
-        <MentionInput
-          host="matter"
-          hostId={matterId}
-          rows={3}
-          maxLength={2000}
-          value={body}
-          onChange={setBody}
-          // Ctrl + Enter 发布：写评论的手停在键盘上时，不该为了提交去摸鼠标
-          onPressEnter={(e) => {
-            if ((e.ctrlKey || e.metaKey) && body.trim() && !mut.isPending && !att.busy) {
-              e.preventDefault();
-              mut.mutate();
-            }
-          }}
-          placeholder="记录一个结论、一次沟通，或一个待确认的点；用 @姓名 提及同事"
-        />
-        <div className="bar">
-          <AttachmentPicker onFiles={att.add} disabled={mut.isPending} />
-          <span className="hint">Ctrl + Enter 发布</span>
-          <span className="sp" />
-          <span className="hint num">
-            {body.length} / <span className="num">2000</span>
-          </span>
-          <Button
-            type="primary"
-            size="small"
-            disabled={!body.trim() || mut.isPending || att.busy}
-            onClick={() => mut.mutate()}
-          >
-            发布
-          </Button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-/** 一条消息：首字头像 + 「作者 · 时间」+ 正文。提及的分段由 `CommentBody` 负责。 */
-function CommentMessage({ c }: { c: Comment }) {
-  return (
-    <div className="msg">
-      <span className="av" aria-hidden="true">
-        {c.author.slice(0, 1)}
-      </span>
-      <div className="bd">
-        <div className="meta">
-          <b>{c.author}</b>
-          <span className="t">{fromNow(c.createdAt)}</span>
-        </div>
-        <div className="txt">
-          <CommentBody body={c.body} parts={c.parts} />
-        </div>
-        <CommentAttachmentList items={c.attachments} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * 评论 → **按天分组的"根 + 回复"**（原型 `.chat-day` + `.msg-reply`）。
- *
- * 三条口径：
- *   · 正序（旧→新）：消息流的读法，与"最新在上"的列表相反——这一栏是**读上下文**的地方；
- *   · 只一层：回复挂在根下，回复的回复也并到同一个根（服务端只允许一层，界面不写无限递归）；
- *   · 父评论不在载荷里（被删）的孤儿**当根画**：让评论原地消失比画错层级更糟。
- */
-function useCommentThreads(comments: Comment[]) {
-  return useMemo(() => {
-    const sorted = [...comments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const byId = new Map(sorted.map((c) => [c.id, c]));
-    const roots = new Map<string, { root: Comment; replies: Comment[] }>();
-    for (const c of sorted) {
-      // 往上走到真正的根（最多两层，循环只为兜住脏数据，不构成无限递归）
-      let parentId = c.parentId;
-      while (parentId && byId.get(parentId)?.parentId) parentId = byId.get(parentId)!.parentId;
-      const anchor = parentId && byId.has(parentId) ? parentId : c.id;
-      const slot = roots.get(anchor) ?? { root: byId.get(anchor) ?? c, replies: [] as Comment[] };
-      if (c.id !== anchor) slot.replies.push(c);
-      roots.set(anchor, slot);
-    }
-    const groups: { day: string; items: { root: Comment; replies: Comment[] }[] }[] = [];
-    for (const t of roots.values()) {
-      const day = calDate(t.root.createdAt);
-      const last = groups[groups.length - 1];
-      if (last && last.day === day) last.items.push(t);
-      else groups.push({ day, items: [t] });
-    }
-    return groups;
-  }, [comments]);
 }
