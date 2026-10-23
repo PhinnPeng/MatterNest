@@ -443,7 +443,7 @@ function PartyEditDialog({
             type="error"
             showIcon
             style={{ marginBottom: 12 }}
-            message={mut.error instanceof ApiFailure ? mut.error.message : "保存失败"}
+            title={mut.error instanceof ApiFailure ? mut.error.message : "保存失败"}
           />
         ) : null}
         <Form.Item label="名称" name="name">
@@ -541,7 +541,7 @@ function PartyMergeDialog({
           type="error"
           showIcon
           style={{ marginBottom: 12 }}
-          message={mut.error instanceof ApiFailure ? mut.error.message : "合并失败"}
+          title={mut.error instanceof ApiFailure ? mut.error.message : "合并失败"}
         />
       ) : null}
 
@@ -594,7 +594,7 @@ function PartyMergeDialog({
         type="warning"
         showIcon
         style={{ marginTop: 12 }}
-        message="合并不可撤销"
+        title="合并不可撤销"
         description={`被并方会被软删，它名下的案件与事项全部改挂到主记录；同一案卷上重复的那条关联会被丢掉。${
           dir === "into" ? `主记录：${party.name}` : "主记录：上面选中的那一份"
         }`}

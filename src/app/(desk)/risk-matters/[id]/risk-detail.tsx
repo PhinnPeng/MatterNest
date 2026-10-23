@@ -10,11 +10,9 @@ import {
   Card,
   Collapse,
   Col,
-  DatePicker,
   Dropdown,
   Empty,
   Flex,
-  Form,
   Input,
   Listy,
   Modal,
@@ -26,26 +24,27 @@ import {
   Tabs,
   Tag,
   Timeline,
-  Tooltip,
   Typography,
 } from "antd";
-import {
-  EyeInvisibleOutlined,
-  EyeOutlined,
-  PlusOutlined,
-  UserDeleteOutlined,
-} from "@ant-design/icons";
-import type { Dayjs } from "dayjs";
+import { PlusOutlined } from "@ant-design/icons";
 
 import { api, ApiFailure, useActor, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
-import { calDate, dateTime, fromNow, money } from "@/app/lib/client/format";
+import { calDate, dateTime, fromNow } from "@/app/lib/client/format";
 import { SectionTitle } from "@/app/components/page-header";
 import { ExpensePanel } from "@/app/components/expense-panel";
 import { ExportFileButton } from "@/app/components/export-file-button";
-import { FavoriteButton } from "@/app/components/favorite-button";
+import { FollowGroup } from "@/app/components/follow-group";
+import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { CommentBody } from "@/app/components/comment-body";
+import { MentionInput } from "@/app/components/mention-input";
+import {
+  AttachmentChips,
+  AttachmentPicker,
+  CommentAttachmentList,
+  useCommentAttachments,
+} from "@/app/components/attachment-input";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { RichTextView, RichTextEditorLazy } from "@/app/components/ui/rich-text";
 import { ConvertDialog } from "../convert-dialog";
@@ -55,7 +54,7 @@ import { NODE_STATUS_LABELS, LITIGATION_ROLE_LABELS } from "@/shared/enums/busin
  * 风险事项详情（T1）。
  *
  * 布局按 **IQ-17**：左侧一等高「事项节点」栏，右侧单栏流式——标题卡 →
- * 折叠区（风险描述 / 处置措施 / 当事人 / 参与人 / 登记信息）→ 处置记录（最新在最上）。
+ * 折叠区（风险描述 / 当事人 / 参与人 / 登记信息）→ 处置记录（最新在最上）。
  * **无 Tab**（F7-6 的「六 Tab」被 IQ-7 作废）。
  *
  * 三条与案件侧**刻意不同**的地方（IQ-5「事项是台账，案件是战场」），不是抄漏：
@@ -72,6 +71,8 @@ export function RiskDetail({ id }: { id: string }) {
   const { message } = AntdApp.useApp();
   const [statusOpen, setStatusOpen] = useState(false);
   const [nodeOpen, setNodeOpen] = useState(false);
+  /** 为空 = 新增；非空 = 编辑（2026-10-23 起两侧共用同一个节点对话框） */
+  const [editNode, setEditNode] = useState<NodeSeed | null>(null);
   const [ownerOpen, setOwnerOpen] = useState(false);
   const [descOpen, setDescOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
@@ -155,7 +156,6 @@ export function RiskDetail({ id }: { id: string }) {
     name: risk.name,
     status: risk.status,
   };
-  const pointTypes = risk.nodeTypes;
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto" }}>
@@ -219,9 +219,8 @@ export function RiskDetail({ id }: { id: string }) {
                 <button type="button" className="btn pri" onClick={() => setStatusOpen(true)}>
                   变更状态
                 </button>
-                {/* ⭐（MATT-63 / F1-13）：私人收藏。**刻意与右边的 `FollowGroup` 分开**——
-                    那个是「眼睛 + n 人关注」的公开名单，收藏不进名单、别人看不见。 */}
-                <FavoriteButton host="risk_matter" hostId={risk.id} favorited={risk.favorited} />
+                {/* ⭐ 私人收藏已并入右侧的关注组（2026-10-22「收藏和关注的口径一致」）：
+                    点一下就是进「n 人关注」名单，不再有"收藏了但名单里没有我"的第二形态。 */}
                 {/* 整卷导出：两档（脱敏 / 明文），与案件详情页同一个组件 */}
                 <ExportFileButton host="risk_matter" hostId={risk.id} code={risk.code} />
                 {/* 转案件是建案入口之一（IQ-3），详情页与列表页都要能发起（T2 验收原文）。
@@ -236,7 +235,24 @@ export function RiskDetail({ id }: { id: string }) {
                     变更经办人
                   </button>
                 )}
-                <FollowGroup risk={risk} onDone={invalidate} />
+                {/* 关注组（2026-10-22 用户裁定「收藏和关注的口径一致」）：左段=我关不关注，
+                    右段=「n 人关注」名单；与案件详情页同一个组件、同一条关系。 */}
+                <FollowGroup
+                  host="risk_matter"
+                  hostId={risk.id}
+                  followers={risk.staff
+                    .filter((s) => s.staffRole === "follower")
+                    .map((s) => ({ id: s.id, userId: s.userId, name: s.name }))}
+                  meId={actor?.userId ?? ""}
+                  canManage={
+                    !!actor &&
+                    (actor.dataScope === "all" ||
+                      risk.ownerId === actor.userId ||
+                      risk.creatorId === actor.userId)
+                  }
+                  isArchived={risk.isArchived}
+                  onChanged={invalidate}
+                />
                 {!risk.isArchived && (
                   <Popconfirm
                     title="删除这条事项？"
@@ -253,10 +269,10 @@ export function RiskDetail({ id }: { id: string }) {
               </Space>
             </Flex>
 
-            {/* 描述与处置措施：主表业务字段，**整幅**——挤进动作按钮那一栏会被压到 ~300px 宽、白白多出两行。
+            {/* 描述：主表业务字段，**整幅**——挤进动作按钮那一栏会被压到 ~300px 宽、白白多出两行。
                 描述是富文本（markdown 存储，ADR-0002）：只读走 RichTextView（react-markdown，
                 SSR 可渲染），编辑走懒加载的 BlockNote 弹层。
-                处置措施仍是纯文本（票面只改描述；measure 不动）。 */}
+                原先并列的「处置措施」已撤下（迁移 0017）：处置过程走下面的处置记录。 */}
             <div style={{ marginTop: 13 }}>
               <Flex align="center" justify="space-between" style={{ marginBottom: 5 }}>
                 <span style={{ fontSize: 12, color: "var(--ink3)" }}>描述</span>
@@ -270,24 +286,6 @@ export function RiskDetail({ id }: { id: string }) {
                 <div style={{ maxWidth: "74ch" }}>
                   <RichTextView markdown={risk.description} />
                 </div>
-              ) : (
-                <Dash />
-              )}
-            </div>
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 12, color: "var(--ink3)", marginBottom: 5 }}>处置措施</div>
-              {risk.measure ? (
-                <Typography.Paragraph
-                  style={{
-                    margin: 0,
-                    fontSize: 13.5,
-                    lineHeight: 1.72,
-                    color: "var(--ink2)",
-                    maxWidth: "74ch",
-                  }}
-                >
-                  {risk.measure}
-                </Typography.Paragraph>
               ) : (
                 <Dash />
               )}
@@ -314,7 +312,6 @@ export function RiskDetail({ id }: { id: string }) {
                 </FlagMark>
               </MetaLine>
               <MetaLine label="发现日期">{calDate(risk.discoverDate)}</MetaLine>
-              <MetaLine label="敞口金额">{money(risk.amount)}</MetaLine>
               <MetaLine label="经办人">
                 {risk.ownerId ? risk.ownerName : <FlagMark tone="warn">未指派</FlagMark>}
               </MetaLine>
@@ -354,7 +351,7 @@ export function RiskDetail({ id }: { id: string }) {
               </MetaLine>
             </Flex>
 
-            {/* 参考材料：默认收起（描述与处置措施已经上首屏，这里只剩查阅物） */}
+            {/* 参考材料：默认收起（描述已经上首屏，这里只剩查阅物） */}
             <Collapse
               ghost
               style={{ marginTop: 10 }}
@@ -439,9 +436,12 @@ export function RiskDetail({ id }: { id: string }) {
                           <Button
                             size="small"
                             icon={<PlusOutlined />}
-                            onClick={() => setNodeOpen(true)}
+                            onClick={() => {
+                              setEditNode(null);
+                              setNodeOpen(true);
+                            }}
                           >
-                            手动添加节点
+                            新增节点
                           </Button>
                         </Flex>
                       )}
@@ -452,8 +452,14 @@ export function RiskDetail({ id }: { id: string }) {
                           hint="事项不预置节点。只有确有时限时才手动加一个时间点。"
                           action={
                             risk.isArchived ? undefined : (
-                              <Button size="small" onClick={() => setNodeOpen(true)}>
-                                加第一个节点
+                              <Button
+                                size="small"
+                                onClick={() => {
+                                  setEditNode(null);
+                                  setNodeOpen(true);
+                                }}
+                              >
+                                新增节点
                               </Button>
                             )
                           }
@@ -463,7 +469,21 @@ export function RiskDetail({ id }: { id: string }) {
                           items={risk.nodes}
                           rowKey={(n: Risk["nodes"][number]) => String(n.id)}
                           itemRender={(n: Risk["nodes"][number]) => (
-                            <NodeRow node={n} readOnly={risk.isArchived} onDone={invalidate} />
+                            <NodeRow
+                              node={n}
+                              riskId={risk.id}
+                              readOnly={risk.isArchived}
+                              onDone={invalidate}
+                              onEdit={() => {
+                                setEditNode({
+                                  id: n.id,
+                                  name: n.name,
+                                  remark: n.remark,
+                                  startTime: n.startTime,
+                                });
+                                setNodeOpen(true);
+                              }}
+                            />
                           )}
                         />
                       )}
@@ -544,9 +564,10 @@ export function RiskDetail({ id }: { id: string }) {
       <NodeDialog
         open={nodeOpen}
         onClose={() => setNodeOpen(false)}
-        types={pointTypes}
         onDone={invalidate}
-        riskId={risk.id}
+        host="risk_matter"
+        hostId={risk.id}
+        node={editNode}
       />
       <OwnerDialog
         open={ownerOpen}
@@ -571,7 +592,6 @@ export function RiskDetail({ id }: { id: string }) {
                 code: risk.code,
                 name: risk.name,
                 level: risk.level,
-                amount: risk.amount,
                 ownerName: risk.ownerName ?? undefined,
                 parties: risk.parties.map((p) => ({ name: p.name, partyRole: p.partyRole })),
               }
@@ -637,24 +657,42 @@ function DescriptionDialog({
   );
 }
 
-/** 一个节点：时间点 + 状态。时间未确认时显式写"待定"，不靠留白表达。 */
+/** 一个节点：名称 / 时间点 / 状态。按钮与案件侧同一套：编辑 / 完成 / 更多（取消、删除）。 */
 function NodeRow({
   node,
+  riskId,
   readOnly,
   onDone,
+  onEdit,
 }: {
   node: Risk["nodes"][number];
+  riskId: string;
   readOnly: boolean;
   onDone: () => void;
+  onEdit: () => void;
 }) {
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
+  const [cancelling, setCancelling] = useState(false);
+  const [reason, setReason] = useState("");
   const mut = useMutation({
-    mutationFn: (status: string) =>
-      api.patch(`/api/risk-matters/${node.id}/nodes?nodeId=${node.id}`, { status }),
-    onSuccess: onDone,
+    mutationFn: (body: { status: string; cancelReason?: string }) =>
+      api.patch(`/api/risk-matters/${riskId}/nodes?nodeId=${node.id}`, body),
+    onSuccess: () => {
+      onDone();
+      message.success("节点已更新");
+    },
     onError: (e) => message.error(e instanceof ApiFailure ? e.message : "操作失败"),
   });
+  const remove = useMutation({
+    mutationFn: () => api.del(`/api/risk-matters/${riskId}/nodes/${node.id}`),
+    onSuccess: () => {
+      onDone();
+      message.success("节点已删除");
+    },
+    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "删除失败"),
+  });
   const label = NODE_STATUS_LABELS[node.status as keyof typeof NODE_STATUS_LABELS] ?? node.status;
+
   return (
     <div>
       <Space orientation="vertical" size={4} style={{ width: "100%" }}>
@@ -672,6 +710,9 @@ function NodeRow({
             {label}
           </Tag>
         </Space>
+        {node.remark ? (
+          <span style={{ color: "var(--ink2)", fontSize: 12 }}>{node.remark}</span>
+        ) : null}
         <span style={{ color: "var(--ink3)", fontSize: 12 }}>
           {/* 事项节点只有时间点：没有「起止」，也就没有「这段时间内」这种表达 */}
           {node.startTime ? calDate(node.startTime) : "时间待定"}
@@ -680,30 +721,84 @@ function NodeRow({
         {node.cancelReason && (
           <span style={{ color: "var(--ink2)", fontSize: 12 }}>取消原因：{node.cancelReason}</span>
         )}
-        {!readOnly && (
-          <Space size={4} wrap>
-            {node.status === "not_started" && (
+        {!readOnly &&
+          (cancelling ? (
+            <Space size={4}>
+              <Input
+                autoFocus
+                size="small"
+                style={{ width: 96 }}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="取消原因（必填）"
+                aria-label="取消原因"
+              />
               <Button
                 size="small"
-                type="link"
-                loading={mut.isPending}
-                onClick={() => mut.mutate("in_progress")}
+                type="primary"
+                disabled={!reason.trim() || mut.isPending}
+                onClick={() => {
+                  mut.mutate({ status: "cancelled", cancelReason: reason.trim() });
+                  setCancelling(false);
+                }}
               >
-                开始
+                确认
               </Button>
-            )}
-            {node.status !== "completed" && node.status !== "cancelled" && (
-              <Button
-                size="small"
-                type="link"
-                loading={mut.isPending}
-                onClick={() => mut.mutate("completed")}
+              <Button size="small" type="text" onClick={() => setCancelling(false)}>
+                否
+              </Button>
+            </Space>
+          ) : (
+            <Space size={4} wrap>
+              <Button size="small" type="link" onClick={onEdit}>
+                编辑
+              </Button>
+              {node.status === "in_progress" ? (
+                <Button
+                  size="small"
+                  type="link"
+                  loading={mut.isPending}
+                  onClick={() =>
+                    modal.confirm({
+                      title: "完成这个节点？",
+                      content: "完成后不再提醒，请确认。",
+                      okText: "完成",
+                      cancelText: "取消",
+                      onOk: () => mut.mutateAsync({ status: "completed" }),
+                    })
+                  }
+                >
+                  完成
+                </Button>
+              ) : null}
+              <Dropdown
+                trigger={["click"]}
+                menu={{
+                  items: [
+                    { key: "cancel", label: "取消节点", disabled: node.status === "cancelled" },
+                    { key: "delete", label: "删除节点", danger: true },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "cancel") setCancelling(true);
+                    if (key === "delete") {
+                      modal.confirm({
+                        title: "删除这个节点？",
+                        content: "删除后不再提醒，也不出现在节点列表里。",
+                        okText: "删除",
+                        okButtonProps: { danger: true },
+                        cancelText: "取消",
+                        onOk: () => remove.mutateAsync(),
+                      });
+                    }
+                  },
+                }}
               >
-                完成
-              </Button>
-            )}
-          </Space>
-        )}
+                <Button size="small" type="link">
+                  更多
+                </Button>
+              </Dropdown>
+            </Space>
+          ))}
       </Space>
     </div>
   );
@@ -723,11 +818,18 @@ function CommentList({
   const [body, setBody] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  /** 附件：选完立刻传，发布时只带已经传完的 id（与案件侧同一实现） */
+  const att = useCommentAttachments("risk_matter", risk.id);
 
   const post = useMutation({
-    mutationFn: () => api.post(`/api/risk-matters/${risk.id}/comments`, { body }),
+    mutationFn: () =>
+      api.post(`/api/risk-matters/${risk.id}/comments`, {
+        body,
+        attachments: att.readyIds,
+      }),
     onSuccess: () => {
       setBody("");
+      att.reset();
       message.success("已记入处置记录");
       onDone();
     },
@@ -790,6 +892,7 @@ function CommentList({
                     <Typography.Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
                       <CommentBody body={c.body} parts={c.parts} />
                     </Typography.Paragraph>
+                    <CommentAttachmentList items={c.attachments} />
                     {!readOnly && (
                       <Button
                         size="small"
@@ -811,100 +914,35 @@ function CommentList({
       </div>
       {!readOnly && (
         <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, marginTop: 10 }}>
-          <Space.Compact style={{ width: "100%" }}>
-            <Input.TextArea
+          {/*
+            `Space.Compact` 在这里换成 Flex：`Mentions` 不参与 antd 的 compact 拼边
+            （它没有 `useCompactItemContext`），塞进去只会得到两个各自圆角的控件。
+            8px 间隙 + 顶对齐，读起来仍是一组「附件 + 输入 + 发布」。
+          */}
+          <AttachmentChips items={att.items} onRemove={att.remove} />
+          <Flex gap={8} align="flex-end">
+            <AttachmentPicker onFiles={att.add} disabled={post.isPending} />
+            <MentionInput
+              host="risk_matter"
+              hostId={risk.id}
+              style={{ flex: 1 }}
               autoSize={{ minRows: 2, maxRows: 6 }}
               placeholder="写一条评论：核查结论、已做的动作、需要别人接的事；用 @姓名 提及同事"
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={setBody}
             />
             <Button
               type="primary"
               loading={post.isPending}
-              disabled={!body.trim()}
+              disabled={!body.trim() || att.busy}
               onClick={() => post.mutate()}
             >
               发布
             </Button>
-          </Space.Compact>
+          </Flex>
         </div>
       )}
     </div>
-  );
-}
-
-/** 手动加节点：只有时间点，**没有时间段控件**（IQ-5 / T1 验收标准原文） */
-function NodeDialog({
-  open,
-  onClose,
-  types,
-  onDone,
-  riskId,
-}: {
-  open: boolean;
-  onClose: () => void;
-  types: { id: string; code: string; name: string }[];
-  onDone: () => void;
-  riskId: string;
-}) {
-  const { message } = AntdApp.useApp();
-  const [form] = Form.useForm<{ nodeTypeId: string; name?: string; startTime?: Dayjs }>();
-  const mut = useMutation({
-    mutationFn: (v: { nodeTypeId: string; name?: string; startTime?: string }) =>
-      api.post<{ id: string }>(`/api/risk-matters/${riskId}/nodes`, v),
-    onSuccess: () => {
-      form.resetFields();
-      onClose();
-      message.success("已添加节点");
-      onDone();
-    },
-    onError: (e) => message.error(e instanceof ApiFailure ? e.message : "添加失败"),
-  });
-  return (
-    <Modal
-      open={open}
-      title="添加事项节点"
-      onCancel={onClose}
-      okText="添加"
-      confirmLoading={mut.isPending}
-      // 服务层还会按节点类型的 time_type 再拒一次，前端不给控件不等于拦得住手写请求
-      onOk={() =>
-        form
-          .validateFields()
-          .then((v) =>
-            mut.mutate({
-              nodeTypeId: v.nodeTypeId,
-              name: v.name,
-              startTime: v.startTime ? v.startTime.format("YYYY-MM-DD") : undefined,
-            }),
-          )
-          .catch(() => undefined)
-      }
-    >
-      <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
-        <Form.Item
-          name="nodeTypeId"
-          label="节点类型"
-          rules={[{ required: true, message: "请选择节点类型" }]}
-        >
-          <Select
-            placeholder="选择节点类型"
-            options={types.map((t) => ({ value: t.id, label: t.name }))}
-            // 事项节点只有时间点，类型下拉里也只给 point 那些（meta 已过滤）
-          />
-        </Form.Item>
-        <Form.Item name="name" label="节点名称" extra="留空则用节点类型的默认名">
-          <Input maxLength={128} placeholder="例如：等对方书面回复" />
-        </Form.Item>
-        <Form.Item
-          name="startTime"
-          label="时间点"
-          extra="可以留空，之后再定。事项节点不支持时间段。"
-        >
-          <DatePicker style={{ width: "100%" }} />
-        </Form.Item>
-      </Form>
-    </Modal>
   );
 }
 
@@ -974,229 +1012,6 @@ function OwnerDialog({
           notFoundContent={loadingUsers ? undefined : "没有可指派的同事"}
         />
       </Space>
-    </Modal>
-  );
-}
-
-/**
- * 关注组（IQ-19 批注④ / ADR-0003）：**两个按钮合成一组**。
- *
- * · 左段眼睛 = 它自己就是按钮，切换「我关注」（填充=已关注）。自我关注只受
- *   「现在就能看见这条记录」那道门约束（ADR-0003）——所以界面上它对任何可见者都在。
- * · 右段「n 人关注 ▾」= 开菜单：添加关注人 + 名单（行内 hover 出 X 取消）。
- *   菜单里**不放**「取消关注」——那是左段的职责，一个动作只留一个入口。
- * · 我那一行计入 n，并在名单里带「我」标记；X 掉自己那行 = 取消关注（眼睛同步转灰）。
- *
- * 归档态：眼睛与菜单都撤，但「n 人关注」这条**读事实**留着（只读终态 ≠ 看不见谁在关注）。
- *
- * 数据不另发请求：关注名单就在 `risk.staff` 里（`staffRole==='follower'`），
- * 写成功靠 invalidate `["risk", id]` 回流，避免两处状态各说各话。
- */
-function FollowGroup({ risk, onDone }: { risk: Risk; onDone: () => void }) {
-  const { message } = AntdApp.useApp();
-  const { data: actor } = useActor();
-  const [addOpen, setAddOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [picked, setPicked] = useState<string[]>([]);
-
-  const followers = risk.staff.filter((s) => s.staffRole === "follower");
-  const meId = actor?.userId;
-  const iFollow = followers.some((f) => f.userId === meId);
-  // 名单管理权（§6）：经办人 / L1 / 创建人。协办与关注没有——他们能看名单、能加自己。
-  const canManage =
-    !!actor &&
-    (actor.dataScope === "all" || risk.ownerId === actor.userId || risk.creatorId === actor.userId);
-
-  const invalidate = () => {
-    onDone();
-    setPicked([]);
-  };
-  const onErr = (e: unknown) => message.error(e instanceof ApiFailure ? e.message : "关注操作失败");
-
-  const toggleSelf = useMutation({
-    mutationFn: () =>
-      iFollow
-        ? api.del(`/api/risk-matters/${risk.id}/staff/followers/${meId}`)
-        : api.post(`/api/risk-matters/${risk.id}/staff/followers`, { userIds: [meId!] }),
-    onSuccess: invalidate,
-    onError: onErr,
-  });
-  const addOthers = useMutation({
-    mutationFn: () =>
-      api.post<{ added: number; skipped: string[] }>(
-        `/api/risk-matters/${risk.id}/staff/followers`,
-        { userIds: picked },
-      ),
-    onSuccess: (r) => {
-      setAddOpen(false);
-      if (r.added > 0) message.success(`已添加 ${r.added} 位关注人`);
-      else message.info("这些人已经在名单里了");
-      invalidate();
-    },
-    onError: onErr,
-  });
-  const removeOne = useMutation({
-    mutationFn: (userId: string) =>
-      api.del(`/api/risk-matters/${risk.id}/staff/followers/${userId}`),
-    onSuccess: invalidate,
-    onError: onErr,
-  });
-
-  const roster = (
-    <div style={{ minWidth: 200 }}>
-      {followers.length === 0 ? (
-        <div style={{ padding: "2px 10px 8px", fontSize: 12, color: "var(--ink3)" }}>
-          还没有关注人。
-        </div>
-      ) : (
-        followers.map((f) => (
-          <Flex key={f.id} align="center" gap={8} style={{ padding: "5px 10px", borderRadius: 6 }}>
-            <span style={{ flex: 1, minWidth: 0 }}>{f.name}</span>
-            {f.userId === meId && <Tag color="blue">我</Tag>}
-            {(canManage || f.userId === meId) && !risk.isArchived && (
-              <Tooltip title={f.userId === meId ? "取消关注" : `移除 ${f.name}`}>
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<UserDeleteOutlined />}
-                  loading={removeOne.isPending}
-                  onClick={() => removeOne.mutate(f.userId)}
-                />
-              </Tooltip>
-            )}
-          </Flex>
-        ))
-      )}
-    </div>
-  );
-
-  // 菜单内容：添加关注人（有管理权才出现）+ 名单。
-  // 「取消关注」不在这里——那是左段眼睛的职责，一个动作只留一个入口（原型批注）。
-  const menuBody = (
-    <div>
-      {canManage && (
-        <>
-          <Button
-            type="text"
-            block
-            icon={<PlusOutlined />}
-            style={{ justifyContent: "flex-start" }}
-            onClick={() => {
-              setMenuOpen(false);
-              setAddOpen(true);
-            }}
-          >
-            添加关注人
-          </Button>
-          <div style={{ borderTop: "1px solid var(--line)", margin: "4px 0" }} />
-        </>
-      )}
-      {roster}
-    </div>
-  );
-
-  if (risk.isArchived) {
-    return (
-      <span style={{ fontSize: 12.5, color: "var(--ink3)" }}>
-        <EyeOutlined style={{ marginRight: 4 }} />
-        {followers.length} 人关注
-      </span>
-    );
-  }
-
-  return (
-    <>
-      {/* 两段合成一组（共用一条边框）：antd 6 没有 Button.Group，Space.Compact 是它的替代。
-          左段眼睛自己就是按钮；右段开菜单。 */}
-      <Space.Compact>
-        <Tooltip title={iFollow ? "取消关注" : "关注"}>
-          <Button
-            type={iFollow ? "primary" : "default"}
-            icon={iFollow ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-            loading={toggleSelf.isPending}
-            onClick={() => toggleSelf.mutate()}
-          />
-        </Tooltip>
-        <Dropdown
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          trigger={["click"]}
-          popupRender={() => (
-            <Card size="small" style={{ padding: 4 }}>
-              {menuBody}
-            </Card>
-          )}
-        >
-          <Button>{followers.length} 人关注</Button>
-        </Dropdown>
-      </Space.Compact>
-      <AddFollowersDialog
-        risk={risk}
-        open={addOpen}
-        picked={picked}
-        onPicked={setPicked}
-        loading={addOthers.isPending}
-        onClose={() => {
-          setAddOpen(false);
-          setPicked([]);
-        }}
-        onOk={() => addOthers.mutate()}
-      />
-    </>
-  );
-}
-
-/** 添加关注人的选择面：数据源与「变更经办人」同一条（§4.1 收窄后的可选用户查询） */
-function AddFollowersDialog({
-  risk,
-  open,
-  picked,
-  onPicked,
-  loading,
-  onClose,
-  onOk,
-}: {
-  risk: Risk;
-  open: boolean;
-  picked: string[];
-  onPicked: (v: string[]) => void;
-  loading: boolean;
-  onClose: () => void;
-  onOk: () => void;
-}) {
-  const { data: selectable, isPending } = useQuery({
-    queryKey: ["selectable-users", "risk_matter", risk.id],
-    queryFn: () =>
-      api.get<{ users: { id: string; displayName: string; username: string }[] }>(
-        `/api/risk-matters/${risk.id}/selectable-users`,
-      ),
-    enabled: open,
-  });
-  const followerIds = new Set(
-    risk.staff.filter((s) => s.staffRole === "follower").map((s) => s.userId),
-  );
-  const options = (selectable?.users ?? [])
-    .filter((u) => !followerIds.has(u.id))
-    .map((u) => ({ value: u.id, label: u.displayName }));
-  return (
-    <Modal
-      open={open}
-      title="添加关注人"
-      onCancel={onClose}
-      okText="添加"
-      okButtonProps={{ disabled: picked.length === 0, loading }}
-      onOk={onOk}
-    >
-      <Select
-        mode="multiple"
-        style={{ width: "100%", marginTop: 12 }}
-        placeholder="选择同事"
-        loading={isPending}
-        value={picked}
-        onChange={onPicked}
-        options={options}
-        notFoundContent={isPending ? undefined : "没有可添加的同事"}
-      />
     </Modal>
   );
 }
