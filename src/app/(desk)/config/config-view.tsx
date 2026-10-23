@@ -34,19 +34,17 @@ export function ConfigView() {
   return (
     <>
       <PageHeader title="功能配置" />
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: 16,
-        }}
-      >
+      {/*
+        五张分组卡。外壳（栅格与卡的长相）在 `globals.css` 的 `.cfg-grid`，
+        这里只交内容——14 个细项一个不多一个不少地落进五组。
+      */}
+      <div className="cfg-grid">
         {CONFIG_GROUPS.map((group) => (
           <div key={group.label} className="card">
             <div className="card-h">
               <h2>{group.label}</h2>
             </div>
-            <div className="card-b" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="card-b cfg-list">
               {group.kinds.map((kind) => (
                 /*
                   `it cfgrow`：`cfgrow` 承担「左名右箭头」的形态（原型 `config.html` 同款，

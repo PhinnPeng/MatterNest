@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { api, ApiFailure } from "@/app/lib/client/api";
+import { maxLengthOf } from "@/app/components/form/zod-rules";
 import { loginSchema } from "@/shared/schema/hosts";
 
 /**
@@ -27,6 +28,9 @@ import { loginSchema } from "@/shared/schema/hosts";
 export function LoginForm() {
   const router = useRouter();
   const qc = useQueryClient();
+  // 上界从 schema 取，不在这里写第二份数字（禁令⑧）：schema 改字长时输入框跟着改
+  const usernameMax = maxLengthOf(loginSchema, ["username"]);
+  const passwordMax = maxLengthOf(loginSchema, ["password"]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
@@ -78,12 +82,24 @@ export function LoginForm() {
           type="text"
           autoFocus
           autoComplete="username"
+          maxLength={usernameMax}
+          aria-invalid={fieldError.username ? true : undefined}
+          aria-describedby={fieldError.username ? "login-username-err" : undefined}
           value={username}
-          onChange={(e) => setUsername(e.target.value)}
+          onChange={(e) => {
+            setUsername(e.target.value);
+            // 改输入即撤旧错：错误提示留着会让人以为这次提交又失败了
+            if (fieldError.username) setFieldError((prev) => ({ ...prev, username: undefined }));
+          }}
         />
       </div>
       {fieldError.username ? (
-        <div className="hint err" style={{ marginTop: 0, marginBottom: 12 }}>
+        <div
+          id="login-username-err"
+          className="hint err"
+          role="alert"
+          style={{ marginTop: 0, marginBottom: 12 }}
+        >
           {fieldError.username}
         </div>
       ) : null}
@@ -95,12 +111,23 @@ export function LoginForm() {
           className="inp"
           type="password"
           autoComplete="current-password"
+          maxLength={passwordMax}
+          aria-invalid={fieldError.password ? true : undefined}
+          aria-describedby={fieldError.password ? "login-password-err" : undefined}
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            if (fieldError.password) setFieldError((prev) => ({ ...prev, password: undefined }));
+          }}
         />
       </div>
       {fieldError.password ? (
-        <div className="hint err" style={{ marginTop: 0, marginBottom: 12 }}>
+        <div
+          id="login-password-err"
+          className="hint err"
+          role="alert"
+          style={{ marginTop: 0, marginBottom: 12 }}
+        >
           {fieldError.password}
         </div>
       ) : null}
@@ -113,9 +140,6 @@ export function LoginForm() {
       >
         {busy ? "登录中…" : "登录"}
       </button>
-      <div className="mut3" style={{ fontSize: 12, marginTop: 14 }}>
-        仅限内网访问
-      </div>
     </form>
   );
 }

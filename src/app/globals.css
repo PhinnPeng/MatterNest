@@ -13,10 +13,21 @@
  * 本文件里所有"覆盖 antd"的规则全部失效。症状：深色下九个导航项渲染成 antd 链接蓝，
  * `--nav-ink`(#C3C8CE) / `--nav-on-ink`(#8AB4F8) 一个都没生效，对比度 4.12 < 4.5。
  *
- * ⇒ 把 `antd` 钉在最前（最低优先），base 与 components 依次压过它。
+ * ⇒ `antd` 必须排在 base 之后、components 之前。
  * 这一行与 `providers.tsx` 那条 `StyleProvider layer` 是一对，改一处要想着另一处。
+ *
+ * **为什么 base 不能压过 antd（2026-10-19 实测修）**：`base` 层里装着 Tailwind
+ * preflight 的 `*{margin:0;padding:0}`。把它排在 antd 之上时，那条通配规则会赢过
+ * **每一个** antd 组件的内边距——实测 `.ant-btn` 的 `padding` 算成 `0px`（「全部已读」
+ * 按钮只剩 56px 裸字宽）、`.ant-tag` 与 `.ant-input` 同样，Segmented 的两个选项
+ * 因此紧贴成「未读 0全部」。preflight 的语义是"在组件库之前把浏览器默认清掉"，
+ * 它本来就该在地板上，不该压在组件之上。
+ *
+ * 本层的 base 块里没有一条是在覆盖 antd（只有 html/body 底色、`::selection`、
+ * 滚动条），所以把它挪到 antd 之下不会丢掉任何一条覆盖；本文件里那些**真覆盖**
+ * （`.it.on` 的深色导航项等）都在 components 层，仍然压过 antd。
  */
-@layer antd, base, components;
+@layer base, antd, components;
 
 @import "tailwindcss";
 
@@ -151,72 +162,259 @@
     color: var(--nav-on-ink);
     font-weight: 500;
   }
-  /* 底角的身份区：菜单区自己 `flex:1` 吃余量，这里只需要 `margin-top:auto` 兜底 */
+  /*
+   * 底栏：菜单区自己 `flex:1` 吃余量，这里 `margin-top:auto` 兜底。
+   *
+   * 内部是**一行两枚胶囊**（2026-10-19 用户裁定）：左通知、右身份卡。
+   * `justify-content: space-between` 把它们顶到两端；两枚之间不留分隔线——
+   * 各自的描边已经把"两个控件"说清楚了，再加一条竖线就是第三个东西。
+   */
   .navfoot {
     margin-top: auto;
     border-top: 1px solid var(--line);
     padding: 12px 10px 0;
     font-size: 12px;
     color: var(--ink2);
-  }
-  /*
-   * 身份区里的身份本身（点开是「我关注的」/「退出登录」）。
-   * canon 的 `navfoot` 只是一行静态文本，而这里必须**可点、可 Tab、可回车**
-   * （US 15/16 要求这两个动作在同一个地方），所以它是一个 `<button>`，不是一行字。
-   */
-  .navfoot .who {
     display: flex;
     align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 0;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  /*
+   * 通知入口（2026-10-19 从「概要」导航组搬进来，同日收成一枚图标胶囊）。
+   *
+   * 为什么它长得**不像**导航项（`.it`），却被放在侧栏里：
+   * `.it` 是"跳到某个模块"的语言——整行铺满、左对齐、选中时铺底色。
+   * 而这一枚是"我的收件箱还有几条"：它挂一枚数字，且它属于底缘那一簇"我的"。
+   * 所以它沿用 `.idcard` 的形态（收窄、描边、同一套悬停），只是内容只有一枚铃铛——
+   * 底缘这两枚因此读起来是同一族。
+   *
+   * **宽度固定 40**（2026-10-20 live 裁定 · 变体 1）：未读角标改为**包住铃铛**的绝对定位，
+   * 不再挂在铃铛右边参与横向排布。原先 `gap: 4px` + 并排的一枚数字把胶囊从 40px 撑到 55px，
+   * 数字位数一变整条底缘就抖；用户当时的原话是「角标不要撑开原图标大小」。
+   * 它与身份卡并排，`flex: 0 0 auto` 保证不被挤出侧栏。
+   */
+  .navfoot .inbox {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-width: 40px;
+    height: 40px;
+    padding: 0 10px;
+    font-size: 15px;
+    color: var(--ink2);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    transition:
+      background-color 0.12s ease,
+      border-color 0.12s ease,
+      color 0.12s ease;
+  }
+  /*
+   * 悬停只做**轻微**响应（用户原话：背景与颜色保持轻微响应，不要用深颜色）。
+   * 2026-10-20 再降一档：**只铺底色**，描边与图标色都不动。原来描边会从 `--line`
+   * 跳到 `--control-line`（#E5E7EB → #90959D），那一跳比底色重得多，用户反馈"反馈较重"。
+   * 现在三处只剩一处变化，且这一处是 `--hover` 一档浅灰。
+   */
+  .navfoot .inbox:hover {
+    background: var(--hover);
+  }
+  .navfoot .inbox:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  /* 当前在通知页：同一对令牌（与 `.it.on` 相同），色不作唯一通道（另有 aria-current） */
+  .navfoot .inbox.on {
+    background: var(--nav-on);
+    border-color: var(--accent-line);
+    color: var(--nav-on-ink);
+  }
+  .navfoot .inbox.on:hover {
+    border-color: var(--accent);
+  }
+  /*
+   * 角标与铃铛之间那圈环。antd 的 `boxShadow` 环色默认取 `colorBgContainer`（= `--card`），
+   * 与静止态的胶囊底同源，所以只有 `.on` 需要跟着换——那一态胶囊底换成 `--nav-on`，
+   * 不换就会在浅蓝底上浮出一圈白边。
+   */
+  .navfoot .inbox.on .ant-badge-count {
+    box-shadow: 0 0 0 2px var(--nav-on);
+  }
+  /*
+   * 身份卡：头像 + 昵称。**吃满底栏余量**（2026-10-20 用户裁定），通知胶囊保持方角。
+   *
+   * 为什么不再收窄居中：底栏只有两枚，收窄之后中间那段空档既不属于通知也不属于身份，
+   * 读起来像"没排完版"。撑满之后底栏是一条完整的横带，右端与侧栏内缘对齐。
+   *
+   * 描边用 `--line` 而不是 `--control-line`：它是**容器件的边界**，不是勾选框那种
+   * 必须过 3:1 的控件边界（WCAG 1.4.11 管的是"用户要能看见这个控件存在"，
+   * 而这里旁边就有可读的头像与名字，边界不是唯一的可辨通道）。
+   * 悬停只在底色上铺一层 `--hover`，描边不动（2026-10-20 与通知胶囊同一口径）。
+   *
+   * `box-shadow` 只在身份卡上：它是底栏里"我"的那一枚，抬起来一档与通知区分轻重。
+   */
+  .navfoot .idcard {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 7px;
+    /* 与通知胶囊同高（40px）：两者并排，差 1px 都能看出来 */
+    height: 40px;
+    max-width: 100%;
+    padding: 0 10px 0 8px;
     font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    transition:
+      background-color 0.12s ease,
+      border-color 0.12s ease;
+  }
+  /*
+   * 昵称：吃掉身份卡里剩下的宽度，超出才省略（2026-10-20 取消 88px 上限）。
+   * 上限原来是替"收窄的胶囊"算的；卡片撑满底栏之后，余量应该给名字，
+   * 而不是留在卡片右侧当空白。`min-width: 0` 是省略号生效的前提 ——
+   * flex 子项默认 `min-width: auto`，不加这句长名字会把卡片顶破。
+   */
+  .navfoot .idcard-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .navfoot .idcard:hover {
+    background: var(--hover);
+  }
+  .navfoot .idcard:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .navfoot .idcard .idcard-av {
+    flex: 0 0 auto;
+  }
+  /* 「去登录」那一支（没有会话时）：仍是一行链接，修掉块的左对齐即可 */
+  .navfoot .who {
     font-size: 12.5px;
     color: var(--ink);
+  }
+  /*
+   * 菜单里的「系统颜色」：三枚图标横排。
+   *
+   * 选中态读的是**偏好**（`aria-pressed` 由上层的 `pref` 决定），不是当前深浅——
+   * `system` 档下这两者不同，旧实现靠 `html.dark` 反推会指错那一枚。
+   * 高亮用 `--accent-weak` + `--accent-line`（与导航项选中同一对令牌）。
+   */
+  .idmenu-modes {
+    display: inline-flex;
+    gap: 4px;
+  }
+  .idmenu-mode {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 24px;
+    padding: 0;
+    font-size: 14px;
+    color: var(--ink2);
     background: none;
-    border: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
     cursor: pointer;
-    text-align: left;
   }
-  .navfoot .who i {
-    color: var(--ink3);
-    font-size: 10px;
-    font-style: normal;
+  .idmenu-mode:hover {
+    background: var(--hover);
+    color: var(--ink);
   }
-  .navfoot .who:focus-visible {
+  .idmenu-mode[aria-pressed="true"] {
+    color: var(--nav-on-ink);
+    background: var(--accent-weak);
+    border-color: var(--accent-line);
+  }
+  .idmenu-mode:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
   /*
-   * 外观切换（原型里的 `.modesw`）。原型是两个 `<b>`——它禁 JS，所以只是一块静态标记；
-   * 真控件必须是 `<button>`：US 5 要求能 Tab 到、能回车触发，`<b>` 两者都做不到。
+   * 身份菜单的弹出层（`Dropdown` 的 `classNames.root`）。
+   *
+   * 不给宽度时，宽度由内容撑开：三枚外观图标 + 三个四字条目，算下来正好与触发按钮
+   * 同宽（实测 123px），读起来像"菜单继承了按钮的宽度"。给一个下限让它与按钮解耦；
+   * 上限不设 —— 换成长条目时它该跟着长，而不是截断。
+   *
+   * 184 是这么来的：最长条目「个人设置」四字（14px × 4 ≈ 56）+ 图标 14 + 图标与文字
+   * 间距 8 + 左右内边距 24 + 选中底色的内缩留白 ≈ 110，再留出 70px 让条目右端不顶到边。
    */
-  .modesw {
-    display: inline-flex;
-    gap: 6px;
-    margin-top: 7px;
-    font-size: 12px;
-    color: var(--ink3);
+  .idmenu-pop {
+    min-width: 184px;
   }
-  .modesw button {
-    font: inherit;
-    font-weight: 400;
-    padding: 1px 7px;
-    border-radius: 4px;
-    border: 1px solid transparent;
+  /*
+   * antd `Avatar` 的默认底色是 `colorTextPlaceholder`（`antd/es/avatar/style/index.js:136`
+   * 的 `avatarBg: colorTextPlaceholder`），而它的字是**白色**。本仓没映射那个 token，
+   * 于是浅色下它取 antd 默认（灰），深色下 antd 会把它算成一个**浅**灰 ——
+   * 白字压浅灰，实测 3.14:1（真页视觉冒烟在 /profile 上量的，浅色下则刚好过线）。
+   *
+   * 覆盖成强调色底 + 强调色上的文字色（`--accent-ink`）：这一对在明暗下都过 4.5:1
+   * （deep 侧 `#0B1220` on `#4087FB`，light 侧 `#FFFFFF` on `#2563EB`），
+   * 且"人的头像"用品牌色是这版系统里唯一一处想要的暖意——它不承担状态语义，
+   * 所以不与"颜色不作唯一通道"冲突（那是说**状态**）。
+   *
+   * 写在 `@layer components` 里：层外写覆盖会连 antd 的其它样式一起打败（见文件头）。
+   */
+  .ant-avatar {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  /*
+   * 表头排版（2026-10-22，同一条 live 事件「字体要适配」）。
+   *
+   * canon 的表格表头是 **12.5px / 500 / `--ink2`**（`canon.css` 的 `.tb th`），
+   * 而 antd 用 `fontWeightStrong`（600）与全表统一的 13px 画表头 —— 实测表头与正文
+   * 同为 13px、只靠 600 的字重区分。表头是**列名**不是标题：它该比正文退一档，
+   * 而不是与正文同字号再加粗（那样每一列名都在跟数据抢注意力）。
+   *
+   * 13px 仍是全站正文基准（DESIGN「Typography」）；这里只改表头这一档。
+   *
+   * 居中（2026-10-22 用户要求「所有表头采用居中样式」）：列名是**标签**，
+   * 每列长短不一、左对齐时列名与下面的数据各起各的头；居中之后列名落在列的中轴上。
+   * 只动表头，单元格仍是左对齐 —— 正文左对齐才好扫读。
+   */
+  .ant-table-thead > tr > th {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink2);
+    text-align: center;
+  }
+  /*
+   * 行内可编辑单元格（2026-10-22：点「经办人 / 状态 / 程序」三格的当前值直接改）。
+   *
+   * 显示态必须与普通单元格长得一样，否则一屏 20 行全是"可点的控件"，读表变成读表单；
+   * 但又不能完全无提示——鼠标移上去给一条虚线下划与强调色，是"这里能改"的最小信号。
+   */
+  .cell-edit {
+    appearance: none;
     background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
     color: inherit;
     cursor: pointer;
+    text-align: left;
+    border-bottom: 1px dashed transparent;
   }
-  html:not(.dark) .modesw .m-light,
-  html.dark .modesw .m-dark {
-    color: var(--nav-on-ink);
-    background: var(--nav-on);
-    border-color: var(--accent-line);
-  }
-  .modesw button:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  .cell-edit:hover,
+  .cell-edit:focus-visible {
+    color: var(--accent-ink);
+    border-bottom-color: var(--accent-ink);
   }
   .main {
     flex: 1;
@@ -263,7 +461,8 @@
    */
   .page > .card:last-child,
   .page > .stack:last-child,
-  .page > .master:last-child {
+  .page > .master:last-child,
+  .page > .detail:last-child {
     flex: 1;
     min-height: 0;
   }
@@ -315,12 +514,376 @@
   .stack > * + * {
     margin-top: 16px;
   }
+  /* 工作台：指标带拆成独立卡之后，16 在区块之间读起来偏挤，单独放到 20。
+     名字取 `roomy` 而不是 `stack2`：这条规则说的是"这页的区块间距更松"。 */
+  .stack.roomy > * + * {
+    margin-top: 20px;
+  }
+  /*
+   * 列表页的宽度预算（2026-10-22，live 事件 38477c49「表格宽度要适配」）。
+   *
+   * 实测病症：列表容器**没有任何宽度上限** ⇒ 卡片随视口一起长，
+   * 而表格里唯一可伸缩的列是「案名」，它把余量全吃掉：
+   *   1366 → 案名 248px；1440 → 322px；1920 → **802px**；2560 → **1442px**
+   * （同屏「程序」只有 88px）。一列 1442px 的案名与 88px 的程序并排，
+   * 读起来是"一根巨柱 + 一堆细缝"，而不是一张台账。
+   *
+   * 口径不是新发明：DESIGN「列宽预算」写的是「1920 下 1400px（列表容器有 maxWidth: 1400）」，
+   * 2026-10-17 用户也拍过「宽屏窄表：内容区收窄居中，不铺满」。这条上限在
+   * antd 重写那轮掉了，这里补回。
+   *
+   * 只挂 `list` 修饰类、不加到所有 `.stack` 上：工作台/通知是另一套版式（指标带 + 活动列），
+   * 它们的宽度该各自定。1366/1440 的容器本就低于 1400，这两档的观感与列宽预算完全不变。
+   */
+  .stack.list {
+    width: 100%;
+    max-width: 1400px;
+    margin-inline: auto;
+  }
   .card-h {
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 14px 16px;
     border-bottom: 1px solid var(--line2);
+  }
+  /*
+   * 通知卡头（2026-10-21 live 定稿 · 工具条并进卡片那一档）。
+   *
+   * 三条判断：
+   *   · **与卡面同色，靠细线分界**。这条头带是卡片的顶栏，不是浮在卡片上方的工具条：
+   *     底色取 `--card`（与卡面同色），下方一条 1px `--line2` 交代「工具区到此为止」。
+   *     原来那一行浮在卡片外，分段器与它操作的列表隔着一整张卡——「有时发现不了」是距离，
+   *     不是控件本身的问题，所以解法是并进来，不是把控件画得更响。
+   *   · **卡片裁圆角**。头带的圆角由卡片的圆角裁出来（`overflow: hidden`）：两块圆角对不上
+   *     就是两层盒子，而这里要的是一个盒子。
+   *   · **分段器浮起来一档**。antd 的分段器默认是「灰底 + 浮块」，落在卡头上像贴了块膏药；
+   *     这里把轨道底去掉、留 1px 描边 + 一点投影，于是它是**浮在卡面上的一件控件**，
+   *     而不是卡片底色上的一块补丁。选中态沿用 antd 自己的白色浮块。
+   */
+  .ncard {
+    overflow: hidden;
+  }
+  .nhead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px;
+    border-bottom: 1px solid var(--line2);
+  }
+  .nhead .sp {
+    flex: 1;
+  }
+  .nhead .ant-segmented {
+    --ant-segmented-track-bg: transparent;
+    --ant-segmented-item-selected-bg: var(--card);
+    --ant-segmented-item-selected-color: var(--ink);
+    --ant-segmented-item-color: var(--ink2);
+    --ant-segmented-item-hover-bg: var(--hover);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 2px;
+    box-shadow: var(--shadow);
+  }
+  /*
+   * 两档**同宽**（2026-10-21 用户裁定）。
+   *
+   * 「未读」那档多一枚计数徽章，于是自然宽度比「全部」宽 25px。两档不等宽时，
+   * 视线落到短的那档上，两档像两件尺寸不同的东西；同宽之后它们读起来是**一组**——
+   * 一个二选一的开关，而不是两个碰巧挨在一起的按钮。
+   *
+   * 取「未读」那档的自然宽度（75px = 词 26 + 间距 7 + 徽章 25 + 左右内边距 24），
+   * 用 `min-width` 而不是固定 `width`：窄屏放不下时仍可收缩，不会顶破容器。
+   */
+  .nhead .ant-segmented-item-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-size: 13px;
+    min-height: 26px;
+    line-height: 26px;
+    padding: 0 12px;
+    min-width: 75px;
+  }
+  /*
+   * 未读计数徽章（2026-10-21 live 定稿 · V2 计数成块）。
+   *
+   * 原来「未读 17」是一串连读的字：数字和词同字号同色，眼睛要逐字扫才数得出来。
+   * 拆成一枚 20×18 的小片后，数字成了可扫的锚点——**「有多少」先被看见，「看哪一档」后被读到**。
+   *
+   * 三条判断：
+   *   · **底色走导航当前页那一对**（`--nav-on` / `--nav-on-ink`），不新长第三种：全站
+   *     「计数成块」只有一种画法（`.selbar-count` 是同一件事的另一个场合）。
+   *   · **数字用等宽**（`tabular-nums`）：徽章宽度随数字变，切换档位时整条控件会左右跳。
+   *   · **选中时徽章跟着变实心**：档位是"未读"时，未读数是当前正在看的那一批，
+   *     强调它不矛盾；未选中时它是提示，弱一档就够。
+   */
+  .nseg-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    border-radius: 9px;
+    background: var(--accent-weak);
+    color: var(--nav-on-ink);
+  }
+  .nhead .ant-segmented-item-selected .nseg-num {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  /*
+   * 通知行（2026-10-21 · 与 `.nhead` 同一轮的盒子收口）。
+   *
+   * 三条判断：
+   *   · **未读的面积通道是行底**。它与字重（500）、圆点+词是两个独立通道——
+   *     色觉障碍或灰阶打印时至少还剩两个。底色放在类里而不是行内 style：
+   *     悬停态要覆盖它，行内 style 的优先级会把 `:hover` 顶掉。
+   *   · **行分隔是 `--line2`**，不是 `--line`：这是同一张卡内的行，不是区块边界。
+   *   · **末行不画底线**。卡片 `overflow: hidden` 之后，末行那条线与卡片底边只差 2px，
+   *     读起来是一条双线；最后一行本来也没有"下一行"要分隔。
+   */
+  .nrow {
+    border-bottom: 1px solid var(--line2);
+    transition: background-color 120ms ease-out;
+  }
+  .nrow-unread {
+    background: var(--accent-weak);
+  }
+  .nrow:hover {
+    background: var(--hover);
+  }
+  /* 从列表项定位末行：每行都是自己 `.ant-listy-item` 的唯一子元素，
+     直接写 `.nrow:last-child` 会命中全部行（踩过一次）。 */
+  .ant-listy-item:last-child .nrow {
+    border-bottom: none;
+  }
+  /*
+   * 详情页两列（原型 `matter-detail.html` 的 `.detail`）：左列是页面内容，
+   * 右列 356px 常驻评论栏。**评论从「过程记录」页签里搬出来**放这里——
+   * 它是"这件案子正在被怎么说"的活文本，频次高于一切字段，藏在第六个页签里等于没有。
+   *
+   * 右栏的三个数都是**量出来的**（`component-guidelines` 的 sticky 三条坑）：
+   *   · `top: 72px` = 顶栏 52 + `.page` 上内边距 20。写原型的 68 会在滚动时跳 4px，
+   *     写 76 跳 4px 反向——sticky 的 top 必须等于内容区顶端在视口里的真实 y。
+   *   · `height: calc(100vh - 112px)` = 视口 - 72(顶端) - 40(`.page` 下内边距)。
+   *     用 `height` 不用 `maxHeight`：`maxHeight` 只封顶不撑开，卡会变内容高，
+   *     "输入框钉底"当场不成立（角色页与这里各踩过一次）。
+   *   · `align-self: start` 抵掉 grid 默认的 stretch——否则左列一长，右栏被拉到同高，
+   *     "底边恒在折线以上"失效（原型注释里量过 920 / 1100）。
+   */
+  .page > .detail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 356px;
+    gap: 16px;
+    align-items: start;
+  }
+  .detail > .stack {
+    display: flex;
+    flex-direction: column;
+    /* 左列内容少时也撑到折线，不让右栏孤零零比左边长（内容多时这条不起作用） */
+    min-height: calc(100vh - 112px);
+  }
+  .detail > .stack > *:last-child {
+    flex: 1;
+    min-height: 0;
+  }
+  .detail > aside {
+    position: sticky;
+    top: 72px;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 112px);
+  }
+
+  /* ── 评论栏（原型 `.chat`）：头 / 可滚消息区 / 钉底输入区 ─────────────── */
+  .chat {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .chat-h {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--line2);
+  }
+  .chat-h h2,
+  .chat-h h3 {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .chat-h .sp {
+    flex: 1;
+  }
+  .chat-h .num {
+    font-size: 12px;
+    color: var(--ink2);
+  }
+  /* 消息区自己滚：`flex:1` + `min-height:0` 是滚动的真正前提，缺一条整栏就被撑高 */
+  .chat-b {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px 16px 6px;
+  }
+  /* 日期分隔：中性小字夹在两条线之间，不抢消息本身的层级 */
+  .chat-day {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0 12px;
+    font-size: 11.5px;
+    color: var(--ink3);
+  }
+  .chat-day::before,
+  .chat-day::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line2);
+  }
+  .chat-day:first-child {
+    margin-top: 0;
+  }
+  /* 一条消息：首字头像 + 正文列。头像用首字、颜色取强调色的浅档，不引外部图片资源 */
+  .msg {
+    display: flex;
+    gap: 9px;
+    padding: 7px 0;
+  }
+  .msg + .msg {
+    margin-top: 2px;
+  }
+  .msg .av {
+    width: 26px;
+    height: 26px;
+    flex: 0 0 26px;
+    border-radius: 50%;
+    background: var(--accent-weak);
+    border: 1px solid var(--accent-line);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .msg .bd {
+    min-width: 0;
+    flex: 1;
+  }
+  .msg .meta {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    flex-wrap: wrap;
+    margin-bottom: 3px;
+  }
+  .msg .meta b {
+    font-weight: 500;
+    font-size: 12.5px;
+  }
+  .msg .meta .t {
+    font-size: 11.5px;
+    color: var(--ink3);
+  }
+  .msg .txt {
+    font-size: 13px;
+    line-height: 1.65;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+  /* 回复：缩进一级 + 左侧细线。评论只允许 1 层嵌套，所以不写无限递归的缩进 */
+  .msg-reply {
+    margin: 4px 0 0 26px;
+    padding-left: 10px;
+    border-left: 1px solid var(--line);
+  }
+  /* 输入区：钉在卡底，自带上边线；不参与 `.chat-b` 的伸缩 */
+  .chat-f {
+    border-top: 1px solid var(--line);
+    padding: 10px 16px 12px;
+    background: var(--card);
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+  .chat-f .bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .chat-f .bar .sp {
+    flex: 1;
+  }
+  /*
+   * 附件芯片：编辑期（可移除）与读侧（可下载）共用同一个壳子。
+   * 24 高而不是 28：它待在输入框与工具条之间，是"这一行的补充"，
+   * 与 32 高的按钮同高会把人眼拉去读附件而不是读评论正文。
+   */
+  .attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    height: 24px;
+    padding: 0 4px 0 7px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink2);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1;
+  }
+  button.attachment-chip {
+    cursor: pointer;
+  }
+  button.attachment-chip:hover {
+    background: var(--hover);
+  }
+  .attachment-chip .name {
+    max-width: 168px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .attachment-chip .meta {
+    font-size: 11px;
+  }
+  .attachment-chip .x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--ink3);
+    cursor: pointer;
+  }
+  .attachment-chip .x:hover {
+    color: var(--ink);
+    background: var(--hover);
+  }
+  .chat-empty {
+    padding: 36px 8px;
+    text-align: center;
+    color: var(--ink2);
+    font-size: 13px;
+    line-height: 1.7;
   }
   /*
    * 卡片头标题。**h2 与 h3 两种标签、同一副面孔**：
@@ -541,10 +1104,104 @@
     font-style: normal;
   }
 
+  /*
+   * 功能配置入口页的五张分组卡（2026-10-21 live 定稿 · 变体 2，参数 elev=0.8 / rule=on / rail=on）。
+   *
+   * **高度不一致的根因是 `.card + .card { margin-top: 16 }`**：栅格把每行的高撑到该行最高那张卡，
+   * 而 `margin-top` 是从这份高里扣的，于是同一行里除第一张外全部矮 16px
+   * （改前实测 305 / 289 / 289 / 289 / 162）。栅格自己已有 `gap`，所以修法是**把卡间外边距归零**
+   * 让 stretch 真的撑满，而不是给卡定一个死高。
+   *
+   * **2026-10-21 再定：五张卡等高，与各自几行内容无关。**
+   * 上一轮只做到"同一行等高"（`align-items: stretch`），但容器宽 1102px、
+   * `minmax(240px, 1fr)` 只排得下 4 列，于是第五张「通知配置」折到第二行、
+   * 没了同行可拉伸，停在 141px（其余四张 249px）。用户要的是**五张一样高**。
+   *
+   * ⇒ 加 `grid-auto-rows: 1fr`：**所有行等高**，不只同行。这一条就够解决「折行那张矮一截」，
+   * 而且它对列数不敏感——排 4 列还是 5 列，第二行的卡都一样高。
+   *
+   * **列模板照原型 `config.html`**：`minmax(max(200px, (100% - 64px) / 5), 1fr)`。
+   * `(100% - 64px)` 是 4 个 16px 间隙，五等分后每列至少 200px。1366 下实测每列 207px，
+   * 文字区 174px、最长一行「节点通知状态」也放得下，箭头零溢出（`max(200px, …)`
+   * 这个下限保证不会比 200px 更窄，再窄就读不下了）。
+   *
+   * **质感走投影与发丝线，不走底色分层**：双层阴影近实远虚（7% / 10.6% 两档，由 elev=0.8 烘出），
+   * 细项之间一根 `--line2` 交代"这是一册清单"，悬停才铺 `--hover` 底并亮一道 2px 强调导轨。
+   * 静止时页面没有第二块彩色，反馈只在指到的那一行出现。
+   */
+  .cfg-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(max(200px, (100% - 64px) / 5), 1fr));
+    grid-auto-rows: 1fr;
+    gap: 16px;
+    align-items: stretch;
+  }
+  .cfg-grid > .card {
+    margin-top: 0;
+    box-shadow:
+      0 1px 1px color-mix(in srgb, var(--ink) 7%, transparent),
+      0 12px 23px color-mix(in srgb, var(--ink) 10.6%, transparent);
+  }
+  .card-b.cfg-list {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 16px 12px;
+  }
+  .cfg-list .cfgrow {
+    position: relative;
+    height: 36px;
+    padding: 0;
+  }
+  /* 行间发丝线：文字缩进 16，线铺满卡宽——线属于这张卡，不属于某一行字 */
+  .cfg-list .cfgrow + .cfgrow::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -16px;
+    right: -16px;
+    height: 1px;
+    background: var(--line2);
+  }
+  /*
+   * 单个功能项**没有悬停态**（2026-10-21 用户裁定：直接去掉）。
+   *
+   * 走到这一步是连续三次收窄：先是 6px 同色外圈 + 2px 强调导轨（像选中态），
+   * 改成只有浅底色，最后用户判定"干脆去掉"。所以这里刻意**不写** `:hover` 规则——
+   * 与 canon 原型一致（原型 `.cfgrow` 本来就只有排版，没有交互态）。
+   *
+   * 判据：这一行是"点进下一级页面"的入口，光标形状与下划线已经交代了可点；
+   * 加底色反而让整张清单在鼠标扫过时不断闪烁。要恢复悬停反馈，先回来读这段。
+   */
+  /* 深色下投影不可见（`--ink` 是浅墨，混出来是灰雾）：层级改由描边承担，见 ADR-0006 */
+  html.dark .cfg-grid > .card {
+    box-shadow: none;
+    border-color: var(--control-line);
+  }
+
   /* 顶栏里详情页的返回入口与右侧留白（`h1` 已在外壳段落） */
   .topbar .back {
     color: var(--ink2);
     font-size: 13px;
+  }
+  /*
+   * 详情页标题**上方**的返回入口。原型的返回在顶栏（`.topbar .back`），但顶栏由
+   * `AppShell` 统一渲染、只写当前页名（MATT-98：顶栏不是链接），所以全站详情页把它
+   * 落在页头上方。形态此前在 `matter-detail` 与 `config-kind-view` 各写一份行内 style
+   * （其中一份还靠 `margin-bottom:-8` 去顶掉 `.stack` 的 16 间距）——成类之后两处同一份。
+   * 12px 而不跟 `.topbar .back` 的 13px：它在标题之上，是这一屏**第二**读的东西。
+   */
+  .backlink {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--ink2);
+  }
+  .backlink .anticon {
+    font-size: 11px;
+  }
+  .backlink:hover {
+    color: var(--accent);
   }
   .topbar .sp {
     flex: 1;
@@ -574,22 +1231,38 @@
     flex: 1;
   }
 
-  /* 指标带：数字口径一律来自服务端聚合，前端不按当页数据现算（禁令⑧） */
+  /* 最近动作：垂直单列，行等分卡片高度 —— 行高由列表容器的 `grid-auto-rows` 决定，
+     这里只管一行的内部对齐与分隔线。 */
+  .activity-row {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 6px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .activity-row:last-child {
+    border-bottom: 0;
+  }
+  .activity-meta {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--ink3);
+  }
+
+  /* 指标带：数字口径一律来自服务端聚合，前端不按当页数据现算（禁令⑧）
+     2026-10-20：从"一条带 + 内部竖线"改成**各自成卡**（卡间 12）—— 原来五格贴在一起，
+     读起来是一张表而不是五个读数。容器本身不再有底色/描边/阴影。 */
   .metrics {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+  }
+  .metric {
+    padding: 14px 16px;
     background: var(--card);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     box-shadow: var(--shadow);
-    overflow: hidden;
-  }
-  .metric {
-    padding: 14px 16px;
-    border-right: 1px solid var(--line2);
-  }
-  .metric:last-child {
-    border-right: none;
   }
   .metric b {
     display: block;
@@ -650,6 +1323,24 @@
     color: var(--ink3);
     background: var(--card-2);
   }
+  /* 悬停 / 焦点：与 `.navfoot .inbox` 同一套三档 idiom —— 底色 `--hover`、
+     描边 `--control-line`、焦点环 `--accent`。此前 `.btn` 一条都没有，
+     悬停毫无响应、键盘焦点彻底不可见（实测 outline 为 none）。 */
+  .btn:hover:not([disabled]) {
+    background: var(--hover);
+    border-color: var(--control-line);
+  }
+  .btn.pri:hover:not([disabled]) {
+    /* 不与 `.btn` 的 `--hover` 底同色（强调色底会被盖成灰），改用与墨色混一档：
+       浅色下 `--ink` 是深墨 → 压深；深色下 `--ink` 是浅墨 → 提亮。两个方向都只动一档，
+       且不引入新色值（色值单源在 `brand.ts`，这里只做混色）。 */
+    background: color-mix(in srgb, var(--accent) 92%, var(--ink));
+    border-color: color-mix(in srgb, var(--accent) 92%, var(--ink));
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
 
   /* 表单件：`.field` 标签在上控件在下；`.inp`/`.sel` 高 32 */
   .field {
@@ -660,6 +1351,26 @@
   .field > label {
     font-size: 12px;
     color: var(--ink2);
+  }
+  /*
+   * 查询区里的**同一行标签**：标题与控件横排，标签右内边距让出视觉间隙。
+   * 与 `.field > label`（标签在上）是两种排法，按各自区块的密度各用一种：
+   * 配置表单纵向堆、查询条横向排 —— 后者要把六个筛选压进一行，标签上下排会翻到第二行。
+   */
+  .query-label {
+    font-size: 12px;
+    color: var(--ink2);
+    line-height: 32px;
+    white-space: nowrap;
+  }
+  /*
+   * 查询区里的控件**填满所在格**。
+   * antd `Select` 默认按内容收缩（实测只有 70px），不填满它那个 120px 的容器 ——
+   * 于是「声明的宽度」与「实际画出来的宽度」是两回事，六个下拉挤在一起时
+   * 看上去就是"都变形了"。`Input` 本来就 100%，这条只管 `Select`。
+   */
+  .query-control .ant-select {
+    width: 100%;
   }
   .inp,
   .sel {
@@ -675,6 +1386,18 @@
   }
   .inp.ph {
     color: var(--ink3);
+  }
+  /* 与 `.btn` 同因：`.inp` / `.sel` 此前没有任何 hover 与焦点环，
+     焦点态退回浏览器默认的那圈白边（深色页上格外刺眼）。 */
+  .inp:hover,
+  .sel:hover {
+    border-color: var(--control-line);
+  }
+  .inp:focus-visible,
+  .sel:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+    border-color: var(--accent);
   }
   .sel {
     justify-content: space-between;
@@ -814,6 +1537,51 @@
   .tb .ph {
     color: var(--ink3);
   }
+  /*
+   * 表单里的表格（2026-10-21 · 新建案件弹层「当事人」区）。
+   *
+   * 与 `.tb`（展示型数据表）同一套视觉语言，但三处按"表格里放控件"改：
+   *   · **行高自适应**。`.tb` 的 40px 固定行高是按纯文本排的；格里放 30px 的
+   *     `Input` / `Select` 之后，40px 会把上下留白吃光，改成按内容撑、上下 6px。
+   *   · **单元格内边距收到 8px**。控件自己有内边距，12px 会让两列控件之间空出 24px。
+   *   · **不跟随行悬停**。`.tb tr:hover td` 是给"点行进详情"的数据表用的；
+   *     表单行悬停只会让正在输的那一行闪一下，这里显式关掉。
+   *
+   * 判据：这是**表单控件**的排布，不是数据列表——没有服务端分页/排序/筛选，
+   * 所以不走 `DataTable`（禁令⑧ 管的是数据表，理由见 `notifications-view.tsx` 头注）。
+   */
+  .tbform {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .tbform th {
+    height: 32px;
+    padding: 0 8px;
+    text-align: left;
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--ink2);
+    background: var(--th);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .tbform td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--line2);
+    vertical-align: middle;
+  }
+  .tbform tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .tbform .ant-form-item {
+    margin-bottom: 0;
+  }
+  .tbform .ant-select,
+  .tbform .ant-input-affix-wrapper,
+  .tbform .ant-input {
+    width: 100%;
+  }
   .tool {
     display: flex;
     align-items: center;
@@ -834,6 +1602,89 @@
   }
   .pager .sp {
     flex: 1;
+  }
+
+  /*
+   * 卡头右端的**视图控件组**（2026-10-21 live 定稿 · 成组容器那一档，参数 group-pad=8 / group-bg=flat）。
+   *
+   * 次序由用户定死：`新建 → 导入 → 导出`（动作）之后才是 `列设置 / 刷新`（视图控件），
+   * 读法是从"要做什么"到"要什么数据"再到"把这屏调成我想看的样子"。两类之间不靠留白暗示，
+   * 靠这枚自带描边的容器交代——**分组是个盒子，不是一段间距**，间距在不同卡头宽度下会被拉匀，
+   * 盒子不会。底色取 flat（跟卡头同色）：上一轮试过 `--th` 浅档，那层灰把两个图标压成了背景。
+   */
+  .hgroup {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .hgroup .ant-btn {
+    color: var(--ink2);
+  }
+  .hgroup .ant-btn:hover {
+    color: var(--ink);
+    background: var(--hover);
+  }
+
+  /*
+   * 选中工具条（`.tool` 的实现侧形态，2026-10-21 live 定稿）。摆放由 `DataTable` 负责，
+   * 这里只管长相。三条判断都来自"这条只在选中时出现"这件事本身：
+   *
+   *   · **底色退回 `--card`**。原先是 `--accent-weak` 的浅蓝带，于是一条临时横条比卡头和
+   *     表格内容都响。层级不需要颜色来喊，1px 下边线就够交代"它属于上面的表头区"。
+   *   · **计数成块**。「已选 N 项」是这条的主语，收成 22px 小片；底色借用导航当前页那一对
+   *     令牌（`--nav-on` / `--nav-on-ink`），同一件事在全站只有一种画法，不新长第三种。
+   *   · **只有一个动作拿强调**。四个动作等宽等色时，用户要读完标签才知道先点哪个；
+   *     「改状态」是选中后的主操作，给它半强调（`--accent-weak` 底 + `--accent-line` 描边——
+   *     live 上试过实心那档后选了更轻的这档），归档/加标签退回普通描边，
+   *     「取消选择」压到 `--ink3`：它是撤销，不是动作。
+   *
+   * 行高取宽松一档（上下 12px、间距 12px）：选中条是"停下手看一眼"的场合，不省这点高度。
+   */
+  .selbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: var(--card);
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .selbar-count {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 5px;
+    background: var(--nav-on);
+    color: var(--nav-on-ink);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+  .selbar .ant-btn {
+    border-radius: 6px;
+  }
+  .selbar .ant-btn.primary {
+    background: var(--accent-weak);
+    border-color: var(--accent-line);
+    color: var(--nav-on-ink);
+    font-weight: 500;
+  }
+  .selbar .ant-btn.primary:hover:not([disabled]) {
+    background: color-mix(in srgb, var(--accent) 18%, var(--card));
+    border-color: var(--accent);
+    color: var(--nav-on-ink);
+  }
+  /* 撤销类动作压到最弱一档，并靠 `margin-left:auto` 与真正的动作分两头 */
+  .selbar .ant-btn-link {
+    margin-left: auto;
+    color: var(--ink3);
+  }
+  .selbar .ant-btn-link:hover:not([disabled]) {
+    color: var(--accent);
   }
 
   /* 标签与状态：语义 tag 的底用 --card（浅底会把前景压到 4.5 以下），色温由描边承担 */
@@ -976,20 +1827,29 @@
     border: 1px solid var(--card);
   }
 
-  /* 登录：整页居中一张 400 卡片，无 nav 无顶栏 */
+  /* 登录：一列放下品牌名与表单，没有卡片容器——层级由输入框描边与实心主按钮承担。
+     表单落在视口上三分之一（`padding-top: 15vh`）：视线不用下探，也不与屏幕正中打架。 */
   .login {
     min-height: 100vh;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
+    padding-top: 15vh;
   }
-  .login .card {
-    width: 400px;
-    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+  .login-stack {
+    width: 320px;
   }
-  html.dark .login .card {
-    box-shadow: none;
-    border-color: var(--line);
+  .login-brand {
+    margin: 0 0 20px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    /* 居中 + 放大是一组：居中的标题如果还是 18px，读起来像摆在表单上方的标签 */
+    text-align: center;
+  }
+  .login-stack .btn.pri {
+    height: 40px;
   }
 
   /* 弹层：遮罩 + 面板（780 / `.narrow` 520 / `.wide` 900），头与底栏钉住、只滚 `.modal-b` */

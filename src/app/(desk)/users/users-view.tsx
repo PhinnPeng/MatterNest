@@ -235,7 +235,7 @@ export function UsersView() {
     {
       key: "actions",
       title: "操作",
-      width: 230,
+      width: 216,
       fixed: "right",
       render: (_v, r) => {
         const isMe = r.id === me;
@@ -299,7 +299,7 @@ export function UsersView() {
   ];
 
   return (
-    <div className="stack">
+    <div className="stack list">
       {pending.length > 0 ? (
         <div className="card">
           <div className="card-h">

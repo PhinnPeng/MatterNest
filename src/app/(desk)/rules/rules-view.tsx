@@ -293,7 +293,7 @@ export function RulesView() {
 
   return (
     <>
-      <PageHeader title="自动化规则" />
+      <PageHeader title="自动化" />
 
       <div className="card">
         <div className="card-h">

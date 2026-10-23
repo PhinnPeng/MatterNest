@@ -82,11 +82,8 @@ export function ConfigKindView({ kind }: { kind: ConfigKind }) {
  */
 function BackToConfig() {
   return (
-    <Link
-      href="/config"
-      style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}
-    >
-      <ArrowLeftOutlined style={{ fontSize: 11 }} />
+    <Link href="/config" className="backlink">
+      <ArrowLeftOutlined />
       返回功能配置
     </Link>
   );

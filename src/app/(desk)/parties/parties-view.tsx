@@ -196,7 +196,7 @@ export function PartiesView() {
   }
 
   return (
-    <div className="stack">
+    <div className="stack list">
       <QueryFilter
         onSearch={() => push({ keyword: kw.trim() })}
         onReset={() => {
@@ -364,7 +364,7 @@ function PartyCreateDialog({
             type="error"
             showIcon
             style={{ marginBottom: 12 }}
-            message={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
+            title={mut.error instanceof ApiFailure ? mut.error.message : "提交失败"}
             // 409（同证件号已在库）时给下一步：列表支持按**完整证件号**精确搜，
             // 搜到就能打开那一份 —— 所以这里不需要额外接口回传它的 id
             description={
@@ -386,7 +386,7 @@ function PartyCreateDialog({
             type="warning"
             showIcon
             style={{ marginBottom: 12 }}
-            message="这是本企业名称，我方不入当事人表"
+            title="这是本企业名称，我方不入当事人表"
             description="本企业在案件中的地位由该案的「我方诉讼地位」表达。这一栏请填对方当事人或第三人。"
           />
         ) : null}
@@ -395,7 +395,7 @@ function PartyCreateDialog({
             type="info"
             showIcon
             style={{ marginBottom: 12 }}
-            message={`库里已有同名档案：${sameName.map((s) => s.name).join("、")}`}
+            title={`库里已有同名档案：${sameName.map((s) => s.name).join("、")}`}
             description="同名可能是两家，所以这里会新建一行而不是自动合并；确认是同一家，建档后到详情页把它们合并。"
           />
         ) : null}

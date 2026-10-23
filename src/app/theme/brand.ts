@@ -36,9 +36,22 @@
  * `brand.spec.ts` 守着"每个别名都指向一个真的定义过的令牌"。
  */
 
-/** 明暗两台外观。SSR 一律先按浅色渲染，客户端首帧前由 `<head>` 脚本改成已存值。 */
+/** 明暗两台**物理**外观。SSR 一律先按浅色渲染，客户端首帧前由 `<head>` 脚本改成已存值。 */
 export const APPEARANCES = ["light", "dark"] as const;
 export type Appearance = (typeof APPEARANCES)[number];
+
+/**
+ * 用户可选的**偏好**：两台物理外观 + 「跟随系统」（US 4，2026-10-18）。
+ *
+ * 为什么偏好不是 `Appearance` 的第三个成员：`TOKENS` / `ELEVATION` / `antd.ts` 的 `THEMES`
+ * 都是 `Record<Appearance, …>`，它们的值域是**物理色表**（只有两套），加一个 `system`
+ * 会让这三处各缺一个键而编译不过——那是正确的拒绝。"跟随系统"不是第三套颜色，
+ * 它是**解析规则**：由 `resolveAppearance()` 在运行时把偏好折成两台之一。
+ * 两个类型分开之后，"谁只能拿物理值"（`tokensOf` 的入参）与"谁能存偏好"（localStorage）
+ * 在类型上就分得开，不必靠人记。
+ */
+export const APPEARANCE_PREFS = ["system", "light", "dark"] as const;
+export type AppearancePref = (typeof APPEARANCE_PREFS)[number];
 
 /** 深色外观的类名，打在 `<html>` 上（CSS 侧的选择器是 `html.dark`）。 */
 export const DARK_CLASS = "dark";
@@ -148,6 +161,25 @@ export const ELEVATION: Record<Appearance, string> = {
 /** 取一台外观的令牌表。调用点只该用它，不要自己拼 `TOKENS[mode]` 的分支。 */
 export function tokensOf(appearance: Appearance): Readonly<Record<TokenName, string>> {
   return TOKENS[appearance];
+}
+
+/**
+ * 「跟随系统」判的是哪一个媒体查询。首帧脚本（`appearance.ts`）只能引用浏览器全局，
+ * 也要用到同一个字符串——所以它**只有一个字面量**，住在 `brand.ts`（本文件不 import react，
+ * 也不 import antd，所以 `<head>` 脚本、服务端、客户端三边都取得动）。
+ */
+export const DARK_MEDIA_QUERY = "(prefers-color-scheme: dark)";
+
+/**
+ * 偏好 → 物理外观。**唯一**的解析处。
+ *
+ * `system` 折成哪一台取决于 `prefersDark`——它由调用方传进来，而不是在这里读 `matchMedia`：
+ * 服务端渲染时没有 `window`，而"读浏览器"的那一半分别住在 `appearance.ts`（首帧脚本）
+ * 与 `appearance-provider.tsx`（水合后的监听）。本函数保持纯函数，测试才不需要 DOM。
+ */
+export function resolveAppearance(pref: AppearancePref, prefersDark: boolean): Appearance {
+  if (pref === "system") return prefersDark ? "dark" : "light";
+  return pref;
 }
 
 /**

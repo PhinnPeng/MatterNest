@@ -14,13 +14,18 @@ import { DEADLINE_TONE } from "@/app/theme/antd";
  * 工作台。三段，都是整宽：
  *   ① **指标带** —— 5 张等宽等高的读数卡（PRD 那四问 + 本月新增案件）；
  *   ② **待办节点** —— 今天该动手的清单，一行一个节点（节点名 / 案件号 / 案件名 / 期限 四列对齐）；
- *   ③ **最近动作** —— 这里刚发生了什么，两列 10 条。
+ *   ③ **最近动作** —— 这里刚发生了什么，垂直单列 10 条，行等分卡片余量。
  *
  * 【2026-10-16 改版，原型见 `prototype` 分支的 `prototype-wb-optimize.html`】此前是
  * "左清单 + 右读数卡"的 15/6 两栏，三个问题：读数只有 2×2 四个数（"这周有没有新活进来"
  * 看不见）；两栏高度不齐，左栏长的时候右栏下面空一大截；最近动作挤在 6/24 的窄栏里，
  * 每条只放得下动作名 + 案件号。改成整宽三段后：5 张指标卡的数字落在同一条基线上、
- * 待办节点靠栅格对齐（不再是"标题一行 + 说明一行"）、动作两列 10 条只占 5 行。
+ * 待办节点靠栅格对齐（不再是"标题一行 + 说明一行"）。
+ *
+ * 【2026-10-20 最近动作改垂直单列】原来是两列 5 行。这张卡是 `.stack` 的末元素，
+ * 会被 `.page > .stack > *:last-child` 的 `flex: 1` 拉到页面余量高度 —— 两列只占 5 行，
+ * 下面留一大片空。改成单列后用 `grid-auto-rows: minmax(44px, 1fr)` 让 10 行等分这段高度，
+ * 不留空白，同时保持像素行高下限（行数少时不会把一行拉成一条横幅）。
  *
  * **待办节点仍是第一段内容**：这张页要回答的第一问是"今天有什么会过期"，
  * 指标带只是背景事实。
@@ -194,11 +199,12 @@ export function Workbench() {
   ];
 
   return (
-    <div className="stack">
-      {/* 原先标题上方还有一行日期 + 星期（2026-10-12 撤）：标题「今天该动手的」里的
-          "今天"就是那个日期，同屏复述一遍不增加任何判断。 */}
+    <div className="stack roomy">
+      {/* 标题 2026-10-20 由「今天该动手的」改成「工作台」：日期的义务已经由各条的
+          期限与「逾期 N 天」承担，标题不必再复述一次。标题上方那行日期 + 星期
+          在 2026-10-12 已撤。 */}
       <PageHeader
-        title="今天该动手的"
+        title="工作台"
         actions={
           <button
             type="button"
@@ -254,8 +260,8 @@ export function Workbench() {
               title={fresh ? "还没有案件" : "没有待办节点"}
               hint={
                 fresh
-                  ? "先建第一个案件，再在案件详情页的「工作节点」里加节点。"
-                  : "所有已确认时间的节点都完成了。新建节点在案件详情页的「工作节点」里。"
+                  ? "先建第一个案件，再在案件详情页的「时间节点」里加节点。"
+                  : "所有已确认时间的节点都完成了。新建节点在案件详情页的「时间节点」里。"
               }
               action={
                 <Link href="/matters" className="btn sm pri">
@@ -380,65 +386,47 @@ export function Workbench() {
         </div>
       </div>
 
-      {/* ③ 最近动作 */}
-      <div className="card">
+      <div className="card" style={{ display: "flex", flexDirection: "column" }}>
         <div className="card-h">
           <h2>最近动作</h2>
           <span className="sp" />
-          {/* 数据没到之前不画这个数字：`?? 0` 会在首屏把「最近动作 0」摆在卡片头上，
-              和下面那句「还没有活动记录」是同一句假话 —— 待办卡与这里都由 `isPending` 挡。 */}
           {data ? (
             <span className="mut3 num" style={{ fontSize: 12 }}>
               {data.recent.length}
             </span>
           ) : null}
         </div>
-        <div style={{ padding: data?.recent.length ? 0 : 24 }}>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: "grid",
+            gridAutoRows: data?.recent.length ? "minmax(44px, 1fr)" : "auto",
+            padding: data?.recent.length ? 0 : 24,
+          }}
+        >
           {isPending ? <div className="empty">…</div> : null}
           {!data?.recent.length ? (
             <StateBlock title="还没有活动记录" hint="建案、改状态、加评论都会记在这里。" />
           ) : (
-            <div
-              style={{
-                display: "grid",
-                // 行优先：第 1、2 条同行。DOM 顺序仍是时间序，读屏和键盘走的是一条线
-                gridTemplateColumns: wide ? "1fr 1fr" : "minmax(0,1fr)",
-              }}
-            >
-              {data.recent.map((r, i) => (
-                <div
-                  key={r.id}
-                  style={{
-                    minWidth: 0,
-                    padding: wide ? "8px 16px" : "6px 12px",
-                    borderBottom: "1px solid var(--line)",
-                    // 两列之间那道竖线只画在左列（行优先：左列的 DOM 下标是偶数）
-                    ...(wide && i % 2 === 0 ? { borderRight: "1px solid var(--line)" } : {}),
-                  }}
-                >
-                  <span className="rowflex" style={{ flexWrap: "wrap", gap: 6 }}>
-                    {/* 定宽：字数不等的动作名（"归档" 2 字 vs "状态变更" 4 字）会让右边那列
-                      案件号在行与行之间左右抖 22px（实测 1038 / 1060），10 行下来那列看着是斜的 */}
-                    <span
-                      className="tag"
-                      style={{ fontSize: 11, minWidth: 60, textAlign: "center" }}
-                    >
-                      {r.actionLabel}
-                    </span>
-                    <Link href={`/${r.kind === "matter" ? "matters" : "risk-matters"}/${r.hostId}`}>
-                      <span className="num" style={{ fontSize: 12 }}>
-                        {r.hostCode ?? "—"}
-                      </span>
-                    </Link>
+            data.recent.map((r) => (
+              <div key={r.id} className="activity-row">
+                <span className="rowflex" style={{ flexWrap: "wrap", gap: 6 }}>
+                  <span className="tag" style={{ fontSize: 11, minWidth: 60, textAlign: "center" }}>
+                    {r.actionLabel}
                   </span>
-                  <div style={{ fontSize: 11, color: "var(--ink3)" }}>
-                    {/* `actorName()` 把 null（系统自动动作）说成人话，与案件详情时间线同一口径 */}
-                    {actorName(r.operator)} · {fromNow(r.createdAt)}
-                    {r.reason ? ` · ${r.reason}` : ""}
-                  </div>
+                  <Link href={`/${r.kind === "matter" ? "matters" : "risk-matters"}/${r.hostId}`}>
+                    <span className="num" style={{ fontSize: 12 }}>
+                      {r.hostCode ?? "—"}
+                    </span>
+                  </Link>
+                </span>
+                <div className="activity-meta">
+                  {actorName(r.operator)} · {fromNow(r.createdAt)}
+                  {r.reason ? ` · ${r.reason}` : ""}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))
           )}
         </div>
       </div>

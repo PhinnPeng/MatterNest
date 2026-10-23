@@ -246,6 +246,8 @@ components:
   判据：任一页在 1440×900 下内容底边与视口底差 ≤40px（40 是 `.page` 的 padding-bottom），
   脚本 `agent-work/_chk/verify-fill-all.mjs`。
 - **列宽预算 1100 @1366**：表格一律 `<colgroup>` 显式定列宽，可伸缩列补 `.ellip`。
+  **列表容器封顶 1400 并居中**（`.stack.list`）：表格里只有一列可伸缩，容器不封顶时它会把余量全吃掉
+  （实测 2560 视口下案名列长到 1442px、同屏「程序」只有 88px）。表格表头是 `12.5px / 500 / --ink2`，比正文退一档。
 - **垂直节奏 16px**：卡片之间、卡片与查询区之间一律 16（`.stack > * + *`、`.card + .card`）；行内元素 6 / 10 / 20。
 - **功能配置页**用 `repeat(auto-fit, minmax(max(200px,(100% - 64px)/5), 1fr))` + `grid-auto-rows: 1fr`：横向最多 5 张、窄了往下挤、**所有行等高**（1 条细项的卡与 5 条的卡同高）。
 - **主从布局**（角色权限页）`.master` = `264px + minmax(0,1fr)`，**两栏等高**。
@@ -328,7 +330,7 @@ components:
 | 令牌 | `src/app/theme/brand.ts` 是**唯一色值源**，明暗两组**同名键**（浅色 `:root` / 深色 `html.dark` 由 `tokensCss()` 注入），与 canon.css 逐值同源，`brand.spec.ts` 是闸门（禁令⑦） |
 | 主色 | `#2563EB`（`#2f5fe0` 已不在任何地方） |
 | 深色模式 | **一等外观**：`theme/antd.ts` 的 `algorithm` 随外观在 `defaultAlgorithm` / `darkAlgorithm` 间切换，见 `docs/adr/0006-dark-mode-first-class.md` |
-| 导航 | 3 组 9 项（概要 / 业务 / 系统）。「我关注的」收在身份区下拉、`/config/import` 从导航移除 |
+| 导航 | 3 组 8 项（概要 / 业务 / 系统）。「我关注的」收在身份区下拉、`/config/import` 从导航移除；**通知不在导航里**——它是收件箱，入口在身份区上方的 `.inbox`（铃铛 + 词 + 未读徽标，未读为 0 时不出徽标），见 `app-shell.tsx` 的 `InboxLink` |
 | 角色权限页 | `/roles` 已存在（主从布局、只读） |
 | 功能配置 | `/config/[kind]` 一个带参数的路由收 14 个细项；5 个可写项走弹层 CRUD（`/api/config/[kind]`） |
 

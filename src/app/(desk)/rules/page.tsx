@@ -14,7 +14,7 @@ import { RulesView } from "./rules-view";
  * `(desk)/users`、`(desk)/roles` 三处代码事实一致。
  */
 export const metadata: Metadata = {
-  title: "自动化规则 · MatterNest",
+  title: "自动化 · MatterNest",
 };
 
 export default function RulesPage() {
