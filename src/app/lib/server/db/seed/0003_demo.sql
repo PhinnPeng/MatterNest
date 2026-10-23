@@ -193,6 +193,19 @@ VALUES
    (now() - interval '3 hours')::date, '开庭当日申请庭后对账。', 101, 101, 101)
 ON CONFLICT ("id") DO NOTHING;
 
+-- 事项进展（迁移 0021）：与案件侧同构。8301 已转案件，正好演示"冻结只挡新写入、
+-- 不挡住已有记录的回看"。
+INSERT INTO "mn_risk_matter_progress"
+  ("id", "risk_matter_id", "node_id", "progress_type", "content", "progress_date", "next_plan", "author_id", "created_by", "updated_by")
+VALUES
+  (8711, 8301, 8501, 'internal_decision', '完成担保事项的风险评估：认定超授权且未走决议程序，建议暂停后续用印。',
+   (now() - interval '5 days')::date, '补做董事会决议，回收已出具的担保函。', 101, 101, 101),
+  (8712, 8301, NULL, 'material_filing', '已收回项目公司公章与担保合同原件，决议补签材料移交法务归档。',
+   (now() - interval '1 day')::date, NULL, 101, 101, 101)
+ON CONFLICT ("id") DO NOTHING;
+
+UPDATE "mn_risk_matter" SET "last_progress_at" = now() - interval '1 day' WHERE "id" = 8301;
+
 INSERT INTO "mn_comment" ("id", "target_type", "target_id", "body", "author_id", "created_by", "updated_by")
 VALUES
   (8801, 'matter', 7001, '签证单里的三份缺监理签字，先按无争议部分主张，避免拖举证期。', 101, 101, 101),

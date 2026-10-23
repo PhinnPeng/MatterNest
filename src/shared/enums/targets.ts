@@ -30,6 +30,8 @@ export const TARGET_TYPES = [
   "matter_node",
   "risk_matter_node",
   "matter_progress",
+  /** 事项进展（迁移 0021）：与 `matter_progress` 同构，审计落点必须分得开 */
+  "risk_matter_progress",
   "matter_expense",
   /**
    * 账号维度（MATT-10，迁移 0006）。
@@ -51,6 +53,7 @@ export const TARGET_TYPE_LABELS: Record<TargetType, string> = {
   matter_node: "案件节点",
   risk_matter_node: "事项节点",
   matter_progress: "案件进展",
+  risk_matter_progress: "事项进展",
   matter_expense: "案件费用",
   app_user: "账号",
 };

@@ -334,7 +334,10 @@ export function pruneEmpty<T extends Record<string, unknown>>(o: T): T {
 }
 
 /**
- * 写一条案件进展（MATT-59）。
+ * 写一条进展（案件 MATT-59；事项 2026-10-23 / 迁移 0021 起共用）。
+ *
+ * 两张进展表同构，载荷校验也只该有一份：`POST /api/matters/[id]/progress` 与
+ * `POST /api/risk-matters/[id]/progress` 都用它。
  *
  * ## 为什么这个文件里只补一个 schema
  *

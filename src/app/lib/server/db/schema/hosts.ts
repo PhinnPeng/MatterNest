@@ -119,9 +119,11 @@ export const riskMatter = pgTable(
     source: varchar("source", { length: 28 }),
     description: text("description").notNull(),
     /**
-     * `measure` / `amount` 两列已于 2026-10-22 删除（迁移 0017）：处置过程走事项详情页的
-     * 评论时间线（那里就叫「处置记录」，事项没有进展表），金额敞口走费用台账
-     * （`mn_risk_matter_expense`）。
+     * `measure` / `amount` 两列已于 2026-10-22 删除（迁移 0017）：处置过程原先走事项详情页的
+     * 评论时间线（那里叫「处置记录」），金额敞口走费用台账（`mn_risk_matter_expense`）。
+     *
+     * 2026-10-23：事项补了自己的进展表（`mn_risk_matter_progress`，迁移 0021）。
+     * 「处置记录」退回它本来的角色 —— **评论对话**；结构化办理记录进进展页签。
      *
      * `currency` 也于同日删除（迁移 0019）：一期只有 CNY，界面上从来没有第二种币种可选，
      * 它只是把"金额单位是元"这件事再存一遍；金额展示固定按元。
@@ -133,6 +135,14 @@ export const riskMatter = pgTable(
       .references(() => appUser.id, { onDelete: "restrict" }),
     /** 基线 1.1：发现日期用 `date` 而非 `timestamptz`（§12.2：日历日期跨时区会漂一天） */
     discoverDate: date("discover_date").notNull(),
+    /**
+     * 最近一次进展的时间（迁移 0021）。
+     *
+     * 只作详情页读数：`time_no_progress`（规则 4）**仍只扫案件**（IQ-9 / Q37），
+     * 加这一列不是把事项纳入提醒面。写入必须与进展**同一事务**刷新 —— 与案件侧同一条口径，
+     * 分开提交会留下"进展在、基准没走"的可观察中间态。
+     */
+    lastProgressAt: timestamp("last_progress_at", { withTimezone: true, mode: "string" }),
     status: varchar("status", { length: 32 }).notNull(),
     isArchived: boolean("is_archived").notNull().default(false),
     archivedAt: timestamp("archived_at", { withTimezone: true, mode: "string" }),
@@ -372,36 +382,48 @@ function expenseTable(host: HostKind) {
   );
 }
 
-/** 案件进展：基线 1.5，一期**案件专属**（§6.3 明写不给事项加进展表） */
-export const matterProgress = pgTable(
-  "mn_matter_progress",
-  {
-    id: id(),
-    matterId: fk("matter_id")
-      .notNull()
-      .references(() => matter.id, { onDelete: "restrict" }),
-    nodeId: fk("node_id").references(() => matterNode.id, { onDelete: "restrict" }),
-    /** E19 闭集 */
-    progressType: varchar("progress_type", { length: 24 }).notNull(),
-    content: text("content").notNull(),
-    /** 日历日期：进展发生日，用 `date` 而非 `timestamptz`（§12.2） */
-    progressDate: date("progress_date").notNull(),
-    nextPlan: text("next_plan"),
-    authorId: fk("author_id")
-      .notNull()
-      .references(() => appUser.id, { onDelete: "restrict" }),
-    ...auditColumns,
-  },
-  (t) => [
-    index("ix_mn_matter_progress_host")
-      .on(t.matterId, t.progressDate)
-      .where(sql`NOT is_deleted`),
-    index("ix_mn_matter_progress_scan")
-      .on(t.matterId, t.createdAt)
-      .where(sql`NOT is_deleted`),
-    check("ck_mn_matter_progress_type", sqlInList("progress_type", PROGRESS_TYPES)),
-  ],
-);
+/**
+ * 进展：2026-10-23 起**同构一对**。
+ *
+ * 原先只有案件侧（§6.3 明写不给事项加进展表，处置过程走事项评论）。用户裁定事项也要
+ * 一张结构化的办理记录（类型 / 日期 / 下一步 / 可挂节点），评论退回它本来的角色：
+ * **对话**。两张表由同一个工厂产出 —— 与节点/费用同一理由，手写两份必然漂移，
+ * 而 `enum-check.spec.ts` 的 `ISO_PAIRS` 会逐列比对。
+ */
+function progressTable(host: HostKind) {
+  const col = host === "matter" ? "matter_id" : "risk_matter_id";
+  const parent = host === "matter" ? matter.id : riskMatter.id;
+  const node = host === "matter" ? matterNode.id : riskMatterNode.id;
+  return pgTable(
+    `mn_${host}_progress`,
+    {
+      id: id(),
+      hostId: fk(col)
+        .notNull()
+        .references(() => parent, { onDelete: "restrict" }),
+      nodeId: fk("node_id").references(() => node, { onDelete: "restrict" }),
+      /** E19 闭集 */
+      progressType: varchar("progress_type", { length: 24 }).notNull(),
+      content: text("content").notNull(),
+      /** 日历日期：进展发生日，用 `date` 而非 `timestamptz`（§12.2） */
+      progressDate: date("progress_date").notNull(),
+      nextPlan: text("next_plan"),
+      authorId: fk("author_id")
+        .notNull()
+        .references(() => appUser.id, { onDelete: "restrict" }),
+      ...auditColumns,
+    },
+    (t) => [
+      index(`ix_mn_${host}_progress_host`)
+        .on(t.hostId, t.progressDate)
+        .where(sql`NOT is_deleted`),
+      index(`ix_mn_${host}_progress_scan`)
+        .on(t.hostId, t.createdAt)
+        .where(sql`NOT is_deleted`),
+      check(`ck_mn_${host}_progress_type`, sqlInList("progress_type", PROGRESS_TYPES)),
+    ],
+  );
+}
 
 /**
  * 当事人库（基线 模块八）：与宿主多对多，角色挂在关联行上。
@@ -514,6 +536,8 @@ export const matterNode = nodeTable("matter");
 export const riskMatterNode = nodeTable("risk_matter");
 export const matterExpense = expenseTable("matter");
 export const riskMatterExpense = expenseTable("risk_matter");
+export const matterProgress = progressTable("matter");
+export const riskMatterProgress = progressTable("risk_matter");
 
 /** 宿主类型 → E03 `target_type` 的前缀，供 activity_log 与附件定位 */
 export const HOST_TARGET_PREFIX: Record<HostKind, string> = {

@@ -191,7 +191,12 @@ export const IN_DB_CHECKS: Readonly<Record<string, readonly CheckTarget[]>> = {
   E16: [["mn_risk_matter", "source", "ck_mn_risk_matter_source"]],
   E17: [["mn_party", "type", "ck_mn_party_type"]],
   E18: [["mn_party", "id_type", "ck_mn_party_id_type"]],
-  E19: [["mn_matter_progress", "progress_type", "ck_mn_matter_progress_type"]],
+  // E19 原为案件专属（§6.3）；2026-10-23 迁移 0021 起事项也有一张同构表，
+  // 两个落点都要登记 —— 反向检查会拦下"迁移里有 IN 型 CHECK 却没被认领"。
+  E19: [
+    ["mn_matter_progress", "progress_type", "ck_mn_matter_progress_type"],
+    ["mn_risk_matter_progress", "progress_type", "ck_mn_risk_matter_progress_type"],
+  ],
   // E20 随 MATT-47（迁移 0011）进库。费用是**同构一对**，两个落点都要登记：
   // 只登记一侧会被下面那条反向检查（"迁移里的 IN 型 CHECK 必须被认领"）当场拦下。
   E20: [
