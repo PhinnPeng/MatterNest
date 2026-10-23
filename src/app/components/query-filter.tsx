@@ -51,25 +51,11 @@ export function QueryFilter({
   onSearch,
   onReset,
   busy,
-  actions,
-  searchType = "primary",
 }: {
   children: ReactNode;
   onSearch: () => void;
   onReset: () => void;
   busy?: boolean;
-  /**
-   * 紧跟「重置」之后的主动作（canon 事项页原型把「登记事项」放在查询行右端）。
-   *
-   * 只有需要它的页面才传：不传时这一行仍然是「查询 / 重置」，其余列表页的按钮组
-   * 一个像素都不变。
-   */
-  actions?: ReactNode;
-  /**
-   * 「查询」的按钮形态。默认 `primary`（全站列表页一直如此）；某个页面把主色让给
-   * 行内主动作时（原型里查询是次要按钮、登记事项才是主色）才降成 `default`。
-   */
-  searchType?: "primary" | "default";
 }) {
   return (
     <Card size="small" styles={{ body: { padding: "14px 16px" } }}>
@@ -81,13 +67,12 @@ export function QueryFilter({
       <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
         {children}
         <div style={{ display: "flex", marginLeft: "auto", flex: "0 0 auto" }}>
-          <Button type={searchType} loading={busy} onClick={onSearch}>
+          <Button type="primary" loading={busy} onClick={onSearch}>
             查询
           </Button>
           <Button style={{ marginLeft: 8 }} onClick={onReset}>
             重置
           </Button>
-          {actions ? <div style={{ marginLeft: 8, display: "flex" }}>{actions}</div> : null}
         </div>
       </div>
     </Card>

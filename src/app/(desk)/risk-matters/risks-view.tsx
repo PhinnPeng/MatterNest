@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { App as AntdApp, Button, Form, Input, Modal, Select, Tooltip } from "antd";
 import type { TableColumnsType } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 
 import { api, ApiFailure, useMeta, type Meta } from "@/app/lib/client/api";
 import { toQuery, useListState, type ListState } from "@/app/lib/client/use-list-state";
@@ -359,17 +359,7 @@ export function RisksView() {
 
   return (
     <div className="stack list">
-      <QueryFilter
-        onSearch={submit}
-        onReset={reset}
-        busy={isFetching}
-        searchType="default"
-        actions={
-          <Button type="primary" onClick={() => setCreating(true)}>
-            登记事项
-          </Button>
-        }
-      >
+      <QueryFilter onSearch={submit} onReset={reset} busy={isFetching}>
         <FilterField label="关键词" htmlFor="risk-keyword" width={200}>
           <Input
             id="risk-keyword"
@@ -498,11 +488,18 @@ export function RisksView() {
         }
         tools={
           /*
-            右端只留**不依赖选中**的两个入口，次序与案件列表一致：导入 → 导出。
-            登记事项按原型搬到了查询区右端（`QueryFilter` 的 `actions`），
-            它是本页的主色按钮，与「查询」并排时「查询」降为次要形态。
+            右端次序与案件列表一致：**新建 → 导入 → 导出**。
+            主色落在「新建」上（2026-10-23 用户裁定：它属于表格体的动作，不进筛选区）。
           */
           <>
+            <Button
+              type="primary"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={() => setCreating(true)}
+            >
+              新建
+            </Button>
             {/*
               批量导入（MATT-102）：类型由**本页**锁定为 `risk_matter`（弹层里不给类型选择器）。
               `canImport` 由服务端每个端点判（403），前端不镜像谓词（见 ImportDialog 文件头）。
@@ -560,7 +557,7 @@ export function RisksView() {
             hint={
               hasRiskFilter(state)
                 ? "清掉条件再看一次；范围不同看到的条数就不同。"
-                : "点查询区右侧「登记事项」报备一条。"
+                : "点右上「新建」报备一条。"
             }
           />
         }
