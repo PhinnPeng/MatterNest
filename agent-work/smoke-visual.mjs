@@ -73,7 +73,7 @@ const PAGES = [
    * 自动化规则（P12，2026-10-18）。锚点取**表格行**而不是 `h1`：
    * 这一页的主体是 9 行规则，只断言页头等于没验数据到没到。
    */
-  { path: "/rules", label: "自动化规则", anchor: "table tbody tr" },
+  { path: "/rules", label: "自动化", anchor: "table tbody tr" },
   /**
    * 下面四条是 2026-10-18 补的（Spec 轴复核指出「31 页 × 明暗」这个验收项在本脚本里
    * 只覆盖了当时那份短清单的口径）。
@@ -87,16 +87,32 @@ const PAGES = [
    *     取一个可写的代表即可；这是 MATT-101 那一票的主交付物；
    *   · `/login` —— **唯一不需要会话的页**，也是唯一一个自己画 `.login` 居中卡的页。
    *
-   * 详情页（`/matters/[id]` 等）**不在这个清单里**：它们要真数据 id，而本脚本的夹具账号
-   * 是空账号（只建号、不建业务数据），拿不到可打开的 id。它们由 `smoke-demo.mjs` 等
-   * 带真夹具的脚本覆盖结构，视觉这三条底线（留白/对比度/标题）在**同一批共享件**
-   * （`PageHeader` / `DataTable` / `ReportCards`）上已经量过 —— 详情页用的是同一套。
-   * 真要逐页覆盖，正确做法是给这个脚本加"先建夹具再走详情页"，那是另一件事。
+   * 详情页（`/matters/[id]`）**2026-10-21 起在清单里**，但 id 不写死：登录后从案件列表
+   * 第一行取那条 `<a>` 的 href（见下面的解析段）。原先这段写着"夹具账号是空账号、
+   * 拿不到可打开的 id"——那句不成立：夹具挂的是 `full_admin`，数据范围 `all`，
+   * 共享库里现成的案件本来就列得出来。解析不到时**单独报红**，不会静默少一页覆盖
+   * （2026-10-21 给详情页做原型对齐时，正是这条盲区让改动最重的一屏没人量过）。
    */
   { path: "/watch", label: "我关注的", anchor: "h1" },
   { path: "/config/import", label: "批量导入", anchor: "h1" },
   { path: "/config/case_status", label: "配置细项", anchor: "table tbody tr, h1" },
-  { path: "/login", label: "登录", anchor: ".login .card" },
+  /**
+   * 锚 2026-10-21 从 `.login .card` 改成 `.login .inp`：品牌改版那条线把登录页从
+   * "居中卡"改成了 `.login > .login-stack` 的一列，卡没了，锚却一直还"绿"——
+   * 它命中 0 之后这一页的三条判定全部失去覆盖，正是本文件反复警惕的"锚过期"形态。
+   */
+  { path: "/login", label: "登录", anchor: ".login .inp" },
+  /**
+   * `/profile` —— 个人设置（2026-10-18）。
+   *
+   * 补它的理由与上面四条同一句：**形态不同才值得单列**。它是唯一一页
+   * "只有卡片、没有表格也没有查询区"的样子（三张 `.card` + `.pagehead`），
+   * 而这三张卡正好是 `h2` 卡片标题的最简用例 ——
+   * 标题层级那一项在这一页最容易看出跳级。
+   *
+   * 锚取 `.card` 而不是 `h1`：它是纯卡片页，只断页头等于没验卡片到没到。
+   */
+  { path: "/profile", label: "个人设置", anchor: ".card" },
 ];
 
 let pass = 0;
@@ -155,14 +171,41 @@ function probe(anchor) {
     const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x);
     return (l1 + 0.05) / (l2 + 0.05);
   };
+  /**
+   * 取"这个元素真正压在哪块底色上"。
+   *
+   * ⚠ 2026-10-19 修过一条**假失败**：原先这里只要遇到非全透明背景就**只取 RGB、
+   * 丢掉 alpha**，于是 `rgba(255,255,255,0.08)`（antd 禁用态按钮的底）被当成纯白读。
+   * 深色下那一步算出 3.14，而真实的合成底是 `rgb(41,44,49)`、实测 4.46 —— 差了一整档。
+   * 半透明底必须**逐层合成到祖先底色上**，不能丢弃 alpha。
+   */
+  const parseRgba = (s) => {
+    const nums = (s.match(/[\d.]+/g) || []).map(Number);
+    if (nums.length < 3) return null;
+    return { rgb: nums.slice(0, 3), a: nums.length > 3 ? nums[3] : 1 };
+  };
+  const over = (fg, a, bg) => fg.map((c, i) => a * c + (1 - a) * bg[i]);
   const bgOf = (el) => {
+    const pageBg = isDark ? [16, 19, 23] : [255, 255, 255];
+    // 自底向顶收集半透明层，再逐层合成
+    const layers = [];
     let n = el;
     while (n && n !== root) {
-      const c = getComputedStyle(n).backgroundColor;
-      if (c && !/rgba?\(0,\s*0,\s*0,\s*0\)/.test(c)) return parse(c);
+      const c = parseRgba(getComputedStyle(n).backgroundColor);
+      if (c && c.a > 0) {
+        if (c.a >= 1) {
+          // 不透明底就是最终面，直接把它作为底往上合成已收集的层
+          let base = c.rgb;
+          for (let i = layers.length - 1; i >= 0; i--) base = over(layers[i].rgb, layers[i].a, base);
+          return base.map(Math.round);
+        }
+        layers.push(c);
+      }
       n = n.parentElement;
     }
-    return isDark ? [16, 19, 23] : [255, 255, 255];
+    let base = pageBg;
+    for (let i = layers.length - 1; i >= 0; i--) base = over(layers[i].rgb, layers[i].a, base);
+    return base.map(Math.round);
   };
 
   const seen = new Map();
@@ -179,15 +222,38 @@ function probe(anchor) {
     if (!text) continue;
     const cs = getComputedStyle(el);
     if (cs.visibility === "hidden" || cs.opacity === "0") continue;
+    /**
+     * **live 浮层不参与判定**（2026-10-21）：`impeccable live` 把助手条注入到
+     * `layout.tsx`，它自带一套灰字（`#impeccable-live-global-bar` 里的 "Steer" 实测
+     * 1.12:1），开着 live 模式跑这份冒烟时会在**每个页面**上贡献同一条假红。
+     * 判据要量的是本仓渲染的界面文字，助手条不是——与上面"禁用态豁免"同一类：
+     * 都不是应用的字，把它算进来只会逼人改工具而不是改界面。
+     */
+    if (el.closest('[id^="impeccable-"], [class*="impeccable-"]')) continue;
+    /**
+     * **非活动控件不参与判定**（WCAG 1.4.3 原文豁免 "inactive user interface
+     * components"）。禁用按钮的字色本来就该读起来像"这里现在按不动"，
+     * 把它算成对比度失败会逼着人把禁用态染成正常态——那是把可用性做坏。
+     * 命中的都是 antd 的禁用按钮（`disabled` 属性或 `.ant-btn-disabled`）。
+     */
+    if (
+      (el.tagName === "BUTTON" || el.closest("button")) &&
+      (el.disabled || el.closest("button")?.disabled ||
+        el.className.toString().includes("ant-btn-disabled") ||
+        el.closest("button")?.className.toString().includes("ant-btn-disabled"))
+    ) {
+      continue;
+    }
     const fg = parse(cs.color);
     if (fg.length < 3) continue;
     const size = parseFloat(cs.fontSize);
     const bold = Number(cs.fontWeight) >= 700;
     // WCAG：大字（≥18.66px，或 ≥14px 且粗）3:1，其余 4.5:1
     const need = size >= 18.66 || (size >= 14 && bold) ? 3 : 4.5;
-    const cr = ratio(fg, bgOf(el));
+    const bg = bgOf(el);
+    const cr = ratio(fg, bg);
     if (cr < need) {
-      const key = `${cs.color}|${bgOf(el).join(",")}|${need}`;
+      const key = `${cs.color}|${bg.join(",")}|${need}`;
       if (!seen.has(key)) {
         seen.set(key, {
           color: cs.color,
@@ -257,6 +323,33 @@ try {
   ok("临时账号能登录（否则以下全部是空壳假绿）", loginRes.ok, `status=${loginRes.status}`);
 
   const page = await ctx.newPage();
+
+  /**
+   * **详情页**（案件详情）——2026-10-21 补，起因是这天给详情页做原型对齐（页头 / 归档就绪 /
+   * 两列评论栏）时才发现：这份冒烟一条详情页都没跑，13 条全是列表页与静态页，
+   * 改动最重的一屏恰好落在盲区里。
+   *
+   * id **不写死**：共享库里的行会变（今天 7001、明天可能是别的 id），写死等于造一条必红的断言。
+   * 取法用列表第一行那条 `<a>` 的 href，而不是打 `/api/matters` 读载荷——
+   * 前者由页面自己的列定义保证（案名那列就是这个入口），后者换字段名会把冒烟脚本一起改到。
+   *
+   * 解析结果单独断言：静默跳过这条路由，比它红更难发现（同"空壳假绿"一个性质）。
+   */
+  let matterDetail = null;
+  try {
+    await page.goto(`${BASE}/matters`, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForSelector('.ant-table-row a[href^="/matters/"]', { timeout: 30000 });
+    matterDetail = await page.evaluate(
+      () => document.querySelector('.ant-table-row a[href^="/matters/"]')?.getAttribute("href") ?? null,
+    );
+  } catch (e) {
+    matterDetail = null;
+  }
+  ok("能解析出案件详情路由（解析不了＝下面这一整页失去覆盖）", Boolean(matterDetail), matterDetail ?? "");
+  if (matterDetail) {
+    // 锚取 `.detail .chat`：它是这一屏独有的结构（两列 + 常驻评论栏），命中即证明布局没塌回单列
+    PAGES.push({ path: matterDetail, label: "案件详情", anchor: ".detail .chat" });
+  }
 
   for (const { path, label, anchor } of PAGES) {
     for (const mode of ["light", "dark"]) {
