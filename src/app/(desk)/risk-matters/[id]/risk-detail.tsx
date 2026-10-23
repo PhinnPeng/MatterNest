@@ -35,6 +35,7 @@ import { ExpensePanel } from "@/app/components/expense-panel";
 import { ExportFileButton } from "@/app/components/export-file-button";
 import { FollowGroup } from "@/app/components/follow-group";
 import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
+import { ProgressLogDialog, ProgressPanel } from "@/app/components/progress-panel";
 import { StatusMark, FlagMark, MetaLine } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { CommentBody } from "@/app/components/comment-body";
@@ -408,6 +409,7 @@ export function RiskDetail({ id }: { id: string }) {
                         <Space orientation="vertical" size={4}>
                           <MetaLine label="创建">{dateTime(risk.createdAt)}</MetaLine>
                           <MetaLine label="更新">{dateTime(risk.updatedAt)}</MetaLine>
+                          <MetaLine label="最近进展">{dateTime(risk.lastProgressAt)}</MetaLine>
                           {risk.convertedAt && (
                             <MetaLine label="首次转案件">{dateTime(risk.convertedAt)}</MetaLine>
                           )}
@@ -420,7 +422,7 @@ export function RiskDetail({ id }: { id: string }) {
             />
           </Card>
 
-          {/* 内容卡：两枚页签。flex:1 让它在内容少时也把左列撑到与右栏同高（IQ-19 批注 ⑤） */}
+          {/* 内容卡：三枚页签。flex:1 让它在内容少时也把左列撑到与右栏同高（IQ-19 批注 ⑤） */}
           <Card size="small" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
             <Tabs
               defaultActiveKey="nodes"
@@ -488,6 +490,19 @@ export function RiskDetail({ id }: { id: string }) {
                         />
                       )}
                     </div>
+                  ),
+                },
+                {
+                  key: "progress",
+                  label: `进展 (${risk.progress.length})`,
+                  children: (
+                    <ProgressPanel
+                      host="risk_matter"
+                      hostId={risk.id}
+                      progress={risk.progress}
+                      onDone={invalidate}
+                      readOnly={risk.isArchived}
+                    />
                   ),
                 },
                 {
@@ -674,6 +689,8 @@ function NodeRow({
   const { message, modal } = AntdApp.useApp();
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState("");
+  /** 完成节点后展开的进展登记（可跳过，与案件侧同形） */
+  const [progressOpen, setProgressOpen] = useState(false);
   const mut = useMutation({
     mutationFn: (body: { status: string; cancelReason?: string }) =>
       api.patch(`/api/risk-matters/${riskId}/nodes?nodeId=${node.id}`, body),
@@ -694,113 +711,130 @@ function NodeRow({
   const label = NODE_STATUS_LABELS[node.status as keyof typeof NODE_STATUS_LABELS] ?? node.status;
 
   return (
-    <div>
-      <Space orientation="vertical" size={4} style={{ width: "100%" }}>
-        <Space size={8} align="baseline">
-          <Typography.Text strong>{node.name}</Typography.Text>
-          <Tag
-            color={
-              node.status === "completed"
-                ? "green"
-                : node.status === "cancelled"
-                  ? "default"
-                  : "blue"
-            }
-          >
-            {label}
-          </Tag>
-        </Space>
-        {node.remark ? (
-          <span style={{ color: "var(--ink2)", fontSize: 12 }}>{node.remark}</span>
-        ) : null}
-        <span style={{ color: "var(--ink3)", fontSize: 12 }}>
-          {/* 事项节点只有时间点：没有「起止」，也就没有「这段时间内」这种表达 */}
-          {node.startTime ? calDate(node.startTime) : "时间待定"}
-          {!node.isTimeConfirmed && node.startTime && " · 未确认"}
-        </span>
-        {node.cancelReason && (
-          <span style={{ color: "var(--ink2)", fontSize: 12 }}>取消原因：{node.cancelReason}</span>
-        )}
-        {!readOnly &&
-          (cancelling ? (
-            <Space size={4}>
-              <Input
-                autoFocus
-                size="small"
-                style={{ width: 96 }}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="取消原因（必填）"
-                aria-label="取消原因"
-              />
-              <Button
-                size="small"
-                type="primary"
-                disabled={!reason.trim() || mut.isPending}
-                onClick={() => {
-                  mut.mutate({ status: "cancelled", cancelReason: reason.trim() });
-                  setCancelling(false);
-                }}
-              >
-                确认
-              </Button>
-              <Button size="small" type="text" onClick={() => setCancelling(false)}>
-                否
-              </Button>
-            </Space>
-          ) : (
-            <Space size={4} wrap>
-              <Button size="small" type="link" onClick={onEdit}>
-                编辑
-              </Button>
-              {node.status === "in_progress" ? (
+    <>
+      <div>
+        <Space orientation="vertical" size={4} style={{ width: "100%" }}>
+          <Space size={8} align="baseline">
+            <Typography.Text strong>{node.name}</Typography.Text>
+            <Tag
+              color={
+                node.status === "completed"
+                  ? "green"
+                  : node.status === "cancelled"
+                    ? "default"
+                    : "blue"
+              }
+            >
+              {label}
+            </Tag>
+          </Space>
+          {node.remark ? (
+            <span style={{ color: "var(--ink2)", fontSize: 12 }}>{node.remark}</span>
+          ) : null}
+          <span style={{ color: "var(--ink3)", fontSize: 12 }}>
+            {/* 事项节点只有时间点：没有「起止」，也就没有「这段时间内」这种表达 */}
+            {node.startTime ? calDate(node.startTime) : "时间待定"}
+            {!node.isTimeConfirmed && node.startTime && " · 未确认"}
+          </span>
+          {node.cancelReason && (
+            <span style={{ color: "var(--ink2)", fontSize: 12 }}>
+              取消原因：{node.cancelReason}
+            </span>
+          )}
+          {!readOnly &&
+            (cancelling ? (
+              <Space size={4}>
+                <Input
+                  autoFocus
+                  size="small"
+                  style={{ width: 96 }}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="取消原因（必填）"
+                  aria-label="取消原因"
+                />
                 <Button
                   size="small"
-                  type="link"
-                  loading={mut.isPending}
-                  onClick={() =>
-                    modal.confirm({
-                      title: "完成这个节点？",
-                      content: "完成后不再提醒，请确认。",
-                      okText: "完成",
-                      cancelText: "取消",
-                      onOk: () => mut.mutateAsync({ status: "completed" }),
-                    })
-                  }
+                  type="primary"
+                  disabled={!reason.trim() || mut.isPending}
+                  onClick={() => {
+                    mut.mutate({ status: "cancelled", cancelReason: reason.trim() });
+                    setCancelling(false);
+                  }}
                 >
-                  完成
+                  确认
                 </Button>
-              ) : null}
-              <Dropdown
-                trigger={["click"]}
-                menu={{
-                  items: [
-                    { key: "cancel", label: "取消节点", disabled: node.status === "cancelled" },
-                    { key: "delete", label: "删除节点", danger: true },
-                  ],
-                  onClick: ({ key }) => {
-                    if (key === "cancel") setCancelling(true);
-                    if (key === "delete") {
+                <Button size="small" type="text" onClick={() => setCancelling(false)}>
+                  否
+                </Button>
+              </Space>
+            ) : (
+              <Space size={4} wrap>
+                <Button size="small" type="link" onClick={onEdit}>
+                  编辑
+                </Button>
+                {node.status === "in_progress" ? (
+                  <Button
+                    size="small"
+                    type="link"
+                    loading={mut.isPending}
+                    onClick={() =>
                       modal.confirm({
-                        title: "删除这个节点？",
-                        content: "删除后不再提醒，也不出现在节点列表里。",
-                        okText: "删除",
-                        okButtonProps: { danger: true },
+                        title: "完成这个节点？",
+                        content: "节点完成时会展开进展登记，请确认。",
+                        okText: "完成",
                         cancelText: "取消",
-                        onOk: () => remove.mutateAsync(),
-                      });
+                        onOk: async () => {
+                          await mut.mutateAsync({ status: "completed" });
+                          setProgressOpen(true);
+                        },
+                      })
                     }
-                  },
-                }}
-              >
-                <Button size="small" type="link">
-                  更多
-                </Button>
-              </Dropdown>
-            </Space>
-          ))}
-      </Space>
-    </div>
+                  >
+                    完成
+                  </Button>
+                ) : null}
+                <Dropdown
+                  trigger={["click"]}
+                  menu={{
+                    items: [
+                      { key: "cancel", label: "取消节点", disabled: node.status === "cancelled" },
+                      { key: "delete", label: "删除节点", danger: true },
+                    ],
+                    onClick: ({ key }) => {
+                      if (key === "cancel") setCancelling(true);
+                      if (key === "delete") {
+                        modal.confirm({
+                          title: "删除这个节点？",
+                          content: "删除后不再提醒，也不出现在节点列表里。",
+                          okText: "删除",
+                          okButtonProps: { danger: true },
+                          cancelText: "取消",
+                          onOk: () => remove.mutateAsync(),
+                        });
+                      }
+                    },
+                  }}
+                >
+                  <Button size="small" type="link">
+                    更多
+                  </Button>
+                </Dropdown>
+              </Space>
+            ))}
+        </Space>
+      </div>
+
+      {/* 完成后的进展登记：可跳过，节点状态已经落了，不拿它当"完成的第二个条件" */}
+      <ProgressLogDialog
+        host="risk_matter"
+        hostId={riskId}
+        nodeId={String(node.id)}
+        open={progressOpen}
+        onClose={() => setProgressOpen(false)}
+        onDone={onDone}
+      />
+    </>
   );
 }
 
@@ -851,7 +885,7 @@ function CommentList({
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
       <div style={{ flex: 1, minHeight: 80, overflow: "auto", paddingRight: 2 }}>
         {risk.comments.length === 0 ? (
-          <Dash hint="事项的核查走评论，不靠进展——所以这里可能是空的。" />
+          <Dash hint="还没有处置记录。讨论、@同事与附件放这里；结构化办理过程走上方的「进展」。" />
         ) : (
           <Listy
             items={risk.comments}

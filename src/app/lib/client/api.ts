@@ -363,7 +363,8 @@ export type MatterDetail = {
  *   · `nodes` 可能是空数组 —— 事项侧无预设节点，节点只能手动加
  *   · 节点只有时间点 —— `timeType` 收窄成字面量 `"point"`、`endTime` 收窄成 `null`，
  *     让「给事项节点加时间段」在**类型层**就写不出来
- *   · 没有 `progress` / `expense` / `attachments` —— 事项核查走**处置记录**
+ *   · `progress` 于 2026-10-23 补齐（迁移 0021）：事项也有结构化办理记录；
+ *     「处置记录」是评论对话，两者不是同一件东西
  * `convertedCases` 是事项**独有**的块：事项是转案件的上游，详情页要能反查回去。
  */
 export type RiskDetail = {
@@ -387,6 +388,8 @@ export type RiskDetail = {
   conversionStatus: number;
   convertedCaseCount: number;
   convertedAt: string | null;
+  /** 最近一次进展（迁移 0021）。只作读数：规则 4 仍只扫案件 */
+  lastProgressAt: string | null;
   createdAt: string;
   updatedAt: string;
   nodes: {
@@ -406,6 +409,18 @@ export type RiskDetail = {
     ownerId: string | null;
     cancelReason: string | null;
     completedAt: string | null;
+  }[];
+  /** 结构化办理记录（迁移 0021），与 `MatterDetail.progress` 同形 */
+  progress: {
+    id: string;
+    progressType: string;
+    content: string;
+    nextPlan: string | null;
+    progressDate: string;
+    /** 完成节点后顺手写的那条会挂到该节点 */
+    nodeId: string | null;
+    createdAt: string;
+    author: string;
   }[];
   staff: { id: string; userId: string; staffRole: string; name: string }[];
   parties: { id: string; partyId: string; partyRole: string; name: string; type: string }[];
