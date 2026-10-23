@@ -264,6 +264,9 @@ Provider 顺序是有意义的：`QueryClientProvider > AntdRegistry > ConfigPro
 1. **位置上不给它留缺口**：`PageHeader` 自 2026-10-12 起只接受 `title` / `code` / `status` /
    `flags` / `actions` 五个具名 prop，`eyebrow` 与 `meta` 两个 `ReactNode` 插槽已删——
    「页面头第二行说明」在**类型上**不可表达。这条是硬的：要加，得先改组件签名。
+   2026-10-23 扩了两个**只承载导航与主键**的 prop：`back`（`{ href, label }`，第一行的返回链接）
+   与 `stacked`（第一行 返回 + 编号、第二行 标题 + 状态；案件详情在用）。它们不是副标题插槽：
+   `back` 的形状塞不进一句解释，`stacked` 只重排既有事实。
 2. **机器断言兜底**：`tools/lint-guard/check.mjs` 有一条源码断言，`src` 下再出现
    `eyebrow=` / `meta=` 就红。它只认这两个名字，也**只扫 `src`**——原型 HTML 在
    `prototype/*` 分支上，它扫不到。

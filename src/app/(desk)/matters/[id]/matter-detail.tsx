@@ -45,15 +45,7 @@ import {
   useCommentAttachments,
 } from "@/app/components/attachment-input";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
-import {
-  NOT_READY_TEXT,
-  READINESS_LABELS,
-  READINESS_TAB,
-  READY_TEXT,
-  STATE_LABEL,
-  STATE_PILL,
-  readinessNote,
-} from "@/app/lib/client/archive-readiness";
+import { AttachmentPanel } from "@/app/components/attachment-panel";
 import { StaffPicker } from "./staff-picker";
 
 /**
@@ -84,15 +76,13 @@ export function MatterDetail({ id }: { id: string }) {
   const searchParams = useSearchParams();
   const [statusOpen, setStatusOpen] = useState(false);
   /**
-   * 受控页签：归档就绪卡点一项要跳到对应页签（F2-26）。
-   *
-   * 初值读 `?tab=`（2026-10-19，为列表页的行内快捷动作而加）：列表行里的
+   * 受控页签：初值读 `?tab=`（2026-10-19，为列表页的行内快捷动作而加）：列表行里的
    * 「进展 / 状态 / 程序」三条链接，唯一的差别就是落到哪个页签——不支持 `?tab=` 的话
    * 三条只能都指向同一页，用户点"进展"却停在「节点」上，那是"点了没反应"的另一种长相。
    *
    * 非法值与不带参数的首屏都回落 `basic`（2026-10-21 从 `nodes` 改过来）：URL 可以手改，
    * 这里不该因为一个拼错的 tab 白屏；而**首屏落在哪一签**是另一件事——原型
-   * `matter-detail.html` 的 `.tabs` 里选中态在「基本信息」上，编号 / 状态 / 经办人 / 归档就绪
+   * `matter-detail.html` 的 `.tabs` 里选中态在「基本信息」上，编号 / 状态 / 经办人
    * 这组"这是哪一件案子"的事实先于"接下来要做什么"被读到。带 `?tab=` 的快捷动作不受影响。
    */
   const initialTab = useMemo(() => {
@@ -315,25 +305,18 @@ export function MatterDetail({ id }: { id: string }) {
     <div className="detail">
       <div className="stack">
         {/*
-        返回案件列表。原型把它放在顶栏（`.topbar .back`），但顶栏由 `AppShell` 统一渲染、
-        只写当前页名（MATT-98：顶栏不是链接）。所以与功能配置详情页同一处理——
-        落在页头标题上方 —— 全站详情页的返回入口因此长在同一个位置。
-        形态走 `.backlink`（两处详情页共用），不再各写一份行内 style。
+        页头与描述同组：描述属于标题的读数，不跟下方页签抢同一档间距。
+        2026-10-23 用户裁定布局（由上至下、从左到右）：
+          第一行  返回 · 案号
+          第二行  标题 · 状态
+        返回入口因此从 `.stack` 顶部移进页头第一行；`PageHeader` 的 `back` 只收导航，
+        不接受说明文字，「副标题纪律」没有因此松动。
       */}
-        <Link href="/matters" className="backlink">
-          <ArrowLeftOutlined />
-          返回案件列表
-        </Link>
-
-        {/* 页头与描述同组：描述属于标题的读数，不跟下方页签抢同一档间距 */}
         <div>
           <PageHeader
+            stacked
+            back={{ href: "/matters", label: "返回案件列表" }}
             title={m.name}
-            /**
-             * 原型 `matter-detail.html` 的页头是「编号 + 案名」一起当标题读的
-             * （`AJ-20260819-002 苏州万顺机械 承揽合同纠纷`）。编号是主键不是副标题，
-             * 所以走 `PageHeader` 的 `code`（与标题同行），不开第二行。
-             */
             code={m.internalCode}
             status={<StatusMark host="matter" code={m.status} />}
             flags={m.isArchived ? <FlagMark>已归档</FlagMark> : null}
@@ -435,8 +418,8 @@ export function MatterDetail({ id }: { id: string }) {
                   最近进展（独占一行）· 创建时间 / 更新时间。
 
                   块里只留这 9 项。其余字段并非不存在，而是各有更合适的落点：
-                  内部编号在页头（与标题同行，全站详情页同一处）、案由/等级/立案在列表与录入表单、
-                  结案日期与归档时间属归档流程、裁判文书属归档就绪。把它们再在详情里列一遍，
+                  内部编号在页头第一行（全站详情页同一处）、案由/等级/立案在列表与录入表单、
+                  结案日期与归档时间属归档流程、裁判文书属下方「附件」卡。把它们再在详情里列一遍，
                   就是同一事实的第二处显示。
                 */}
                   <Card size="small" title="基本信息">
@@ -494,72 +477,11 @@ export function MatterDetail({ id }: { id: string }) {
                     />
                   </Card>
 
-                  {/* 「归档就绪」三项（F2-26）。**服务端算好给**（详情 DTO 的
-                  archiveReadiness），前端不重算——判定只实现一次，
-                  列表的「已结案缺材料」筛选是它的另一个出口。
-                  点一项跳到该补录的页签（READINESS_TAB）。 */}
-                  {m.archiveReadiness ? (
-                    /**
-                     * 归档就绪（F2-26）。**形态照原型 `matter-detail.html` 的 `.tb` 表格**
-                     * （条件 / 状态 / 说明 三列，列宽 180 / 120 / 伸缩），不再是卡底一排 Tag：
-                     * 三行条件本来是一组"逐条核对"的读数，摊成横向胶囊时读起来像标签，
-                     * 竖着成行才对得上"一条一个状态"的扫读节奏。
-                     *
-                     * 卡头右侧仍是那句共用口径（与归档弹窗同一对常量）——原型那里写的是
-                     * "3 项条件"，但那是个计数；本仓要说的是"齐不齐"，且两个显示面不能各说各话。
-                     *
-                     * `unavailable` 那一项的说明**进表格的第三列**，不再挂在卡底当散文：
-                     * 同一个意思，放在"这一行"的上下文里它是事实，单独铺在卡底就是旁白。
-                     */
-                    <Card
-                      size="small"
-                      title="归档就绪"
-                      styles={{ body: { padding: 0 } }}
-                      extra={
-                        <span className="mut" style={{ fontSize: 12 }}>
-                          {m.archiveReadiness.missing.length === 0 ? READY_TEXT : NOT_READY_TEXT}
-                        </span>
-                      }
-                    >
-                      <table className="tb">
-                        <colgroup>
-                          <col style={{ width: 180 }} />
-                          <col style={{ width: 120 }} />
-                          <col />
-                        </colgroup>
-                        <thead>
-                          <tr>
-                            <th>条件</th>
-                            <th>状态</th>
-                            <th>说明</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {m.archiveReadiness.checks.map((c) => {
-                            // 只有"缺 + 有页签可去"才装成可点：已具备的行点了没有要补的东西，
-                            // 灰的那行（附件页签不存在）点进去也无处补录
-                            const fixTab = c.state === "missing" ? READINESS_TAB[c.key] : null;
-                            return (
-                              <tr
-                                key={c.key}
-                                style={{ cursor: fixTab ? "pointer" : "default" }}
-                                onClick={fixTab ? () => setTab(fixTab) : undefined}
-                              >
-                                <td>{READINESS_LABELS[c.key]}</td>
-                                <td>
-                                  <span className={STATE_PILL[c.state]}>
-                                    <i />
-                                    {STATE_LABEL[c.state]}
-                                  </span>
-                                </td>
-                                <td className="ellip">{readinessNote(c, READINESS_TAB[c.key])}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </Card>
-                  ) : null}
+                  {/* 附件（2026-10-23 用户裁定）：替换原「归档就绪」卡。
+                  归档判定仍由服务端算给归档弹窗与列表筛选，这里不再展开。 */}
+                  <Card size="small" title="附件">
+                    <AttachmentPanel host="matter" hostId={m.id} archived={m.isArchived} />
+                  </Card>
 
                   {/*
                 来源风险卡片（MATT-65 / F2-22）—— 与事项详情页那张「已转案件」卡

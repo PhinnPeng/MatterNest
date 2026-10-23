@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
+import { ArrowLeftOutlined } from "@ant-design/icons";
 
 /**
  * 页面头：**名称 / 编号 / 状态**这类"必须在第一屏出现"的事实与操作。
@@ -30,6 +32,12 @@ import type { ReactNode } from "react";
  * 标题层级因此归位：**顶栏 `h1` 是页名**（`app-shell.tsx` 的 `.topbar h1`），
  * 页面内的主区块标题是 `h2`（`component-guidelines` 的 h1→h2→h3 不跳级）。
  * 换渲染器不丢任何 prop —— `code` / `status` / `flags` / `actions` 逐一同在。
+ * ## 2026-10-23（用户裁定）：详情页的 `stacked` 布局
+ *
+ * 案件详情页要求第一行「返回 + 案号」、第二行「标题 + 状态」。这不是重新开放
+ * 副标题插槽：新增的两个 prop 都**只承载导航与主键**——`back` 是一个返回链接的
+ * 形状（`href` + `label`），塞不进一句解释；`stacked` 只决定这两行怎么排。
+ * 列表页不传 `stacked`，仍是原来的单行。
  */
 export function PageHeader({
   title,
@@ -37,6 +45,8 @@ export function PageHeader({
   status,
   flags,
   actions,
+  back,
+  stacked = false,
 }: {
   title: ReactNode;
   /** 与标题同行的主键（案件内部编号、事项编号）；用 `.num` 等宽字形 */
@@ -46,18 +56,48 @@ export function PageHeader({
   /** 与状态正交的第二个事实（已归档 / 已结案 / 已转案件） */
   flags?: ReactNode;
   actions?: ReactNode;
+  /** 详情页的返回入口：第一行最左，只能是导航，不能是说明文字 */
+  back?: { href: string; label: string };
+  /** 第一行 返回 + 编号，第二行 标题 + 状态；默认单行 */
+  stacked?: boolean;
 }) {
+  const codeNode = code ? (
+    <span className="num mut3" style={{ fontSize: 12 }}>
+      {code}
+    </span>
+  ) : null;
+
+  if (stacked) {
+    return (
+      <div className="pagehead">
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+          <div className="rowflex" style={{ alignItems: "center", gap: 8 }}>
+            {back ? (
+              <Link href={back.href} className="backlink">
+                <ArrowLeftOutlined style={{ fontSize: 11 }} /> {back.label}
+              </Link>
+            ) : null}
+            {codeNode}
+          </div>
+          <div className="rowflex" style={{ flexWrap: "wrap", gap: 8 }}>
+            <h2>{title}</h2>
+            {status}
+            {flags}
+          </div>
+        </div>
+        <span className="sp" />
+        {actions ? <div className="rowflex">{actions}</div> : null}
+      </div>
+    );
+  }
+
   return (
     <div className="pagehead">
       <div style={{ minWidth: 0 }}>
         <div className="rowflex" style={{ flexWrap: "wrap", gap: 8 }}>
           <h2>{title}</h2>
           {/* 编号是主键不是副标题，所以与标题同行；灰 12px 让它在读过一遍后自动退到次位 */}
-          {code ? (
-            <span className="num mut3" style={{ fontSize: 12 }}>
-              {code}
-            </span>
-          ) : null}
+          {codeNode}
           {status}
           {flags}
         </div>
