@@ -16,6 +16,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       id,
       parsed.data.body,
       pruneEmpty({ parentId: parsed.data.parentId }).parentId,
+      parsed.data.attachments ?? [],
     );
     if (!r) return notFound();
     return json(r, 201);

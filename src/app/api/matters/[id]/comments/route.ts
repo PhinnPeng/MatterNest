@@ -11,7 +11,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!pid.ok) return pid.res;
   const input = pruneEmpty(parsed.data);
   return withActor(async (actor) => {
-    const r = await addComment(actor, id, input.body, input.parentId ?? null);
+    const r = await addComment(
+      actor,
+      id,
+      input.body,
+      input.parentId ?? null,
+      input.attachments ?? [],
+    );
     return r ? json(r, 201) : notFound();
   });
 }
