@@ -217,6 +217,42 @@ export type CommentAttachment = {
   uploadedBy: string;
 };
 
+/**
+ * 宿主级附件（详情页「附件」卡）。
+ *
+ * 与评论附件共用表，但 `scope='host'`、有名称与描述；DTO 放在这里而不是组件内，
+ * 避免每加一个使用方就抄一份形状（type-safety「DTO 只在一处」）。
+ */
+export type AttachmentItem = {
+  id: string;
+  displayName: string;
+  description: string | null;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploadedBy: string;
+  isDeleted: boolean;
+  deletedAt: string | null;
+};
+
+export type AttachmentList = {
+  items: AttachmentItem[];
+  counts: { active: number; deleted: number };
+};
+
+/** 评论栏的统一 DTO（案件/事项共用）。两页 DTO 字段名不同，调用方归一成 `author`。 */
+export type RailComment = {
+  id: string;
+  parentId: string | null;
+  author: string;
+  body: string;
+  parts: CommentPart[];
+  createdAt: string;
+  isEdited?: boolean;
+  attachments: CommentAttachment[];
+};
+
 export type MatterDetail = {
   id: string;
   internalCode: string;

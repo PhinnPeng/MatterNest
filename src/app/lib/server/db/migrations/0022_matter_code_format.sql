@@ -5,31 +5,31 @@
 -- 风险事项的 `FX-` 编号不受影响。
 --
 -- 三条注意：
---   1. UPDATE 的多个 SET 表达式都读**旧行值**，所以 `case_no = internal_code` 的
---      判定用的是改写前的编号 —— 只改那些「案号留空、自动取内部编号」的行。
+--   1. 新编号只在 CTE 里算一次；`case_no = internal_code` 的判定在 CTE 里先取好，
+--      只改那些「案号留空、自动取内部编号」的行。
 --   2. 序号过 9999 后是 4 位以上，`lpad` 会截断（2026-10-15 的事故）。这里先判
 --      `length(...) < 4`，必要时才补零。
 --   3. 计数器按旧 `AJ` 的 value 原样搬到 `A`，不按数据 max 重算：号可跳不可复，
 --      空洞后的下一个号不能被复用。
-UPDATE "mn_matter"
-SET "case_no" = CASE
-      WHEN "case_no" = "internal_code" THEN
-        'A' || substr("internal_code", 4, 8) ||
-        CASE
-          WHEN length(substr("internal_code", 13)) < 4
-            THEN lpad(substr("internal_code", 13), 4, '0')
-          ELSE substr("internal_code", 13)
-        END
-      ELSE "case_no"
-    END,
-    "internal_code" =
-      'A' || substr("internal_code", 4, 8) ||
+WITH conv AS (
+  SELECT
+    "id",
+    "case_no" = "internal_code" AS "was_code",
+    'A' || substr("internal_code", 4, 8) ||
       CASE
         WHEN length(substr("internal_code", 13)) < 4
           THEN lpad(substr("internal_code", 13), 4, '0')
         ELSE substr("internal_code", 13)
-      END
-WHERE "internal_code" ~ '^AJ-[0-9]{8}-[0-9]+$';--> statement-breakpoint
+      END AS "new_code"
+  FROM "mn_matter"
+  WHERE "internal_code" ~ '^AJ-[0-9]{8}-[0-9]+$'
+)
+UPDATE "mn_matter" AS m
+SET
+  "internal_code" = c."new_code",
+  "case_no" = CASE WHEN c."was_code" THEN c."new_code" ELSE m."case_no" END
+FROM conv c
+WHERE m."id" = c."id";--> statement-breakpoint
 INSERT INTO "mn_code_seq" ("day_key", "prefix", "value")
 SELECT "day_key", 'A', "value" FROM "mn_code_seq" WHERE "prefix" = 'AJ'
 ON CONFLICT ("day_key", "prefix") DO UPDATE

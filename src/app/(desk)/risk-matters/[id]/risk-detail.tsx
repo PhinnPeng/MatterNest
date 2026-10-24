@@ -25,7 +25,7 @@ import {
   Timeline,
   Typography,
 } from "antd";
-import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
 
 import { api, ApiFailure, useActor, useMeta, type RiskDetail as Risk } from "@/app/lib/client/api";
 import { calDate, dateTime } from "@/app/lib/client/format";
@@ -39,7 +39,8 @@ import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
 import { ProgressLogDialog, ProgressPanel } from "@/app/components/progress-panel";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
-import { ErrorArt } from "@/app/components/ui/error-art";
+import { DetailError } from "@/app/components/ui/detail-error";
+import { handlersOf } from "@/shared/hosts";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { RichTextView, RichTextEditorLazy } from "@/app/components/ui/rich-text";
 import { ConvertDialog } from "../convert-dialog";
@@ -138,33 +139,14 @@ export function RiskDetail({ id }: { id: string }) {
   }
   // 404 走"不可见或不存在"这一句措辞，不写"事项不存在"——服务层对两者都给 404
   if (isError) {
-    const denied = error instanceof ApiFailure && error.status === 404;
     return (
-      <StateBlock
-        layout="page"
-        art={<ErrorArt variant={denied ? "not-found" : "error"} />}
-        tone={denied ? "denied" : "error"}
-        title={denied ? "打不开这条事项" : "读取出错"}
-        hint={
-          denied
-            ? "它要么不存在，要么不在你的数据范围内 —— 这两种情况系统给的是同一个响应，不区分。"
-            : error instanceof Error
-              ? error.message
-              : "未知错误"
-        }
-        action={
-          denied ? (
-            <Link href="/risk-matters">
-              <Button size="small" icon={<ArrowLeftOutlined />}>
-                回事项列表
-              </Button>
-            </Link>
-          ) : (
-            <Button size="small" onClick={() => void refetch()}>
-              重试
-            </Button>
-          )
-        }
+      <DetailError
+        what="事项"
+        denied={error instanceof ApiFailure && error.status === 404}
+        error={error}
+        onRetry={() => void refetch()}
+        backHref="/risk-matters"
+        backLabel="回事项列表"
       />
     );
   }
@@ -172,10 +154,10 @@ export function RiskDetail({ id }: { id: string }) {
 
   const risk = data;
   /**
-   * 参与人 = 经办 + 协办（有读写权）；关注人只收通知，归页头关注组。
-   * 与案件详情同一口径（GLOSSARY「经办人 / 协办人 / 关注人」）。
+   * 参与人 = 经办 + 协办（有读写权），见 GLOSSARY「参与人」；关注人只收通知，归页头关注组。
+   * 与案件详情同一口径。
    */
-  const handlers = risk.staff.filter((s) => s.staffRole !== "follower");
+  const handlers = handlersOf(risk.staff);
   const statusTarget: StatusTarget | null = {
     id: risk.id,
     code: risk.code,
@@ -318,39 +300,14 @@ export function RiskDetail({ id }: { id: string }) {
                           size="small"
                           items={[
                             {
-                              key: "code",
-                              label: "编号",
-                              children: <span className="num">{risk.code}</span>,
-                            },
-                            {
                               key: "type",
                               label: "风险类型",
                               children: meta?.enums.riskTypes[risk.type] ?? risk.type,
                             },
                             {
-                              key: "level",
-                              label: "等级",
-                              children:
-                                meta?.levels.find((l) => l.code === risk.level)?.name ?? risk.level,
-                            },
-                            {
-                              key: "status",
-                              label: "状态",
-                              children: <StatusMark host="risk_matter" code={risk.status} />,
-                            },
-                            {
                               key: "discoverDate",
                               label: "发现日期",
                               children: calDate(risk.discoverDate),
-                            },
-                            {
-                              key: "owner",
-                              label: "经办人",
-                              children: risk.ownerId ? (
-                                risk.ownerName
-                              ) : (
-                                <FlagMark tone="warn">未指派</FlagMark>
-                              ),
                             },
                             {
                               key: "lastProgressAt",

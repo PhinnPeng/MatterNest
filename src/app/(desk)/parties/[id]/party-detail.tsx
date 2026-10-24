@@ -4,18 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Alert,
-  App as AntdApp,
-  Button,
-  Form,
-  Input,
-  Modal,
-  Radio,
-  Select,
-  Table,
-  Typography,
-} from "antd";
+import { Alert, App as AntdApp, Form, Input, Modal, Radio, Select, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 
 import { api, ApiFailure, toOptions, useMeta } from "@/app/lib/client/api";
@@ -30,8 +19,7 @@ import {
 import { dateTime, fromNow } from "@/app/lib/client/format";
 import { PageHeader } from "@/app/components/page-header";
 import { FlagMark, StatusMark } from "@/app/components/ui/status-mark";
-import { StateBlock } from "@/app/components/ui/state-block";
-import { ErrorArt } from "@/app/components/ui/error-art";
+import { DetailError } from "@/app/components/ui/detail-error";
 import { applyServerIssues } from "@/app/components/form/zod-rules";
 
 /**
@@ -80,31 +68,14 @@ export function PartyDetail({ id }: { id: string }) {
   }
   // 404 走"不可见或不存在"这一句措辞：服务层对两者都给 404（元规则 3），界面不许替它区分
   if (isError) {
-    const denied = error instanceof ApiFailure && error.status === 404;
     return (
-      <StateBlock
-        layout="page"
-        art={<ErrorArt variant={denied ? "not-found" : "error"} />}
-        tone={denied ? "denied" : "error"}
-        title={denied ? "打不开这份档案" : "读取出错"}
-        hint={
-          denied
-            ? "它要么不存在，要么不在你的数据范围内 —— 这两种情况系统给的是同一个响应，不区分。"
-            : error instanceof Error
-              ? error.message
-              : "未知错误"
-        }
-        action={
-          denied ? (
-            <Link href="/parties">
-              <Button size="small">回当事人列表</Button>
-            </Link>
-          ) : (
-            <Button size="small" onClick={() => void refetch()}>
-              重试
-            </Button>
-          )
-        }
+      <DetailError
+        what="档案"
+        denied={error instanceof ApiFailure && error.status === 404}
+        error={error}
+        onRetry={() => void refetch()}
+        backHref="/parties"
+        backLabel="回当事人列表"
       />
     );
   }

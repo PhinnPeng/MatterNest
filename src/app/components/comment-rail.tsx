@@ -4,11 +4,12 @@ import { useMemo, useState } from "react";
 import { App as AntdApp, Button, Input, Space } from "antd";
 import { useMutation } from "@tanstack/react-query";
 
-import { api, ApiFailure, type CommentAttachment } from "@/app/lib/client/api";
+import { api, ApiFailure, type RailComment } from "@/app/lib/client/api";
 import { calDate, fromNow } from "@/app/lib/client/format";
-import type { CommentPart } from "@/shared/notification/comment-body";
 import { CommentBody } from "@/app/components/comment-body";
 import { MentionInput } from "@/app/components/mention-input";
+import { StateBlock } from "@/app/components/ui/state-block";
+import { hostBase } from "@/shared/hosts";
 import {
   AttachmentChips,
   AttachmentPicker,
@@ -33,16 +34,7 @@ import {
  * 只有事项侧的 PATCH 存在（案件评论接口只有 POST）。所以 `editable` 由调用方给，
  * 案件不传、按钮不出现；这不是视觉差异，是能力差异。
  */
-export type RailComment = {
-  id: string;
-  parentId: string | null;
-  author: string;
-  body: string;
-  parts: CommentPart[];
-  createdAt: string;
-  isEdited?: boolean;
-  attachments: CommentAttachment[];
-};
+export type { RailComment };
 
 type Host = "matter" | "risk_matter";
 
@@ -64,7 +56,7 @@ export function CommentRail({
   editable?: boolean;
 }) {
   const { message } = AntdApp.useApp();
-  const base = host === "matter" ? "matters" : "risk-matters";
+  const base = hostBase(host);
   const [body, setBody] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -151,7 +143,7 @@ export function CommentRail({
             </div>
           ))
         ) : (
-          <div className="chat-empty">还没有评论。</div>
+          <StateBlock title="还没有评论" hint="在下方输入框写第一条。" />
         )}
       </div>
 

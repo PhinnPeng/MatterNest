@@ -171,11 +171,11 @@ export async function overview(actor: Actor) {
   ]);
 
   /**
-   * 每个宿主最新一条进展：`distinct on (host_id)` + 日期/ id 倒序。
+   * 每个宿主最新一条进展：`distinct on (host_id)` + **录入时间**倒序。
    *
-   * 不用相关子查询：同一条 SQL 里既要 `last_progress_at` 排序、又要取正文，
-   * 子查询在多态表上容易写成"看着对、实际恒 NULL"（这次就先踩了一次）。
-   * 两步查询的代价是两次往返，换的是每一列都能被单独验证。
+   * 排序键是 `last_progress_at`（记进展时写 now()），所以正文也必须按 `created_at`
+   * 取最新一条。按 `progress_date` 取会在"补录一条旧日期进展"时与排序错位：
+   * 列表把它排到最前，正文却是更早那条。
    */
   const matterIds = matterProgressRows.map((r) => r.hostId);
   const riskIds = riskProgressRows.map((r) => r.hostId);
@@ -191,11 +191,7 @@ export async function overview(actor: Actor) {
           .where(
             and(inArray(matterProgress.hostId, matterIds), sql`NOT ${matterProgress.isDeleted}`),
           )
-          .orderBy(
-            matterProgress.hostId,
-            desc(matterProgress.progressDate),
-            desc(matterProgress.id),
-          )
+          .orderBy(matterProgress.hostId, desc(matterProgress.createdAt), desc(matterProgress.id))
       : [],
     riskIds.length
       ? db
@@ -213,7 +209,7 @@ export async function overview(actor: Actor) {
           )
           .orderBy(
             riskMatterProgress.hostId,
-            desc(riskMatterProgress.progressDate),
+            desc(riskMatterProgress.createdAt),
             desc(riskMatterProgress.id),
           )
       : [],

@@ -22,7 +22,7 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
 import type { TableColumnsType } from "antd";
 
 import { api, ApiFailure, useMeta, type MatterDetail as Matter } from "@/app/lib/client/api";
@@ -34,10 +34,11 @@ import { FollowGroup } from "@/app/components/follow-group";
 import { StatusMark, FlagMark } from "@/app/components/ui/status-mark";
 import { DeadlineMark } from "@/app/components/ui/deadline-mark";
 import { StateBlock } from "@/app/components/ui/state-block";
-import { ErrorArt } from "@/app/components/ui/error-art";
+import { DetailError } from "@/app/components/ui/detail-error";
 import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
 import { ProgressLogDialog, ProgressPanel } from "@/app/components/progress-panel";
 import { CommentRail } from "@/app/components/comment-rail";
+import { handlersOf } from "@/shared/hosts";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { AttachmentPanel } from "@/app/components/attachment-panel";
 import { StaffPicker } from "./staff-picker";
@@ -157,54 +158,33 @@ export function MatterDetail({ id }: { id: string }) {
   }
 
   if (isError) {
-    const denied = error instanceof ApiFailure && error.status === 404;
     return (
-      <StateBlock
-        layout="page"
-        art={<ErrorArt variant={denied ? "not-found" : "error"} />}
-        tone={denied ? "denied" : "error"}
-        title={denied ? "打不开这条案件" : "读取出错"}
-        hint={
-          denied
-            ? "它要么不存在，要么不在你的数据范围内 —— 这两种情况系统给的是同一个响应，不区分。"
-            : error instanceof Error
-              ? error.message
-              : "未知错误"
-        }
-        action={
-          denied ? (
-            <Link href="/matters">
-              <Button size="small" icon={<ArrowLeftOutlined />}>
-                回案件列表
-              </Button>
-            </Link>
-          ) : (
-            <div className="rowflex" style={{ gap: 8, justifyContent: "center" }}>
-              <Button size="small" onClick={() => void refetch()}>
-                重试
-              </Button>
-              <Link href="/matters">
-                <Button size="small" icon={<ArrowLeftOutlined />}>
-                  回案件列表
-                </Button>
-              </Link>
-            </div>
-          )
-        }
+      <DetailError
+        what="案件"
+        denied={error instanceof ApiFailure && error.status === 404}
+        error={error}
+        onRetry={() => void refetch()}
+        backHref="/matters"
+        backLabel="回案件列表"
       />
     );
   }
 
   const m = data;
   /**
-   * 参与人 = **经办 + 协办**（有读写权的内部同事）。
+   * 参与人 = **经办 + 协办**（有读写权的内部同事），见 GLOSSARY「参与人」。
    *
-   * 关注人（`follower`）只收通知、不取得读写权（GLOSSARY），归页头的关注组管理，
+   * 关注人（`follower`）只收通知、不取得读写权，归页头的关注组管理，
    * 不算参与人；当事人是外部主体，单独成卡。把三者混进一个数字里会让「参与人 (n)」
    * 读不出到底数的是什么。
    */
-  const handlers = m.staff.filter((s) => s.staffRole !== "follower");
-  const target: StatusTarget = { id: m.id, code: m.internalCode, name: m.name, status: m.status };
+  const handlers = handlersOf(m.staff);
+  const target: StatusTarget = {
+    id: m.id,
+    code: m.internalCode,
+    name: m.name,
+    status: m.status,
+  };
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["matter", m.id] });

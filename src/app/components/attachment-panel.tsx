@@ -18,7 +18,7 @@ import {
 import type { TableColumnsType } from "antd";
 import { DownloadOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 
-import { api, ApiFailure } from "@/app/lib/client/api";
+import { api, ApiFailure, type AttachmentItem, type AttachmentList } from "@/app/lib/client/api";
 import { dateTime } from "@/app/lib/client/format";
 import {
   fileProblem,
@@ -42,24 +42,6 @@ import {
  * 归档宿主只读：列表仍可看，三个写动作全部禁用。
  */
 type Host = "matter" | "risk_matter";
-
-type AttachmentItem = {
-  id: string;
-  displayName: string;
-  description: string | null;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-  uploadedAt: string;
-  uploadedBy: string;
-  isDeleted: boolean;
-  deletedAt: string | null;
-};
-
-type AttachmentList = {
-  items: AttachmentItem[];
-  counts: { active: number; deleted: number };
-};
 
 const STATE_OPTIONS: { label: string; value: AttachmentListState }[] = [
   { label: "生效", value: "active" },
@@ -88,15 +70,14 @@ export function AttachmentPanel({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [state, setState] = useState<AttachmentListState>(() =>
-    stateFromUrl(searchParams.get("attach")),
-  );
+  /**
+   * 筛选的唯一来源是 URL（`?attach=`）：刷新/转发保持同一视图，不再在本地存第二份。
+   */
+  const state = stateFromUrl(searchParams.get("attach"));
   const [uploadOpen, setUploadOpen] = useState(false);
   const [editing, setEditing] = useState<AttachmentItem | null>(null);
 
-  /** 筛选进 URL：刷新/转发后仍是同一视图（与列表页的 `useListState` 同一条理由） */
   const changeState = (next: AttachmentListState) => {
-    setState(next);
     const qs = new URLSearchParams(searchParams.toString());
     if (next === "active") qs.delete("attach");
     else qs.set("attach", next);
@@ -136,6 +117,7 @@ export function AttachmentPanel({
     {
       title: "名称",
       dataIndex: "displayName",
+      width: 320,
       render: (_: unknown, r) => (
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 13 }}>{r.displayName}</div>
@@ -265,14 +247,15 @@ export function AttachmentPanel({
           columns={columns}
           dataSource={q.data.items}
           pagination={false}
+          scroll={{ x: 760 }}
         />
       ) : (
         <StateBlock
-          title={state === "deleted" ? "没有作废的材料" : "还没有附件"}
+          title={state === "deleted" ? "没有作废的附件" : "还没有附件"}
           hint={
             state === "deleted"
               ? "作废的附件会留在这里，可回看与下载。"
-              : "合同、证据、裁判文书这类案卷附件登记在这里；评论里的附件不重复列出。"
+              : "合同、证据、裁判文书这类案卷附件登记在这里。"
           }
         />
       )}
@@ -321,7 +304,7 @@ function UploadDialog({
       }),
     onSuccess: () => {
       onClose();
-      message.success("材料已上传");
+      message.success("附件已上传");
       onDone();
     },
     onError: (e) => {
@@ -369,7 +352,7 @@ function UploadDialog({
           <Input maxLength={255} placeholder="例如：一期施工合同（盖章版）" />
         </Form.Item>
         <Form.Item name="description" label="描述">
-          <Input.TextArea rows={2} maxLength={4000} placeholder="这份材料说明什么、从哪来" />
+          <Input.TextArea rows={2} maxLength={4000} placeholder="这份附件说明什么、从哪来" />
         </Form.Item>
         <Form.Item label="附件" required>
           <Space>
@@ -453,9 +436,6 @@ function EditDialog({
         <Form.Item name="description" label="描述">
           <Input.TextArea rows={3} maxLength={4000} />
         </Form.Item>
-        <div className="mut3" style={{ fontSize: 12 }}>
-          文件本身不可替换；换文件请上传一份新的附件。
-        </div>
       </Form>
     </Modal>
   );

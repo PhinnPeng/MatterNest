@@ -8,6 +8,7 @@ import { useOverview } from "@/app/lib/client/api";
 import { PageHeader } from "@/app/components/page-header";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { actorName, fromNow } from "@/app/lib/client/format";
+import { hostBase } from "@/shared/hosts";
 import { DEADLINE_TONE } from "@/app/theme/antd";
 
 /**
@@ -242,10 +243,10 @@ export function Workbench() {
           <h2>近期活动</h2>
           <span className="sp" />
           <span style={{ display: "flex", gap: 8, marginLeft: 12 }}>
-            <Link href="/matters#reports" className="btn sm">
+            <Link href="/matters#reports" className="btn sm" title="打开全量报表">
               案件报表
             </Link>
-            <Link href="/risk-matters#reports" className="btn sm">
+            <Link href="/risk-matters#reports" className="btn sm" title="打开全量报表">
               事项报表
             </Link>
           </span>
@@ -272,7 +273,7 @@ export function Workbench() {
               rowKey={(p) => `${p.kind}-${p.hostId}`}
               styles={{ item: { padding: "9px 16px" } }}
               itemRender={(p) => {
-                const href = `/${p.kind === "matter" ? "matters" : "risk-matters"}/${p.hostId}`;
+                const href = `/${hostBase(p.kind)}/${p.hostId}`;
                 return (
                   <Flex justify="space-between" align="flex-start" gap={12} wrap>
                     <Space size={8} align="baseline" style={{ minWidth: 0 }}>
