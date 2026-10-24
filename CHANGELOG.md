@@ -7,6 +7,45 @@
 
 ---
 
+## [未发布] — 2026-10-24 · 宿主状态迁移收成一处：判定顺序、三档动作、端点都只写一次
+
+案件与事项各有一份 `changeStatus` / `changeRiskStatus`，骨架相同、差异四处（冻结 / 经办人可空 /
+结案日期 / 结案自动归档）。守卫顺序只写在注释里，钉住它的是 `risks.spec.ts` 把 `risks.ts`
+当**源码字符串**读。这一轮把顺序、审计动作、通知意图、撤销归档特权收进一个模块，
+两个宿主降为一张策略表 —— 顺带修掉了两个真缺陷。
+
+### Added
+
+- `services/status-change.ts`：`decideStatusChange`（纯判决，不连库）与 `changeHostStatus`
+  （整笔事务：判定 → 写列 → 审计 → 通知 → 规则 1）
+- `services/host-status-policy.ts`：两个宿主**唯一的差异表**（读哪些列 / 写哪些列 / 四条规则）
+- `services/status-change.spec.ts`：判决的顺序与三档动作，替代原来"读源码文本"的顺序断言
+
+### Changed
+
+- `isRiskFrozen` 与两句冻结文案搬到 `risk-freeze.ts`，`resolveClosingDate` 搬到
+  `matter-status-write.ts`（为断开 `status-change.ts` 与两个服务的环；两处均 re-export）
+- 两条 `status` 路由与两处批量循环删掉各自的 `can_unarchive` 预检，
+  `privilege_required` 由判决产出 —— 同一判据原来有四份，批量那份与路由那份条件还不同
+- `StatusTarget` 加必填 `host`；状态弹窗的端点基址按宿主拼
+
+### Fixed
+
+- **事项详情「变更状态」必 404**：弹窗写死 `/api/matters/...`，而事项详情复用了它。
+  成因是 2026-10-23 复刻页头页签时没把宿主带过来（`db9745a`）
+- **冻结与归档的答复顺序**：一件既冻结又归档的事项，过去先回 403「需要撤销归档权限」，
+  用户拿着这句去找持特权的人，而对方也解不开。现在按 ADR-0005 先问冻结，回 422 `frozen`
+
+### Known
+
+- `agent-work/smoke-risk.mjs` 有 8 条红，与本轮无关：`nodeWriteSchema` 于 2026-10-23 改成
+  「只要 name/description/startTime 且 `.strict()`」，而该脚本最后一次改动是 2026-10-14，
+  仍在发 `nodeTypeId`。脚本待另开票更新。
+
+---
+
+---
+
 ## [未发布] — 2026-10-17 · 文档与部署裁定对齐（MATT-77）：单副本落地 + advisory lock 措辞降级
 
 只改文档与 `.env.example`，不碰 `src/`。起因是把**已作出的裁定**写回文档，而不是留着
