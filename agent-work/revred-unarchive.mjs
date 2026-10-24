@@ -17,9 +17,9 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const F_MATTERS = "src/app/lib/server/services/matters.ts";
-const F_RISKS = "src/app/lib/server/services/risks.ts";
 const SMOKE = "agent-work/smoke-unarchive.mjs";
+/** 判定搬进 `status-change.ts` 之后，两个锚点都落在那里 */
+const F_STATUS = "src/app/lib/server/services/status-change.ts";
 const SETTLE_MS = 3500;
 
 const MODES = {
@@ -29,41 +29,39 @@ const MODES = {
     expectRed: ["撤销归档不填原因 → 422"],
     anchors: [
       {
-        file: F_MATTERS,
+        // 2026-10-24：判定搬进 `status-change.ts`（两个宿主共用一份顺序）
+        file: F_STATUS,
         tag: "no-unarchive-reason",
-        needle: "    (unarchiving ||\n      needsChangeReason({",
-        replacement: "    (false ||\n      needsChangeReason({",
+        needle: `    unarchiving ||
+    needsChangeReason({`,
+        replacement: `    false ||
+    needsChangeReason({`,
       },
     ],
   },
   /** 三档动作名退回两档 ⇒ 审计链里按动作名筛不出「谁撤了归档」 */
   "action-two-tier": {
-    why: "动作名退回 `archiving ? \"ARCHIVED\" : \"STATUS_CHANGED\"` 两档（撤销归档又被记成 STATUS_CHANGED）",
+    why: '撤销归档那一档被并回 STATUS_CHANGED（审计里再也筛不出「谁撤的」）',
     expectRed: ["按动作名筛得出 `UNARCHIVED`"],
     anchors: [
       {
-        file: F_MATTERS,
+        // 三档现在是三条字面量调用（enum-check 只认字面量），所以锚点落在 UNARCHIVED 那一行
+        file: F_STATUS,
         tag: "action-two-tier",
-        needle:
-          '      action: archiving ? "ARCHIVED" : unarchiving ? "UNARCHIVED" : "STATUS_CHANGED",',
-        replacement: '      action: archiving ? "ARCHIVED" : "STATUS_CHANGED",',
+        needle: `      await logActivity(tx, actor, { ...entry, action: "UNARCHIVED" });`,
+        replacement: `      await logActivity(tx, actor, { ...entry, action: "STATUS_CHANGED" });`,
       },
     ],
   },
-  /** 事项侧那一处漏改：案件侧修好、事项侧还按两档 ⇒ 镜像缺口（历史形态） */
-  "risk-side-missed": {
-    why: "只改案件侧漏了事项侧：`risks.ts` 还按两档写（两处镜像只改一处）",
-    expectRed: ["事项侧同样落 `UNARCHIVED`"],
-    anchors: [
-      {
-        file: F_RISKS,
-        tag: "risk-side-missed",
-        needle:
-          '      action: archiving ? "ARCHIVED" : unarchiving ? "UNARCHIVED" : "STATUS_CHANGED",',
-        replacement: '      action: archiving ? "ARCHIVED" : "STATUS_CHANGED",',
-      },
-    ],
-  },
+  /**
+   * 「只改一侧漏另一侧」这个模式**已退役**（2026-10-24）。
+   *
+   * 它模拟的是镜像缺口：案件侧把两档改成三档、事项侧还留着两档。现在两侧共用
+   * `status-change.ts` 里**同一段**三档分支，这个缺口在结构上不再可能发生 ——
+   * 留着一条指向不存在代码的锚点，只会变成下一个人以为是漏改的噪声。
+   * 替代看守：`status-change.spec.ts` 断言策略表里事项侧接的是 `isRiskFrozen`、
+   * 案件侧恒 `false`（冻结是事项的属性，ADR-0005）。
+   */
 };
 
 const backupOf = (file) => `${file}.revred-unarchive.bak`;

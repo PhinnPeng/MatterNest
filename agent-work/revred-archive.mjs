@@ -46,8 +46,12 @@ import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 
 const F_SVC = "src/app/lib/server/services/archive-readiness.ts";
 const F_MATTERS = "src/app/lib/server/services/matters.ts";
+// `resolveClosingDate` 2026-10-24 搬到 `matter-status-write.ts`（`status-change.ts` 要用它，
+// 留在 `matters.ts` 会成环）。`no-closing` 这个模式的锚点跟着搬。
+const F_STATUS_WRITE = "src/app/lib/server/services/matter-status-write.ts";
 const BAK_SVC = `${F_SVC}.revred-archive.bak`;
 const BAK_MATTERS = `${F_MATTERS}.revred-archive.bak`;
+const BAK_STATUS_WRITE = `${F_STATUS_WRITE}.revred-archive.bak`;
 const mode = process.argv[2];
 
 if (mode === "restore" || process.argv[3] === "restore") {
@@ -55,6 +59,7 @@ if (mode === "restore" || process.argv[3] === "restore") {
   for (const [f, b] of [
     [F_SVC, BAK_SVC],
     [F_MATTERS, BAK_MATTERS],
+    [F_STATUS_WRITE, BAK_STATUS_WRITE],
   ]) {
     if (existsSync(b)) {
       writeFileSync(f, readFileSync(b, "utf8"), "utf8");
@@ -89,7 +94,7 @@ const NEEDLES = {
     tag: "no-filter",
   },
   "no-closing": {
-    file: F_MATTERS,
+    file: F_STATUS_WRITE,
     // ⚠ 锚点只取"判断目标语义是不是 closed"那一句：它唯一、且不随注释与日期写法改字而腐。
     //   初版锚点框住了整个三目表达式（含注释），我在修 🔴 时一改注释它就匹配不到了——
     //   `verify-anchors.mjs` 当场抓到，所以没等到真跑才发现。
@@ -114,7 +119,7 @@ if (!spec) {
   process.exit(2);
 }
 
-const bak = spec.file === F_SVC ? BAK_SVC : BAK_MATTERS;
+const bak = `${spec.file}.revred-archive.bak`;
 const src = readFileSync(spec.file, "utf8");
 const hits = src.split(spec.needle).length - 1;
 if (hits !== 1) {

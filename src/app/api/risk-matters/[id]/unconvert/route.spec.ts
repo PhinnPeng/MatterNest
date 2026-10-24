@@ -21,11 +21,13 @@ import { describe, expect, it } from "vitest";
  * 笼统的 `blocked` 分开（2026-10-14 裁定留下的可观测判据，改文案时别把它弄丢）。
  */
 const route = readFileSync("src/app/api/risk-matters/[id]/unconvert/route.ts", "utf8");
-const services = readFileSync("src/app/lib/server/services/risks.ts", "utf8");
+// 文案 2026-10-24 搬到 `risk-freeze.ts`（`status-change.ts` 要用冻结判据，留在 `risks.ts`
+// 会成环）；`risks.ts` 仍 re-export，路由的 import 路径没变。断言读文案的**真身**。
+const freeze = readFileSync("src/app/lib/server/services/risk-freeze.ts", "utf8");
 
 /** 专用文案的正文（两段字符串拼起来，取到第一个分号为止 —— 文案里不写 `;`） */
 const message =
-  (/export const RISK_UNCONVERT_FROZEN_MESSAGE =([\s\S]*?);/.exec(services) ?? [])[1] ?? "";
+  (/export const RISK_UNCONVERT_FROZEN_MESSAGE =([\s\S]*?);/.exec(freeze) ?? [])[1] ?? "";
 
 describe("unconvert 的冻结答复：说「规则」，不说「出错了」", () => {
   it("走专用文案，而不是共享那句", () => {

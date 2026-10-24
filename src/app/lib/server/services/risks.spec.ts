@@ -295,21 +295,31 @@ describe("冻结判据：只写一处，且十条写路径都走它", () => {
     expect(functions.length).toBeGreaterThan(10);
   });
 
-  it("`conversion_status = 1` 这个比较在 services/risks.ts 里只出现一次", () => {
+  it("`conversion_status = 1` 这个比较在 services/risk-freeze.ts 里只出现一次", () => {
     // 这条是「未来若要放开只需改一处判定」的可执行形式。判据散在多个函数里的话，
     // 放开时必须改多处，而漏掉的那一处**不会报错** —— 只会让裁定悄悄地只生效了一半。
-    const hits = src.match(/conversionStatus\s*===\s*1/g) ?? [];
+    //
+    // 2026-10-24：判据搬去了 `risk-freeze.ts` —— `status-change.ts` 要用它，而
+    // `risks.ts` 要 import `status-change.ts`，留在原处就是环。看守随之换到新文件，
+    // 断言形态不变（仍然只有一处、仍然只认等值比较）。
+    const freezeSrc = readFileSync("src/app/lib/server/services/risk-freeze.ts", "utf8");
+    const hits = freezeSrc.match(/conversionStatus\s*===\s*1/g) ?? [];
     expect(hits).toEqual(["conversionStatus === 1"]);
+    // 反向：原文件里不能再有第二处 —— 搬完之后两边都写才叫真的漂
+    expect(src.match(/conversionStatus\s*===\s*1/g) ?? []).toEqual([]);
   });
 
-  it("十一条写路径的门都是**活的** `if (isRiskFrozen(...)) return frozen`，恰好十一处", () => {
+  it("十条写路径的门都是**活的** `if (isRiskFrozen(...)) return frozen`，恰好十处", () => {
     // ⚠ 这一条是被反向红逼出来的：先前只查「函数体里出现过 isRiskFrozen(」，
     // 而把门改成 `if (false && isRiskFrozen(...))` 照样命中 —— 门被摘掉了，断言还是绿的。
     // 「门存在」与「门挡得住」是两件事，后者才需要断言。所以这里比对完整形态。
     //
     // 顺序 = 门在 `services/risks.ts` 里出现的顺序（跟着函数定义的先后走）：
-    //   追加当事人 / 摘除当事人 / 撤销转案件 / 改状态 / 改字段 / 写进展 / 加节点 /
+    //   追加当事人 / 摘除当事人 / 撤销转案件 / 改字段 / 写进展 / 加节点 /
     //   改节点 / 删节点 / 改节点状态 / 软删。
+    //
+    // 第十一道（状态流转）已移出本文件：它的门现在在 `decideStatusChange` 里，
+    // 由 `status-change.spec.ts` 用「喂事实」的方式钉住顺序 —— 不再读源码文本。
     const gates = [
       ...src.matchAll(
         /if \(\s*isRiskFrozen\((\w+)\.conversionStatus\)\)\s*return \{[^}]*why: "frozen"\s*\}/g,
@@ -317,11 +327,11 @@ describe("冻结判据：只写一处，且十条写路径都走它", () => {
     ];
     expect(
       gates.map((m) => m[1]),
-      "十一条写路径上少了一道活门，或门被短路了",
-    ).toEqual(["src", "src", "src", "cur", "cur", "visible", "vis", "node", "node", "node", "cur"]);
+      "十条写路径上少了一道活门，或门被短路了",
+    ).toEqual(["src", "src", "src", "cur", "visible", "vis", "node", "node", "node", "cur"]);
   });
 
-  it("追加当事人 / 摘除当事人 / 软删 / 撤销转案件 / 状态流转 / 字段编辑 / 写进展 / 新增节点 / 改节点 / 删节点 / 改节点状态 十一条路径都先问 isRiskFrozen", () => {
+  it("追加当事人 / 摘除当事人 / 软删 / 撤销转案件 / 字段编辑 / 写进展 / 新增节点 / 改节点 / 删节点 / 改节点状态 十条路径都先问 isRiskFrozen", () => {
     const guarded = functions
       .filter((f) => f.body.includes("isRiskFrozen("))
       .map((f) => f.name)
@@ -330,7 +340,6 @@ describe("冻结判据：只写一处，且十条写路径都走它", () => {
       "addRiskNode",
       "addRiskProgress",
       "appendRiskParties",
-      "changeRiskStatus",
       "deleteRiskMatter",
       "deleteRiskNode",
       "removeRiskParty",
@@ -341,7 +350,7 @@ describe("冻结判据：只写一处，且十条写路径都走它", () => {
     ]);
   });
 
-  it("冻结门都排在归档与归属判定**之前**（十一道门逐个点名；两道无可排前判定的跳过，不算过）", () => {
+  it("冻结门都排在归档与归属判定**之前**（`risks.ts` 里的十道逐个点名；状态流转那道由 status-change.spec 管）", () => {
     // 门的先后不是风格：若把 `isRiskFrozen` 排在 `isArchived` / `ownsAttribution` 之后，
     // 冻结的事项会先被告知「已归档」或「你不是经办人」，用户照着那句去找特权或找经办人，
     // 而找到之后拿到的还是同一句拒绝。**答案要是"因为已冻结"，不是别的原因。**
@@ -351,7 +360,6 @@ describe("冻结判据：只写一处，且十条写路径都走它", () => {
       "appendRiskParties",
       "removeRiskParty",
       "unconvertFromCase",
-      "changeRiskStatus",
       "updateRiskMatter",
       "addRiskProgress",
       "addRiskNode",

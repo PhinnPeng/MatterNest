@@ -7,7 +7,6 @@ import {
   type MatterListExportQuery,
 } from "@/shared/schema/list-query";
 import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
-import { needsChangeReason } from "@/shared/schema/status-transition";
 import { type ProgressInput } from "@/shared/schema/hosts";
 import { getDb } from "../db/client";
 import {
@@ -42,8 +41,7 @@ import { initialStatusCode, hostStatusRows } from "./statuses";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
-import { applyCloseAutoArchive } from "./auto-archive";
-import { writeMatterStatus } from "./matter-status-write";
+import { changeHostStatus, type StatusChangeResult } from "./status-change";
 import { configNameDict, csvText, exportAuditPayload, listExportLanding } from "./exports";
 import { isFavorited, syncFollowWatch } from "./watch";
 import { mentionPartsOf } from "./comment-mentions";
@@ -53,12 +51,7 @@ import {
   discardDrafts,
   verifyDraftAttachments,
 } from "./attachments";
-import {
-  enqueueCommentIntent,
-  notifyStatusChanged,
-  quoteOf,
-  resolveMentionIds,
-} from "./notifications";
+import { enqueueCommentIntent, quoteOf, resolveMentionIds } from "./notifications";
 import { NODE_STATUS_LABELS, PROCEDURE_LABELS } from "@/shared/enums/business";
 
 /**
@@ -854,228 +847,24 @@ export async function createMatter(
 }
 
 /**
- * 目标语义 + 当前结案日期 ⇒ `closing_date` 该写成什么（MATT-69）。
- *
- * 抽出来的唯一理由是**可测**：`changeStatus` 一进去就连库、开事务，而 `pnpm verify`
- * 的口径是离线可跑（与 `risks.spec.ts` 里"为什么不测 `convertToCase` 本体"同一条理由）。
- * 判定逻辑与抽出来之前逐字相同，唯一的变化是签名把"现在"作为**入参**——
- * 于是测试能钉住一个具体的瞬时，而不必去改机器时钟（改全局时钟的测试会与并行用例互相污染）。
- *
- * ## 写入规则（F2-26 第②项的前提，也是 `SEMANTICS_RULES.closed.effect`
- * 那句"视为结案，closing_date 自动写入"的落地）
- *
- * ⚠ MATT-42 之前**没有任何路径能写这一列**：建案 schema 里没有它、案件侧也没有字段编辑接口。
- *   结果是 `closing_date` 恒为 NULL ⇒ 详情页的「已结案」标记永不出现、
- *   归档完备性的第②项恒判"缺"。那一条属于"声明了效果但没实现"，
- *   不是"没人用所以先不做"——声明在 `shared/enums/status.ts` 里，是可读的承诺。
- *
- * 进入 `closed` 语义时若为空则写今天；**离开 `closed` 时清空**
- * （不结案了，"结案日期"就不该留着——留着会让第②项在办案件上恒绿）。
- * 已有的日期不覆盖：重复进入 closed 不改第一次的结案日。
- *
- * ## 为什么"今天"必须过 `businessDateKey` 而不是切 UTC 串
- *
- * ⚠ `closing_date` 是 `date` 列、业务日语义的（"结案那天是哪天"），
- *   详情页与导出都把它当纸面事实读。`now.slice(0, 10)` 切的是 **UTC 日**，
- *   上海 00:00–08:00 之间结案的案件因此落成**前一天**——而用户当天点的是"结案"，
- *   界面上没有任何东西提示它错了。连带后果：规则 9 的 14 天原点取自这一列，
- *   于是那一批案件提前一天收到"材料不全"提醒（方向是"宁可提醒"，但仍是错的）。
- *
- * 本仓的纪律是"同一件事只有一个取数口径"（业务日 = `businessDateKey`，
- * `shared/time/zh-cn.ts`），`archive-reminder.ts` 与 `notifications.ts` 都走它；
- * 这里曾是离群者。
+ * `closing_date` 的取值口径搬去了 `./matter-status-write`（`status-change.ts` 要用它，
+ * 留在本文件会成环）。这里 re-export，`matters.spec.ts` 的 import 路径不变。
  */
-export function resolveClosingDate(
-  targetSemantics: string,
-  currentClosingDate: string | null,
-  now: string,
-): string | null {
-  if (targetSemantics === "closed") return currentClosingDate ?? businessDateKey(now);
-  // ⚠ 归档**保留**结案日期。初版写成"离开 closed 就清空"，而 `closed → archived`
-  //   恰好命中（seed 里 `closed` 的推荐后继就是 `archived`）⇒ 归档时把日期抹掉。
-  //   后果不是一条断言红，而是三件事同时发生：①判定在 `tx.update` **之前**跑，
-  //   读到旧值 ⇒ 审计记 `missing_at_archive: []`（齐备），而列表筛选读归档后的行
-  //   （已被抹成 NULL）⇒ 判它"缺材料"——**两个出口互相打架**，正是本票 AC 第 1 条
-  //   要防的；②G4 指标"归档材料完整率"的唯一数据源变成**假的空数组**；
-  //   ③「已结案缺材料」筛选退化成"全部归档案件"（因为主路径每条都缺）。
-  if (targetSemantics === "archived") return currentClosingDate;
-  return null;
-}
+export { resolveClosingDate } from "./matter-status-write";
 
 /**
- * 状态变更。
+ * 案件的状态变更 —— 过渡入口。
  *
- * 三道判定按"先贵后贱"排：可见性 → 归属 → 原因。
- *   · 可见性由 `scopedWhere` 单点保证，不可见与不存在一律 `not_found`（→ 404，元规则 3）；
- *   · 归属是护栏 1（权限草案 §2.2）：改状态要负责人本人、L1 或 `is_admin`，
- *     否则"可见即可操作"会退化成"同公司任何人都能推走别人的案子"；
- *   · 原因是偏离判定（修订稿 §3.3 第 3 条）：走推荐路径不要原因，跳进归档恒要。
- *
- * 置为归档语义的状态要同时翻 `is_archived`，否则列表的 partial index 与"终态不可逆"
- * 判定都会指错地方。撤销归档另需 `can_unarchive`（路由层判，那里才拿得到特权）。
+ * 判定与事务都在 `./status-change`（两个宿主共用一份顺序）；这里只把宿主填好。
+ * 下一刀会删掉这个名字，调用点改为直接调 `changeHostStatus`。
  */
 export async function changeStatus(
   actor: Actor,
   id: string,
   to: string,
   reason?: string | null,
-): Promise<
-  { ok: true } | { ok: false; why: "not_found" | "reason_required" | "unchanged" | "forbidden" }
-> {
-  const db = await getDb();
-  const [cur] = await db
-    .select({
-      status: matter.status,
-      isArchived: matter.isArchived,
-      ownerId: matter.ownerId,
-      // `closing_date` 与当前语义：前者是"进 closed 时要不要写、离开时要不要清"的依据，
-      // 后者要从 statusConfig 查（下面 rows 里取），这里只先带上日期
-      closingDate: matter.closingDate,
-    })
-    .from(matter)
-    .where(scopedWhere("matter", actor, eq(matter.id, BigInt(id))))
-    .limit(1);
-  if (!cur) return { ok: false, why: "not_found" };
-  if (!ownsAttribution(actor, cur.ownerId)) return { ok: false, why: "forbidden" };
-  if (cur.status === to) return { ok: false, why: "unchanged" };
-
-  // 当前态与目标态一起取：偏离判定要两边的 code 与语义（§3.3 第 3 条）
-  const rows = await db
-    .select({
-      code: statusConfig.code,
-      // `name` 一起取：通知文案里的 `{from} → {to}` 要用**显示名**（已登记/进行中），
-      // 不是 code。IQ-5/6 专门改过显示名，通知里退回 code 等于在用户可见处抹掉那次改名。
-      name: statusConfig.name,
-      semantics: statusConfig.semantics,
-      nextStatusCodes: statusConfig.nextStatusCodes,
-    })
-    .from(statusConfig)
-    .where(and(eq(statusConfig.hostType, "matter"), inArray(statusConfig.code, [cur.status, to])));
-  const curRow = rows.find((r) => r.code === cur.status);
-  const target = rows.find((r) => r.code === to);
-  if (!target) return { ok: false, why: "not_found" };
-
-  /**
-   * 两个"要不要填原因"的口径必须**分开判**（MATT-60）。
-   *
-   * · `needsChangeReason` 是**偏离推荐路径**那一条（修订稿 §3.3 第 3 条）：顺着
-   *   `next_status_codes` 走不要原因，跳过去才要。
-   * · `unarchiving`（撤销归档）是 `REASON_REQUIRED_ACTIONS` 里**恒必填**的四条之一
-   *   （`audit.ts:179-184`）。它在枚举里挂了名、有中文标签，**却从未生效过** ——
-   *   因为写入侧过去根本不写 `UNARCHIVED`（落的是 `STATUS_CHANGED`），
-   *   而这里又只按偏离判定 ⇒ 撤销归档若恰好顺着推荐路径走，就一个原因都不要。
-   *   一个需要特权、几乎不可逆的动作，审计里却查不出"谁撤的、为什么撤"，
-   *   这正是本票要补的空洞。
-   */
-  const archiving = target.semantics === "archived";
-  /** 撤销归档：当前**是**归档态、而目标不是归档语义 */
-  const unarchiving = cur.isArchived && !archiving;
-  if (
-    (unarchiving ||
-      needsChangeReason({
-        from: cur.status,
-        fromNextCodes: curRow?.nextStatusCodes ?? [],
-        to,
-        toSemantics: target.semantics,
-      })) &&
-    !reason?.trim()
-  )
-    return { ok: false, why: "reason_required" };
-
-  await db.transaction(async (tx) => {
-    const now = new Date().toISOString();
-    /**
-     * `closing_date` 的自动写入。规则与它踩过的坑都写在 `resolveClosingDate` 的注释里——
-     * 抽出去不是为了好看，是为了能拿一个具体的瞬时把它测住。
-     */
-    const closingDate = resolveClosingDate(target.semantics, cur.closingDate, now);
-    /**
-     * 归档完备性（F2-26 / G4）：**判定在事务内跑**，与归档写、审计写同一事务——
-     * 判定结果要随 `ARCHIVED` 落库，分开算会留下"审计里记的缺项与实际归档状态不一致"。
-     *
-     * **缺项不阻断**（IQ-16 明文）：缺材料照样能归档，只是要填 reason（上面已经拦过），
-     * 并把缺项清单记进审计。G4 指标"归档材料完整率"以这份清单为唯一数据源。
-     */
-    const readiness = archiving ? await judgeArchiveReadiness(tx, id) : null;
-    await writeMatterStatus(tx, {
-      id: BigInt(id),
-      to,
-      closingDate,
-      archiving,
-      now,
-      updatedBy: BigInt(actor.userId),
-    });
-    await logActivity(tx, actor, {
-      matterId: BigInt(id),
-      /**
-       * MATT-60：撤销归档落 `UNARCHIVED`，不再是 `STATUS_CHANGED`。
-       *
-       * 三种动作名对应三种**不同后果**：`ARCHIVED` / `UNARCHIVED` 恒要原因且不可逆/需特权，
-       * `STATUS_CHANGED` 只是普通流转。混成两个的时候，审计链里"谁撤了归档"这个问题
-       * 是**不可回答**的 —— 按动作名筛不出来，只能对着 `diffs.status` 人工推断。
-       */
-      action: archiving ? "ARCHIVED" : unarchiving ? "UNARCHIVED" : "STATUS_CHANGED",
-      targetType: "matter",
-      targetId: BigInt(id),
-      reason: reason ?? null,
-      diffs: {
-        status: { from: cur.status, to },
-        // 只在**真的变了**才记：按"目标语义"分三档之后，`closed → archived` 不再改日期，
-        // 记一条 `from: 2026-01-01, to: 2026-01-01` 是噪声（而它曾经记的是 `to: null`——
-        // 那条审计正是"归档抹掉结案日期"的现场证据）。
-        ...(closingDate !== cur.closingDate
-          ? { closing_date: { from: cur.closingDate, to: closingDate } }
-          : {}),
-      },
-      ...(readiness
-        ? {
-            payload: {
-              missing_at_archive: readiness.missing,
-              // ⚠ 单列一份：`missing_at_archive` 为空**不等于齐备**——附件那项没有数据源、
-              //   这次没判。不把这件事写下来，"空数组 = 齐备"会被读成事实。
-              unavailable_at_archive: readiness.unavailable,
-            },
-          }
-        : {}),
-    });
-    /**
-     * 通知意图（预置规则 2，收件人 `["follower","creator"]`）——**与状态写同一事务**。
-     *
-     * 放在事务里的理由与 `activity_log` 完全一样：分开提交会留下"状态改了但没人收到回音"
-     * 或反过来的中间态，而这条链路服务的正是"报了没回音，下次就不报了"（G1 的根因）。
-     *
-     * `isArchivedAfter: archiving` 是**写入后**的归档态：M4「什么时候不用」裁了
-     * 「归档记录不再产生新通知」，所以 `→ archived` 这一步静默。
-     * 撤销归档（`archived → 别的`）不在这个分支里，照常发。
-     */
-    await notifyStatusChanged(actor, tx, {
-      host: "matter",
-      hostId: BigInt(id),
-      from: cur.status,
-      to,
-      fromName: curRow?.name ?? cur.status,
-      toName: target.name,
-      isArchivedAfter: archiving,
-    });
-    /**
-     * 预置规则 1「结案自动归档」（MATT-72 阻塞 1 的落点）。
-     *
-     * **放在通知之后、同一事务之内**，两条理由：
-     *   · 同一事务：分开提交会留下"状态已变、归档未落"的中间态，而
-     *     `is_archived` 被列表 partial index 与「已结案缺材料」筛读取；
-     *   · 在通知之后：规则 1 的归档会**翻归档态**，而归档记录不再产生新通知（M4）。
-     *     先发再归档，本次 `→ closed` 的通知照旧发出（那一刻它还没归档），
-     *     语义与人工"先结案、再手动归档"一致。
-     *
-     * 规则没开 / 触发不命中时它什么都不做（`shouldAutoArchive` 判）。
-     */
-    await applyCloseAutoArchive(tx, {
-      hostId: BigInt(id),
-      toStatusCode: to,
-      now,
-    });
-  });
-  return { ok: true };
+): Promise<StatusChangeResult> {
+  return changeHostStatus({ host: "matter", actor, id, to, reason });
 }
 
 /**

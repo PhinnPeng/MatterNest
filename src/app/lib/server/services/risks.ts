@@ -35,7 +35,6 @@ import {
 } from "./parties";
 import { archivedFilter, keywordFilter, scopedWhere } from "../scope/visibility";
 import { canManageStaffList, ownsAttribution } from "../scope/guards";
-import { needsChangeReason } from "@/shared/schema/status-transition";
 import { RISK_MATTER_TYPE_LABELS } from "@/shared/enums/business";
 import type { BatchSkipReason, BatchSummary } from "@/shared/schema/batch";
 import { insertPlannedNodes, planPresetNodesFor } from "./nodes";
@@ -61,12 +60,8 @@ import {
 } from "./attachments";
 // 通知意图的两个生产点（MATT-41 / T4）：状态变更**同事务**落事件，新评论**只落 outbox**。
 // 两者都不在业务事务里做"投递"这个动作本身 —— 见 services/notifications.ts 文件头。
-import {
-  enqueueCommentIntent,
-  notifyStatusChanged,
-  quoteOf,
-  resolveMentionIds,
-} from "./notifications";
+import { enqueueCommentIntent, quoteOf, resolveMentionIds } from "./notifications";
+import { changeHostStatus, type StatusChangeResult } from "./status-change";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -82,58 +77,12 @@ import { randomUUID } from "node:crypto";
  */
 
 /**
- * **冻结判定 —— 全仓唯一的一处**（2026-10-14 裁定）。
- *
- * 事项一旦转过**至少一个**案件，它的业务内容就不能再改：状态流转、字段编辑、撤销转案件、
- * 新增节点、改节点状态一律拒。冻结点是 `conversion_status = 1`（"有没有转过"），
- * **不是** `converted_case_count` ——一个案件和十个案件得到的结论完全一样。
- *
- * ## 为什么必须是"一个纯函数、一个比较"
- *
- * 票面原话是「未来若要放开只需改一处判定」。如果这个判定散在多处写路径里，放开时就要改
- * 多处，而**漏掉的那一处不会报错** —— 它只会让裁定悄悄地只生效了一部分：用户看到
- * "状态推不动、字段也改不了，唯独那一项还能改"，而没有任何日志说这里本该也锁上。
- * 反过来，多写一处同样糟：多一个 `=== 1` 就是第二个事实源，两处迟早会漂。
- * `risks.spec.ts` 里那两条源码断言（只出现一次 / 五条路径都走它）就是这份契约的看守。
- *
- * ## 为什么用等值而不是真值
- *
- * `if (conversionStatus)` 在 `undefined` 上也成立，而"这一列没读到"绝不等于"已转案件"。
- * 缺失只放开、不收紧 —— 收紧的那一侧会变成一条静默的 500。
- *
- * ⚠ **入参是 `conversion_status` 那一列，不是案件条数。** 想改成"按案件数判"的人请先回去
- * 读裁定：裁定点名的是 `conversion_status`。
+ * 冻结判据与它的两句话搬去了 `./risk-freeze`：`status-change.ts` 要用它，而本文件要
+ * import `status-change.ts`，留在原处就是环。这里 re-export，既有 import 路径不变
+ * （五个路由 + `risks.spec.ts` 的 import 都不用改）。
  */
-export function isRiskFrozen(conversionStatus: number | null | undefined): boolean {
-  return conversionStatus === 1;
-}
-
-/**
- * 冻结对外的一句话（**五个**路由共用，别各抄一份 —— 抄一份的代价是五处说法慢慢不一样）。
- *
- * ⚠ **撤销转案件（unconvert）刻意不用这一句**，它有专门的一句，见
- * `RISK_UNCONVERT_FROZEN_MESSAGE`。为什么分开写在那边的注释里 —— 不是漏抄。
- */
-export const RISK_FROZEN_MESSAGE =
-  "这条事项已经转过案件，业务内容已冻结：状态、字段、节点与转案件关联都不能再改。" +
-  "要继续推进请在案件上做，或另建一条事项。";
-
-/**
- * 撤销转案件被冻结门挡住时的那句话（**专用**，不与上一句共用；2026-10-16 裁定 / MATT-81）。
- *
- * ## 为什么不共用上一句
- *
- * 上面那句在回答「**哪些东西不能再改、该去哪儿改**」—— 适合"你想改点什么"的场景。
- * 而点撤销的人**不是想改，是想退回**：同一句放在这里，读起来像"权限不够"或"系统出错了"，
- * 于是他会去查权限、找经办人代劳、再试一次 —— 代劳的人拿到的还是同一句。
- * 所以这里必须点明：**不可撤销是规则，不是故障**。
- *
- * ⚠ 改这句话前先看一眼 `src/app/api/risk-matters/[id]/unconvert/route.spec.ts`：
- * 「规则而非出错」这四个字被断言钉住了；`agent-work/smoke-convert.mjs` 还靠句中的
- * 「冻结」二字把它与笼统的 `blocked` 分开（那条是 2026-10-14 裁定留下的可观测判据）。
- */
-export const RISK_UNCONVERT_FROZEN_MESSAGE =
-  "这条事项已经转过案件（已冻结），转案件后不可撤销 —— 这是规则，不是出错了。后续推进请在案件上做。";
+import { isRiskFrozen } from "./risk-freeze";
+export { RISK_FROZEN_MESSAGE, RISK_UNCONVERT_FROZEN_MESSAGE, isRiskFrozen } from "./risk-freeze";
 
 /**
  * 排序键 → 列，白名单是 `shared/schema/list-query` 的 `RISK_SORTABLE_COLUMNS`
@@ -1319,133 +1268,18 @@ export async function getRiskMatter(actor: Actor, id: string) {
 }
 
 /**
- * 事项状态流转。
+ * 事项的状态变更 —— 过渡入口。
  *
- * 与案件侧 `changeStatus` 同构，但**取的是 `hostType='risk_matter'` 那套状态行**——
- * 两套状态 code 同名，混用会让流转判定指向另一端，且不会报错。
- *
- * 置为归档语义的状态要同时翻 `is_archived`，否则列表的 partial index 与"终态不可逆"
- * 判定都会指错地方。撤销归档另需 `can_unarchive`（路由层判，那里才拿得到特权）。
- *
- * **冻结（2026-10-14 裁定）**：事项转过案件之后状态不可再推 —— 判据是 `isRiskFrozen`，
- * 全仓唯一的一处（见它的注释）。这一条必须排在 `unchanged` 之前：目标与现状相同的请求
- * 在冻结的事项上**确实可以早退**，但回给用户的答案要是"因为已冻结"，而不是"你推了个
- * 一模一样的状态" —— 后者会让人以为换个目标状态就能改。
+ * 判定与事务都在 `./status-change`（两个宿主共用一份顺序）；这里只把宿主填好。
+ * 冻结门（ADR-0005）在那边由 `decideStatusChange` 排在归属判定之前，且有单测钉住。
  */
 export async function changeRiskStatus(
   actor: Actor,
   id: string,
   to: string,
   reason?: string | null,
-): Promise<
-  | { ok: true }
-  | {
-      ok: false;
-      why: "not_found" | "reason_required" | "unchanged" | "forbidden" | "frozen";
-    }
-> {
-  const db = await getDb();
-  const [cur] = await db
-    .select({
-      status: riskMatter.status,
-      // MATT-60：`isArchived` 也读出来。`unarchiving` 的判定要看"当前是不是归档态"，
-      // 而它是**这条记录的属性**，不是目标状态能推断的（目标语义只能告诉你"要去哪"）。
-      isArchived: riskMatter.isArchived,
-      ownerId: riskMatter.ownerId,
-      conversionStatus: riskMatter.conversionStatus,
-    })
-    .from(riskMatter)
-    .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, BigInt(id))))
-    .limit(1);
-  if (!cur) return { ok: false, why: "not_found" };
-  // 冻结在归属判定**之前**：冻结是这条记录的属性，与"你是不是它的经办人"无关。
-  // 放在后面的话，L2 账号推一条冻结事项的状态会得到 403「你不是经办人」——
-  // 那句提示把用户引向"去找经办人"，而他就算找到了也推不动。
-  if (isRiskFrozen(cur.conversionStatus)) return { ok: false, why: "frozen" };
-  // 归属是护栏（权限草案 §2.2）：改状态要经办人本人、L1 或 is_admin。
-  // 事项的经办人**可空**：无主事项谁都可以推它——否则它会永久卡在初始态无人能动。
-  if (cur.ownerId !== null && !ownsAttribution(actor, cur.ownerId))
-    return { ok: false, why: "forbidden" };
-  if (cur.status === to) return { ok: false, why: "unchanged" };
-
-  const rows = await db
-    .select({
-      code: statusConfig.code,
-      // 通知文案的 `{from} → {to}` 用显示名（已登记/进行中/已处理），见 notifyStatusChanged 的注释
-      name: statusConfig.name,
-      semantics: statusConfig.semantics,
-      nextStatusCodes: statusConfig.nextStatusCodes,
-    })
-    .from(statusConfig)
-    .where(
-      and(eq(statusConfig.hostType, "risk_matter"), inArray(statusConfig.code, [cur.status, to])),
-    );
-  const curRow = rows.find((r) => r.code === cur.status);
-  const target = rows.find((r) => r.code === to);
-  if (!target) return { ok: false, why: "not_found" };
-
-  /**
-   * MATT-60：两个"要不要填原因"的口径分开判（与 `services/matters.ts` 同形）。
-   *
-   * · `needsChangeReason` = 偏离推荐路径（§3.3 第 3 条）；
-   * · `unarchiving` = `REASON_REQUIRED_ACTIONS` 里**恒必填**的四条之一（`audit.ts:179-184`）。
-   *   它过去从未生效：写入侧不写 `UNARCHIVED`，这里又只按偏离判定 ⇒ 顺着推荐路径
-   *   撤归档（比如 `archived` 的 next 里就有目标）时一个原因都不要。
-   *
-   * ⚠ 括号是判据的一部分：`(A || B) && !reason`。写成 `A || B && !reason` 会因
-   *   `&&` 优先而变成"撤归档时**恒**报 reason_required"（给了原因也拒）——
-   *   那个形态在手工点一遍时看得见，在自动化里却像"撤销归档被禁用了"。
-   */
-  const archiving = target.semantics === "archived";
-  /** 撤销归档：当前**是**归档态、而目标不是归档语义 */
-  const unarchiving = cur.isArchived && !archiving;
-  if (
-    (unarchiving ||
-      needsChangeReason({
-        from: cur.status,
-        fromNextCodes: curRow?.nextStatusCodes ?? [],
-        to,
-        toSemantics: target.semantics,
-      })) &&
-    !reason?.trim()
-  )
-    return { ok: false, why: "reason_required" };
-
-  const now = new Date().toISOString();
-  await db.transaction(async (tx) => {
-    await tx
-      .update(riskMatter)
-      .set({
-        status: to,
-        isArchived: archiving,
-        archivedAt: archiving ? now : null,
-        updatedBy: BigInt(actor.userId),
-        updatedAt: now,
-      })
-      .where(eq(riskMatter.id, BigInt(id)));
-    await logActivity(tx, actor, {
-      riskMatterId: BigInt(id),
-      targetType: "risk_matter",
-      targetId: BigInt(id),
-      // MATT-60：撤销归档落 `UNARCHIVED`（原先落 `STATUS_CHANGED`，
-      // 于是"谁撤了归档"在审计链里按动作名根本筛不出来）
-      action: archiving ? "ARCHIVED" : unarchiving ? "UNARCHIVED" : "STATUS_CHANGED",
-      reason: reason ?? null,
-      diffs: { status: { from: cur.status, to } },
-    });
-    // 通知意图（预置规则 2）：与状态写**同一事务**。`isArchivedAfter` 是写入后的归档态，
-    // `→ archived` 这一步静默（M4「什么时候不用」：归档记录不再产生新通知）。
-    await notifyStatusChanged(actor, tx, {
-      host: "risk_matter",
-      hostId: BigInt(id),
-      from: cur.status,
-      to,
-      fromName: curRow?.name ?? cur.status,
-      toName: target.name,
-      isArchivedAfter: archiving,
-    });
-  });
-  return { ok: true };
+): Promise<StatusChangeResult> {
+  return changeHostStatus({ host: "risk_matter", actor, id, to, reason });
 }
 
 /**
