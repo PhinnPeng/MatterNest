@@ -1,15 +1,9 @@
 import { and, desc, eq, exists, inArray, or, sql, count } from "drizzle-orm";
 import { getDb } from "../db/client";
-import {
-  activityLog,
-  matter,
-  matterNode,
-  matterProgress,
-  riskMatter,
-  riskMatterProgress,
-} from "../db/schema";
+import { activityLog, matter, matterNode, riskMatter } from "../db/schema";
 import { AUDIT_ACTION_LABELS, type AuditAction } from "@/shared/enums/audit";
-import { NODE_OPEN_STATUSES, PROGRESS_TYPE_LABELS } from "@/shared/enums/business";
+import { NODE_OPEN_STATUSES } from "@/shared/enums/business";
+import { queryRecent } from "./recent-progress";
 import { scopedWhere } from "../scope/visibility";
 import type { Actor } from "../auth/auth";
 
@@ -47,7 +41,7 @@ export async function overview(actor: Actor) {
     inArray(matterNode.status, NODE_OPEN_STATUSES),
   );
 
-  const [byStatus, nodes, risks, recent, matterProgressRows, riskProgressRows] = await Promise.all([
+  const [byStatus, nodes, risks, recent] = await Promise.all([
     db
       .select({
         status: matter.status,
@@ -117,105 +111,33 @@ export async function overview(actor: Actor) {
       )
       .orderBy(desc(activityLog.createdAt))
       .limit(10),
-    /**
-     * 近期活动：有 `last_progress_at` 的案件/事项，按最近进展倒序。
-     * 内容取该宿主最新一条进展（`progress_date desc, id desc`）——列表要回答
-     * "最近推进到哪一步"，只给时间戳不够。
-     */
-    db
-      .select({
-        kind: sql<"matter">`'matter'`,
-        hostId: matter.id,
-        hostCode: matter.internalCode,
-        hostName: matter.name,
-        progressAt: matter.lastProgressAt,
-        owner: sql<
-          string | null
-        >`(select u.display_name from mn_app_user u where u.id = ${matter.ownerId})`,
-      })
-      .from(matter)
-      .where(
-        and(
-          mScope,
-          live,
-          sql`${matter.lastProgressAt} IS NOT NULL`,
-          // 建案时 `last_progress_at` 就写 now() —— 它只说明"刚建"，不代表有进展。
-          // 必须有至少一条进展行才进「近期活动」，否则新案件会以空正文占住第一屏。
-          sql`exists (select 1 from mn_matter_progress p where p.matter_id = ${matter.id} and not p.is_deleted)`,
-        ),
-      )
-      .orderBy(desc(matter.lastProgressAt))
-      .limit(8),
-    db
-      .select({
-        kind: sql<"risk_matter">`'risk_matter'`,
-        hostId: riskMatter.id,
-        hostCode: riskMatter.code,
-        hostName: riskMatter.name,
-        progressAt: riskMatter.lastProgressAt,
-        owner: sql<
-          string | null
-        >`(select u.display_name from mn_app_user u where u.id = ${riskMatter.ownerId})`,
-      })
-      .from(riskMatter)
-      .where(
-        and(
-          rScope,
-          liveRisk,
-          sql`${riskMatter.lastProgressAt} IS NOT NULL`,
-          sql`exists (select 1 from mn_risk_matter_progress p where p.risk_matter_id = ${riskMatter.id} and not p.is_deleted)`,
-        ),
-      )
-      .orderBy(desc(riskMatter.lastProgressAt))
-      .limit(8),
   ]);
 
   /**
-   * 每个宿主最新一条进展：`distinct on (host_id)` + **录入时间**倒序。
-   *
-   * 排序键是 `last_progress_at`（记进展时写 now()），所以正文也必须按 `created_at`
-   * 取最新一条。按 `progress_date` 取会在"补录一条旧日期进展"时与排序错位：
-   * 列表把它排到最前，正文却是更早那条。
+   * 近期活动：复用报表页同一条查询（`days=all` + 各取 8 条），合并后取最近 8 条。
+   * 两处各写一份 SQL 时，口径漂移不会报错，只会出现"工作台 3 条、报表 5 条"。
    */
-  const matterIds = matterProgressRows.map((r) => r.hostId);
-  const riskIds = riskProgressRows.map((r) => r.hostId);
-  const [matterLatest, riskLatest] = await Promise.all([
-    matterIds.length
-      ? db
-          .selectDistinctOn([matterProgress.hostId], {
-            hostId: matterProgress.hostId,
-            progressType: matterProgress.progressType,
-            content: matterProgress.content,
-          })
-          .from(matterProgress)
-          .where(
-            and(inArray(matterProgress.hostId, matterIds), sql`NOT ${matterProgress.isDeleted}`),
-          )
-          .orderBy(matterProgress.hostId, desc(matterProgress.createdAt), desc(matterProgress.id))
-      : [],
-    riskIds.length
-      ? db
-          .selectDistinctOn([riskMatterProgress.hostId], {
-            hostId: riskMatterProgress.hostId,
-            progressType: riskMatterProgress.progressType,
-            content: riskMatterProgress.content,
-          })
-          .from(riskMatterProgress)
-          .where(
-            and(
-              inArray(riskMatterProgress.hostId, riskIds),
-              sql`NOT ${riskMatterProgress.isDeleted}`,
-            ),
-          )
-          .orderBy(
-            riskMatterProgress.hostId,
-            desc(riskMatterProgress.createdAt),
-            desc(riskMatterProgress.id),
-          )
-      : [],
+  const [matterRecent, riskRecent] = await Promise.all([
+    queryRecent(actor, { scope: "matter", days: "all", limit: 8, offset: 0 }),
+    queryRecent(actor, { scope: "risk_matter", days: "all", limit: 8, offset: 0 }),
   ]);
-  const matterLatestMap = new Map(matterLatest.map((r) => [String(r.hostId), r]));
-  const riskLatestMap = new Map(riskLatest.map((r) => [String(r.hostId), r]));
+  const recentProgress = [
+    ...matterRecent.items.map((i) => ({ ...i, kind: "matter" as const })),
+    ...riskRecent.items.map((i) => ({ ...i, kind: "risk_matter" as const })),
+  ]
+    .sort((a, b) => Date.parse(b.progressAt) - Date.parse(a.progressAt))
+    .slice(0, 8)
+    .map((i) => ({
+      kind: i.kind,
+      hostId: i.hostId,
+      hostCode: i.code,
+      hostName: i.name,
+      progressAt: i.progressAt,
+      progressType: i.progressType || null,
+      progressLabel: i.progressLabel,
+      content: i.content || null,
+      owner: i.owner,
+    }));
 
   const first = byStatus.reduce<Record<string, number>>((acc, r) => {
     acc[r.status] = Number(r.n);
@@ -252,33 +174,7 @@ export async function overview(actor: Actor) {
       hostId: r.hostId ?? r.riskId,
       kind: r.hostId ? ("matter" as const) : ("risk_matter" as const),
     })),
-    recentProgress: [
-      ...matterProgressRows.map((r) => ({ ...r, kind: "matter" as const })),
-      ...riskProgressRows.map((r) => ({ ...r, kind: "risk_matter" as const })),
-    ]
-      .sort((a, b) => Date.parse(String(b.progressAt)) - Date.parse(String(a.progressAt)))
-      .slice(0, 8)
-      .map((r) => {
-        const latest =
-          r.kind === "matter"
-            ? matterLatestMap.get(String(r.hostId))
-            : riskLatestMap.get(String(r.hostId));
-        const progressType = latest?.progressType ?? null;
-        return {
-          kind: r.kind,
-          hostId: String(r.hostId),
-          hostCode: r.hostCode,
-          hostName: r.hostName,
-          progressAt: r.progressAt,
-          progressType,
-          progressLabel: progressType
-            ? (PROGRESS_TYPE_LABELS[progressType as keyof typeof PROGRESS_TYPE_LABELS] ??
-              progressType)
-            : "",
-          content: latest?.content ?? null,
-          owner: r.owner,
-        };
-      }),
+    recentProgress,
   };
 }
 

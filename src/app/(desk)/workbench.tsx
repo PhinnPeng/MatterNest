@@ -236,12 +236,14 @@ export function Workbench() {
 
       {/* ② 近期活动：有最近进展的案件/事项，按 last_progress_at 倒序（2026-10-24 用户裁定）。
           原「待办节点」把"今天会过期什么"摊成 10 行；现在期限仍在指标带里给数，
-          这一块回答"最近在推进什么"。
-          （2026-10-24 二次裁定：报表两卡整体删除，这里原有的「案件报表 / 事项报表」两个
-           锚点入口随卡片一并撤掉 —— 见 ADR-0008。） */}
+          这一块回答"最近在推进什么"。右侧「查看更多」进报表页看完整列表（含筛选与导出）。 */}
       <div className="card">
         <div className="card-h">
           <h2>近期活动</h2>
+          <span className="sp" />
+          <Link href="/reports/recent-progress" className="btn sm">
+            查看更多
+          </Link>
         </div>
         <div style={{ padding: progress.length ? 0 : 24 }}>
           {isPending ? <div className="empty">…</div> : null}

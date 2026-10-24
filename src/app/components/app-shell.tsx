@@ -81,6 +81,12 @@ const NAV: { label: string; items: { href: string; label: string }[] }[] = [
     ],
   },
   {
+    // 报表（2026-10-24）：从"列表页统计卡"扩为独立模块（ADR-0009）。
+    // 只放「最近进展」一项——统计卡仍按 ADR-0008 不做，两者不是同一件事。
+    label: "报表",
+    items: [{ href: "/reports/recent-progress", label: "最近进展" }],
+  },
+  {
     label: "系统",
     items: [
       { href: "/config", label: "功能配置" },
