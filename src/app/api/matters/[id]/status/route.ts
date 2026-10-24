@@ -1,9 +1,5 @@
-import { eq } from "drizzle-orm";
 import { statusChangeSchema } from "@/shared/schema/hosts";
 import { changeHostStatus } from "@/app/lib/server/services/status-change";
-import { getDb } from "@/app/lib/server/db/client";
-import { matter } from "@/app/lib/server/db/schema";
-import { scopedWhere } from "@/app/lib/server/scope/visibility";
 import {
   attributionRequired,
   body,
@@ -16,17 +12,19 @@ import {
 } from "@/app/lib/server/http";
 
 /**
- * 状态变更。判定顺序是这条路由存在的全部理由：
+ * 案件状态变更。**这条路由只剩三件事**：读 body、读 id、把 `why` 翻成 HTTP。
  *
- *   **先判可见 → 再判特权 → 再判归属 → 最后才动数据。**
+ * 判定与写入（可见 → 冻结 → 撤销归档特权 → 归属 → 原因）在
+ * `services/status-change.ts`，与事项侧共用同一份顺序。
  *
- * 之前是"先按 id 裸读 `is_archived`、再判特权"，于是一条我根本看不见的归档案件会回
- * 403「需要撤销归档权限」—— 等于替对方确认了"这个 id 存在且已归档"，正是元规则 3
- * （不可见一律 404）要防的案号枚举探测。这次读取改走 `scopedWhere`，
- * 而 `scopedWhere` 里的 `NOT is_deleted` 顺带把"已删除的案件能不能被改状态"也堵上了。
+ * ## 为什么守卫全搬走了
  *
- * 归档的两个条件不合并成一次判定：`can_unarchive` 是特权（§2.1，"影响别人或不可逆"），
- * 负责人本人没有；护栏 1 的归属判定在服务层里做。合起来会让"owner 归档自己的案子"变复杂。
+ * 原来这里有八行预检：按 `scopedWhere` 读 `is_archived`、判 `can_unarchive`。
+ * 那八行与事项侧逐字相同，而且**判了两次**（预检一次、服务层事务里再读一次）。
+ * 搬进模块之后：
+ *   · 不可见一律 404（元规则 3 —— 403 等于替探测者确认"这条存在"）；
+ *   · `can_unarchive` 只在"已归档 **且** 要离开归档"时要；
+ *   · 「冻结排在归档之前」这条顺序由 `decideStatusChange` 拥有，有单测钉住。
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const parsed = await body(req, statusChangeSchema);
@@ -35,17 +33,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const pid = pathId(id);
   if (!pid.ok) return pid.res;
   return withActor(async (actor) => {
-    const db = await getDb();
-    const [cur] = await db
-      .select({ isArchived: matter.isArchived })
-      .from(matter)
-      .where(scopedWhere("matter", actor, eq(matter.id, pid.id)))
-      .limit(1);
-    // 不可见 / 已软删 → 与"不存在"同一个 404，措辞也不区分
-    if (!cur) return notFound();
-    if (cur.isArchived && !actor.privileges.canUnarchive)
-      return fail(403, "privilege_required", "撤销归档需要「撤销归档」权限，当前角色未持有");
-
     const r = await changeHostStatus({
       host: "matter",
       actor,
@@ -56,6 +43,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (r.ok) return json({ ok: true });
     if (r.why === "not_found") return notFound();
     if (r.why === "reason_required") return reasonRequired();
+    if (r.why === "privilege_required")
+      return fail(403, "privilege_required", "撤销归档需要「撤销归档」权限，当前角色未持有");
     // 可见但不是负责人：403 是诚实的答复（这条你看得见，只是轮不到你推状态）
     if (r.why === "forbidden") return attributionRequired();
     return fail(422, "unchanged", "目标状态与当前状态相同");

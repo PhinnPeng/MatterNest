@@ -1,10 +1,6 @@
-import { eq } from "drizzle-orm";
 import { statusChangeSchema } from "@/shared/schema/hosts";
 import { changeHostStatus } from "@/app/lib/server/services/status-change";
 import { RISK_FROZEN_MESSAGE } from "@/app/lib/server/services/risk-freeze";
-import { getDb } from "@/app/lib/server/db/client";
-import { riskMatter } from "@/app/lib/server/db/schema";
-import { scopedWhere } from "@/app/lib/server/scope/visibility";
 import {
   attributionRequired,
   body,
@@ -17,20 +13,25 @@ import {
 } from "@/app/lib/server/http";
 
 /**
- * 事项状态流转（T1）。判定顺序与案件侧同构，理由也一样：
+ * 事项状态变更。判定顺序与案件侧**同一份实现**（`services/status-change.ts`），
+ * 差异只有三处，全部在 `host-status-policy.ts`：
  *
- *   **先判可见 → 再判特权 → 再判归属 → 最后才动数据。**
+ *   · 冻结门（ADR-0005）—— 案件没有这个概念；
+ *   · 经办人可空 —— 无主事项谁都能推（否则永久卡死）；
+ *   · 没有结案日期、没有归档就绪判定。
  *
- * 先按 id 裸读 `is_archived` 再判特权，会让一条我根本看不见的归档事项回 403
- * 「需要撤销归档权限」—— 等于替对方确认"这个 id 存在且已归档"，
- * 正是元规则 3（不可见一律 404）要防的探测。所以读取走 `scopedWhere`。
+ * ## 冻结答复用哪一句
  *
- * 归档的两个条件不合并：`can_unarchive` 是特权（"影响别人或不可逆"），
- * 归属判定在服务层。合起来会让"经办人归档自己的事项"变复杂。
+ * `frozen` 有两种来路，说法的分寸不同：
+ *   · 推状态被冻结门挡住 → `RISK_FROZEN_MESSAGE`（讲"哪些不能再改、该去哪儿改"）；
+ *   · 撤销转案件被挡住   → `RISK_UNCONVERT_FROZEN_MESSAGE`（讲"这是规则，不是故障"），
+ *     那一句在 `unconvert` 路由里，不在这里。
  *
- * **冻结**（2026-10-14 裁定）走 422 而非 403：403 说的是"你不被允许"，而冻结说的是
- * "这件事本身不再由事项侧承载" —— 后者对谁都成立，返 403 会让用户去找经办人，代劳一次，
- * 然后被服务层用同一句话再拒一次。
+ * **2026-10-24 的答复口径订正**：过去"已归档但没撤销权限"在路由里先判，
+ * 于是冻结+归档的事项会回 403「需要撤销归档权限」—— 用户去找持特权的人，
+ * 对方也解不开。现在冻结排在前面，答复是 422 `frozen`，指向"去案件上做"。
+ *
+ * 归档要撤销权限、且归档不是终点（撤销归档是正常路径），所以 403 保留特权语义。
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const parsed = await body(req, statusChangeSchema);
@@ -39,17 +40,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const pid = pathId(id);
   if (!pid.ok) return pid.res;
   return withActor(async (actor) => {
-    const db = await getDb();
-    const [cur] = await db
-      .select({ isArchived: riskMatter.isArchived })
-      .from(riskMatter)
-      .where(scopedWhere("risk_matter", actor, eq(riskMatter.id, pid.id)))
-      .limit(1);
-    if (!cur) return notFound();
-    // 撤销归档要特权；归档本身不要（它是正常流程的终点）
-    if (cur.isArchived && !actor.privileges.canUnarchive)
-      return fail(403, "privilege_required", "撤销归档需要「撤销归档」权限，当前角色未持有");
-
     const r = await changeHostStatus({
       host: "risk_matter",
       actor,
@@ -61,6 +51,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (r.why === "not_found") return notFound();
     if (r.why === "frozen") return fail(422, "frozen", RISK_FROZEN_MESSAGE);
     if (r.why === "reason_required") return reasonRequired();
+    if (r.why === "privilege_required")
+      return fail(403, "privilege_required", "撤销归档需要「撤销归档」权限，当前角色未持有");
     // 可见但不是经办人：403 是诚实的答复（这条你看得见，只是轮不到你推状态）
     if (r.why === "forbidden") return attributionRequired();
     return fail(422, "unchanged", "目标状态与当前状态相同");

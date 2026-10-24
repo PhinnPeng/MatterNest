@@ -1818,17 +1818,10 @@ export async function batchChangeMatterStatus(
     if (!row) continue;
 
     /**
-     * 撤销归档要 `can_unarchive`（权限草案 §2.1）——单条路由的同一道门，这里逐行判。
-     *
-     * 判据是"当前已归档 **且** 目标不是归档语义"：那才是"把它从归档里拉出来"。
-     * 把一条已归档的行再改到归档语义的状态是空操作（`changeHostStatus` 会回 `unchanged`），
-     * 为一次什么都没做的动作报"缺撤销归档权限"会把人引到错误的结论上。
+     * 「撤销归档要 `can_unarchive`」那道门**不在这里判**：它在
+     * `decideStatusChange` 里（与单条路径同一处）。这里曾经有一份逐字相同的副本 ——
+     * 两份判据的失效方式不同步，而失手的方向是"批量能绕过特权"。
      */
-    if (row.isArchived && target.semantics !== "archived" && !actor.privileges.canUnarchive) {
-      skipped.push(skipRow(id, "privilege_required"));
-      continue;
-    }
-
     const r = await changeHostStatus({ host: "matter", actor, id, to, reason });
     if (r.ok) {
       applied++;

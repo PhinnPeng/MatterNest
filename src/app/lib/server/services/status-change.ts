@@ -18,14 +18,21 @@ import { notifyStatusChanged } from "./notifications";
  * ## 顺序（改动前请先读完）
  *
  *   1. 可见 —— 不可见 / 已软删 / 不存在一律 `not_found`（→ 404，元规则 3）；
- *   2. 冻结 —— **排在归属之前**：冻结是这条记录的属性，与「你是不是经办人」无关。
- *      排在后面的话，冻结的事项会先被告知「你不是经办人」，用户去找经办人，
- *      找到之后拿到的还是同一句（ADR-0005 的裁定）；
- *   3. 归属 —— 护栏 1（权限草案 §2.2）；
- *   4. 没变 —— 目标与现状相同是正常结局，不是错；
- *   5. 目标状态未知 —— 与「不存在」同话术；
- *   6. 原因 —— 偏离推荐路径、或撤销归档（恒必填）；
- *   7. 撤销归档的特权（`privilege_required`）。
+ *   2. 冻结 —— **排在归档与归属之前**：冻结是这条记录的属性，与「你是不是经办人」无关。
+ *      排在后面的话，冻结的事项会先被告知「你不是经办人」或「你需要撤销归档特权」，
+ *      用户照着去找人/找权限，找到之后拿到的还是同一句（ADR-0005 的裁定）；
+ *   3. 撤销归档的特权（`privilege_required`）—— 只在"当前已归档且目标不是归档语义"时要；
+ *   4. 归属 —— 护栏 1（权限草案 §2.2）；
+ *   5. 没变 —— 目标与现状相同是正常结局，不是错；
+ *   6. 目标状态未知 —— 与「不存在」同话术；
+ *   7. 原因 —— 偏离推荐路径、或撤销归档（恒必填）。
+ *
+ * ### 2026-10-24 的一处顺序订正
+ *
+ * 这条链路原来分在两处：路由先判「已归档 + 没有 `can_unarchive` → 403」，
+ * 服务层再判冻结。于是**一件既冻结又归档的事项**，用户先听到"你需要撤销归档权限"。
+ * 把预检搬进来时按 ADR-0005 把冻结排到了它前面 —— 答复变成 422 `frozen`，
+ * 指向的出口（去案件上做）才是真的出口。
  *
  * ## 三档审计动作
  *
@@ -39,7 +46,7 @@ import { notifyStatusChanged } from "./notifications";
  */
 
 export type StatusChangeWhy =
-  "not_found" | "reason_required" | "unchanged" | "forbidden" | "frozen";
+  "not_found" | "reason_required" | "unchanged" | "forbidden" | "frozen" | "privilege_required";
 
 export type StatusChangeResult = { ok: true } | { ok: false; why: StatusChangeWhy };
 
@@ -49,6 +56,8 @@ export type StatusChangeFacts = {
   visible: boolean;
   frozen: boolean;
   isArchived: boolean;
+  /** 操作者是否持「撤销归档」特权（`can_unarchive`） */
+  canUnarchive: boolean;
   ownerAllowed: boolean;
   from: string;
   to: string;
@@ -78,6 +87,19 @@ export function decideStatusChange(f: StatusChangeFacts): StatusChangePlan {
   if (!f.visible) return { ok: false, why: "not_found" };
   // 冻结排在归属之前 —— 见文件头第 2 条
   if (f.frozen) return { ok: false, why: "frozen" };
+  /**
+   * 撤销归档要 `can_unarchive`（权限草案 §2.1）。
+   *
+   * 判据是"当前已归档 **且** 目标不是归档语义"：那才是"把它从归档里拉出来"。
+   * 把一条已归档的记录再改到另一个归档语义的状态不是撤销，不该要这门特权
+   * —— 为一次没有离开归档的动作报"缺撤销归档权限"会把人引到错误的结论上。
+   *
+   * ⚠ 它排在冻结**之后**：一条既已转案件又已归档的事项，答复要是"因为已冻结"。
+   *   排在前面的话，用户会拿着"去找持特权的人"这个错误方向跑一趟，而对方也解不开。
+   */
+  if (f.isArchived && f.targetSemantics !== "archived" && !f.canUnarchive) {
+    return { ok: false, why: "privilege_required" };
+  }
   if (!f.ownerAllowed) return { ok: false, why: "forbidden" };
   if (f.from === f.to) return { ok: false, why: "unchanged" };
   if (f.targetSemantics === null) return { ok: false, why: "not_found" };
@@ -144,6 +166,7 @@ export async function changeHostStatus(input: {
     visible: true,
     frozen: policy.frozen(row),
     isArchived: row.isArchived,
+    canUnarchive: actor.privileges.canUnarchive,
     ownerAllowed: policy.ownerAllowed(actor, row),
     from: row.status,
     to,

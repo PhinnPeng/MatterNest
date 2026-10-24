@@ -22,6 +22,7 @@ const 正常: StatusChangeFacts = {
   visible: true,
   frozen: false,
   isArchived: false,
+  canUnarchive: true,
   ownerAllowed: true,
   from: "in_progress",
   to: "closed",
@@ -56,6 +57,67 @@ describe("decideStatusChange：顺序", () => {
       ok: false,
       why: "frozen",
     });
+  });
+
+  it('冻结排在撤销归档特权**之前**（2026-10-24 订正）：既冻结又归档时说"因为已冻结"', () => {
+    // 订正之前：路由先判「已归档 + 没有 can_unarchive」⇒ 403「需要撤销归档权限」，
+    // 用户拿着那句去找持特权的人，而对方也解不开。ADR-0005 要求冻结门排在归档判定之前。
+    expect(
+      decideStatusChange({
+        ...正常,
+        frozen: true,
+        isArchived: true,
+        canUnarchive: false,
+        from: "archived",
+        to: "in_progress",
+        targetSemantics: "in_progress",
+      }),
+    ).toEqual({ ok: false, why: "frozen" });
+  });
+
+  it("撤销归档要特权：已归档且目标不是归档语义，没特权 → privilege_required", () => {
+    expect(
+      decideStatusChange({
+        ...正常,
+        isArchived: true,
+        canUnarchive: false,
+        from: "archived",
+        to: "in_progress",
+        targetSemantics: "in_progress",
+        hasReason: true,
+      }),
+    ).toEqual({ ok: false, why: "privilege_required" });
+  });
+
+  it("已归档 → 另一个归档语义的状态不算撤销归档，不要特权", () => {
+    // 判据是"有没有离开归档"。为一次没有离开归档的动作报"缺撤销归档权限"
+    // 会把人引到错误的结论上（批量侧原本就是这么判的，这里统一成同一份）。
+    expect(
+      decideStatusChange({
+        ...正常,
+        isArchived: true,
+        canUnarchive: false,
+        from: "archived_a",
+        to: "archived_b",
+        targetSemantics: "archived",
+        hasReason: true,
+      }),
+    ).toMatchObject({ ok: true, archiving: true });
+  });
+
+  it("特权排在归属之前：看得见、不是经办人、也没特权 → 先说特权", () => {
+    expect(
+      decideStatusChange({
+        ...正常,
+        isArchived: true,
+        canUnarchive: false,
+        ownerAllowed: false,
+        from: "archived",
+        to: "in_progress",
+        targetSemantics: "in_progress",
+        hasReason: true,
+      }),
+    ).toEqual({ ok: false, why: "privilege_required" });
   });
 
   it('归属排在"没变"之前', () => {

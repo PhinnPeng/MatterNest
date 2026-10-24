@@ -51,6 +51,7 @@ import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 const F_MATTERS = "src/app/lib/server/services/matters.ts";
 const F_RISKS = "src/app/lib/server/services/risks.ts";
 const F_SCHEMA = "src/shared/schema/batch.ts";
+const F_STATUS = "src/app/lib/server/services/status-change.ts";
 
 /**
  * 每个模式一个备份：一次只注入一个缺陷，但还原要能一次收干净。
@@ -151,10 +152,12 @@ const NEEDLES = {
     tag: "no-scope-on-tag-risk",
   },
   "no-unarchive-guard": {
-    file: F_MATTERS,
-    needle: `    if (row.isArchived && target.semantics !== "archived" && !actor.privileges.canUnarchive) {`,
-    replacement: `    // 反向红：摘掉"撤销归档要 can_unarchive"（批量成了绕过特权的后门）
-    if (row.isArchived && target.semantics !== "archived" && !true) {`,
+    // 2026-10-24：这道判定搬进 `decideStatusChange`（单条与批量共用一处）。
+    // 锚点跟着搬 —— 否则这个模式会变成"指向不存在代码"的空洞。
+    file: F_STATUS,
+    needle: `  if (f.isArchived && f.targetSemantics !== "archived" && !f.canUnarchive) {`,
+    replacement: `  // 反向红：摘掉"撤销归档要 can_unarchive"（批量成了绕过特权的后门）
+  if (f.isArchived && f.targetSemantics !== "archived" && !true) {`,
     tag: "no-unarchive-guard",
   },
   "no-reason": {

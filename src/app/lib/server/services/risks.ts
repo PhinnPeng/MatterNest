@@ -2247,12 +2247,8 @@ export async function batchChangeRiskStatus(
     // 不可见 / 已软删 / 不存在：**什么都不说**
     if (!row) continue;
 
-    // 撤销归档要 can_unarchive；判据与案件侧同（已归档 **且** 目标不是归档语义）
-    if (row.isArchived && target.semantics !== "archived" && !actor.privileges.canUnarchive) {
-      skipped.push(skipRiskRow(id, "privilege_required"));
-      continue;
-    }
-
+    // 「撤销归档要 can_unarchive」在 `decideStatusChange` 里判（与单条路径同一处），
+    // 这里不再复制一份 —— 副本失手的方向是"批量能绕过特权"。
     const r = await changeHostStatus({ host: "risk_matter", actor, id, to, reason });
     if (r.ok) {
       applied++;
