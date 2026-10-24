@@ -118,8 +118,14 @@ export async function overview(actor: Actor) {
    * 两处各写一份 SQL 时，口径漂移不会报错，只会出现"工作台 3 条、报表 5 条"。
    */
   const [matterRecent, riskRecent] = await Promise.all([
-    queryRecent(actor, { scope: "matter", days: "all", limit: 8, offset: 0 }),
-    queryRecent(actor, { scope: "risk_matter", days: "all", limit: 8, offset: 0 }),
+    queryRecent(actor, { scope: "matter", days: "all", limit: 8, offset: 0, withTotal: false }),
+    queryRecent(actor, {
+      scope: "risk_matter",
+      days: "all",
+      limit: 8,
+      offset: 0,
+      withTotal: false,
+    }),
   ]);
   const recentProgress = [
     ...matterRecent.items.map((i) => ({ ...i, kind: "matter" as const })),

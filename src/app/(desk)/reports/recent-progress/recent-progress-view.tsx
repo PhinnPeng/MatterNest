@@ -17,6 +17,7 @@ import {
 import { DataTable } from "@/app/components/ui/data-table/DataTable";
 import { StateBlock } from "@/app/components/ui/state-block";
 import { hostBase } from "@/shared/hosts";
+import { DEFAULT_PAGE_SIZE } from "@/shared/schema/list-query";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import type {
   RecentProgressDays,
@@ -31,9 +32,9 @@ import type {
  * 口径：`last_progress_at` 倒序、滚动时间窗（7/30/90/全部，默认 30）、每行取最新一条进展。
  * 状态全部落在 URL 上：scope / days / page 可刷新、可转发。
  */
-const SCOPES: { value: RecentProgressScope; label: string; desc: string }[] = [
-  { value: "matter", label: "最近案件", desc: "按案号" },
-  { value: "risk_matter", label: "最近事项", desc: "按编号" },
+const SCOPES: { value: RecentProgressScope; label: string }[] = [
+  { value: "matter", label: "最近案件" },
+  { value: "risk_matter", label: "最近事项" },
 ];
 
 const DAYS: { value: RecentProgressDays; label: string }[] = [
@@ -43,7 +44,7 @@ const DAYS: { value: RecentProgressDays; label: string }[] = [
   { value: "all", label: "全部" },
 ];
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 function scopeOf(raw: string | null): RecentProgressScope {
   return raw === "risk_matter" ? "risk_matter" : "matter";
@@ -77,6 +78,8 @@ export function RecentProgressView() {
   const q = useRecentProgress({ scope, days, page, pageSize: PAGE_SIZE });
   const items = q.data?.items ?? [];
   const total = q.data?.total ?? 0;
+  /** 翻页越界（比如手改 URL 到第 9 页）：说“这一页没有”，不要讲成“这段时间没有进展”。 */
+  const outOfRange = total > 0 && (page - 1) * PAGE_SIZE >= total;
 
   const exportMut = useMutation({
     mutationFn: () => api.get<RecentProgressExport>(recentProgressExportPath(scope, days)),
@@ -91,6 +94,21 @@ export function RecentProgressView() {
     onError: (e) => message.error(e instanceof ApiFailure ? e.message : "导出失败"),
   });
 
+  if (q.isError) {
+    return (
+      <StateBlock
+        tone="error"
+        title="报表没加载出来"
+        hint="刷新页面或稍后再试。"
+        action={
+          <Button size="small" onClick={() => void q.refetch()}>
+            重试
+          </Button>
+        }
+      />
+    );
+  }
+
   const codeLabel = scope === "matter" ? "案号" : "编号";
 
   const columns: TableColumnsType<RecentProgressItem> = [
@@ -98,6 +116,7 @@ export function RecentProgressView() {
       title: codeLabel,
       dataIndex: "code",
       width: 160,
+      ellipsis: true,
       render: (_: unknown, r) => (
         <Link href={`/${hostBase(scope)}/${r.hostId}`} className="num">
           {r.code}
@@ -122,11 +141,12 @@ export function RecentProgressView() {
         </div>
       ),
     },
-    { title: "类型", dataIndex: "progressLabel", width: 96 },
+    { title: "类型", dataIndex: "progressLabel", width: 96, ellipsis: true },
     {
       title: "时间",
       dataIndex: "progressAt",
       width: 110,
+      ellipsis: true,
       render: (_: unknown, r) => (
         <span className="mut3 num" style={{ fontSize: 12 }}>
           {fromNow(r.progressAt)}
@@ -137,6 +157,7 @@ export function RecentProgressView() {
       title: "经办人",
       dataIndex: "owner",
       width: 110,
+      ellipsis: true,
       render: (_: unknown, r) => r.owner ?? "—",
     },
   ];
@@ -159,7 +180,6 @@ export function RecentProgressView() {
               <span className="t">
                 <b>{s.label}</b>
               </span>
-              <span className="s">{s.desc}</span>
             </button>
           ))}
         </div>
@@ -201,14 +221,24 @@ export function RecentProgressView() {
             empty={
               q.isPending ? null : (
                 <StateBlock
-                  title={days === "all" ? "还没有进展记录" : `最近 ${days} 天没有进展`}
+                  title={
+                    outOfRange
+                      ? "这一页没有数据"
+                      : days === "all"
+                        ? "还没有进展记录"
+                        : `最近 ${days} 天没有进展`
+                  }
                   hint={
-                    days === "all"
-                      ? "在案件或事项详情的「进展」里记一条，就会出现在这里。"
-                      : "把时间范围放宽到「全部」看看。"
+                    outOfRange || days === "all"
+                      ? undefined
+                      : "在案件或事项详情的「进展」里记一条，就会出现在这里。"
                   }
                   action={
-                    days === "all" ? undefined : (
+                    outOfRange ? (
+                      <Button size="small" onClick={() => go({ page: 1 })}>
+                        回到第一页
+                      </Button>
+                    ) : days === "all" ? undefined : (
                       <Button size="small" onClick={() => go({ days: "all" })}>
                         看全部
                       </Button>

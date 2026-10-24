@@ -9,6 +9,7 @@ import type { HostType } from "@/shared/enums/targets";
 import type {
   RecentProgressDays,
   RecentProgressItem,
+  RecentProgressPayload,
   RecentProgressScope,
 } from "@/shared/schema/reports";
 import { logActivity } from "./activity";
@@ -45,6 +46,11 @@ type QueryOptions = {
   days: RecentProgressDays;
   limit: number;
   offset: number;
+  /**
+   * 工作台/导出不需要总数：`count(*)` 在两张宿主表上各跑一次是白付的往返。
+   * 页面分页才传 true。
+   */
+  withTotal?: boolean;
 };
 
 export async function queryRecent(
@@ -87,9 +93,11 @@ export async function queryRecent(
 
   // 两张表分开 count：`from(union)` 的返回类型在 TS 里会并成联合，取 `.n` 报不存在。
   const totalRows =
-    scope === "matter"
-      ? await db.select({ n: count() }).from(matter).where(where)
-      : await db.select({ n: count() }).from(riskMatter).where(where);
+    opts.withTotal === false
+      ? []
+      : scope === "matter"
+        ? await db.select({ n: count() }).from(matter).where(where)
+        : await db.select({ n: count() }).from(riskMatter).where(where);
   const total = Number(totalRows[0]?.n ?? 0);
 
   const ids = rows.map((r) => r.hostId);
@@ -125,17 +133,26 @@ export async function queryRecent(
   };
 }
 
-/** 页面分页查询：`page` / `pageSize` 由 schema 收窄，服务层只做偏移换算。 */
+/** 页面分页查询：返回与 `recentProgressQuerySchema` 对齐的固定形状（type-safety：列表固定形态）。 */
 export async function recentProgress(
   actor: Actor,
   q: { scope: RecentProgressScope; days: RecentProgressDays; page: number; pageSize: number },
-): Promise<{ items: RecentProgressItem[]; total: number }> {
-  return queryRecent(actor, {
+): Promise<RecentProgressPayload> {
+  const r = await queryRecent(actor, {
     scope: q.scope,
     days: q.days,
     limit: q.pageSize,
     offset: (q.page - 1) * q.pageSize,
+    withTotal: true,
   });
+  return {
+    scope: q.scope,
+    days: q.days,
+    page: q.page,
+    pageSize: q.pageSize,
+    total: r.total,
+    items: r.items,
+  };
 }
 
 /**
@@ -153,6 +170,7 @@ export async function exportRecentProgress(
     days: q.days,
     limit: EXPORT_SECTION_LIMIT + 1,
     offset: 0,
+    withTotal: false,
   });
   const truncated = items.length > EXPORT_SECTION_LIMIT;
   const kept = truncated ? items.slice(0, EXPORT_SECTION_LIMIT) : items;
@@ -184,7 +202,7 @@ export async function exportRecentProgress(
       action: "EXPORT",
       payload: exportAuditPayload({
         targetType: q.scope,
-        scope: `${q.scope}_recent_progress`,
+        scope: `${q.scope}_recent_progress_${q.days}`,
         rows: kept.length,
         plain: false,
       }),
