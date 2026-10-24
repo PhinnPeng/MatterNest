@@ -38,6 +38,7 @@ import { DetailError } from "@/app/components/ui/detail-error";
 import { NodeDialog, type NodeSeed } from "@/app/components/node-dialog";
 import { ProgressLogDialog, ProgressPanel } from "@/app/components/progress-panel";
 import { CommentRail } from "@/app/components/comment-rail";
+import { Section } from "@/app/components/ui/section";
 import { handlersOf } from "@/shared/hosts";
 import { StatusDialog, type StatusTarget } from "@/app/components/status-dialog";
 import { AttachmentPanel } from "@/app/components/attachment-panel";
@@ -310,7 +311,7 @@ export function MatterDetail({ id }: { id: string }) {
         返回入口因此从 `.stack` 顶部移进页头第一行；`PageHeader` 的 `back` 只收导航，
         不接受说明文字，「副标题纪律」没有因此松动。
       */}
-        <div style={{ padding: "16px 20px 0" }}>
+        <div>
           <PageHeader
             stacked
             back={{ href: "/matters", label: "返回案件列表" }}
@@ -404,13 +405,12 @@ export function MatterDetail({ id }: { id: string }) {
            * antd 的默认留白比它小，卡片会贴上来。
            */
           tabBarStyle={{ marginBottom: 16 }}
-          style={{ padding: "0 20px 20px" }}
           items={[
             {
               key: "basic",
               label: "基本信息",
               children: (
-                <Flex vertical gap={12}>
+                <Flex vertical>
                   {/*
                   基本信息（2026-10-22 用户给出的行序，**放在本页签第一位**）：
                   案号 / 类型 · 受理法院 / 我方诉讼地位 · 案件进程 / 案件金额 ·
@@ -421,7 +421,7 @@ export function MatterDetail({ id }: { id: string }) {
                   结案日期与归档时间属归档流程、裁判文书属下方「附件」卡。把它们再在详情里列一遍，
                   就是同一事实的第二处显示。
                 */}
-                  <Card variant="borderless" size="small" title="基本信息">
+                  <Section title="基本信息">
                     <Descriptions
                       size="small"
                       /**
@@ -474,13 +474,13 @@ export function MatterDetail({ id }: { id: string }) {
                         { key: "updatedAt", label: "更新时间", children: dateTime(m.updatedAt) },
                       ]}
                     />
-                  </Card>
+                  </Section>
 
                   {/* 附件（2026-10-23 用户裁定）：替换原「归档就绪」卡。
                   归档判定仍由服务端算给归档弹窗与列表筛选，这里不再展开。 */}
-                  <Card variant="borderless" size="small" title="附件">
+                  <Section title="附件">
                     <AttachmentPanel host="matter" hostId={m.id} archived={m.isArchived} />
-                  </Card>
+                  </Section>
 
                   {/*
                 来源风险卡片（MATT-65 / F2-22）—— 与事项详情页那张「已转案件」卡
@@ -498,11 +498,7 @@ export function MatterDetail({ id }: { id: string }) {
                 那不是"礼貌的占位"，是把越权入口摆在界面上。
               */}
                   {m.sourceRisks.length > 0 || m.sourceRisksHidden > 0 ? (
-                    <Card
-                      variant="borderless"
-                      size="small"
-                      title={`来源风险 (${m.sourceRisks.length})`}
-                    >
+                    <Section title="来源风险" count={m.sourceRisks.length}>
                       {m.sourceRisks.length > 0 ? (
                         <Listy
                           items={m.sourceRisks}
@@ -536,7 +532,7 @@ export function MatterDetail({ id }: { id: string }) {
                           因此不显示名称与编号。
                         </Typography.Text>
                       ) : null}
-                    </Card>
+                    </Section>
                   ) : null}
                 </Flex>
               ),
@@ -559,29 +555,25 @@ export function MatterDetail({ id }: { id: string }) {
                     </Flex>
                   )}
                   {m.nodes.length ? (
-                    <Card variant="borderless" size="small" styles={{ body: { padding: 0 } }}>
-                      <Table<Node>
-                        size="small"
-                        rowKey={(n) => n.id}
-                        columns={nodeColumns}
-                        dataSource={m.nodes}
-                        pagination={false}
-                      />
-                    </Card>
+                    <Table<Node>
+                      size="small"
+                      rowKey={(n) => n.id}
+                      columns={nodeColumns}
+                      dataSource={m.nodes}
+                      pagination={false}
+                    />
                   ) : (
-                    <Card variant="borderless" size="small">
-                      <StateBlock
-                        title="还没有时间节点"
-                        hint="节点是提醒的唯一入口：确认时间并设了期限，才会进工作台的到期清单。"
-                        action={
-                          m.isArchived ? undefined : (
-                            <Button size="small" onClick={() => openNodeDialog(null)}>
-                              新增节点
-                            </Button>
-                          )
-                        }
-                      />
-                    </Card>
+                    <StateBlock
+                      title="还没有时间节点"
+                      hint="节点是提醒的唯一入口：确认时间并设了期限，才会进工作台的到期清单。"
+                      action={
+                        m.isArchived ? undefined : (
+                          <Button size="small" onClick={() => openNodeDialog(null)}>
+                            新增节点
+                          </Button>
+                        )
+                      }
+                    />
                   )}
                 </div>
               ),
@@ -590,12 +582,10 @@ export function MatterDetail({ id }: { id: string }) {
               key: "people",
               label: `参与人与当事人 (${handlers.length + m.parties.length})`,
               children: (
-                <Flex gap={16} wrap align="flex-start">
-                  <Card
-                    variant="borderless"
-                    size="small"
-                    title={`承办与协办 (${handlers.length})`}
-                    style={{ flex: "1 1 320px" }}
+                <Flex vertical>
+                  <Section
+                    title="承办与协办"
+                    count={handlers.length}
                     extra={
                       <Space size={4}>
                         <StaffPicker
@@ -650,13 +640,8 @@ export function MatterDetail({ id }: { id: string }) {
                     ) : (
                       <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有参与人" />
                     )}
-                  </Card>
-                  <Card
-                    variant="borderless"
-                    size="small"
-                    title={`当事人 (${m.parties.length})`}
-                    style={{ flex: "1 1 320px" }}
-                  >
+                  </Section>
+                  <Section title="当事人" count={m.parties.length}>
                     {m.parties.length ? (
                       <Listy
                         items={m.parties}
@@ -679,18 +664,14 @@ export function MatterDetail({ id }: { id: string }) {
                     ) : (
                       <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有当事人" />
                     )}
-                  </Card>
+                  </Section>
                 </Flex>
               ),
             },
             {
               key: "expenses",
               label: "费用",
-              children: (
-                <Card variant="borderless" size="small">
-                  <ExpensePanel host="matter" hostId={m.id} archived={m.isArchived} />
-                </Card>
-              ),
+              children: <ExpensePanel host="matter" hostId={m.id} archived={m.isArchived} />,
             },
             {
               // key 仍是 `log`：列表行「进展」那条快捷动作用的就是 `?tab=log`，
@@ -698,21 +679,19 @@ export function MatterDetail({ id }: { id: string }) {
               key: "log",
               label: `进展 (${m.progress.length})`,
               children: (
-                <Card variant="borderless" size="small">
-                  <ProgressPanel
-                    host="matter"
-                    hostId={m.id}
-                    progress={m.progress}
-                    onDone={invalidate}
-                  />
-                </Card>
+                <ProgressPanel
+                  host="matter"
+                  hostId={m.id}
+                  progress={m.progress}
+                  onDone={invalidate}
+                />
               ),
             },
             {
               key: "activity",
               label: `活动日志 (${m.activity.length})`,
               children: (
-                <Card variant="borderless" size="small">
+                <>
                   {m.activity.length ? (
                     <Listy
                       items={m.activity}
@@ -736,7 +715,7 @@ export function MatterDetail({ id }: { id: string }) {
                   ) : (
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有活动记录" />
                   )}
-                </Card>
+                </>
               ),
             },
           ]}
