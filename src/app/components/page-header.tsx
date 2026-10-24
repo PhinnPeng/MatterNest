@@ -70,7 +70,15 @@ export function PageHeader({
   if (stacked) {
     return (
       <div className="pagehead">
-        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+        <div
+          style={{
+            minWidth: 0,
+            flex: "1 1 360px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+          }}
+        >
           <div className="rowflex" style={{ alignItems: "center", gap: 8 }}>
             {back ? (
               <Link href={back.href} className="backlink">
@@ -86,14 +94,18 @@ export function PageHeader({
           </div>
         </div>
         <span className="sp" />
-        {actions ? <div className="rowflex">{actions}</div> : null}
+        {actions ? (
+          <div className="rowflex" style={{ marginLeft: "auto" }}>
+            {actions}
+          </div>
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="pagehead">
-      <div style={{ minWidth: 0 }}>
+      <div style={{ minWidth: 0, flex: "1 1 360px" }}>
         <div className="rowflex" style={{ flexWrap: "wrap", gap: 8 }}>
           <h2>{title}</h2>
           {/* 编号是主键不是副标题，所以与标题同行；灰 12px 让它在读过一遍后自动退到次位 */}
@@ -103,7 +115,11 @@ export function PageHeader({
         </div>
       </div>
       <span className="sp" />
-      {actions ? <div className="rowflex">{actions}</div> : null}
+      {actions ? (
+        <div className="rowflex" style={{ marginLeft: "auto" }}>
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -139,6 +139,10 @@
     height: 100vh;
   }
   .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink);
     font-size: 14.5px;
     font-weight: 600;
     letter-spacing: 0.01em;
@@ -1286,7 +1290,9 @@
   .pagehead {
     display: flex;
     align-items: flex-start;
+    flex-wrap: wrap;
     gap: 12px;
+    row-gap: 10px;
     margin-bottom: 16px;
   }
   .pagehead h2 {
@@ -1922,6 +1928,11 @@
     color: var(--ink);
     /* 居中 + 放大是一组：居中的标题如果还是 18px，读起来像摆在表单上方的标签 */
     text-align: center;
+    /* 标记与字标同一行居中；gap 比导航里的 8 大一点，因为字号从 14.5 涨到 20 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
   }
   .login-stack .btn.pri {
     height: 40px;

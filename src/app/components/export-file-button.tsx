@@ -70,7 +70,7 @@ export function ExportFileButton({
         onClick: ({ key }) => mut.mutate(key === "plain"),
       }}
     >
-      <button type="button" className="btn sm" disabled={mut.isPending}>
+      <button type="button" className="btn" disabled={mut.isPending}>
         导出
       </button>
     </Dropdown>
