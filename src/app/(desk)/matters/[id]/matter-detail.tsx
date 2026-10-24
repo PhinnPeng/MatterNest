@@ -310,7 +310,7 @@ export function MatterDetail({ id }: { id: string }) {
         返回入口因此从 `.stack` 顶部移进页头第一行；`PageHeader` 的 `back` 只收导航，
         不接受说明文字，「副标题纪律」没有因此松动。
       */}
-        <div>
+        <div style={{ padding: "16px 20px 0" }}>
           <PageHeader
             stacked
             back={{ href: "/matters", label: "返回案件列表" }}
@@ -404,6 +404,7 @@ export function MatterDetail({ id }: { id: string }) {
            * antd 的默认留白比它小，卡片会贴上来。
            */
           tabBarStyle={{ marginBottom: 16 }}
+          style={{ padding: "0 20px 20px" }}
           items={[
             {
               key: "basic",
@@ -420,7 +421,7 @@ export function MatterDetail({ id }: { id: string }) {
                   结案日期与归档时间属归档流程、裁判文书属下方「附件」卡。把它们再在详情里列一遍，
                   就是同一事实的第二处显示。
                 */}
-                  <Card size="small" title="基本信息">
+                  <Card variant="borderless" size="small" title="基本信息">
                     <Descriptions
                       size="small"
                       /**
@@ -477,7 +478,7 @@ export function MatterDetail({ id }: { id: string }) {
 
                   {/* 附件（2026-10-23 用户裁定）：替换原「归档就绪」卡。
                   归档判定仍由服务端算给归档弹窗与列表筛选，这里不再展开。 */}
-                  <Card size="small" title="附件">
+                  <Card variant="borderless" size="small" title="附件">
                     <AttachmentPanel host="matter" hostId={m.id} archived={m.isArchived} />
                   </Card>
 
@@ -497,7 +498,11 @@ export function MatterDetail({ id }: { id: string }) {
                 那不是"礼貌的占位"，是把越权入口摆在界面上。
               */}
                   {m.sourceRisks.length > 0 || m.sourceRisksHidden > 0 ? (
-                    <Card size="small" title={`来源风险 (${m.sourceRisks.length})`}>
+                    <Card
+                      variant="borderless"
+                      size="small"
+                      title={`来源风险 (${m.sourceRisks.length})`}
+                    >
                       {m.sourceRisks.length > 0 ? (
                         <Listy
                           items={m.sourceRisks}
@@ -554,7 +559,7 @@ export function MatterDetail({ id }: { id: string }) {
                     </Flex>
                   )}
                   {m.nodes.length ? (
-                    <Card size="small" styles={{ body: { padding: 0 } }}>
+                    <Card variant="borderless" size="small" styles={{ body: { padding: 0 } }}>
                       <Table<Node>
                         size="small"
                         rowKey={(n) => n.id}
@@ -564,7 +569,7 @@ export function MatterDetail({ id }: { id: string }) {
                       />
                     </Card>
                   ) : (
-                    <Card size="small">
+                    <Card variant="borderless" size="small">
                       <StateBlock
                         title="还没有时间节点"
                         hint="节点是提醒的唯一入口：确认时间并设了期限，才会进工作台的到期清单。"
@@ -587,6 +592,7 @@ export function MatterDetail({ id }: { id: string }) {
               children: (
                 <Flex gap={16} wrap align="flex-start">
                   <Card
+                    variant="borderless"
                     size="small"
                     title={`承办与协办 (${handlers.length})`}
                     style={{ flex: "1 1 320px" }}
@@ -646,6 +652,7 @@ export function MatterDetail({ id }: { id: string }) {
                     )}
                   </Card>
                   <Card
+                    variant="borderless"
                     size="small"
                     title={`当事人 (${m.parties.length})`}
                     style={{ flex: "1 1 320px" }}
@@ -680,7 +687,7 @@ export function MatterDetail({ id }: { id: string }) {
               key: "expenses",
               label: "费用",
               children: (
-                <Card size="small">
+                <Card variant="borderless" size="small">
                   <ExpensePanel host="matter" hostId={m.id} archived={m.isArchived} />
                 </Card>
               ),
@@ -691,7 +698,7 @@ export function MatterDetail({ id }: { id: string }) {
               key: "log",
               label: `进展 (${m.progress.length})`,
               children: (
-                <Card size="small">
+                <Card variant="borderless" size="small">
                   <ProgressPanel
                     host="matter"
                     hostId={m.id}
@@ -705,7 +712,7 @@ export function MatterDetail({ id }: { id: string }) {
               key: "activity",
               label: `活动日志 (${m.activity.length})`,
               children: (
-                <Card size="small">
+                <Card variant="borderless" size="small">
                   {m.activity.length ? (
                     <Listy
                       items={m.activity}

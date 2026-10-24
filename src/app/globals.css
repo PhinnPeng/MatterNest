@@ -767,6 +767,13 @@
   .detail > .stack {
     display: flex;
     flex-direction: column;
+    /* 左列整块是一张卡片（2026-10-24 用户裁定「左右两个卡片式布局」）：
+       内容裸在页面底色上时，页头 / 页签 / 面板三层各说各的；收进同一张卡后，
+       左列与右栏评论卡成为对等的两块。 */
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
     /* 左列内容少时也撑到折线，不让右栏孤零零比左边长（内容多时这条不起作用） */
     min-height: calc(100vh - 112px);
   }
