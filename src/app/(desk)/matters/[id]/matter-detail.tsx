@@ -180,6 +180,7 @@ export function MatterDetail({ id }: { id: string }) {
    */
   const handlers = handlersOf(m.staff);
   const target: StatusTarget = {
+    host: "matter",
     id: m.id,
     code: m.internalCode,
     name: m.name,

@@ -409,7 +409,13 @@ export function MattersView() {
                 if (reasonRequired) {
                   // 要写原因：交给 `StatusDialog`（它管原因、归档就绪与错误），值带过去
                   setStatusHandoff({
-                    target: { id: r.id, code: r.internalCode, name: r.name, status: r.status },
+                    target: {
+                      host: "matter",
+                      id: r.id,
+                      code: r.internalCode,
+                      name: r.name,
+                      status: r.status,
+                    },
                     to: v,
                   });
                   return;

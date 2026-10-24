@@ -159,6 +159,7 @@ export function RiskDetail({ id }: { id: string }) {
    */
   const handlers = handlersOf(risk.staff);
   const statusTarget: StatusTarget | null = {
+    host: "risk_matter",
     id: risk.id,
     code: risk.code,
     name: risk.name,
