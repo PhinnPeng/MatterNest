@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     if (input.action === "status") {
       const r = await batchChangeMatterStatus(actor, input.ids, input.to, input.reason ?? null);
       // 参数错（状态不存在/已停用）**不能**退化成"applied: 0"的空摘要：
-      // 逐行 changeStatus 会回 not_found，而 not_found 按上面的口径是要被吞掉的。
+      // 逐行 changeHostStatus 会回 not_found，而 not_found 按上面的口径是要被吞掉的。
       if (!r.ok) return fail(422, "bad_status", "目标状态不存在，或它已被停用");
       return json({ applied: r.applied, skipped: r.skipped });
     }

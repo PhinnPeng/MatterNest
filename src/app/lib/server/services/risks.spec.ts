@@ -239,7 +239,7 @@ describe("unconvertSchema：撤销转案件", () => {
  *   2. 八条写路径是不是都走了它（漏一条 = 裁定形同虚设，且**不报错**）；
  *   3. 判据是不是**只有一处**（票面原话：未来若要放开只需改一处判定）。
  *
- * 为什么不连库测：`unconvertFromCase` / `changeRiskStatus` 一进去就连库、跑事务，
+ * 为什么不连库测：`unconvertFromCase` / `changeHostStatus` 一进去就连库、跑事务，
  * 而 `pnpm verify` 的口径是离线可跑（本仓既有约定，见本文件头）。
  * 真 HTTP 那侧的断言在 `agent-work/smoke-convert.mjs`。
  */

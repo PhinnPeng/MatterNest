@@ -15,7 +15,7 @@ import { body, fail, json, withActor } from "@/app/lib/server/http";
  * 而漂了的形态是"案件页说跳过 2 条、事项页说跳过 3 条"，用户只会怀疑哪个是真的。
  *
  * 两侧确实不同的只有一件事：事项的经办人**可空**（IQ-5），无主事项谁都能推它的状态
- * （`changeRiskStatus` 里那条 `ownerId !== null` 判断）。批量沿用同一个判定——
+ * （`changeHostStatus` 里那条 `ownerId !== null` 判断）。批量沿用同一个判定——
  * 这里不另判一次归属，否则"单条能推、批量推不动"就出现了。
  */
 export async function POST(req: Request) {

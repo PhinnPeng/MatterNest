@@ -81,7 +81,7 @@ export type RuleListItem = {
  * ## 2026-10-19：规则 1 从这份名单移出
  *
  * 规则 1「结案自动归档」补上了执行体（`services/auto-archive.ts`，挂在
- * `changeStatus` 的事务里）。所以它现在**是一条约真的规则**：开关开着、状态推到
+ * `changeHostStatus` 的事务里）。所以它现在**是一条约真的规则**：开关开着、状态推到
  * `closed`，案件会被自动归档，并落一条 `operator_id = NULL` 的 `ARCHIVED` 审计
  * （系统动作不冒充人，见迁移 0016 与 `docs/research-system-identity.md`）。
  *

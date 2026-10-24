@@ -6,7 +6,7 @@ import { businessDateKey } from "@/shared/time/zh-cn";
 /**
  * `closing_date` 的取值口径（MATT-69）。
  *
- * ## 为什么不测 `changeStatus` 本体
+ * ## 为什么不测状态变更本体
  *
  * 它一进去就连库、开事务，而 `pnpm verify` 的口径是离线可跑
  * （与 `risks.spec.ts` 里"为什么不测 `convertToCase` 本体"同一条理由）。

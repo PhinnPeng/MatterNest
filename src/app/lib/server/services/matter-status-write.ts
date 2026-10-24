@@ -16,7 +16,7 @@
  *
  * 权限草案 §8 要求规则动作「必须走与人工相同的状态变更服务」；本函数就是那句话里
  * 「相同」所辖的写侧部分。**护栏部分不共享**：护栏 1（只有经办人能改状态）对规则不适用
- * （§8 明写规则是代理动作），所以它留在 `changeStatus` 里。
+ * （§8 明写规则是代理动作），所以它留在 `changeHostStatus` 里。
  */
 import { eq } from "drizzle-orm";
 import { businessDateKey } from "@/shared/time/zh-cn";

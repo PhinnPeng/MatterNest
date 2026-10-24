@@ -8,7 +8,7 @@
  * 「状态变更为 `closed` ⇒ 自动归档」，而那条路此前一步都没接：把状态推到已结案，
  * 案件**不会**被归档，勾不勾那个开关都一样。
  *
- * ## 为什么挂在 `changeStatus` 的事务里，而不是定时扫描
+ * ## 为什么挂在 `changeHostStatus` 的事务里，而不是定时扫描
  *
  * 规格给的 `trigger_type` 就是 **`status_changed`**（修订稿 §2.3 的规则 1 行：
  * `{status_code:"closed"}`），不是 `time_no_progress` —— 它是**由状态变更唤起**的，
@@ -25,7 +25,7 @@
  *
  * | 行 | `operator_id` | 谁写的 |
  * |---|---|---|
- * | `STATUS_CHANGED` | **触发人**（张三） | `changeStatus` 里既有的那次 |
+ * | `STATUS_CHANGED` | **触发人**（张三） | `changeHostStatus` 里既有的那次 |
  * | `ARCHIVED` | **`NULL`**（系统） | 本文件 |
  *
  * 读起来是「张三把状态改成已结案」→「系统自动归档」。**两条都准确，谁也没冒充谁。**
@@ -46,7 +46,7 @@
  * 以保 `*_staff` 与 `owner_id` 双写一致」。所以这里不自己拼 `update` 语句，
  * 而是调 `writeMatterStatus`（人工路径也走它）。护栏部分**不共享**：
  * 「只有经办人能改状态」对规则不适用（§8 明写规则是代理动作、不受护栏 1 约束）——
- * 那一条留在 `changeStatus` 里。
+ * 那一条留在 `changeHostStatus` 里。
  */
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/client";
@@ -90,12 +90,12 @@ export function shouldAutoArchive(
 }
 
 /**
- * 状态变更之后，按规则 1 决定要不要自动归档。**在 `changeStatus` 的同一事务里调用。**
+ * 状态变更之后，按规则 1 决定要不要自动归档。**在 `changeHostStatus` 的同一事务里调用。**
  *
  * ## 只对案件生效，事项是**显式跳过**而不是"碰巧不生效"
  *
  * 规则 1 的 `host_type` 是 `all`（两条宿主线都吃），seed 与目录一致。
- * 但事项侧这条路的落地是**另一件事**：事项的归档态由 `changeRiskStatus` 管，
+ * 但事项侧这条路的落地是**另一件事**：事项的归档态由 `changeHostStatus` 管，
  * 而"结案自动归档"在事项上的语义（`已处理 → 已归档`）产品从未裁定过。
  * 所以这里只接案件侧，事项侧**显式返回**并说明 —— 写成"忘了接"与"刻意没接"
  * 在代码上长得一样，而后者才是事实。
@@ -110,9 +110,9 @@ export function shouldAutoArchive(
  * 而 `archived → closed` 也是合法回退），再归档一次会写第二条 `ARCHIVED` 审计，
  * 把审计链灌成噪音。所以先查当前归档态，是 true 就直接返回。
  *
- * ## 「归档完备性」在这里重算，不复用 `changeStatus` 那份
+ * ## 「归档完备性」在这里重算，不复用 `changeHostStatus` 那份
  *
- * 两份读的是**同一个瞬时**（同一事务、同一行），但 `changeStatus` 那份只在
+ * 两份读的是**同一个瞬时**（同一事务、同一行），但 `changeHostStatus` 那份只在
  * **目标态是归档语义**时才算（`archiving`），而本函数面对的是 `→ closed`
  * （目标态不是归档语义 ⇒ 那份是 `null`）。所以要自己算一遍，并且
  * **判定必须在本函数的写入之前跑**：写之后再判会读到 `is_archived` 已翻的行。
@@ -161,7 +161,7 @@ export async function applyCloseAutoArchive(
   }
 
   /**
-   * 归档完备性判定：与 `changeStatus` 里那次同形，**在写之前**跑，
+   * 归档完备性判定：与 `changeHostStatus` 里那次同形，**在写之前**跑，
    * 结果随 `ARCHIVED` 落库（G4 指标"归档材料完整率"以它为唯一数据源）。
    */
   const readiness = await judgeArchiveReadiness(tx, String(args.hostId));

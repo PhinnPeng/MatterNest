@@ -1,4 +1,4 @@
-import { and, asc, count as dcount, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+﻿import { and, asc, count as dcount, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { nextId } from "@/shared/ids/snowflake";
 import type { RiskMatterListExportQuery, RiskSortableColumn } from "@/shared/schema/list-query";
 import { assertAssignable, listSelectableUsers } from "./selectable-users";
@@ -61,7 +61,7 @@ import {
 // 通知意图的两个生产点（MATT-41 / T4）：状态变更**同事务**落事件，新评论**只落 outbox**。
 // 两者都不在业务事务里做"投递"这个动作本身 —— 见 services/notifications.ts 文件头。
 import { enqueueCommentIntent, quoteOf, resolveMentionIds } from "./notifications";
-import { changeHostStatus, type StatusChangeResult } from "./status-change";
+import { changeHostStatus } from "./status-change";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -1268,21 +1268,6 @@ export async function getRiskMatter(actor: Actor, id: string) {
 }
 
 /**
- * 事项的状态变更 —— 过渡入口。
- *
- * 判定与事务都在 `./status-change`（两个宿主共用一份顺序）；这里只把宿主填好。
- * 冻结门（ADR-0005）在那边由 `decideStatusChange` 排在归属判定之前，且有单测钉住。
- */
-export async function changeRiskStatus(
-  actor: Actor,
-  id: string,
-  to: string,
-  reason?: string | null,
-): Promise<StatusChangeResult> {
-  return changeHostStatus({ host: "risk_matter", actor, id, to, reason });
-}
-
-/**
  * 改事项主表字段（含**变更处理人**）。
  *
  * 「变更处理人」是一次**普通字段编辑**（GLOSSARY 明写）：不新增状态、不新造审计动作，
@@ -2180,17 +2165,20 @@ export async function removeRiskFollower(
 /**
  * 事项侧的三个批量动作，与案件侧（`services/matters.ts` 同名段落）**逐条同构**。
  *
- * 为什么要两份而不是抽一个泛型：两侧的宿主表、状态机（`changeStatus` /
- * `changeRiskStatus`）、审计外键列（`matter_id` / `risk_matter_id`）都不同，
- * 而共用一段"参数化的 SQL"会让每次改一侧都要重新证明另一侧没被改动。
- * 同构表对在本仓的既有姿态也是各写一份（`services/matters.ts` 与 `services/risks.ts`
- * 本来就是两份），所以这里保持同形，差异点只在注释里点出来。
+ * 为什么要两份而不是抽一个泛型：两侧的宿主表、审计外键列（`matter_id` /
+ * `risk_matter_id`）都不同，而共用一段"参数化的 SQL"会让每次改一侧都要重新证明另一侧
+ * 没被改动。同构表对在本仓的既有姿态也是各写一份，所以这里保持同形，
+ * 差异点只在注释里点出来。
+ *
+ * 状态机**不在此列**：2026-10-24 起两侧共用 `status-change.ts` 的
+ * `changeHostStatus`（判定顺序、三档审计动作、通知意图都在那一处），
+ * 所以下面循环体里没有第二份"改状态"的实现。
  *
  * 口径四条（不可见静默排除 / 跳过只算看得见但没做成 / 审计逐条用既有动作值 /
  * 上限 50 在 schema 层拦）与案件侧完全一致，逐字理由见 `shared/schema/batch.ts` 文件头。
  *
  * ⚠ 事项侧有一处**刻意的不对称**：`mn_risk_matter.owner_id` 可空（IQ-5），
- * 无主事项**谁都能推它的状态**（`changeRiskStatus` 里那条 `ownerId !== null` 判断）。
+ * 无主事项**谁都能推它的状态**——那条判定在 `host-status-policy.ts` 的事项策略里。
  * 批量改状态沿用同一个判定——这里不另判一次归属，否则"单条能推、批量推不动"就出现了。
  */
 
@@ -2203,7 +2191,7 @@ type RiskBatchRow = {
 };
 
 /**
- * 可见行收敛。**这张表不是安全边界**，真正的边界是 `changeRiskStatus` 自己那次
+ * 可见行收敛。**这张表不是安全边界**，真正的边界是 `changeHostStatus` 自己那次
  * `scopedWhere`（标签动作没有第二道，所以那里这次读就是边界——见 `revred-batch.mjs`
  * 的 `tag-scope-risk`）。
  */
@@ -2265,7 +2253,7 @@ export async function batchChangeRiskStatus(
       continue;
     }
 
-    const r = await changeRiskStatus(actor, id, to, reason);
+    const r = await changeHostStatus({ host: "risk_matter", actor, id, to, reason });
     if (r.ok) {
       applied++;
       continue;
@@ -2299,7 +2287,13 @@ export async function batchArchiveRiskMatters(
     const row = byId.get(id);
     if (!row) continue;
 
-    const r = await changeRiskStatus(actor, id, archived.code, reason);
+    const r = await changeHostStatus({
+      host: "risk_matter",
+      actor,
+      id,
+      to: archived.code,
+      reason,
+    });
     if (r.ok) {
       applied++;
       continue;
@@ -2329,7 +2323,7 @@ export async function batchTagRiskMatters(
    *
    * 标签只做分类、不改业务事实 —— 与节点 / 当事人 / 软删那几条"改了没人察觉"的路径
    * 不同：标签加错了**一眼能看见**（列表上就挂着），也能当场摘掉，不存在静默损害。
-   * 所以这条路径绕过状态流转（`changeRiskStatus`）直接写 `tag_ids` 是有意为之。
+   * 所以这条路径绕过状态流转（`changeHostStatus`）直接写 `tag_ids` 是有意为之。
    *
    * ⚠ 想给它补冻结门的人：先回 ADR-0005 的 Consequences 第 3 条，那里写明
    * 「豁免清单从此有约束力」。改这条豁免要与那条 ADR 一起改，否则本文件与 ADR 互相打架。

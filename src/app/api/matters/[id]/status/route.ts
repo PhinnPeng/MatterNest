@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { statusChangeSchema } from "@/shared/schema/hosts";
-import { changeStatus } from "@/app/lib/server/services/matters";
+import { changeHostStatus } from "@/app/lib/server/services/status-change";
 import { getDb } from "@/app/lib/server/db/client";
 import { matter } from "@/app/lib/server/db/schema";
 import { scopedWhere } from "@/app/lib/server/scope/visibility";
@@ -46,7 +46,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (cur.isArchived && !actor.privileges.canUnarchive)
       return fail(403, "privilege_required", "撤销归档需要「撤销归档」权限，当前角色未持有");
 
-    const r = await changeStatus(actor, id, parsed.data.to, parsed.data.reason ?? null);
+    const r = await changeHostStatus({
+      host: "matter",
+      actor,
+      id,
+      to: parsed.data.to,
+      reason: parsed.data.reason ?? null,
+    });
     if (r.ok) return json({ ok: true });
     if (r.why === "not_found") return notFound();
     if (r.why === "reason_required") return reasonRequired();

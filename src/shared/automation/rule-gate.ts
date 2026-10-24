@@ -58,7 +58,7 @@ export type NotifyRuleDecision =
 /**
  * 从 `action_config.receivers` 取收件人；值不合法（不是数组、含未知档位）时**回落**。
  *
- * **为什么对未知档位回落而不是抛**：这条链路在业务事务里跑（`changeStatus`、
+ * **为什么对未知档位回落而不是抛**：这条链路在业务事务里跑（`changeHostStatus`、
  * 评论写入），抛错会把一次正常的状态变更整笔回滚 —— 而"收件人配错了一个值"
  * 该修的是配置，不该让用户的状态改不动。回落是**有损但不静默**：兜底值就是
  * seed 里的那一份，且 `preset-rules.seed.spec.ts` 已经盯着 seed 与目录逐字相等。

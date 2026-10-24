@@ -917,7 +917,7 @@ const AUDIT_WITHOUT_WRITESITE: Record<string, string> = {
   //   `attachToComment` 与 `deleteAttachment`）。
   // ⚠ `UNARCHIVED` 原在这里登记"等 MATT-60"，2026-10-15 随该票交付**整条删除**
   //   （本门禁的规矩：已经有写入点的条目不许留着 —— 留着会让下一轮读者以为它还是缺口）。
-  //   写入点是 `changeStatus` 的三档动作名：
+  //   写入点是 `changeHostStatus` 的三档动作名：
   //   `archiving ? "ARCHIVED" : unarchiving ? "UNARCHIVED" : "STATUS_CHANGED"`，
   //   `unarchiving = cur.isArchived && target.semantics !== "archived"`
   //   （`matters.ts` / `risks.ts` 两处同改）。

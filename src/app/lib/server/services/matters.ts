@@ -1,4 +1,4 @@
-import { and, asc, count as dcount, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+﻿import { and, asc, count as dcount, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { z } from "zod";
 import { nextId } from "@/shared/ids/snowflake";
 import {
@@ -41,7 +41,7 @@ import { initialStatusCode, hostStatusRows } from "./statuses";
 import { businessDateKey } from "@/shared/time/zh-cn";
 import { archiveMissingSql, judgeArchiveReadiness } from "./archive-readiness";
 import { logActivity } from "./activity";
-import { changeHostStatus, type StatusChangeResult } from "./status-change";
+import { changeHostStatus } from "./status-change";
 import { configNameDict, csvText, exportAuditPayload, listExportLanding } from "./exports";
 import { isFavorited, syncFollowWatch } from "./watch";
 import { mentionPartsOf } from "./comment-mentions";
@@ -851,21 +851,6 @@ export async function createMatter(
  * 留在本文件会成环）。这里 re-export，`matters.spec.ts` 的 import 路径不变。
  */
 export { resolveClosingDate } from "./matter-status-write";
-
-/**
- * 案件的状态变更 —— 过渡入口。
- *
- * 判定与事务都在 `./status-change`（两个宿主共用一份顺序）；这里只把宿主填好。
- * 下一刀会删掉这个名字，调用点改为直接调 `changeHostStatus`。
- */
-export async function changeStatus(
-  actor: Actor,
-  id: string,
-  to: string,
-  reason?: string | null,
-): Promise<StatusChangeResult> {
-  return changeHostStatus({ host: "matter", actor, id, to, reason });
-}
 
 /**
  * 案件主表字段的编辑：**变更处理人**与**程序/审级**（2026-10-22 用户要求行内可改）。
@@ -1731,7 +1716,7 @@ export async function removeMatterStaff(
 /* ─────────────── 批量低风险动作（MATT-45：改状态 / 归档 / 加标签） ─────────────── */
 
 /**
- * 这一节只**追加**，不动上面任何既有函数——批量改状态逐条复用 `changeStatus`，
+ * 这一节只**追加**，不动上面任何既有函数——批量改状态逐条复用 `changeHostStatus`，
  * 而不是另写一条状态机：两条状态机必然漂，而漂了的形态是"单条改不动、批量改得动"，
  * 只有把两条路摆在一起对比才看得出来。
  *
@@ -1765,10 +1750,10 @@ type BatchRow = {
  * 把请求里的 id 收敛成"看得见的那些行"。
  *
  * 一次 `inArray` 查完而不是逐行查：50 行逐行查就是 50 次往返，而这里要的只是
- * 可见性 + 现状——**写入仍然逐行走 `changeStatus`**（那才是状态机的唯一入口）。
+ * 可见性 + 现状——**写入仍然逐行走 `changeHostStatus`**（那才是状态机的唯一入口）。
  *
  * ⚠ 这张表**不是**安全边界：它是摘要与护栏的输入。真正的边界是
- * `changeStatus` 自己那次 `scopedWhere`（以及 `batchTagMatters` 里这次读，
+ * `changeHostStatus` 自己那次 `scopedWhere`（以及 `batchTagMatters` 里这次读，
  * 标签动作没有第二道）。所以"摘掉这里的 `scopedWhere`"对改状态/归档是红不出来的
  * ——见 `revred-batch.mjs` 的 `tag-scope` 模式（那条才是能红的）。
  */
@@ -1799,7 +1784,7 @@ function skipRow(id: string, reason: BatchSkipReason): BatchSummary["skipped"][n
  * 批量改状态。
  *
  * 目标状态**先按配置表验一次**：写错一个 code（或那个状态已被停用）不该退化成
- * "每一行都静默不动"——逐行 `changeStatus` 会回 `not_found`，而按第 1 条口径
+ * "每一行都静默不动"——逐行 `changeHostStatus` 会回 `not_found`，而按第 1 条口径
  * `not_found` 是要被吞掉的，于是请求回 200 + `applied: 0`，用户看到的是"点了没反应"。
  * 参数错就该是 400/422，不是一份看起来成功的空摘要。
  */
@@ -1836,7 +1821,7 @@ export async function batchChangeMatterStatus(
      * 撤销归档要 `can_unarchive`（权限草案 §2.1）——单条路由的同一道门，这里逐行判。
      *
      * 判据是"当前已归档 **且** 目标不是归档语义"：那才是"把它从归档里拉出来"。
-     * 把一条已归档的行再改到归档语义的状态是空操作（`changeStatus` 会回 `unchanged`），
+     * 把一条已归档的行再改到归档语义的状态是空操作（`changeHostStatus` 会回 `unchanged`），
      * 为一次什么都没做的动作报"缺撤销归档权限"会把人引到错误的结论上。
      */
     if (row.isArchived && target.semantics !== "archived" && !actor.privileges.canUnarchive) {
@@ -1844,7 +1829,7 @@ export async function batchChangeMatterStatus(
       continue;
     }
 
-    const r = await changeStatus(actor, id, to, reason);
+    const r = await changeHostStatus({ host: "matter", actor, id, to, reason });
     if (r.ok) {
       applied++;
       continue;
@@ -1889,11 +1874,11 @@ export async function batchArchiveMatters(
 
   for (const id of [...new Set(ids)]) {
     // 不可见：静默排除（`row` 只用来判"看不看得见"，归档不需要它的现状——
-    // 已经归档的行会由 `changeStatus` 回 `unchanged`，那是它该说的话）
+    // 已经归档的行会由 `changeHostStatus` 回 `unchanged`，那是它该说的话）
     const row = byId.get(id);
     if (!row) continue;
 
-    const r = await changeStatus(actor, id, archived.code, reason);
+    const r = await changeHostStatus({ host: "matter", actor, id, to: archived.code, reason });
     if (r.ok) {
       applied++;
       continue;
