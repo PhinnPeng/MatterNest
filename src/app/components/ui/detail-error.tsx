@@ -12,7 +12,7 @@ import { ErrorArt } from "./error-art";
  *
  * 三条纪律保持不变：
  *   · 404 与"不可见"同形同措辞（权限模型元规则 3），标题不说"你没权限"；
- *   · 非 404 用 error 语气，并把原始错误带出来（"读取出错"四个字没有排查价值）；
+ *   · 非 404 用 error 语气；说明只留一句短句，原始错误挂在 `title` 上供排查；
  *   · 整页居中 + 插图，而不是贴在内容区左上角的一张小卡片。
  */
 export function DetailError({
@@ -47,9 +47,12 @@ export function DetailError({
       tone={denied ? "denied" : "error"}
       title={denied ? `打不开这条${what}` : "读取出错"}
       hint={
-        denied
-          ? "它要么不存在，要么不在你的数据范围内 —— 这两种情况系统给的是同一个响应，不区分。"
-          : message
+        denied ? (
+          "不存在，或你没有访问权限。"
+        ) : (
+          // 原文仍要能查到（排查用），但不铺成一句长文案；悬停标题看完整错误
+          <span title={message}>服务暂时不可用，请重试。</span>
+        )
       }
       action={
         denied ? (

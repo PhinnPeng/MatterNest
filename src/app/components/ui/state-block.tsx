@@ -37,11 +37,18 @@ export function StateBlock({
   const color = tone === "error" ? "var(--red)" : "var(--amber)";
 
   if (tone === "empty" || layout === "page") {
-    // `page` 用列布局把「插图 / 标题 / 说明 / 动作」堆成一条中轴；
-    // 只靠 `text-align:center` 时，插图会被行内盒的宽度带偏。
+    // `page` 用列布局把「插图 / 标题 / 说明 / 动作」堆成一条中轴，并在内容区
+    // 水平与垂直居中。只靠 `text-align:center` 时，整块贴在内容区顶部。
     const pageStyle =
       layout === "page"
-        ? ({ display: "flex", flexDirection: "column", alignItems: "center" } as const)
+        ? ({
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            minHeight: "calc(100vh - 140px)",
+          } as const)
         : undefined;
     return (
       <div className="empty" role={tone === "empty" ? undefined : "alert"} style={pageStyle}>
