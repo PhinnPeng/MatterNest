@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · P14 批量导入（待裁定）</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════
+  PROTOTYPE — 一次性产物，不进主干。回答的问题是：**批量导入这一页长什么样**。
+  （IQ-11：P14 是唯一被明文要求「必须出原型」的页面；上游 PRD F7-4 / M7 US-M7-1）
+
+  【三个变体只差一件事：结果怎么摆】
+  A 单栏流式：选模板 → 上传 → 结果在下方原地展开（一张纸从头读到尾）
+  B 左右两栏：左模板右上传；导入后结果**替换**上传区（不滚动找结果）
+  C 结果独占一屏：上传区塌成顶部一条细 bar（文件名 + 三计数），主视觉交给未导入的行
+
+  变体切换：右下角浮条，或地址栏 ?variant=A|B|C
+  状态切换：左下角一排按钮 —— 正常 / 全部成功 / 同文件重导 / 文件级错误 / 非 L1 拒绝
+  （数量、原因码、中文原因都照实现里的真文案写，不是"待补充"）
+
+  ⚠ 文案纪律（.trellis/spec/frontend/component-guidelines.md「副标题纪律」）：
+    本文件不在 src/ 下，lint-guard 的源码断言扫不到它 —— 只剩立场能拦，所以逐句过了：
+    · 标题下**没有**第二行说明（"上传 Excel 把历史台账一次性迁入"这种就是复述 + 讲规则）
+    · 取值与字段落进**折叠区的字段表**（落点④），不在页头讲规则
+    · 空态/错误态说清下一步（落点①）；上传控件说明走 placeholder（落点②）
+    · 行号/字段/原因这类解释走 tooltip（落点③）
+
+  数据为内存假数据。色板抄自 src/app/theme/brand.ts，外壳照抄 AppShell。
+  ══════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --brand:#2f5fe0; --brand-hover:#4473f0;
+    --success:#1a9c6b; --overdue:#c2363b; --soon:#9a5a00;
+    --sider-bg:#1d2433; --sider-item:#c3ccdd;
+    --paper:#f7f8fa;
+    --ink:#1d2433; --ink-2:#4f5a6f; --ink-3:#616a79; --ink-4:#a4abb8;
+    --line:#eceef3; --line-2:#dfe3ec; --rail:#c8ccd4;
+    --r:8px; --shadow:0 1px 2px rgba(29,36,51,.06),0 1px 3px rgba(29,36,51,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer}
+  .shell{display:flex;min-height:100vh}
+  .sider{width:212px;flex:none;background:var(--sider-bg);color:var(--sider-item);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .sider-brand{padding:16px 20px 14px}
+  .sider-brand b{display:block;color:#fff;font-size:15px}
+  .nav{padding:6px 10px;flex:1}
+  .nav-group{font-size:11px;color:#6f7a90;padding:12px 10px 5px;letter-spacing:.5px}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+    color:var(--sider-item);font-size:13.5px;margin:1px 0}
+  .nav-item.on{background:var(--brand);color:#fff;font-weight:500}
+  .sider-foot{padding:12px 14px;border-top:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:9px}
+  .sider-foot b{display:block;color:#fff;font-size:13px}
+  .sider-foot span{display:block;font-size:11px;color:#8d97ab}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:20}
+  .topbar h1{font-size:16px;margin:0;font-weight:600}
+  .crumb{font-size:12px;color:var(--ink-3);margin-left:10px;font-weight:400}
+  .content{padding:20px 24px 96px;flex:1}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .pad{padding:16px 20px}
+  .row{display:flex;gap:10px;align-items:center}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .muted{color:var(--ink-3)}
+  .faint{color:var(--ink-4)}
+  .sec-t{font-size:13.5px;font-weight:600;margin:0}
+  .tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 9px;border-radius:20px;
+    background:#eef1f6;color:var(--ink-2);white-space:nowrap}
+  .tag.brand{background:#eaf0fd;color:var(--brand)}
+  .tag.ok{background:#e9f7f1;color:var(--success)}
+  .tag.warn{background:#fff4e6;color:var(--soon)}
+  .tag.bad{background:#fdecec;color:var(--overdue)}
+  .btn{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:6px 14px;color:var(--ink-2);font-size:13px}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+  .btn.p:hover{background:var(--brand-hover);color:#fff}
+  .btn.sm{padding:3px 10px;font-size:12px}
+  .btn[disabled]{opacity:.5;cursor:not-allowed;border-color:var(--rail);color:var(--ink-3)}
+
+  /* 类型选择 + 模板下载 */
+  .seg{display:inline-flex;border:1px solid var(--rail);border-radius:6px;overflow:hidden}
+  .seg button{border:0;background:#fff;padding:6px 16px;font-size:13px;color:var(--ink-2);border-right:1px solid var(--rail)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:#eaf0fd;color:var(--brand);font-weight:600}
+
+  /* 上传 */
+  .drop{border:1.5px dashed var(--rail);border-radius:var(--r);padding:26px;text-align:center;background:#fcfdff}
+  .drop.has{border-style:solid;border-color:#cfdcfb;background:#f8faff;text-align:left;padding:14px 18px}
+  .drop b{display:block;font-size:13.5px;font-weight:600;margin-bottom:4px}
+  .file{display:flex;align-items:center;gap:10px}
+  .file .ico{width:30px;height:30px;border-radius:6px;background:#eaf0fd;color:var(--brand);
+    display:grid;place-items:center;font-size:11px;font-weight:700;flex:none}
+
+  /* 计数条 */
+  .counts{display:flex;gap:26px;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .cnt{display:flex;align-items:baseline;gap:7px}
+  .cnt b{font-size:30px;line-height:1;font-weight:700}
+  .cnt span{font-size:12.5px;color:var(--ink-2)}
+  .cnt.total b{color:var(--ink)}
+  .cnt.ok b{color:var(--success)}
+  .cnt.bad b{color:var(--overdue)}
+  .cnt.bar{flex:1;align-items:center}
+  .track{height:8px;border-radius:4px;background:#eef1f6;display:flex;overflow:hidden;min-width:120px;flex:1}
+  .track i{display:block;height:100%}
+  .track i.g{background:var(--success)}
+  .track i.r{background:var(--overdue)}
+
+  /* 表格 */
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th{background:#f2f4f8;color:var(--ink-2);font-weight:500;font-size:12px;text-align:left;
+    padding:7px 10px;border-bottom:1px solid var(--line-2)}
+  td{padding:7px 10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  .num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .why{color:var(--ink-2)}
+  .code{font-size:11px;color:var(--ink-4);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin-left:6px}
+
+  /* 字段表（折叠区） */
+  details{border-top:1px solid var(--line)}
+  summary{padding:11px 20px;font-size:13px;color:var(--ink-2);cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸";color:var(--ink-4);margin-right:8px;display:inline-block;transition:.15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  .fields{padding:0 20px 16px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 22px}
+  .fld{display:flex;gap:8px;font-size:12.5px;padding:5px 0;border-bottom:1px dotted var(--line-2)}
+  .fld b{flex:none;width:112px;font-weight:500;color:var(--ink-2)}
+  .fld b i{color:var(--overdue);font-style:normal;margin-left:3px}
+  .fld span{color:var(--ink-3);min-width:0}
+
+  /* 提示条 */
+  .note{display:flex;gap:10px;align-items:flex-start;padding:11px 16px;border-radius:6px;font-size:13px;margin-bottom:14px}
+  .note.bad{background:#fdecec;color:#8f2a2e;border:1px solid #f5cdcd}
+  .note.warn{background:#fff8ec;color:#7a4a00;border:1px solid #f2ddb5}
+  .note.info{background:#f0f5ff;color:#2a4a9c;border:1px solid #cfdcfb}
+  .note b{font-weight:600}
+  .note .x{margin-left:auto;color:inherit;opacity:.6;background:none;border:0;font-size:15px;line-height:1}
+
+  /* 变体切换条 */
+  .switcher{position:fixed;right:18px;bottom:18px;z-index:60;background:#fff;border:1px solid var(--line-2);
+    border-radius:10px;box-shadow:0 6px 22px rgba(29,36,51,.14);padding:9px 11px;display:flex;gap:8px;align-items:center}
+  .switcher span{font-size:11.5px;color:var(--ink-3);margin-right:2px}
+  .switcher button{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:4px 11px;font-size:12.5px}
+  .switcher button.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+
+  /* 状态切换条（原型自由玩） */
+  .playbar{position:fixed;left:232px;bottom:18px;z-index:60;background:#fff;border:1px solid var(--line-2);
+    border-radius:10px;box-shadow:0 6px 22px rgba(29,36,51,.14);padding:9px 11px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:min(760px,60vw)}
+  .playbar span{font-size:11.5px;color:var(--ink-3)}
+  .playbar button{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:4px 10px;font-size:12px;color:var(--ink-2)}
+  .playbar button.on{border-color:var(--brand);color:var(--brand);font-weight:600}
+
+  /* 变体 A：单栏流式 */
+  .vA .stack{display:flex;flex-direction:column;gap:14px;max-width:980px}
+  /* 变体 B：左右两栏，结果替换上传区 */
+  .vB .grid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+  .vB .side{position:sticky;top:76px}
+  /* 变体 C：上传塌成细 bar，结果独占一屏 */
+  .vC .topline{display:flex;align-items:center;gap:14px;padding:10px 16px;margin-bottom:12px;
+    background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .vC .topline .nm{font-size:13px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vC .mini{display:flex;gap:16px;font-size:12.5px;color:var(--ink-2);margin-left:auto}
+  .vC .mini b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sider">
+    <div class="sider-brand"><b>MatterNest</b></div>
+    <nav class="nav">
+      <div class="nav-group">工作台</div>
+      <div class="nav-item">风险事项</div>
+      <div class="nav-item">案件</div>
+      <div class="nav-item">当事人档案</div>
+      <div class="nav-item">通知中心</div>
+      <div class="nav-group">系统设置</div>
+      <div class="nav-item on">批量导入</div>
+      <div class="nav-item">账号与角色</div>
+      <div class="nav-item">配置</div>
+    </nav>
+    <div class="sider-foot">
+      <div class="avatar">管</div>
+      <div><b>沈亦（全局管理）</b><span>数据范围 · 全公司</span></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="row"><h1>批量导入</h1><span class="crumb">系统设置 / 批量导入</span></div>
+      <div class="row">
+        <span class="tag brand" id="scopeTag">L1 · 全公司</span>
+      </div>
+    </header>
+
+    <main class="content" id="content"></main>
+  </div>
+</div>
+
+<div class="playbar" id="playbar">
+  <span>状态：</span>
+  <button data-state="ok" class="on">正常（812 / 41）</button>
+  <button data-state="all">全部成功</button>
+  <button data-state="replay">同文件重导</button>
+  <button data-state="fileerr">文件级错误</button>
+  <button data-state="denied">非 L1 拒绝</button>
+</div>
+
+<div class="switcher" id="switcher">
+  <span>变体</span>
+  <button data-variant="A">A 单栏流式</button>
+  <button data-variant="B">B 左右两栏</button>
+  <button data-variant="C">C 结果独占</button>
+</div>
+
+<script>
+/* ── 原型数据（照实现里的真文案写，不是"待补充"） ───────────────────────── */
+const TPL = {
+  risk_matter: {
+    name: "风险事项", file: "风险事项导入模板.csv",
+    cols: [
+      ["事项名称", 1, "必填"],
+      ["风险类型", 1, "取值：合同 / 劳动争议 / 知识产权 / 公司治理 / 债权债务 / 合规 / 诉讼衍生 / 其他（可填中文名或英文码）"],
+      ["风险等级", 1, "取值：高（high）/ 中（mid）/ 低（low）—— 按配置表启用的等级"],
+      ["发现日期", 0, "YYYY-MM-DD（也接受 2024/1/5 这类写法）"],
+      ["来源", 0, "取值：业务报备 / 对外纠纷、投诉 / 收到对方当事人律师函 / 内部检查 / 其他"],
+      ["涉及金额", 0, "数字，最多两位小数，可带千分位"],
+      ["风险描述", 1, "必填"],
+      ["处置措施", 0, ""],
+      ["处理人", 0, "填账号或姓名；留空 = 未指派处理人"],
+      ["对方当事人", 0, "多个用「、」分隔；命中同证件号档案则挂接，否则建档"],
+      ["对方当事人证件号", 0, "与「对方当事人」按位置对应，可留空占位"],
+      ["当事人类型", 0, "整行当事人共用；留空按「法人」"],
+      ["对方证件类型", 0, "整行当事人共用；留空则不记"],
+      ["对方诉讼地位", 0, "整行当事人共用；留空按「其他」"],
+    ],
+  },
+  matter: {
+    name: "案件", file: "案件导入模板.csv",
+    cols: [
+      ["案件名称", 1, "必填"], ["案由", 1, "必填"],
+      ["案件类型", 1, "取值：民商事 / 刑事 / 行政"],
+      ["审级程序", 1, "取值：一审 / 二审 / 再审审查 / 再审 / 仲裁 / 执行 / 执行异议 / 破产 / 其他"],
+      ["我方诉讼地位", 1, "取值：原告 / 被告 / 第三人 / 申请人 / 被申请人 / 上诉人 / 被上诉人 / 再审申请人 / 被申请人（再审）/ 被执行人 / 其他"],
+      ["受理法院", 0, ""], ["案号", 0, "留空则取内部编号"], ["立案日期", 0, "YYYY-MM-DD"],
+      ["标的额", 0, "数字，最多两位小数"], ["风险等级", 1, "按配置表启用的等级"],
+      ["案件描述", 0, ""], ["处理人", 1, "案件必须有处理人，填账号或姓名"],
+      ["对方当事人", 0, "多个用「、」分隔"], ["对方当事人证件号", 0, "按位置对应"],
+      ["当事人类型", 0, "留空按「法人」"], ["对方证件类型", 0, ""], ["对方诉讼地位", 0, "留空按「其他」"],
+    ],
+  },
+  party: {
+    name: "当事人", file: "当事人导入模板.csv",
+    cols: [
+      ["当事人名称", 1, "必填（至少 2 个字）"],
+      ["当事人类型", 1, "取值：自然人 / 法人 / 非法人组织"],
+      ["证件类型", 0, "取值：居民身份证 / 统一社会信用代码 / 护照 / 港澳台通行证 / 军官证 / 外国人居留证 / 其他"],
+      ["证件号", 0, "加密存储；同类型 + 同证件号视为同一主体，不重复建档"],
+      ["联系方式", 0, "加密存储"], ["备注", 0, ""],
+    ],
+  },
+};
+
+/* 一次"三年台账"的量级：853 行、812 进库、41 未进库（含 12 个各不相同的行） */
+const BASE_ROWS = [
+  [4, "整行", "duplicate_row", "与本文件第 3 行的内容完全相同，未重复导入（若这是两笔真事，请在其中一行加上可区分的信息）"],
+  [6, "风险类型", "unknown_enum", "「风险类型」不认识「非诉」。取值：合同/劳动争议/知识产权/公司治理/债权债务/合规/诉讼衍生/其他（可填中文名或英文码）"],
+  [7, "风险等级", "unknown_config", "风险等级「超高」不在启用的配置项里。可选：高（high）/中（mid）/低（low）"],
+  [8, "风险描述", "required", "「风险描述」是必填列，这一行没填"],
+  [9, "处理人", "unknown_user", "处理人「张伟」在在册且已开通的用户里找不到（可填账号或姓名）"],
+  [11, "事项名称", "invalid_field", "请输入事项名称（至少 2 个字）"],
+  [12, "对方当事人证件号", "party_mismatch", "证件号有 2 个，当事人只有 1 个 —— 两列按位置对应，证件号不能比当事人多"],
+  [13, "对方当事人", "own_company", "「江苏恒基建设集团有限公司」是本企业名称：我方（本企业）永不进当事人表，这一行请填对方当事人或第三人"],
+  [16, "发现日期", "invalid_field", "日期「去年三月」读不出来，请写成 2024-01-05 这样的格式"],
+  [18, "涉及金额", "invalid_field", "金额「十二万」读不出来，请填数字（最多两位小数，可带千分位）"],
+  [24, "对方当事人证件号", "identity_exists", "库里已有同证件号的档案「南京宏远物流有限公司」（未新建）。要把它挂到案件上，请在案件/事项模板的「对方当事人」列填名称"],
+  [31, "整行", "already_imported", "与第 12 行（批次 103381586115825664）内容相同，已导入过，未重复导入"],
+];
+const ICON = {duplicate_row:"duplicate_row", unknown_enum:"unknown_enum", unknown_config:"unknown_config", required:"required",
+  unknown_user:"unknown_user", invalid_field:"invalid_field", party_mismatch:"party_mismatch", own_company:"own_company",
+  identity_exists:"identity_exists", already_imported:"already_imported"};
+
+const STATE = {
+  ok:      {state:"done", total:853, imported:812, error:41, replayed:false, rows:BASE_ROWS,
+            note:["warn","41 行没有导入。","下面是最前面的 12 条，完整清单在错误报告里。"]},
+  all:     {state:"done", total:853, imported:853, error:0, replayed:false, rows:[],
+            note:["info","853 行全部导入。",""]},
+  replay:  {state:"done", total:853, imported:0, error:853, replayed:true,
+            /* 重导的真实形态**不是清一色 already_imported**：好行按内容命中，
+               而当初就没进去的坏行**照旧是坏的**（它们本来就没进库，不会变成"已导入"）。
+               混着摆才看得出报告要逐行读，而不是"这批全重复了"。 */
+            rows:[
+              [4, "整行", "already_imported", "与第 3 行（批次 103381586115825664）内容相同，已导入过，未重复导入"],
+              [6, "风险类型", "unknown_enum", "「风险类型」不认识「非诉」。取值：合同/劳动争议/知识产权/公司治理/债权债务/合规/诉讼衍生/其他（可填中文名或英文码）"],
+              [7, "整行", "already_imported", "与第 5 行（批次 103381586115825664）内容相同，已导入过，未重复导入"],
+              [13, "整行", "already_imported", "与第 9 行（批次 103381586115825664）内容相同，已导入过，未重复导入"],
+            ],
+            note:["info","这一份文件之前导过，本次一行都没有新增。","已经导入的 850 行按内容命中被跳过；报告里逐行列了它们对应的旧行号，坏行照旧报它原来的原因。"]},
+  fileerr: {state:"fileerr", total:0, imported:0, error:0, replayed:false, rows:[],
+            note:["bad","表头里有本模板不认识的列：备注。","请下载对应模板后在其表头上填写（多出来的列请删掉——留着会被当成已导入，实际没有）。"]},
+  denied:  {state:"denied", total:0, imported:0, error:0, replayed:false, rows:[],
+            note:["bad","批量导入只对持有全局数据范围的角色（全局管理 / 全局经办）开放，当前角色不具备。",""]},
+};
+
+let variant = (new URLSearchParams(location.search).get("variant") || "A").toUpperCase();
+if (!"ABC".includes(variant)) variant = "A";
+let playState = "ok";
+let tplKind = "risk_matter";
+let pickedFile = {name:"2024-2026历史台账-事项.csv", size:"268 KB", rows:853};
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function fieldsBlock(kind){
+  const t = TPL[kind];
+  return `<details class="fields-wrap">
+    <summary>字段与取值（${esc(t.name)}模板 · ${t.cols.length} 列）</summary>
+    <div class="fields">
+      ${t.cols.map(([n,req,h]) => `<div class="fld"><b>${esc(n)}${req?'<i>*</i>':''}</b><span>${esc(h||"—")}</span></div>`).join("")}
+    </div>
+  </details>`;
+}
+
+/** 上传区（A/B/C 三处共用；C 在导入完成后塌成细 bar） */
+function uploadCard(collapsed){
+  if (collapsed){
+    const s = STATE[playState];
+    return `<div class="topline">
+      <span class="ico" style="width:26px;height:26px;border-radius:6px;background:#eaf0fd;color:var(--brand);display:grid;place-items:center;font-size:10.5px;font-weight:700">CSV</span>
+      <span class="nm">${esc(pickedFile.name)}</span>
+      <span class="tag">${esc(TPL[tplKind].name)}模板</span>
+      <span class="mini">
+        <span>共 <b>${s.total}</b> 行</span>
+        <span>进库 <b style="color:var(--success)">${s.imported}</b></span>
+        <span>未进 <b style="color:var(--overdue)">${s.error}</b></span>
+      </span>
+      <button class="btn sm" data-act="reset">换一份文件</button>
+    </div>`;
+  }
+  return `<section class="card">
+    <div class="pad between" style="border-bottom:1px solid var(--line)">
+      <div>
+        <p class="sec-t">上传填好的模板</p>
+      </div>
+      <span class="tag">.csv · UTF-8</span>
+    </div>
+    <div class="pad">
+      <div class="drop ${pickedFile?'has':''}">
+        ${pickedFile ? `<div class="file">
+            <span class="ico">CSV</span>
+            <div style="min-width:0">
+              <b style="margin:0">${esc(pickedFile.name)}</b>
+              <div class="muted" style="font-size:12px">${pickedFile.size} · 853 行数据（含表头与说明行共 855 行）</div>
+            </div>
+            <button class="btn sm" style="margin-left:auto" data-act="clear">换一份</button>
+          </div>`
+        : `<b>把填好的模板拖进来</b>
+          <div class="muted" style="font-size:12.5px">或 <button class="btn sm" data-act="pick">选择文件</button></div>`}
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn p" data-act="run" ${pickedFile?'':'disabled'}>开始导入</button>
+        <span class="muted" style="font-size:12.5px">一次最多 1000 行；文件先过表头校验，不合格整份退回。1000 行实测约 1 分半，页面要一直停在导入中</span>
+      </div>
+    </div>
+  </section>`;
+}
+
+function countsBar(s){
+  const okPct = s.total ? Math.round(100*s.imported/s.total) : 0;
+  return `<div class="counts">
+    <div class="cnt total"><b>${s.total}</b><span>文件里的数据行</span></div>
+    <div class="cnt ok"><b>${s.imported}</b><span>已导入</span></div>
+    <div class="cnt bad"><b>${s.error}</b><span>未导入</span></div>
+    <div class="cnt bar"><span class="track"><i class="g" style="width:${okPct}%"></i><i class="r" style="width:${100-okPct}%"></i></span></div>
+  </div>`;
+}
+
+function rowsTable(rows, cap){
+  if (!rows.length) return `<div class="pad muted" style="font-size:13px">没有未导入的行。</div>`;
+  return `<table>
+    <colgroup><col style="width:64px"><col style="width:150px"><col></colgroup>
+    <thead><tr><th>行号</th><th>字段</th><th>原因</th></tr></thead>
+    <tbody>
+      ${rows.slice(0,cap).map(([n,f,c,m]) => `<tr>
+        <td class="num">${n}</td>
+        <td>${esc(f)}<span class="code" title="错误报告里按这个码归类">${esc(ICON[c]||c)}</span></td>
+        <td class="why">${esc(m)}</td>
+      </tr>`).join("")}
+    </tbody>
+  </table>`;
+}
+
+function resultCard(s, cap){
+  if (s.state === "denied")
+    return `<section class="card pad"><div class="note bad" style="margin:0">
+      <div><b>${esc(s.note[1])}</b></div></div>
+      <div class="muted" style="font-size:12.5px">找系统所有者开一个全局管理或全局经办的角色。</div></section>`;
+  if (s.state === "fileerr")
+    return `<section class="card"><div class="pad"><div class="note bad" style="margin:0">
+      <div><b>${esc(s.note[1])}</b><div style="margin-top:4px">${esc(s.note[2])}</div></div></div>
+      <div class="row" style="margin-top:12px"><button class="btn" data-act="reset">重新选文件</button></div></div></section>`;
+
+  const shown = Math.min(cap, s.rows.length);
+  return `<section class="card">
+    ${countsBar(s)}
+    ${s.note[1] ? `<div class="pad" style="padding-bottom:0"><div class="note ${s.note[0]}" style="margin:0 0 0">
+      <div><b>${esc(s.note[1])}</b>${s.note[2]?`<div style="margin-top:4px">${esc(s.note[2])}</div>`:""}</div></div></div>` : ""}
+    <div class="pad between" style="padding-bottom:10px">
+      <p class="sec-t">未导入的行${s.rows.length>shown?`（显示前 ${shown} 条，共 ${s.error} 条）`:""}</p>
+      <div class="row">
+        <button class="btn" data-act="download" ${s.error?'':'disabled'}>下载错误报告（CSV）</button>
+        <button class="btn" data-act="batches">最近导入</button>
+      </div>
+    </div>
+    ${rowsTable(s.rows, cap)}
+    ${s.replayed ? `<div class="pad faint" style="font-size:12px">报告里给了每一条对应的旧行号，可以回 Excel 逐行核。</div>` : ""}
+  </section>`;
+}
+
+function render(){
+  const s = STATE[playState];
+  /* `attempted`（试过了）与 `isDone`（进去了）是两件事：
+     文件级错误与非 L1 拒绝都「试过了」，但它们没有计数条、也不该把上传区塌成细 bar。
+     初版把两者合成一个 done 判断，于是这两种状态在页面上**根本不出现** ——
+     探针当场抓到了（"非 L1 态给出拒绝原因"红）。 */
+  const attempted = s.state !== "idle";
+  const isDone = s.state === "done";
+  document.getElementById("scopeTag").className = "tag " + (s.state === "denied" ? "bad" : "brand");
+  document.getElementById("scopeTag").textContent = s.state === "denied" ? "无 L1 范围" : "L1 · 全公司";
+
+  let html = "";
+  if (variant === "A"){
+    html = `<div class="stack">
+      <section class="card" style="overflow:hidden">
+        <div class="pad between" style="border-bottom:1px solid var(--line)">
+          <div class="row">
+            <span class="muted" style="font-size:12.5px">模板</span>
+            <span class="seg">${Object.keys(TPL).map(k=>`<button data-tpl="${k}" class="${k===tplKind?'on':''}">${TPL[k].name}</button>`).join("")}</span>
+          </div>
+          <div class="row"><button class="btn" data-act="tpl">下载「${TPL[tplKind].name}」模板</button></div>
+        </div>
+        ${fieldsBlock(tplKind)}
+      </section>
+      ${uploadCard(false)}
+      ${attempted ? resultCard(s, 12) : ""}
+    </div>`;
+  } else if (variant === "B"){
+    html = `<div class="grid">
+      <div class="side">
+        <section class="card" style="overflow:hidden">
+          <div class="pad" style="border-bottom:1px solid var(--line)"><p class="sec-t">模板</p></div>
+          <div class="pad" style="padding-top:10px">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              ${Object.keys(TPL).map(k=>`<button class="btn" data-tpl="${k}" style="${k===tplKind?'border-color:var(--brand);color:var(--brand);font-weight:600;text-align:left':'text-align:left'}">${TPL[k].name}模板</button>`).join("")}
+            </div>
+            <button class="btn p" style="width:100%;margin-top:12px" data-act="tpl">下载当前模板</button>
+          </div>
+          ${fieldsBlock(tplKind)}
+        </section>
+      </div>
+      <div>
+        ${attempted ? resultCard(s, 14) : uploadCard(false)}
+      </div>
+    </div>`;
+  } else {
+    html = `${isDone ? uploadCard(true) : ""}
+      ${attempted ? resultCard(s, 18) : `<div class="stack" style="display:flex;flex-direction:column;gap:14px;max-width:760px">
+        <section class="card" style="overflow:hidden">
+          <div class="pad between" style="border-bottom:1px solid var(--line)">
+            <div class="row"><span class="muted" style="font-size:12.5px">模板</span>
+              <span class="seg">${Object.keys(TPL).map(k=>`<button data-tpl="${k}" class="${k===tplKind?'on':''}">${TPL[k].name}</button>`).join("")}</span></div>
+            <button class="btn" data-act="tpl">下载模板</button>
+          </div>
+          ${fieldsBlock(tplKind)}
+        </section>
+        ${uploadCard(false)}
+      </div>`}`;
+  }
+  document.getElementById("content").innerHTML = html;
+
+  document.getElementById("content").className = "content v" + variant;
+  // 变体/状态按钮的选中态
+  for (const b of document.querySelectorAll("#switcher button")) b.classList.toggle("on", b.dataset.variant === variant);
+  for (const b of document.querySelectorAll("#playbar button")) b.classList.toggle("on", b.dataset.state === playState);
+  history.replaceState(null, "", "?variant=" + variant);
+}
+
+document.getElementById("content").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-tpl],[data-act]");
+  if (!t) return;
+  if (t.dataset.tpl){ tplKind = t.dataset.tpl; pickedFile = {name:`2024-2026历史台账-${TPL[tplKind].name}.csv`, size:"268 KB", rows:853}; render(); return; }
+  const act = t.dataset.act;
+  if (act === "run" || act === "tpl" || act === "download" || act === "batches") {
+    if (act === "run"){ playState = playState === "fileerr" ? "ok" : playState; if (!["ok","all","replay"].includes(playState)) playState = "ok"; }
+    render();
+  }
+  if (act === "reset" || act === "clear" || act === "pick"){ pickedFile = {name:"2024-2026历史台账-事项.csv", size:"268 KB", rows:853}; playState = "ok"; render(); }
+});
+document.getElementById("switcher").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-variant]"); if (!b) return;
+  variant = b.dataset.variant; render();
+});
+document.getElementById("playbar").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-state]"); if (!b) return;
+  playState = b.dataset.state; render();
+});
+render();
+</script>
+</body>
+</html>

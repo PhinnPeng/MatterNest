@@ -1,0 +1,1245 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · P5 事项详情（四变体）</title>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  PROTOTYPE — 一次性代码，不进主干。回答的问题是：「事项详情页该长什么样？」
+
+  · 四个变体在同一条路由上，用 ?variant=A|B|C|D 切换（可分享、刷新稳定）。
+    A/B/C 是 2026-10-11 的首轮产物（C = IQ-17 定稿、也是当时的实现）；
+    **D 是 2026-10-12 的改判提案（待 IQ-19 裁定）**，同一个文件里另起，
+    A/B/C 一行未动，方便并排对比。
+  · D 的两条形态开关：右下角「归档态」（只读终态）、`&demo=empty`（三处空态）。
+  · 色值全部取自 src/app/theme/brand.ts（BRAND / PAPER / INK），
+    左栏与密度照抄 AppShell —— 目的是「贴着真实应用看」，不是凭空画。
+  · 数据是内存里的假数据：真实库当前不可达（127.0.0.1:30432 ECONNREFUSED），
+    挂不上真路由，所以走「双击即开」的单文件形态。见 SKILL「No persistence」。
+  · 变体之间**刻意不复用布局**：只有色板与字体是共用的。共用布局等于没做原型。
+
+  为什么必须先定形态：案件详情是「节点中心」（5 Tab + 预设节点 + 时间轴），
+  事项详情按 IQ-5 必须是「评论中心」（无预设节点、节点可空、评论是主交互面）。
+  两者形态相反。若不先定，施工票会现场做一个缩小版案件详情，
+  也就顺手抹平了「事项是台账、案件是战场」这条刻意的非对称。
+
+  ⚠ 写本文件的文案前先读 `.trellis/spec/frontend/component-guidelines.md` 的「副标题纪律」：
+  **默认没有第二行说明**。凡是"复述旁边已经写着的东西"或"把规则/排序/权限讲成散文"的文字
+  （仓库里叫**旁白**），一律删；要解释只落四类落点（空态/控件说明/tooltip/字段表）。
+  D 变体第一版就在这里栽过一次：「关注人 · 可管理：经办人 / 全公司范围 / 创建人」正是旁白。
+  注意本文件不在 `src/` 下，**lint-guard 的源码断言扫不到它**，只能靠这句话。
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  /* ── 色板：与 brand.ts 逐字对应（改这里不会影响真应用，这里只是抄了一份）── */
+  :root{
+    --brand:#2f5fe0; --brand-hover:#4473f0; --brand-active:#234ac2;
+    --success:#1a9c6b; --overdue:#c2363b; --soon:#9a5a00;
+    --sider-bg:#1d2433; --sider-grad:#22304a; --sider-item:#c3ccdd; --sider-accent:#2f5fe0;
+    --paper:#f7f8fa;
+    --ink:#1d2433; --ink-2:#4f5a6f; --ink-3:#616a79; --ink-4:#a4abb8;
+    --line:#eceef3; --rail:#c8ccd4;
+    --r:8px; --shadow:0 1px 2px rgba(29,36,51,.06),0 1px 3px rgba(29,36,51,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink); background:var(--paper); -webkit-font-smoothing:antialiased;
+  }
+  button{font:inherit;cursor:pointer}
+
+  /* ── AppShell：照抄真实外壳（深色左栏 + 顶栏）── */
+  .shell{display:flex;min-height:100vh}
+  .sider{
+    width:212px;flex:none;background:var(--sider-bg);color:var(--sider-item);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  }
+  .sider-brand{padding:16px 20px 14px}
+  .sider-brand b{display:block;color:#fff;font-size:15px;letter-spacing:.2px}
+  .sider-brand span{display:block;font-size:11px;color:#8d97ab;margin-top:3px}
+  .nav{padding:6px 10px;flex:1;overflow:auto}
+  .nav-group{font-size:11px;color:#6f7a90;padding:12px 10px 5px;letter-spacing:.5px}
+  .nav-item{
+    display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+    color:var(--sider-item);font-size:13.5px;margin:1px 0;
+  }
+  .nav-item.on{background:var(--brand);color:#fff;font-weight:500}
+  .nav-item .ic{width:16px;text-align:center;opacity:.9}
+  .nav-item .i{opacity:.88}
+  .sider-foot{padding:12px 14px;border-top:1px solid rgba(255,255,255,.08)}
+  .who-in-sider{display:flex;align-items:center;gap:9px}
+  .who-in-sider b{display:block;color:#fff;font-size:13px;font-weight:600}
+  .who-in-sider span{display:block;font-size:11px;color:#8d97ab;margin-top:1px}
+  .sider-logout{
+    width:100%;margin-top:10px;background:none;border:1px solid rgba(255,255,255,.16);
+    color:#c3ccdd;border-radius:6px;padding:5px;font-size:12px;
+  }
+  .sider-logout:hover{background:rgba(255,255,255,.08);color:#fff}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{
+    height:60px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:20;
+  }
+  .topbar h1{font-size:16px;margin:0;font-weight:600}
+  .who{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-3)}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600}
+
+  .content{padding:20px 24px 96px;flex:1}
+
+  /* ── 通用件 ── */
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .pad{padding:16px 18px}
+  .row{display:flex;gap:10px;align-items:center}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px;border-radius:20px;
+    background:#eef1f6;color:var(--ink-2);white-space:nowrap}
+  .tag.hi{background:#fdeeee;color:var(--overdue)}
+  .tag.mid{background:#fff4e6;color:var(--soon)}
+  .tag.ok{background:#e9f7f1;color:var(--success)}
+  .tag.on{background:var(--brand);color:#fff}
+  .btn{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:6px 13px;color:var(--ink-2);font-size:13px}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.p:hover{background:var(--brand-hover)}
+  .btn.sm{padding:3px 9px;font-size:12px}
+  .muted{color:var(--ink-3)}
+  .faint{color:var(--ink-4)}
+  .lbl{font-size:12px;color:var(--ink-3)}
+  /* 下拉菜单（标题栏「更多」） */
+  .more-wrap{position:relative}
+  .more-menu{
+    position:absolute;right:0;top:calc(100% + 6px);min-width:172px;background:#fff;
+    border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 26px rgba(29,36,51,.16);
+    padding:5px;display:none;z-index:60;
+  }
+  .more-menu.on{display:block}
+  .mi{display:block;width:100%;text-align:left;background:none;border:0;padding:7px 10px;
+    border-radius:6px;font-size:13px;color:var(--ink)}
+  .mi:hover{background:#f2f5fa}
+  .mi.pri{color:var(--brand);font-weight:500}
+  .mi.danger{color:var(--overdue)}
+  .mi-sep{height:1px;background:var(--line);margin:5px 2px}
+  .kv{display:grid;grid-template-columns:76px 1fr;gap:8px 10px;font-size:13px}
+  .kv dt{color:var(--ink-3)}
+  .kv dd{margin:0;color:var(--ink)}
+  /* 左栏节点与右栏「基本事实」块等高；处置记录移到右栏基本事实之下 */
+  .split{display:grid;grid-template-columns:330px 1fr;gap:16px;align-items:stretch}
+  .node-card{display:flex;flex-direction:column}
+  .node-empty{flex:1;display:flex;flex-direction:column;justify-content:center}
+  .cmt-scroll{max-height:560px;overflow:auto;min-height:0}
+  .sec-t{font-size:13px;font-weight:600;color:var(--ink);margin:0 0 10px;display:flex;align-items:center;gap:7px}
+  .sec-t::before{content:"";width:3px;height:13px;background:var(--brand);border-radius:2px}
+  .hr{height:1px;background:var(--line);margin:14px 0}
+
+  /* 状态胶囊 */
+  .st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+  .st::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--rail)}
+  .st.open::before{background:var(--rail)}
+  .st.prog::before{background:var(--brand)}
+  .st.ok::before{background:var(--success)}
+
+  /* 评论条目 */
+  .cmt{display:flex;gap:10px;padding:12px 0;border-bottom:1px dashed var(--line)}
+  .cmt:last-child{border-bottom:0}
+  .ava{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;
+    font-size:12px;font-weight:600;color:#fff}
+  .cmt-b{flex:1;min-width:0}
+  .cmt-h{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
+  .cmt-h b{font-size:13px}
+  .cmt-h .t{font-size:11.5px;color:var(--ink-4)}
+  .cmt-t{font-size:13.5px;color:var(--ink);white-space:pre-wrap}
+  .cmt-a{margin-top:6px;display:flex;gap:12px;font-size:12px;color:var(--ink-3)}
+
+  /* Tab */
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);padding:0 18px}
+  .tab{padding:10px 14px;font-size:13.5px;color:var(--ink-2);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:600}
+  .tab .n{font-size:11px;color:var(--ink-4);margin-left:4px}
+  .tab.on .n{color:var(--brand)}
+
+  /* 节点 */
+  .node{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .node:last-child{border-bottom:0}
+  .node-dot{width:8px;height:8px;border-radius:50%;background:var(--rail);margin-top:6px;flex:none}
+  .node-dot.soon{background:var(--soon)}
+  .node-dot.late{background:var(--overdue)}
+
+  /* 空态 */
+  .empty{padding:22px 12px;text-align:center;color:var(--ink-3)}
+  .empty .ic{font-size:22px;opacity:.35}
+  .empty p{margin:6px 0 10px;font-size:13px}
+
+  /* 变体切换条 */
+  .sw{
+    position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;
+    display:flex;align-items:center;gap:4px;background:var(--ink);color:#fff;
+    border-radius:22px;padding:5px 8px;box-shadow:0 6px 22px rgba(29,36,51,.28);
+  }
+  .sw button{background:none;border:0;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;line-height:1}
+  .sw button:hover{background:rgba(255,255,255,.16)}
+  .sw .lb{font-size:12.5px;padding:0 10px;white-space:nowrap}
+  .sw .lb b{font-weight:600}
+  .sw .lb i{font-style:normal;color:#aeb6c6;margin-left:6px}
+  .sw .warn{font-size:11px;color:#ffb4b4;padding:0 8px;border-left:1px solid rgba(255,255,255,.2);margin-left:4px}
+  .sw button.wide{width:auto;padding:0 10px;font-size:12px;border-radius:12px}
+
+  /* ══════════ 变体 D：左内容 + 右评论栏（IQ-19 提案，2026-10-12） ══════════ */
+  /* 页头：编号与标题同行、描述与处置措施进首屏、动作在最右 */
+  .d-head{margin-bottom:14px}
+  .d-meta{display:flex;align-items:center;gap:9px;margin-bottom:8px;font-size:12px;flex-wrap:wrap}
+  .d-title{margin:0 0 8px;font-size:19px;line-height:1.45;font-weight:600;letter-spacing:-.01em;max-width:34em}
+  .d-desc{margin:0;font-size:13.5px;line-height:1.66;color:var(--ink-2);max-width:76ch;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .d-desc.open{-webkit-line-clamp:unset}
+  .d-more-desc{margin-top:5px;font-size:12px;color:var(--brand);background:none;border:0;padding:0}
+  .d-more-desc:hover{text-decoration:underline}
+  .d-acts{display:flex;gap:8px;flex:none;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+
+  /* 两列：内容自适应 + 评论栏固定 340（1366 下本原型容器 1106 = 750 + 16 + 340；
+     真应用同宽度下 1118 = 762 + 16 + 340） */
+  .d-split{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+  .d-rail{position:sticky;top:76px;display:flex;flex-direction:column;gap:12px;
+    height:var(--rail-h,640px);min-height:320px}
+
+  /* 页签在内容卡顶部（不是卡片里再套卡片） */
+  .d-tabs{display:flex;align-items:center;padding:0 6px;border-bottom:1px solid var(--line);gap:2px}
+  .d-tab{border:0;background:none;padding:11px 12px;font-size:13.5px;color:var(--ink-2);
+    border-bottom:2px solid transparent;margin-bottom:-1px;display:inline-flex;align-items:center;gap:6px}
+  .d-tab:hover{color:var(--ink)}
+  .d-tab.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:600}
+  .d-rail-fol{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);white-space:nowrap}
+  .d-tab .n{font-size:11px;color:var(--ink-3)}
+  .d-tab.on .n{color:var(--brand)}
+  .d-panel{padding:14px 18px 18px}
+  .d-panel[hidden]{display:none}
+
+  /* 评论栏：自己的滚动区，输入框钉在底部。
+     高度用 JS 量出的 --rail-h（见 render），保证「本栏底边永远在折线以上 20px」——
+     写死 calc(100vh - 96px) 会忽略本栏自己的起始偏移（页头卡 ~200px），
+     结果输入框落到首屏之外（终检实测：768 视口下低 198px）。 */
+  .d-cmt{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
+  .d-cmt-h{padding:11px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline}
+  .d-cmt-h b{font-size:13px}
+  /* 340px 栏里评论头四项挤在一行会把姓名撕成两行（实测"王凯/锋"），允许换行 */
+  .d-cmt .cmt-h{flex-wrap:wrap;row-gap:2px}
+  .d-cmt .cmt-h b{white-space:nowrap}
+  /* 角色与时间戳是内容不是装饰：走 muted（5.46:1），不走 faint（2.31:1） */
+  .d-cmt .cmt-h .t{color:var(--ink-3)}
+  .d-cmt-list{padding:2px 16px 6px;overflow:auto;flex:1;min-height:80px}
+  .d-cmt-box{border-top:1px solid var(--line);padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:#fbfcfe}
+  .d-cmt-box textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:8px 10px;
+    font:inherit;font-size:13px;line-height:1.5;resize:none;color:var(--ink);background:#fff}
+  .d-cmt-box textarea::placeholder{color:var(--ink-3)}
+  .d-cmt-box textarea:focus{border-color:var(--brand);outline:none;box-shadow:0 0 0 3px rgba(47,95,224,.12)}
+  .d-cmt-box .bar{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--ink-3)}
+  .d-readonly{padding:10px 16px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-3);background:#fbfcfe}
+
+  /* 关注人下拉：行内 X 只在 hover/focus 时出现 */
+  .d-fol-head{padding:6px 10px 3px;font-size:11.5px;color:var(--ink-3)}
+  .d-fol-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px}
+  .d-fol-row:hover{background:#f2f5fa}
+  .d-x{margin-left:auto;border:0;background:none;color:var(--ink-3);border-radius:4px;
+    padding:1px 5px;line-height:1.4;opacity:0;display:inline-flex;align-items:center}
+  .d-fol-row:hover .d-x,.d-fol-row:focus-within .d-x{opacity:1}
+  .d-x:hover{color:var(--overdue);background:#fdeeee}
+  .ava.sm{width:20px;height:20px;font-size:11px}
+
+  /* 节点行：压到 762px 列宽的写法（类型/时间/状态挤一行会断，所以分两行） */
+  .d-node{padding:11px 0;border-bottom:1px dashed var(--line)}
+  .d-node:last-child{border-bottom:0}
+  .d-node-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .d-node-h b{font-size:13.5px}
+  .d-node-s{font-size:12px;color:var(--ink-3);margin-top:3px}
+  .d-node-a{display:flex;gap:12px;font-size:12px;color:var(--ink-3);margin-top:6px}
+  /* 终检实测：归档态的「手动加节点」disabled=true 却与在办态逐项相同 —— 补上禁用态 */
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn:disabled:hover{border-color:var(--rail);color:var(--ink-2)}
+  .d-node-a button{border:0;background:none;padding:0;color:var(--ink-3);font-size:12px}
+  .d-node-a button:hover{color:var(--brand)}
+
+  /* 活动日志：竖线 + 点，关键动作加深 */
+  .d-log{position:relative;padding-left:18px}
+  .d-log::before{content:"";position:absolute;left:3px;top:8px;bottom:8px;width:1px;background:var(--line)}
+  .d-log-i{position:relative;padding:7px 0}
+  .d-log-i::before{content:"";position:absolute;left:-18px;top:12px;width:7px;height:7px;border-radius:50%;
+    background:#fff;border:1.5px solid var(--rail)}
+  .d-log-i.key::before{border-color:var(--brand)}
+  .d-log-t{font-size:13px}
+  .d-log-m{font-size:11.5px;color:var(--ink-3);margin-top:1px}
+
+  /* 详细信息：定义表，两列起 */
+  .d-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 24px;font-size:13px}
+  .d-fact{display:flex;gap:10px;align-items:baseline;min-width:0}
+  .d-fact dt{flex:none;width:64px;color:var(--ink-3);font-size:12px}
+  .d-fact dd{margin:0;min-width:0}
+
+  /* 图标：统一 1.5 描边、currentColor（不用 emoji/unicode 当图标系统） */
+  .i{display:inline-block;vertical-align:-2px;flex:none}
+  .i.sm{vertical-align:-1px}
+
+  /* 浏览器自带的那几个面：选区、焦点环、滚动条 —— 一并主题化 */
+  ::selection{background:rgba(47,95,224,.16)}
+  :focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
+  .d-cmt-list{scrollbar-width:thin;scrollbar-color:#d8dde6 transparent}
+  .d-cmt-list::-webkit-scrollbar{width:8px}
+  .d-cmt-list::-webkit-scrollbar-thumb{background:#d8dde6;border-radius:4px}
+
+  /* ══════════ D2（2026-10-12 第二轮）：页头并入左列 / 详细信息回送到描述下方 ══════════ */
+  .d-main{display:flex;flex-direction:column;gap:14px;min-height:var(--rail-h,640px)}
+  .d-content{flex:1;display:flex;flex-direction:column;min-height:0}
+  .d-head{margin-bottom:0}
+  .d-field{margin-top:13px}
+  .d-field-t{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3);margin-bottom:5px}
+  .d-edit{border:0;background:none;font-size:12px;color:var(--brand);padding:0}
+  .d-edit:hover{text-decoration:underline}
+  /* 描述：BlockNote 形态 —— **没有常驻工具条**（格式条选中才浮出、/ 唤出块菜单） */
+  /* 描述：与标题拉出层级（标题 19/600 墨色；正文 13.5/次级色/行高 1.72/74ch） */
+  .d-rich{font-size:13.5px;line-height:1.72;color:var(--ink-2);max-width:74ch}
+  .d-rich.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .d-rich.open{-webkit-line-clamp:unset}
+  .d-rich p{margin:0 0 5px}
+  .d-rich p:last-child{margin-bottom:0}
+  .d-rich ul,.d-rich ol{margin:4px 0 0;padding-left:19px}
+  .d-rich li{margin:1px 0}
+  .d-rich strong,.d-rich b{color:var(--ink);font-weight:600}
+  .d-rich a{color:var(--brand)}
+  /* 字段行：一行装完；只有「已转案件」用 hover 出详情（别的字段不套用） */
+  .d-facts-row{display:flex;flex-wrap:wrap;gap:7px 20px;margin-top:13px;padding-top:12px;border-top:1px solid var(--line);font-size:12.5px}
+  .d-fact-1{display:inline-flex;align-items:baseline;gap:6px}
+  .d-fact-1 dt{color:var(--ink-3);font-size:12px}
+  .d-fact-1 dd{margin:0}
+  .d-pop-wrap{position:relative}
+  .d-pop-t{border-bottom:1px dashed var(--rail);cursor:default}
+  .d-pop{display:none;position:absolute;left:-10px;top:calc(100% + 7px);z-index:50;width:300px;
+    background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px rgba(29,36,51,.16);padding:12px 14px}
+  .d-pop-wrap:hover .d-pop,.d-pop-wrap:focus-within .d-pop{display:block}
+  /* 参考材料（当事人/参与人/附件/登记信息）：收在字段行下方，默认收起 */
+  .d-fold{margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
+  .d-fold summary{cursor:pointer;font-size:12.5px;color:var(--brand);list-style:none}
+  .d-fold summary::-webkit-details-marker{display:none}
+  .d-fold-body{padding-top:12px}
+  /* 关注：**两个按钮合成一组**（批注：眼睛自己是按钮、文字+箭头是另一个按钮）
+     —— 眼睛 = 切换我关注；文字+箭头 = 开菜单。两段共用一条边框、中间不留缝。 */
+  .d-group{display:inline-flex;align-items:stretch}
+  .d-group>.btn{border-radius:0}
+  .d-group>.btn:first-child{border-radius:6px 0 0 6px;padding:6px 9px}
+  .d-group>.more-wrap{display:inline-flex}
+  .d-group>.more-wrap>.btn{border-radius:0 6px 6px 0;border-left:0}
+  .d-group>.btn.on{border-color:var(--brand);color:var(--brand);background:#f2f6ff}
+  .d-group>.btn.on+.more-wrap>.btn{border-color:var(--brand);color:var(--brand);background:#f2f6ff}
+  /* 描述：BlockNote 形态 —— **没有常驻工具条**；选中文字浮出格式条，输入 / 唤出块菜单 */
+  .d-rte{position:relative}
+  .d-rte-float{position:absolute;top:-18px;left:0;z-index:20;display:none;gap:1px;align-items:center;
+    background:var(--ink);border-radius:6px;padding:3px;box-shadow:0 6px 18px rgba(29,36,51,.24)}
+  .d-rte-float.on{display:flex}
+  .d-rte-float button{border:0;background:none;color:#fff;border-radius:4px;padding:3px 6px;display:inline-flex}
+  .d-rte-float button:hover{background:rgba(255,255,255,.16)}
+  .d-rte-float .sep{width:1px;height:14px;background:rgba(255,255,255,.28);margin:0 3px}
+  .d-rte-hint{margin-top:6px;font-size:11.5px;color:var(--ink-3);display:none;align-items:center;gap:5px}
+  .d-rte-hint.on{display:flex}
+  .d-rte[contenteditable="true"],.d-rte.editing .d-rich{outline:none}
+  .d-rte.editing{background:#fbfcfe;border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+  .d-rte.editing .d-rich{color:var(--ink)}
+  .d-fol-you{font-size:11px;color:var(--brand);background:#eef2fb;border-radius:4px;padding:1px 5px;margin-left:auto}
+  /* 节点面板内的操作行（页签栏里不再有按钮） */
+  .d-nodes-act{display:flex;justify-content:flex-end;margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- 真实外壳（照抄 AppShell） -->
+  <aside class="sider">
+    <div class="sider-brand"><b>MatterNest</b></div>
+    <nav class="nav">
+      <!-- 外壳已与 2026-10-12 主干的改动同步：组名「概要」、菜单「事项」、
+           侧栏底部那块"数据范围 · 全公司"已撤（范围改由顶栏标签承担） -->
+      <div class="nav-group">概要</div>
+      <div class="nav-item" data-ic="dash">工作台</div>
+      <div class="nav-group">业务</div>
+      <div class="nav-item" data-ic="file">案件</div>
+      <div class="nav-item on" data-ic="alert">事项</div>
+      <div class="nav-item" data-ic="archive">已归档</div>
+      <div class="nav-group">系统</div>
+      <div class="nav-item" data-ic="sliders">配置字典</div>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <h1>事项详情</h1>
+      <div class="who">
+        <div class="avatar">王</div>
+        <span>王凯锋</span>
+        <span class="tag">全公司</span>
+      </div>
+    </header>
+    <div class="content" id="root"></div>
+  </div>
+</div>
+
+<div class="sw">
+  <button id="prev" title="上一个（←）">‹</button>
+  <div class="lb" id="lb"></div>
+  <button id="next" title="下一个（→）">›</button>
+  <button id="stateBtn" class="wide" title="切到归档态看只读形态">归档态</button>
+  <span class="warn">原型</span>
+</div>
+
+<script>
+/* ══════════════ 假数据（内存，刷新即丢） ══════════════ */
+const M = {
+  code:'FX-20260928-014',
+  name:'恒基建设承建厂房 · 供应商延迟交付与现场停工',
+  type:'合同违约', level:'高', found:'2026-09-28',
+  owner:null,                      // ← 关键：未指派
+  followers:['赵凌','李晨'],
+  createdBy:'孙敏（业务）', createdAt:'2026-09-28 14:22',
+  amount:8420000,                  // 涉案/敞口金额
+  desc:'承建厂房主体已封顶，但屋面防水供应商连续两次延迟交付，现场停工待料已 11 天。施工方发来催告函，要求我方 9 日内答复并承担窝工损失。',
+  measure:'已要求供应商项目负责人书面说明；同步请工程部核减工期索赔口径。',
+  converted:[],
+  attachments:[
+    {n:'供应商催告函.pdf',k:'函件',s:'412 KB'},
+    {n:'现场停工照片-0918.zip',k:'证据',s:'8.1 MB'},
+  ],
+  comments:[
+    {a:'孙敏',c:'#4f8ef7',role:'上报人',t:'2026-09-28 14:22',
+     x:'施工方今天又来了第三次，说再不答复就报监理。照片我先传上来了。',meta:'来自上报'},
+    {a:'王凯锋',c:'#2f5fe0',role:'全局管理',t:'2026-09-28 16:05',
+     x:'这条我来跟。先把催告函的答复期限挂上，再约施工方碰一次。',meta:'指派给自己',act:'owner'},
+    {a:'赵凌',c:'#1a9c6b',role:'法务负责人',t:'2026-09-29 09:41',
+     x:'@王凯锋 催告函里写的是「9 日内答复」，这个期限要挂上，别靠记忆。',meta:'@提及',act:'mention'},
+    {a:'孙敏',c:'#4f8ef7',role:'上报人',t:'2026-09-30 11:20',
+     x:'补充：工程部说窝工损失大概 60 万，具体金额还在核。',meta:''},
+    {a:'王凯锋',c:'#2f5fe0',role:'全局管理',t:'2026-10-02 17:02',
+     x:'先按「合同违约 · 高」挂着，不急着转案件——对方还没正式立案。等真立案那天再转。',meta:''},
+  ],
+  nodes:[],   // ← 关键：事项无预设节点，默认就是空的
+};
+
+const esc = s => String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const levelTag = l => l==='高' ? '<span class="tag hi">高</span>' : l==='中' ? '<span class="tag mid">中</span>' : '<span class="tag">低</span>';
+
+/* ══════════════ 复用的「小件」（不是布局——布局各变体独立） ══════════════ */
+function shellHead(extra){
+  return `
+  <div class="card pad" style="margin-bottom:16px">
+    <div class="between" style="align-items:flex-start">
+      <div style="min-width:0">
+        <div class="row" style="margin-bottom:6px">
+          <span class="lbl">${M.code}</span>
+          <span class="st ok">已登记</span>
+          ${M.owner?'':'<span class="tag hi">未指派</span>'}
+          ${levelTag(M.level)}
+        </div>
+        <h2 style="margin:0 0 8px;font-size:19px;line-height:1.4;font-weight:600">${esc(M.name)}</h2>
+        <div class="row muted" style="gap:16px;font-size:12.5px">
+          <span>${M.type}</span>
+          <span>发现于 ${M.found}</span>
+          <span>敞口 ${M.amount.toLocaleString()}</span>
+          <span>经办 ${M.owner?'<b>'+M.owner+'</b>':'<b style="color:var(--overdue)">（空）</b>'}</span>
+        </div>
+      </div>
+      <div class="row" style="flex:none">
+        <button class="btn">编辑</button>
+        <button class="btn">变更处理人</button>
+        <div class="more-wrap">
+          <button class="btn" id="moreBtn">更多 ▾</button>
+          <div class="more-menu" id="moreMenu">
+            <button class="mi pri">↗ 转案件</button>
+            <button class="mi">⧉ 复制事项</button>
+            <button class="mi">＋ 加关注人</button>
+            <div class="mi-sep"></div>
+            <button class="mi">▣ 归档</button>
+            <button class="mi danger">🗑 删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function commentsBlock(){
+  return M.comments.map(c=>`
+    <div class="cmt">
+      <div class="ava" style="background:${c.c}">${c.a[0]}</div>
+      <div class="cmt-b">
+        <div class="cmt-h">
+          <b>${c.a}</b><span class="t">${c.role}</span><span class="t">${c.t}</span>
+          ${c.meta?`<span class="tag sm" style="font-size:11px">${c.meta}</span>`:''}
+        </div>
+        <div class="cmt-t">${c.x}</div>
+        <div class="cmt-a"><span>回复</span><span>@ 提及</span><span>编辑</span></div>
+      </div>
+    </div>`).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   变体 A（**已采纳并深化**）—— 「左栏工作面 + 右栏档案」
+   主张：事项页有两类完全不同的内容，不该挤在一处——
+     · 左栏 = **现在正在发生什么**：事项节点（硬期限）+ 处置记录（评论沟通）。
+       处置记录在底部并撑满剩余高度，因为它是事项的主交互面。
+     · 右栏 = **这件事是什么**：基本事实 / 活动日志 两个 Tab，纯档案查阅。
+   标题栏动作收敛成「编辑 / 变更处理人 / 更多」，把低频动作（转案件、删除、
+   复制）收进「更多」，避免主按钮位被占满。
+   ══════════════════════════════════════════════════════════════════ */
+function VariantA(){
+  return `
+  ${shellHead()}
+  <div class="split">
+    <div class="card pad node-card">
+      <div class="between" style="margin-bottom:8px">
+        <h3 class="sec-t" style="margin:0">事项节点</h3>
+        <span class="lbl">${M.nodes.length} 个</span>
+      </div>
+      <div class="node-empty">
+        <div class="empty" style="padding:16px 8px">
+          <div class="ic">◷</div>
+          <p class="muted">事项不预设流程节点。<br>确有时限（如答复期）时手动加一个。</p>
+          <button class="btn sm">+ 手动加节点</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tabs">
+        <div class="tab on">基本事实</div>
+        <div class="tab">活动日志<span class="n">7</span></div>
+      </div>
+      <div class="pad">
+        <h3 class="sec-t">标识与归属</h3>
+        <dl class="kv">
+          <dt>内部编号</dt><dd>${M.code}</dd>
+          <dt>状态</dt><dd><span class="st ok">已登记</span></dd>
+          <dt>经办人</dt><dd>${M.owner?'<b>'+M.owner+'</b>':'<b style="color:var(--overdue)">（空）</b> <a style="color:var(--brand);font-size:12px">指派给我</a>'}</dd>
+          <dt>关注人</dt><dd>${M.followers.join('、')}</dd>
+          <dt>上报人</dt><dd>${M.createdBy}</dd>
+          <dt>已转案件</dt><dd>0 个 <span class="faint">（尚未转案件）</span></dd>
+        </dl>
+
+        <div class="hr"></div>
+        <h3 class="sec-t">风险属性</h3>
+        <dl class="kv">
+          <dt>类型</dt><dd>${M.type}</dd>
+          <dt>风险等级</dt><dd>${levelTag(M.level)}</dd>
+          <dt>敞口金额</dt><dd>${M.amount.toLocaleString()} 元</dd>
+          <dt>发现日期</dt><dd>${M.found}</dd>
+          <dt>来源</dt><dd>业务报备</dd>
+          <dt>标签</dt><dd><span class="tag">供应商</span> <span class="tag">工期风险</span></dd>
+        </dl>
+
+        <div class="hr"></div>
+        <h3 class="sec-t">风险描述</h3>
+        <p style="margin:0 0 12px;font-size:13.5px;color:var(--ink-2)">${M.desc}</p>
+        <h3 class="sec-t">处置措施</h3>
+        <p style="margin:0;font-size:13.5px;color:var(--ink-2)">${M.measure}</p>
+
+        <div class="hr"></div>
+        <div class="between" style="margin-bottom:8px">
+          <h3 class="sec-t" style="margin:0">附件</h3>
+          <button class="btn sm">+ 上传</button>
+        </div>
+        ${M.attachments.map(a=>`
+          <div class="between" style="padding:7px 0;border-bottom:1px dashed var(--line)">
+            <div style="font-size:13px">${a.n}</div>
+            <div class="lbl">${a.k} · ${a.s}</div>
+          </div>`).join('')}
+
+        <div class="hr"></div>
+        <div class="lbl">登记于 ${M.createdAt}</div>
+      </div>
+    </div>
+
+    <div class="card" style="grid-column:2">
+      <div class="pad" style="border-bottom:1px solid var(--line);padding-bottom:12px">
+        <div class="between" style="margin-bottom:8px">
+          <h3 class="sec-t" style="margin:0">处置记录</h3>
+          <span class="lbl">${M.comments.length} 条 · 评论沟通</span>
+        </div>
+        <div style="background:#fbfcfe;border:1px solid var(--line);border-radius:8px;padding:8px 10px">
+          <div style="font-size:13px;color:var(--ink-4)">写一条…&nbsp;&nbsp;<span class="faint">@ 提及 · 可编辑</span></div>
+        </div>
+      </div>
+      <div class="pad cmt-scroll">${commentsBlock()}</div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   变体 B —— 「对照式：左=事实卡，右=对话流」+ 顶部全景条
+   主张：企业风险事项是**被观察**的，不是被推进的。所以首屏不放
+        「下一节点/剩余天数」这类推进式仪表（那是案件页的东西），
+        改放一条静态全景：这条事现在到哪一步了。
+        处置区占比最大，永远在首屏可见。
+   ══════════════════════════════════════════════════════════════════ */
+function VariantB(){
+  const steps=[['已登记','2026-09-28',true],['处置中','2026-09-28',true],['已立案 / 被诉','—',false],['已转案件','—',false],['已归档','—',false]];
+  return `
+  ${shellHead()}
+  <div class="card pad" style="margin-bottom:16px">
+    <div class="between" style="align-items:flex-start">
+      <div>
+        <h3 class="sec-t">这件事到哪一步了</h3>
+        <div class="row" style="gap:0;margin-top:4px">
+          ${steps.map((s,i)=>`
+            <div style="flex:1;text-align:center;position:relative">
+              <div style="width:11px;height:11px;border-radius:50%;margin:0 auto 7px;
+                background:${s[2]?'var(--brand)':'#fff'};
+                border:2px solid ${s[2]?'var(--brand)':'var(--rail)'}"></div>
+              <div style="font-size:12.5px;font-weight:${s[2]?600:400};color:${s[2]?'var(--ink)':'var(--ink-4)'}">${s[0]}</div>
+              <div style="font-size:11px;color:var(--ink-4);margin-top:2px">${s[1]}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div style="text-align:right;flex:none">
+        <div class="lbl">停留</div>
+        <div style="font-size:22px;font-weight:600;color:var(--soon)">13 天</div>
+        <div class="lbl">上次人工更新 10-02</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:330px 1fr;gap:16px;align-items:start">
+    <div class="card pad">
+      <h3 class="sec-t">事实卡</h3>
+      <dl class="kv">
+        <dt>经办人</dt><dd>${M.owner?'<b>'+M.owner+'</b>':'<b style="color:var(--overdue)">（空）</b> <a style="color:var(--brand);font-size:12px">指派给我</a>'}</dd>
+        <dt>关注人</dt><dd>${M.followers.join('、')}</dd>
+        <dt>敞口</dt><dd>${M.amount.toLocaleString()} 元</dd>
+        <dt>发现</dt><dd>${M.found}</dd>
+      </dl>
+      <div class="hr"></div>
+      <div class="lbl" style="margin-bottom:4px">风险描述</div>
+      <p style="margin:0 0 10px;font-size:13px;color:var(--ink-2)">${M.desc}</p>
+      <div class="lbl" style="margin-bottom:4px">处置措施</div>
+      <p style="margin:0;font-size:13px;color:var(--ink-2)">${M.measure}</p>
+      <div class="hr"></div>
+      <div class="between" style="margin-bottom:6px">
+        <b style="font-size:13px">节点</b><span class="lbl">0 个</span>
+      </div>
+      <button class="btn sm" style="width:100%">+ 手动加节点（仅有硬期限时）</button>
+    </div>
+
+    <div class="card">
+      <div class="pad" style="border-bottom:1px solid var(--line);background:#fbfcfe">
+        <div style="font-size:13.5px;color:var(--ink-4)">处置记录…&nbsp;&nbsp;&nbsp;<span class="faint">@ 提及 · 可编辑</span></div>
+      </div>
+      <div class="pad">${commentsBlock()}</div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   变体 C（深化版）—— 「单栏流式 + 等高节点栏」
+   承接 C 的主张：不给事项套「详情页」的固定字段组合，内容按流式往下铺，
+   最新在最上。深化三处：
+     · 左侧加一等高「事项节点」栏——流式单栏的代价是左右失衡；节点固定在
+       左侧后，无论右侧流多长，节点与「+手动加节点」始终在视线内。
+     · 附件与登记信息收进「展开风险…」折叠区，不进主视觉——事项首屏只该
+       有一件事在发生，附件是查阅物，不是当前动作。
+     · 标题栏动作与 A 方案一致：编辑 / 变更处理人 / 更多。
+   ══════════════════════════════════════════════════════════════════ */
+function VariantC(){
+  return `
+  <div class="split">
+    <div class="card pad node-card">
+      <div class="between" style="margin-bottom:8px">
+        <h3 class="sec-t" style="margin:0">事项节点</h3>
+        <span class="lbl">${M.nodes.length} 个</span>
+      </div>
+      <div class="node-empty">
+        <div class="empty" style="padding:16px 8px">
+          <div class="ic">◷</div>
+          <p class="muted">事项不预设流程节点。<br>确有时限（如答复期）时再手动加一个。</p>
+          <button class="btn sm">+ 手动加节点</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="min-width:0">
+      <div class="card pad" style="margin-bottom:14px">
+        <div class="between" style="align-items:flex-start">
+          <div style="min-width:0">
+            <div class="row" style="margin-bottom:6px">
+              <span class="lbl">${M.code}</span>
+              <span class="st ok">已登记</span>
+              ${M.owner?'':'<span class="tag hi">未指派</span>'}
+              ${levelTag(M.level)}
+            </div>
+            <h2 style="margin:0 0 6px;font-size:18px;line-height:1.4;font-weight:600">${esc(M.name)}</h2>
+            <div class="lbl">${M.type} · 发现于 ${M.found} · 敞口 ${M.amount.toLocaleString()} · 经办 <b style="color:${M.owner?'var(--ink)':'var(--overdue)'}">${M.owner||'（空）'}</b> · 关注 ${M.followers.join('、')}</div>
+          </div>
+          <div class="row" style="flex:none">
+            <button class="btn">编辑</button>
+            <button class="btn">变更处理人</button>
+            <div class="more-wrap">
+              <button class="btn" id="moreBtn">更多 ▾</button>
+              <div class="more-menu" id="moreMenu">
+                <button class="mi pri">↗ 转案件</button>
+                <button class="mi">⧉ 复制事项</button>
+                <button class="mi">＋ 加关注人</button>
+                <div class="mi-sep"></div>
+                <button class="mi">▣ 归档</button>
+                <button class="mi danger">🗑 删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card pad" style="margin-bottom:14px">
+        <details>
+          <summary style="cursor:pointer;font-size:13px;color:var(--brand);list-style:none">
+            ▸ 展开风险描述、处置措施、附件与登记信息
+          </summary>
+          <div style="padding-top:12px;max-width:880px">
+            <div class="lbl" style="margin-bottom:4px">风险描述</div>
+            <p style="margin:0 0 12px;font-size:13.5px">${M.desc}</p>
+            <div class="lbl" style="margin-bottom:4px">处置措施</div>
+            <p style="margin:0 0 12px;font-size:13.5px">${M.measure}</p>
+            <div class="hr"></div>
+            <div class="between" style="margin-bottom:6px">
+              <div class="lbl">附件</div>
+              <button class="btn sm">+ 上传</button>
+            </div>
+            ${M.attachments.map(a=>`
+              <div class="between" style="padding:6px 0;border-bottom:1px dashed var(--line)">
+                <div style="font-size:13px">${a.n}</div>
+                <div class="lbl">${a.k} · ${a.s}</div>
+              </div>`).join('')}
+            <div class="hr"></div>
+            <div class="lbl">上报 ${M.createdBy} · ${M.createdAt} · 来源 业务报备 · 标签
+              <span class="tag">供应商</span> <span class="tag">工期风险</span></div>
+          </div>
+        </details>
+      </div>
+
+      <div class="card">
+        <div class="pad" style="border-bottom:1px solid var(--line);background:#fbfcfe">
+          <div class="between" style="margin-bottom:8px">
+            <h3 class="sec-t" style="margin:0">处置记录</h3>
+            <span class="lbl">${M.comments.length} 条 · 评论沟通</span>
+          </div>
+          <div style="font-size:13.5px;color:var(--ink-4)">写一条…&nbsp;&nbsp;<span class="faint">@ 提及 · 可编辑</span></div>
+        </div>
+        <div class="pad cmt-scroll">
+          ${[...M.comments].reverse().map(c=>`
+          <div class="cmt">
+            <div class="ava" style="background:${c.c}">${c.a[0]}</div>
+            <div class="cmt-b">
+              <div class="cmt-h"><b>${c.a}</b><span class="t">${c.role}</span><span class="t">${c.t}</span></div>
+              <div class="cmt-t">${c.x}</div>
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+/* ══════════════════════════════════════════════════════════════════
+   变体 D（2026-10-12 提案 · 待 IQ-19 裁定）—— 「左内容 + 右评论栏」
+   主张：把「这条事项正在发生什么」和「这条事项是什么」分到两列，
+   但分工与 A 相反 ——
+     · 右栏 = **评论**（唯一常驻的第二列）：它是事项的主交互面，
+       自带滚动区与底部输入框，永远在视线内、不随左栏长度漂走。
+     · 左栏 = **内容**：页头（编号/标题/描述/动作）+ 页签
+       【事项节点 / 活动日志 / 详细信息】，静态档案与动态记录都在这里。
+
+   三处相对 C 的改判（IQ-19 要写清的）：
+     ① 请回页签：C 的「无 Tab」被推翻。理由不是"A 有所以要有"，
+        而是把"节点/日志/档案"三种阅读节奏分开后，首屏只需要回答一件事。
+     ② 评论从"流末"提到独立右栏（B 的主张）：在 C 里读节点要滚到底才
+        看得见评论，写评论要来回滚 —— 评论是事项的中心，不该在最下面。
+     ③ 描述与处置措施进首屏（三变体都没有）：它们是"这条事项到底什么事"
+        的一句话交代，默认收进折叠区等于让每个人先点一次。
+
+   语义继承 IQ-17 未动：事项不预设节点、节点只有时间点（无时间段）、
+   经办人可空（空=未指派）。见 GLOSSARY 与 IQ-5。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 图标：统一 1.5 描边、currentColor、正方形 viewBox。不用 emoji 当图标系统。 */
+const I = {
+  dash:`<svg class="i" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="2.4" y="2.4" width="4.6" height="4.6" rx="1.2"/><rect x="9" y="2.4" width="4.6" height="4.6" rx="1.2"/><rect x="2.4" y="9" width="4.6" height="4.6" rx="1.2"/><rect x="9" y="9" width="4.6" height="4.6" rx="1.2"/></svg>`,
+  file:`<svg class="i" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 2.6h5.2l2.8 2.8v8H4z"/><path d="M9.2 2.6v2.8h2.8"/></svg>`,
+  alert:`<svg class="i" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.8l5.4 9.4H2.6L8 2.8z"/><path d="M8 6.6v3.1M8 11.4h.01"/></svg>`,
+  archive:`<svg class="i" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.4" y="3.2" width="11.2" height="3.2" rx="1"/><path d="M3.4 6.4v5.2c0 .7.5 1.2 1.2 1.2h6.8c.7 0 1.2-.5 1.2-1.2V6.4M6.6 9.2h2.8"/></svg>`,
+  sliders:`<svg class="i" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.6h10M3 11.4h10"/><circle cx="6.2" cy="4.6" r="1.7" fill="#fff" stroke="currentColor"/><circle cx="10" cy="11.4" r="1.7" fill="#fff" stroke="currentColor"/></svg>`,
+  chev:`<svg class="i" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.4l4 4 4-4"/></svg>`,
+  plus:`<svg class="i sm" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.6v8.8M3.6 8h8.8"/></svg>`,
+  trash:`<svg class="i" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.6h10M6.6 4.6V3.2h2.8v1.4M4.9 4.6l.6 8.2h5l.6-8.2"/></svg>`,
+  copy:`<svg class="i" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5.6" y="5.6" width="7.2" height="7.2" rx="1.4"/><path d="M10.4 5.6V4.2c0-.8-.6-1.4-1.4-1.4H4.2c-.8 0-1.4.6-1.4 1.4v4.8c0 .8.6 1.4 1.4 1.4h1.4"/></svg>`,
+  out:`<svg class="i" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.6 5.4h4.2v4.2M10.8 5.4L5.8 10.4M10.2 12.6H4.4c-.7 0-1.2-.5-1.2-1.2V4.6c0-.7.5-1.2 1.2-1.2h5.8c.7 0 1.2.5 1.2 1.2v1.4"/></svg>`,
+  clock:`<svg class="i sm" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.1V8l2.1 1.2"/></svg>`,
+  undo:`<svg class="i" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.4 7.6h6.1a3 3 0 010 6H6.6M3.4 7.6l2.6-2.6M3.4 7.6l2.6 2.6"/></svg>`,
+  x:`<svg class="i sm" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>`,
+  eye:(on)=>`<svg class="i" viewBox="0 0 16 16" width="16" height="16" fill="${on?'currentColor':'none'}" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M1.5 8S4.1 3.7 8 3.7 14.5 8 14.5 8 11.9 12.3 8 12.3 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="1.9" fill="${on?'#fff':'none'}" stroke="currentColor"/></svg>`,
+  bold:`<svg class="i sm" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.2h3.6a2.4 2.4 0 010 4.8H5zM5 8h4.2a2.4 2.4 0 010 4.8H5z"/></svg>`,
+  italic:`<svg class="i sm" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10.4 3.2H6.6M9.4 12.8H5.6M9.2 3.2L6.8 12.8"/></svg>`,
+  ul:`<svg class="i sm" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 4.4h7M6 8h7M6 11.6h7M3.2 4.4h.01M3.2 8h.01M3.2 11.6h.01"/></svg>`,
+  ol:`<svg class="i sm" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.4 4.4h7M6.4 8h7M6.4 11.6h7M2.6 3.6h1v1.6M2.6 7.2h1v1.6M2.6 11h1v1.6"/></svg>`,
+  link:`<svg class="i sm" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.6 9.4a2.6 2.6 0 003.7 0l1.9-1.9a2.6 2.6 0 00-3.7-3.7l-.7.7M9.4 6.6a2.6 2.6 0 00-3.7 0L3.8 8.5a2.6 2.6 0 003.7 3.7l.7-.7"/></svg>`,
+  slash:`<svg class="i sm" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M9.6 3L6.4 13"/></svg>`,
+};
+const ic = (name, ...args) => (typeof I[name] === 'function' ? I[name](...args) : I[name]);
+
+/* D 自己的示意图数据：M 被 A/B/C 共用，动它会破坏历史对比，所以这里另起一份。
+   节点故意给 2 条 —— 空的节点列表看不出 762px 列宽下会不会挤（见交接说明）。 */
+const DNODES = [
+  {n:'答复供应商催告函', when:'2026-10-07', confirmed:true,  st:'进行中', tone:'prog', who:'王凯锋', note:''},
+  {n:'现场复工确认',     when:'',           confirmed:false, st:'未开始', tone:'',     who:'—',      note:'时间待定'},
+];
+const DCONV = [{code:'AJ-20261012-161', name:'恒基建设诉鼎宏防水建设工程施工合同纠纷', st:'进行中'}];
+const DLOG = [
+  {k:0, t:'孙敏 上报了这条事项', m:'2026-09-28 14:22 · 来源 业务报备'},
+  {k:1, t:'王凯锋 把经办人设为自己', m:'2026-09-28 16:05 · 变更经办人'},
+  {k:0, t:'赵凌 添加了评论', m:'2026-09-29 09:41'},
+  {k:0, t:'孙敏 添加了评论', m:'2026-09-30 11:20'},
+  {k:1, t:'王凯锋 新增节点「答复供应商催告函」', m:'2026-10-01 10:12 · 期限 2026-10-07'},
+  {k:0, t:'王凯锋 变更等级：中 → 高', m:'2026-10-02 17:02'},
+  {k:0, t:'系统 发出节点临期提醒', m:'2026-10-04 09:00 · 提前 3 天'},
+];
+const DFOL = [
+  {n:'王凯锋', r:'全局管理',   c:'#2f5fe0', me:true},
+  {n:'赵凌',   r:'法务负责人', c:'#1a9c6b'},
+  {n:'孙敏',   r:'上报人',     c:'#8b5cf6'},
+];
+/** 关注人一行：名单与「我」的增删共用这一份，免得两处各写一遍 */
+const folRow = (f) => `
+  <div class="d-fol-row">
+    <span class="ava sm" style="background:${f.c}">${f.n[0]}</span>
+    <span>${f.n}</span>
+    <span class="lbl">${f.r}</span>
+    ${f.me?'<span class="d-fol-you">我</span>':''}
+    <button class="d-x" title="取消 ${f.n} 的关注" aria-label="取消 ${f.n} 的关注">${ic('x')}</button>
+  </div>`;
+
+function VariantD(archived){
+  // 空态走 ?demo=empty：终检指出"三处空态在源码里没有交代、且在默认数据下看不见"，
+  // 所以给它一个可复现的入口，而不是写一段没人跑过的分支。
+  const empty = new URLSearchParams(location.search).get('demo') === 'empty';
+  const nodes = empty ? [] : DNODES;
+  const conv = empty ? [] : DCONV;
+  const comments = empty ? [] : M.comments;
+  const fol = empty ? [] : DFOL;
+  return `
+  <div class="d-split">
+    <div class="d-main">
+  <!-- ① 页头（D2：并入左列顶层 —— 右栏因此拿到整屏高度，评论可见面积从 1.4 条涨到 4.5 条）
+       编号与标题同行、描述与处置措施进首屏、详细信息回送到描述下方、动作在内容区最右 -->
+  <div class="card pad d-head">
+    <div class="between" style="align-items:flex-start;gap:28px">
+      <div style="min-width:0">
+        <div class="d-meta">
+          <span class="lbl num">${M.code}</span>
+          <span class="st ${archived?'':'ok'}">${archived?'已归档':'已登记'}</span>
+          ${archived?'<span class="tag">只读终态</span>':(M.owner?'':'<span class="tag hi">未指派</span>')}
+          ${levelTag(M.level)}
+        </div>
+        <h2 class="d-title">${esc(M.name)}</h2>
+      </div>
+      <div class="d-acts">
+        ${archived
+          ? `<button class="btn">${ic('undo')} 撤销归档</button>
+             <!-- 归档态保留「n 人关注」这条**读事实**：只读终态不等于看不见关注人 -->
+             <span class="d-rail-fol">${ic('eye', true)} ${fol.length} 人关注</span>`
+          : `<button class="btn p">变更状态</button>
+             <button class="btn">变更经办人</button>
+             <!-- 关注：两个按钮合成一组（2026-10-12 第三轮批注）。
+                  左段 = 眼睛，它**自己就是按钮**：切换我关注（填充=已关注，进名单、计入 n）。
+                  右段 = 「n 人关注 + 箭头」另一个按钮：开菜单（添加关注人 / 名单，行内 X 取消）。
+                  菜单里不再放"取消关注"——那是左段的职责，一个动作只留一个入口。 -->
+             <div class="d-group">
+               <button class="btn on" id="dEyeBtn" aria-pressed="true" title="取消关注" aria-label="取消关注">${ic('eye', true)}</button>
+               <div class="more-wrap">
+                 <button class="btn" id="dFolBtn" aria-haspopup="menu" aria-expanded="false"><span id="dFolN">${fol.length} 人关注</span>${ic('chev')}</button>
+                 <div class="more-menu" id="dFolMenu" role="menu" style="min-width:244px">
+                   <button class="mi" id="dFolAdd" role="menuitem">${ic('plus')} 添加关注人</button>
+                   <div class="mi-sep"></div>
+                   ${/* 这里不放"名单标题"之类的句子：名单本身就说明了谁在关注
+                         （2026-10-12 曾在这里写过「关注人 · 可管理：…」，按「旁白」判据删掉）。 */ ''}
+                   ${fol.length === 0
+                     ? '<div class="d-fol-head" style="padding:2px 10px 8px">还没有关注人。</div>'
+                     : `<div id="dFolList">${fol.map(folRow).join('')}</div>`}
+                 </div>
+               </div>
+             </div>
+             <div class="more-wrap">
+               <button class="btn" id="moreBtn" aria-haspopup="menu" aria-expanded="false">更多 ${ic('chev')}</button>
+               <div class="more-menu" id="moreMenu" role="menu">
+                 <button class="mi pri" role="menuitem">${ic('out')} 转案件</button>
+                 <button class="mi" role="menuitem">${ic('copy')} 复制事项</button>
+                 <button class="mi" role="menuitem">${ic('archive')} 归档</button>
+                 <button class="mi" role="menuitem">${ic('alert')} 编辑</button>
+                 <div class="mi-sep"></div>
+                 <button class="mi danger" role="menuitem">${ic('trash')} 删除</button>
+               </div>
+             </div>`}
+      </div>
+    </div>
+
+    <!-- 描述与处置措施：**整幅**（不是左半边）——放进动作按钮那一栏会被挤到 308px、
+         白白多出三行。就地放主表业务字段，与下面的字段行同属"这条记录是什么"。 -->
+    <div class="d-field">
+      <div class="d-field-t">描述<button class="d-edit" id="dEditDesc">编辑</button></div>
+      <!-- BlockNote 形态（Q4=B，与 UnionDesk 同栈）：**没有常驻工具条**。
+           格式条在选中文字时浮出，块菜单由 / 唤出——两者都是 BlockNote 自带 UI，不自建。 -->
+      <div class="d-rte" id="dRte">
+        <div class="d-rte-float" id="dRteFloat" role="toolbar" aria-label="格式">
+          <button aria-label="加粗" title="加粗">${ic('bold')}</button>
+          <button aria-label="斜体" title="斜体">${ic('italic')}</button>
+          <button aria-label="无序列表" title="无序列表">${ic('ul')}</button>
+          <span class="sep"></span>
+          <button aria-label="插入链接" title="插入链接">${ic('link')}</button>
+        </div>
+        <div class="d-rich clamp" id="dDesc">
+          <p>承建厂房主体已封顶，但<strong>屋面防水供应商连续两次延迟交付</strong>，现场停工待料已 11 天。</p>
+          <ul><li>施工方发来催告函，要求我方 9 日内答复并承担窝工损失</li></ul>
+        </div>
+        <div class="d-rte-hint" id="dRteHint">${ic('slash')} 输入 / 唤出块菜单（BlockNote 自带）</div>
+      </div>
+      <button class="d-more-desc" id="dDescBtn" hidden>展开全文</button>
+    </div>
+    <div class="d-field">
+      <div class="d-field-t">处置措施</div>
+      <div class="d-rich">已要求供应商项目负责人书面说明；同步请工程部核减工期索赔口径。</div>
+    </div>
+
+    <!-- ③ 详细信息回送到描述下方：一行字段（含「已转案件」，hover 出详情）+ 一个默认收起的参考材料区。
+         为什么是一行而不是一张卡：页头每高 100px，768 视口下右栏评论就少看约 1 条。 -->
+    <div class="d-facts-row">
+      <div class="d-fact-1"><dt>风险类型</dt><dd><span class="tag">${M.type}</span></dd></div>
+      <div class="d-fact-1"><dt>等级</dt><dd>${levelTag(M.level)}</dd></div>
+      <div class="d-fact-1"><dt>发现日期</dt><dd>${M.found}</dd></div>
+      <div class="d-fact-1"><dt>敞口金额</dt><dd class="num">${M.amount.toLocaleString()} 元</dd></div>
+      <div class="d-fact-1"><dt>经办人</dt><dd>${M.owner?M.owner:'<span style="color:var(--overdue)">未指派</span>'}</dd></div>
+      <div class="d-fact-1"><dt>上报人</dt><dd>${M.createdBy}</dd></div>
+      <div class="d-fact-1 d-pop-wrap" tabindex="0">
+        <dt>已转案件</dt>
+        <dd class="d-pop-t">${conv.length} 件</dd>
+        <div class="d-pop" role="tooltip">
+          ${conv.length === 0
+            ? '<div class="lbl">还没有转过案件。</div>'
+            : conv.map(c=>`
+              <div class="row" style="gap:8px;flex-wrap:wrap">
+                <span class="num lbl">${c.code}</span><span class="st prog">${c.st}</span>
+              </div>
+              <div style="font-size:12.5px;margin-top:3px">${c.name}</div>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <details class="d-fold">
+      <summary>▸ 当事人 / 参与人 / 附件 / 登记信息</summary>
+      <div class="d-fold-body">
+        <div class="row" style="gap:10px;flex-wrap:wrap">
+          <span>鼎宏防水材料有限公司</span><span class="tag">被告</span>
+        </div>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
+          <span class="tag">赵凌·协办</span><span class="tag">李晨·关注</span><span class="tag">孙敏·关注</span>
+        </div>
+        <div style="margin-top:12px">
+          ${M.attachments.map(a=>`
+            <div class="between" style="padding:6px 0;border-bottom:1px dashed var(--line)">
+              <div style="font-size:13px">${ic('file')} ${a.n}</div>
+              <div class="lbl">${a.k} · ${a.s}</div>
+            </div>`).join('')}
+        </div>
+        <div class="d-facts" style="margin-top:12px">
+          <div class="d-fact"><dt>创建</dt><dd>${M.createdAt}</dd></div>
+          <div class="d-fact"><dt>更新</dt><dd>2026-10-04 09:00</dd></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+      <!-- ② 内容卡：页签（事项节点 / 活动日志）+ 面板。
+           1366 下本原型容器 1106 = 750 左列 + 16 + 340 右栏；真应用同宽度下是 1118。 -->
+      <div class="card d-content">
+        <div class="d-tabs" role="tablist" aria-label="事项内容">
+          <button class="d-tab on" role="tab" data-t="nodes" aria-selected="true" tabindex="0" id="tab-nodes" aria-controls="panel-nodes">事项节点 <span class="n">${nodes.length}</span></button>
+          <button class="d-tab" role="tab" data-t="log" aria-selected="false" tabindex="-1" id="tab-log" aria-controls="panel-log">活动日志 <span class="n">${DLOG.length}</span></button>
+        </div>
+
+        <!-- 面板① 事项节点 -->
+        <div class="d-panel" data-p="nodes" role="tabpanel" id="panel-nodes" aria-labelledby="tab-nodes">
+          <!-- 手动添加节点只出现在这个面板里（批注 4）：它是节点列表的动作，不是页头的动作 -->
+          ${archived?'':`<div class="d-nodes-act"><button class="btn sm" id="dAddNode">${ic('plus')} 手动添加节点</button></div>`}
+          ${nodes.length === 0
+            ? `<div class="empty"><p>还没有节点。</p>
+                 <p class="muted" style="font-size:12.5px">事项不预设流程节点：只有确有时限（如答复期）时才手动加一个时间点。</p>
+                 ${archived?'':'<button class="btn sm" id="dAddNode2">'+ic('plus')+' 加第一个节点</button>'}</div>`
+            : nodes.map(n=>`
+              <div class="d-node">
+                <div class="d-node-h">
+                  <b>${esc(n.n)}</b>
+                  <span class="tag ${n.tone==='prog'?'on':''}">${n.st}</span>
+                  ${n.confirmed?'':'<span class="tag">时间待定</span>'}
+                </div>
+                <div class="d-node-s">${ic('clock')} ${n.when?n.when:'未确认时间'}
+                  <span class="lbl"> · 负责人 ${n.who}</span></div>
+                ${archived?'':`<div class="d-node-a"><button>开始</button><button>完成</button><button>改待定</button></div>`}
+              </div>`).join('')}
+          ${/* 「事项不预设节点：…」这句原来也贴在这里（有节点时）。它是**解释功能**而不是
+                解释这条记录 —— 删除。它只该出现在空态里（上面 nodes.length === 0 那一支）。 */ ''}
+        </div>
+
+        <!-- 面板② 活动日志 -->
+        <div class="d-panel" data-p="log" role="tabpanel" id="panel-log" aria-labelledby="tab-log" hidden>
+          <div class="d-log">
+            ${[...DLOG].reverse().map(l=>`
+              <div class="d-log-i ${l.k?'key':''}">
+                <div class="d-log-t">${l.t}</div>
+                <div class="d-log-m">${l.m}</div>
+              </div>`).join('')}
+          </div>
+          <div class="lbl" style="margin-top:12px;font-size:12px">只显示最近 20 条，更早的走审计导出。</div>
+        </div>
+
+        <!-- 原「详细信息」页签整块搬到页头的描述下方（③）：字段行 + 默认收起的参考材料区。
+             页签因此只剩两个：动态内容（节点、日志）才配得上页签。 -->
+      </div>
+    </div>
+
+    <!-- 右栏：只剩评论（批注 1 把「已转案件」收进页头字段行 + hover 详情；
+         腾出的高度直接给评论：768 视口下多出 116px ≈ 1 条） -->
+    <aside class="d-rail">
+
+      <div class="card d-cmt">
+        <div class="d-cmt-h">
+          <b>评论</b>
+          <span class="lbl">${comments.length} 条</span>
+        </div>
+        <div class="d-cmt-list">
+          ${comments.length === 0
+            ? `<div class="empty" style="padding:26px 8px"><p>还没有评论。</p>
+                 <p class="muted" style="font-size:12.5px">处置沟通、外部回音都记在这里，它不会被折叠。</p></div>`
+            : [...comments].reverse().map(c=>`
+              <div class="cmt">
+                <div class="ava" style="background:${c.c}">${c.a[0]}</div>
+                <div class="cmt-b">
+                  <div class="cmt-h">
+                    <b>${c.a}</b><span class="t">${c.role}</span><span class="t">${c.t}</span>
+                    ${c.meta?`<span class="tag" style="font-size:11px">${c.meta}</span>`:''}
+                  </div>
+                  <div class="cmt-t">${c.x}</div>
+                </div>
+              </div>`).join('')}
+        </div>
+        ${archived
+          ? `<div class="d-readonly">要追加内容，需先由持「撤销归档」权限的人撤销归档。</div>`
+          : `<div class="d-cmt-box">
+               <textarea rows="3" placeholder="写一条评论…" aria-label="写一条评论"></textarea>
+               <div class="bar"><span>@ 可提及同事 · 发布后本人可编辑</span><button class="btn p sm">发布</button></div>
+             </div>`}
+      </div>
+    </aside>
+  </div>`;
+}
+/* ══════════════ 变体切换 ══════════════ */
+const V = {
+  A:{n:'左栏工作面 + 右栏档案（备选）',f:VariantA},
+  B:{n:'对照式 · 全景条 + 对话流（备选）',f:VariantB},
+  C:{n:'单栏流式 + 等高节点栏（现行实现 · IQ-17）',f:VariantC},
+  D:{n:'左内容 + 右评论栏（待裁定 · IQ-19 提案）',f:VariantD},
+};
+const keys = Object.keys(V);
+const qs = new URLSearchParams(location.search);
+let cur = qs.get('variant')?.toUpperCase();
+if (!V[cur]) cur = 'D';                    // 默认停在待裁定的 D
+let archived = qs.get('state') === 'archived';
+
+/* 侧栏图标：外壳是静态 HTML，图标一次注入（与真应用一样用 SVG，不用 emoji） */
+document.querySelectorAll('.nav-item[data-ic]').forEach(el => {
+  el.insertAdjacentHTML('afterbegin', ic(el.dataset.ic));
+});
+
+/* 让评论栏的底边（含输入框）永远落在折线以上 20px。
+   终检实测：写死 max-height:calc(100vh - 96px) 会忽略本栏自己的起始偏移（页头卡 ~200px），
+   768 视口下输入框落到首屏之外 198px。量的时候先把 sticky 摘掉，否则量到的是已经卡住的 76px。 */
+function fitRail(){
+  const rail = document.querySelector('.d-rail');
+  if (!rail) return;
+  const prev = rail.style.position;
+  rail.style.position = 'static';
+  const top = rail.getBoundingClientRect().top + window.scrollY;
+  rail.style.position = prev || '';
+  const h = Math.max(320, window.innerHeight - top - 20);
+  document.documentElement.style.setProperty('--rail-h', Math.round(h) + 'px');
+}
+
+/* 待裁定变体的交互（页签 / 收藏 / 关注人名单 / 描述展开）。
+   刻意只做「看得见的开关」：不写库、不发请求，点了只是本页内的状态。 */
+function wireD(){
+  const root = document.getElementById('root');
+
+  // 页签：补 aria-selected 与单点 Tab 停（终检：三个 tab 全可 Tab 聚焦、无 aria-selected）
+  const tabs = [...root.querySelectorAll('.d-tab')];
+  const select = (t) => {
+    tabs.forEach(x => {
+      const on = x === t;
+      x.classList.toggle('on', on);
+      x.setAttribute('aria-selected', String(on));
+      x.tabIndex = on ? 0 : -1;
+    });
+    root.querySelectorAll('.d-panel').forEach(p => { p.hidden = p.dataset.p !== t.dataset.t; });
+  };
+  tabs.forEach(t => {
+    t.onclick = () => select(t);
+    t.onkeydown = (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      e.stopPropagation();               // 别让"←/→ 切变体"的全局快捷键把它吃掉
+      const i = tabs.indexOf(t);
+      const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+      select(n);
+      n.focus();
+    };
+  });
+
+  // 描述：编辑态 = BlockNote 的形态（浮动格式条 + / 块菜单），不常驻工具条
+  const ed = document.getElementById('dEditDesc');
+  const rte = document.getElementById('dRte');
+  const rteFloat = document.getElementById('dRteFloat');
+  const rteHint = document.getElementById('dRteHint');
+  if (ed && rte) ed.onclick = (e) => {
+    e.stopPropagation();
+    const on = rte.classList.toggle('editing');
+    rteFloat?.classList.toggle('on', on);
+    rteHint?.classList.toggle('on', on);
+    ed.textContent = on ? '完成' : '编辑';
+    if (on) document.getElementById('dDesc')?.setAttribute('contenteditable', 'true');
+    else document.getElementById('dDesc')?.removeAttribute('contenteditable');
+  };
+
+  // 描述：只在真被裁时才给「展开全文」
+  const d = document.getElementById('dDesc');
+  const db = document.getElementById('dDescBtn');
+  if (d && db) {
+    // 判据不能用 scrollHeight：`-webkit-line-clamp` 下它给的是**被裁后**的高度
+    // （实测：内容 98px、被裁到 75px，scrollHeight 也读 75 → 按钮永远不出现）。
+    // 摘掉截断量一次真实高度再装回去，是同步且可靠的。
+    const isClamped = () => {
+      if (d.classList.contains('open')) return false;
+      d.classList.remove('clamp');
+      const full = d.getBoundingClientRect().height;
+      d.classList.add('clamp');
+      const shown = d.getBoundingClientRect().height;
+      return full > shown + 1;
+    };
+    const sync = () => { db.hidden = !(d.classList.contains('open') || isClamped()); };
+    sync();
+    requestAnimationFrame(sync);
+    // 字体换入会改变行高，重量一次（本页中文数字混排尤其明显）
+    document.fonts?.ready.then(sync);
+    new ResizeObserver(sync).observe(d);
+    db.onclick = (e) => {
+      e.stopPropagation();
+      d.classList.toggle('open');
+      db.textContent = d.classList.contains('open') ? '收起' : '展开全文';
+      sync();
+    };
+  }
+
+  // 关注：两个按钮一组。眼睛按钮 = 切换我关注；我那一行随之增删、n 同步
+  // （规格口径：关注人 = 参与者，附 L2 可见性与节点/评论写权；允许自我授权。
+  //   实现侧必须加"我已能看见这条"的前置校验，否则等于可枚举案号自取权限。）
+  const list = document.getElementById('dFolList');
+  const count = () => {
+    const n = document.querySelectorAll('#dFolList .d-fol-row').length;
+    document.getElementById('dFolN').textContent = `${n} 人关注`;
+    return n;
+  };
+  const eyeBtn = document.getElementById('dEyeBtn');
+  if (eyeBtn) eyeBtn.onclick = (e) => {
+    e.stopPropagation();
+    const mine = list?.querySelector('.d-fol-you')?.closest('.d-fol-row');
+    const on = !mine;
+    eyeBtn.classList.toggle('on', on);
+    eyeBtn.setAttribute('aria-pressed', String(on));
+    eyeBtn.innerText = '';
+    eyeBtn.insertAdjacentHTML('afterbegin', ic('eye', on));
+    eyeBtn.title = on ? '取消关注' : '关注';
+    eyeBtn.setAttribute('aria-label', eyeBtn.title);
+    if (list) {
+      if (mine) mine.remove();
+      else list.insertAdjacentHTML('afterbegin', folRow(DFOL.find((f) => f.me)));
+    }
+    count();
+  };
+
+  // 移出名单里某一行（hover 出的 X）；点「我」那行等价于取消关注
+  if (list) list.addEventListener('click', e => {
+    const x = e.target.closest('.d-x');
+    if (!x) return;
+    e.stopPropagation();                 // 行被移除后 target 已脱离 DOM，守卫会误判为点在外面
+    const row = x.closest('.d-fol-row');
+    const wasMe = !!row.querySelector('.d-fol-you');
+    row.remove();
+    if (wasMe && eyeBtn) {
+      eyeBtn.classList.remove('on');
+      eyeBtn.setAttribute('aria-pressed', 'false');
+      eyeBtn.innerHTML = ic('eye', false);
+      eyeBtn.title = '关注';
+      eyeBtn.setAttribute('aria-label', '关注');
+    }
+    count();
+  });
+}
+
+function render(){
+  document.getElementById('root').innerHTML = V[cur].f(archived);
+  document.getElementById('lb').innerHTML = `<b>${cur}</b> <i>${V[cur].n}</i>`;
+  const u = new URL(location.href);
+  u.searchParams.set('variant', cur);
+  if (archived) u.searchParams.set('state', 'archived'); else u.searchParams.delete('state');
+  history.replaceState(null, '', u);
+
+  const st = document.getElementById('stateBtn');
+  st.style.display = cur === 'D' ? '' : 'none';
+  st.textContent = archived ? '在办态' : '归档态';
+
+  if (cur === 'D') { wireD(); fitRail(); }
+}
+
+/* 下拉（「更多」与「关注人」共用一套）：原型只做开关，不接任何真实动作 */
+document.addEventListener('click', e => {
+  const wrap = e.target.closest('.more-wrap');
+  document.querySelectorAll('.more-menu.on').forEach(m => {
+    if (!wrap || m.parentElement !== wrap) {
+      m.classList.remove('on');
+      m.parentElement?.querySelector('[aria-expanded]')?.setAttribute('aria-expanded', 'false');
+    }
+  });
+  if (!wrap) return;
+  const trigger = e.target.closest('button');
+  // 点的是触发器本身才开合；点菜单内部保持打开（否则刚展开就关）
+  if (trigger && trigger.parentElement === wrap) {
+    const menu = wrap.querySelector('.more-menu');
+    const on = menu?.classList.toggle('on');
+    trigger.setAttribute('aria-expanded', String(!!on));
+  }
+});
+document.getElementById('stateBtn').onclick = () => { archived = !archived; render(); };
+addEventListener('resize', () => { if (cur === 'D') fitRail(); });
+function go(d){
+  const i = keys.indexOf(cur);
+  cur = keys[(i + d + keys.length) % keys.length];
+  render();
+}
+document.getElementById('prev').onclick = () => go(-1);
+document.getElementById('next').onclick = () => go(1);
+addEventListener('keydown', e => {
+  // 输入态不劫持方向键
+  const t = e.target, tag = t.tagName;
+  if (tag==='INPUT'||tag==='TEXTAREA'||t.isContentEditable) return;
+  if (e.key==='ArrowLeft')  { e.preventDefault(); go(-1); }
+  if (e.key==='ArrowRight') { e.preventDefault(); go(1); }
+});
+render();
+</script>
+</body>
+</html>

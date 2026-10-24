@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · 工作台「指标带 + 待办节点」布局（B 已选）</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════
+  PROTOTYPE v2 — 一次性产物，不进主干。
+  回答的问题是：**工作台改成"通用数据指标 + 待办节点"之后长什么样，卡与卡怎么对齐**。
+
+  【已裁定的方向】（2026-10-16 逐条对过）
+   · 布局 = **B**：全整宽三段（指标带 → 待办节点 → 最近动作）；A / C 降级为对照
+   · 指标带 **5 张**：在办案件 / 逾期节点 / 7 日内到期 / 事项 / 本月新增案件
+     · 「在办案件」不带状态构成条 —— 状态机不属于总量指标（真页里那段已删，理由见文末）
+   · 卡名用 **待办节点**（不用"重要事项"：GLOSSARY 里 `事项` 另有确切所指）
+   · 页标题「今天该动手的」保留 16px
+   · 最近动作整宽排两列、10 条全排（不截断、卡内不滚动）
+
+  【对齐口径】卡与卡怎么算"对齐"，两层：
+   · 第一行：指标卡同宽同高，**数字基线对齐**（卡内 space-between：标签在上、数字贴底）
+   · 第二行以下的每张卡：底边收在同一条线上（栅格 align-items:stretch，不是各自撑高）
+
+  【变体（右下浮条）】
+   B 指标带 + 待办节点整宽 + 最近动作整宽（动作排两列）  ← **已选**
+   A 指标带 + [待办节点 2/3 | 最近动作 1/3] 等高拉伸      ← 备选：左卡底部会留约 30px 空白
+   C 现状（读数卡 2×2 + 最近动作 10 条，两栏 15/9）        ← 对照，不是提案
+
+  【开关】栏宽（16+8 / 18+6，只对 A 有意义）· 标题 16/20 · 末行线 有/无 · 期限列 右对齐/跟随
+  【状态（左下浮条）】正常 / 加载中（指标带五张 + 两张内容卡都是骨架）/ 空态① 节点干完 / 空态② 新库
+    · 空态分两种，都是真会遇到的：① 活还在（在办案件 5、事项 14）而待办节点已清空；
+      ② 什么都还没有。**指标带跟着状态走** —— 否则会出现"逾期节点 5"和"没有待办节点"同屏，
+      而真页产生不出这个组合（`upcoming` 空 ⇒ 逾期必为 0；有 5 个逾期，待办节点就不可能为空）。
+
+  ⚠ 文案纪律（.trellis/spec/frontend/component-guidelines.md「副标题纪律」）：
+    本文件不在 src/ 下，lint-guard 的源码断言扫不到它 —— 只剩立场能拦：
+    · 指标卡只有「标签 + 数字」（+ 事项卡的"已转 2"，它是同一个数的另一半，不是说明）
+    · 没有一句"打开第一眼要回答的五个问题"式的旁白；口径类的话（归档不计入）留 tooltip
+    · 空态说清下一步（落点①），照抄实现里的真文案
+
+  数据：照本机 dev 实例实测抄的真值（2026-10-16）—— 在办案件 5（pending 1 · in_progress 3 · closed 1）·
+  逾期节点 5 · 7 日内到期 0 · 事项 14（已转 2）· **本月新增案件 0**（5 条案件全部建在 2026-09，不是占位符）·
+  最近动作 10 条（前 8 条真值，第 9、10 条按同形补）。色板抄自 src/app/theme/brand.ts。
+  「本月新增」的口径 = 上海业务月：`created_at at time zone 'Asia/Shanghai' >= date_trunc('month', now() at time zone 'Asia/Shanghai')`
+  —— 与 numbering.ts 的日界同款（服务器 TimeZone 是 UTC，直接比会差 8 小时）。**真页实现时服务层要补这个 count。**
+
+  【已砍掉的一处】"在办案件"那张卡原先带一条状态构成条（1 已登记 / 3 进行中 / 1 已结案）：
+  那段遍历 `meta.statuses`（字典里的全部状态，**含已归档**）去对 `overview.byStatus`，而 byStatus 是在
+  `NOT is_archived` 上分组的 ⇒「已归档」那一行**结构上永远 0**，且百分比分母"在办案件"本就不含归档。
+  这不是审美问题，是口径 bug —— 已从真页删掉。状态分布属于"案件列表 / 报表"，不属于这五张指标卡。
+  ══════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --brand:#2f5fe0; --brand-hover:#4473f0;
+    --success:#1a9c6b; --overdue:#c2363b; --soon:#9a5a00;
+    --sider-bg:#1d2433; --sider-item:#c3ccdd;
+    --paper:#f7f8fa;
+    --ink:#1d2433; --ink-2:#4f5a6f; --ink-3:#616a79; --ink-4:#a4abb8;
+    --line:#eceef3; --line-2:#dfe3ec; --rail:#c8ccd4;
+    --r:8px; --shadow:0 1px 2px rgba(29,36,51,.06),0 1px 3px rgba(29,36,51,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer}
+
+  /* ── 外壳（照抄 AppShell） ─────────────────────────────── */
+  .shell{display:flex;min-height:100vh}
+  .sider{width:232px;flex:none;background:var(--sider-bg);color:var(--sider-item);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .sider-brand{padding:16px 20px 14px}
+  .sider-brand b{display:block;color:#fff;font-size:15px}
+  .nav{padding:6px 10px;flex:1}
+  .nav-group{font-size:11px;color:#6f7a90;padding:12px 10px 5px;letter-spacing:.5px}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+    color:var(--sider-item);font-size:13.5px;margin:1px 0}
+  .nav-item.on{background:var(--brand);color:#fff;font-weight:500}
+  .sider-foot{padding:12px 14px;border-top:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:9px}
+  .sider-foot b{display:block;color:#fff;font-size:13px}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;padding:0 24px;position:sticky;top:0;z-index:20}
+  .topbar h1{font-size:15px;margin:0;font-weight:500}
+  .content{padding:16px 24px 24px;flex:1}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);min-width:0}
+  .card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:11px 16px;border-bottom:1px solid var(--line);flex:none}
+  .card-h b{font-size:14px;font-weight:600;margin:0}
+  .card-h .x{font-size:12px;color:var(--ink-3)}
+  .card-h .cnt{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  body[data-lastline="off"] .r:last-child,
+  body[data-lastline="off"] .act:last-child{border-bottom:0}
+
+  /* ── 页头 ─────────────────────────────────────────────── */
+  .pagehead{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:8px 0 14px}
+  .pagehead h1{margin:0;font-weight:600;letter-spacing:-.01em}
+  body[data-title="16"] .pagehead h1{font-size:16px}
+  body[data-title="20"] .pagehead h1{font-size:20px}
+  .btn{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:5px 14px;
+    color:var(--ink-2);font-size:13px;display:inline-flex;align-items:center;gap:6px}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+  .btn.p:hover{background:var(--brand-hover);color:#fff}
+  .btn.sm{padding:3px 10px;font-size:12px}
+
+  /* ── ① 指标带：五张等宽等高、**同形**（标签 + 数字），数字贴底 ⇒ 五张卡基线对齐 ──
+     刻意不放"构成/状态分布"：把 已登记/进行中/已结案 塞进"在办案件"这一张，
+     等于在一个总量指标里混进状态机的三个数 —— 五张卡里只有它形状不同，口径也不清楚了。 */
+  .metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
+  .kpi{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+    padding:12px 16px 14px;display:flex;flex-direction:column;justify-content:space-between;
+    gap:10px;min-height:88px}
+  .kpi .k{font-size:12.5px;color:var(--ink-2);display:flex;align-items:center;gap:4px}
+  .kpi .k .i{width:13px;height:13px;border-radius:50%;border:1px solid var(--rail);color:var(--ink-3);
+    font-size:9px;line-height:11px;text-align:center;cursor:help;flex:none}
+  .kpi .v{font-size:26px;font-weight:600;line-height:1.05;font-variant-numeric:tabular-nums;
+    display:flex;align-items:baseline;gap:6px;margin-top:auto}
+  .kpi .v.bad{color:var(--overdue)}
+  .kpi .v small{font-size:11.5px;font-weight:400;color:var(--ink-3)}
+
+  /* ── ② 内容两栏：等高拉伸 ⇒ 底边收在一条线上 ─────────── */
+  .wb{display:grid;gap:16px;align-items:stretch}
+  body[data-variant="A"] .wb{grid-template-columns:calc((100% - 16px)*16/24) calc((100% - 16px)*8/24)}
+  body[data-variant="A"][data-cols="18-6"] .wb{grid-template-columns:calc((100% - 16px)*18/24) calc((100% - 16px)*6/24)}
+  body[data-variant="B"] .wb{grid-template-columns:minmax(0,1fr)}
+  body[data-variant="C"] .wb{grid-template-columns:calc((100% - 16px)*15/24) calc((100% - 16px)*9/24);
+    align-items:start}
+  .col{display:flex;flex-direction:column;gap:16px;min-width:0}
+  body[data-variant="A"] .col>.card{flex:1;display:flex;flex-direction:column}
+  body[data-variant="A"] .grow{flex:1;min-height:0;overflow:auto}
+
+  /* ── 待办节点：整宽时排成四列（节点名 | 案件号 | 案件名 | 期限），对齐由栅格保证 ── */
+  .r{display:grid;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid var(--line)}
+  body[data-variant="B"] .r{grid-template-columns:3px 208px 132px minmax(0,1fr) 92px}
+  body:not([data-variant="B"]) .r{grid-template-columns:3px minmax(0,1fr) 92px}
+  .band{width:3px;height:22px;border-radius:2px;background:transparent}
+  .band.bad{background:var(--overdue)}
+  .band.soon{background:var(--soon)}
+  .r .nm{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .r .nm a{color:inherit;text-decoration:none}
+  .r .nm a:hover{color:var(--brand)}
+  .r .code{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .r .host{font-size:12px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .r .stack{min-width:0}
+  .r .stack .meta{font-size:12px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .r .stack .title{font-size:13px;font-weight:600;line-height:20px}
+  .due{text-align:right;font-size:12.5px;font-weight:600;color:var(--overdue);white-space:nowrap}
+  .due.soon{color:var(--soon)}
+  .due.later{color:var(--ink-3);font-weight:400}
+  body[data-due="inline"] .r .due{display:none}
+  body[data-due="inline"] .r .stack .meta::after{content:""}
+
+  /* ── 最近动作 ─────────────────────────────────────────── */
+  .act{display:flex;flex-direction:column;gap:3px;padding:8px 16px;border-bottom:1px solid var(--line)}
+  .act .l1{display:flex;align-items:center;gap:6px;min-width:0}
+  .tag{display:inline-flex;align-items:center;justify-content:center;gap:4px;font-size:11px;
+    padding:1px 7px;border-radius:4px;background:#f2f4f8;color:var(--ink-2);
+    white-space:nowrap;min-width:60px;flex:none}
+  .act .code{font-size:12px;color:var(--brand);text-decoration:none;font-variant-numeric:tabular-nums;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .act .code:hover{text-decoration:underline}
+  .act .l2{font-size:11px;color:var(--ink-3)}
+  /* 变体 B：动作排两列，10 条塞进 5 行 */
+  body[data-variant="B"] .acts2{display:grid;grid-template-columns:1fr 1fr}
+  body[data-variant="B"] .acts2 .act{border-right:1px solid var(--line)}
+  body[data-variant="B"] .acts2 .act:nth-child(2n){border-right:0}
+
+  /* ── 骨架 / 空态 ──────────────────────────────────────── */
+  .sk{height:14px;border-radius:4px;margin:12px 16px;
+    background:linear-gradient(90deg,#f2f4f8 25%,#e9edf4 37%,#f2f4f8 63%);background-size:400% 100%;
+    animation:sk 1.4s ease infinite}
+  .sk.w60{width:60%}
+  @keyframes sk{0%{background-position:100% 50%}100%{background-position:0 50%}}
+  .empty{padding:26px 24px;text-align:center}
+  .empty b{display:block;font-size:14px;margin-bottom:6px}
+  .empty p{margin:0 0 14px;font-size:12.5px;color:var(--ink-3)}
+  .empty code{font-size:12px;background:#f2f4f8;padding:1px 5px;border-radius:4px}
+
+  /* ── 控制条 ───────────────────────────────────────────── */
+  .playbar,.switcher{position:fixed;bottom:18px;z-index:60;background:#fff;border:1px solid var(--line-2);
+    border-radius:10px;box-shadow:0 6px 24px rgba(29,36,51,.12);padding:9px 12px;
+    display:flex;align-items:center;gap:8px;font-size:12.5px;flex-wrap:wrap;max-width:min(760px,74vw)}
+  .playbar{left:18px}
+  .switcher{right:18px}
+  .playbar>span,.switcher>span{font-size:11.5px;color:var(--ink-3)}
+  .playbar button,.switcher button{border:1px solid var(--rail);background:#fff;border-radius:6px;
+    padding:4px 10px;font-size:12.5px;color:var(--ink-2)}
+  .playbar button.on,.switcher button.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+  .switcher .sep{width:1px;height:18px;background:var(--line-2);margin:0 2px}
+  .switcher .lb{font-size:11.5px;color:var(--ink-3)}
+</style>
+</head>
+<body data-variant="B" data-cols="16-8" data-title="16" data-due="right" data-lastline="on">
+<div class="shell">
+  <aside class="sider">
+    <div class="sider-brand"><b>MatterNest</b></div>
+    <nav class="nav">
+      <div class="nav-group">概要</div>
+      <div class="nav-item on">工作台</div>
+      <div class="nav-item">通知</div>
+      <div class="nav-group">业务</div>
+      <div class="nav-item">案件</div>
+      <div class="nav-item">事项</div>
+      <div class="nav-item">当事人</div>
+      <div class="nav-item">已归档</div>
+      <div class="nav-group">系统</div>
+      <div class="nav-item">配置字典</div>
+      <div class="nav-item">用户与角色</div>
+    </nav>
+    <div class="sider-foot">
+      <div class="avatar">管</div>
+      <div><b>系统管理员</b><span>去登录</span></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar"><h1>工作台</h1></header>
+    <main class="content" id="content"></main>
+  </div>
+</div>
+
+<div class="playbar" id="playbar">
+  <span>状态</span>
+  <button data-state="ok" class="on">正常（5 逾期）</button>
+  <button data-state="loading">加载中</button>
+  <button data-state="empty">空态① 节点干完</button>
+  <button data-state="fresh">空态② 新库</button>
+</div>
+
+<div class="switcher" id="switcher">
+  <span>变体</span>
+  <button data-variant="B">B 全整宽三段 · 已选</button>
+  <button data-variant="A">A 指标带 + 两栏等高</button>
+  <button data-variant="C">C 现状（对照）</button>
+  <span class="sep"></span>
+  <span class="lb">栏宽</span>
+  <button data-cols="16-8" class="on">16+8</button>
+  <button data-cols="18-6">18+6</button>
+  <span class="sep"></span>
+  <span class="lb">标题</span>
+  <button data-title="16" class="on">16</button>
+  <button data-title="20">20</button>
+  <span class="sep"></span>
+  <span class="lb">末行线</span>
+  <button data-lastline="on" class="on">有</button>
+  <button data-lastline="off">无</button>
+</div>
+
+<script>
+/* ── 数据：照本机 dev 实例抄的真值 ───────────────────────── */
+const NODES = [
+  { t:"仲裁开庭", code:"AJ-20260925-004", matter:"云脉数据科技与被申请人借款合同纠纷", at:"2026年9月28日 19:24", due:"逾期 18 天", tone:"bad" },
+  { t:"开庭",     code:"AJ-20260921-001", matter:"恒基建设诉鼎泰房地产建设工程施工合同纠纷", at:"2026年9月29日 19:24", due:"逾期 17 天", tone:"bad" },
+  { t:"二审开庭", code:"AJ-20260921-002", matter:"鼎泰房地产上诉建设工程施工合同纠纷二审", at:"2026年10月6日 19:24",  due:"逾期 10 天", tone:"bad" },
+  { t:"举证",     code:"AJ-20260921-001", matter:"恒基建设诉鼎泰房地产建设工程施工合同纠纷", at:"2026年10月10日 19:24", due:"逾期 6 天",  tone:"bad" },
+  { t:"举证",     code:"AJ-20260923-003", matter:"周敏诉南京云脉数据科技劳动争议", at:"2026年10月15日 19:24", due:"逾期 1 天",  tone:"bad" },
+];
+/* 指标卡：全部取自 overview 现在就给得出的数（matters.total / nodes.overdue / nodes.within7 / risks.total + converted）。
+   第五张「本月新增案件」要服务层补一个 count（真页实现时加，口径见文件头注释）。
+   注意：**不带状态分布** —— 已登记/进行中/已结案 是案件状态机里的三个数，不属于"在办案件"这个总量指标。 */
+const METRICS = [
+  { k:"在办案件", v:5, tip:"口径与列表一致：已归档不计入" },
+  { k:"逾期节点", v:5, bad:true },
+  { k:"7 日内到期", v:0 },
+  { k:"事项", v:14, sub:"已转 2" },
+  { k:"本月新增案件", v:0, tip:"按上海业务月算；同样已归档不计入" },
+];
+
+/* 指标带随状态走（空态那两种见文件头）：fresh = 品牌新库，全部归 0；
+   empty = 节点干完了，只有"逾期 / 7 日内到期"归 0 —— 这两个数的口径就是"还没完成的节点"。 */
+function metricsOf(state) {
+  if (state === "fresh") return METRICS.map((m) => ({ k: m.k, v: 0, tip: m.tip }));
+  if (state === "empty")
+    return METRICS.map((m) =>
+      m.k === "逾期节点" || m.k === "7 日内到期" ? { ...m, v: 0, bad: false } : m);
+  return METRICS;
+}
+const ACTS = [
+  ["新建进展","AJ-20260925-004","4 天前"],["新建事项","FX-20261012-102","4 天前"],
+  ["发表评论","AJ-20260921-001","8 天前"],["新建事项","FX-20260922-001","9 天前"],
+  ["修改节点","AJ-20260921-001","9 天前"],["状态变更","AJ-20260921-001","10 天前"],
+  ["新建案件","AJ-20260921-001","10 天前"],["转为案件","AJ-20260921-002","10 天前"],
+  ["归档","AJ-20260910-006","11 天前"],["状态变更","AJ-20260922-001","11 天前"],
+];
+const CAP_A = 6;   // 变体 A：动作排到与左卡齐平
+const CAP_C = 10;  // 变体 C：现状全排
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+let variant = "B", state = "ok";
+const q = new URLSearchParams(location.search);
+(() => { const v = (q.get("variant") || "").toUpperCase(); if (v && "ABC".includes(v)) variant = v; })();
+if (["ok","loading","empty","fresh"].includes(q.get("state"))) state = q.get("state");
+
+const Skel = (n, lastHalf) =>
+  Array.from({length:n}, (_,i) => `<div class="sk${lastHalf && i===n-1 ? " w60" : ""}"></div>`).join("");
+
+const kpiBand = () => {
+  if (state === "loading") {
+    return `<div class="metrics">${Array.from({length:5}, () => `
+      <div class="kpi"><div class="sk" style="margin:0;width:52%"></div>
+        <div class="sk" style="margin:0;width:38%;height:22px"></div></div>`).join("")}</div>`;
+  }
+  return `<div class="metrics">${metricsOf(state).map((m) => `
+    <div class="kpi">
+      <div class="k">${m.k}${m.tip ? `<span class="i" title="${esc(m.tip)}">i</span>` : ""}</div>
+      <div class="v${m.bad ? " bad" : ""}">${m.v}${m.sub ? `<small>${m.sub}</small>` : ""}</div>
+    </div>`).join("")}</div>`;
+};
+
+const nodeRow = (n) => variant === "B"
+  ? `<div class="r">
+       <i class="band ${n.tone}"></i>
+       <div class="nm"><a href="#">${esc(n.t)}</a></div>
+       <div class="code">${esc(n.code)}</div>
+       <div class="host">${esc(n.matter)}</div>
+       <div class="due ${n.tone}">${n.due}</div>
+     </div>`
+  : `<div class="r">
+       <i class="band ${n.tone}"></i>
+       <div class="stack">
+         <div class="title"><a href="#">${esc(n.t)}</a></div>
+         <div class="meta">${document.body.dataset.due === "inline"
+           ? `${esc(n.code)} · ${esc(n.matter)}` : `${esc(n.code)} · ${esc(n.matter)} · ${esc(n.at)}`}</div>
+       </div>
+       <div class="due ${n.tone}">${document.body.dataset.due === "inline" ? "" : n.due}</div>
+     </div>`;
+
+function mattersCard() {
+  const body = state === "loading" ? Skel(4, true)
+    : state === "empty" ? `<div class="empty"><b>没有待办节点</b>
+        <p>所有已确认时间的节点都完成了。新建节点在案件详情页的「工作节点」里。</p>
+        <button class="btn p sm">去案件列表</button></div>`
+    : state === "fresh" ? `<div class="empty"><b>还没有案件</b>
+        <p>先建第一个案件，再在案件详情页的「工作节点」里加节点。</p>
+        <button class="btn p sm">去案件列表</button></div>`
+    : NODES.map(nodeRow).join("");
+  // 卡名 = 待办节点；变体 C 是对照，仍用现状那个名字（节点到期）
+  const title = variant === "C" ? "节点到期" : "待办节点";
+  return `<section class="card">
+    <div class="card-h"><b>${title}</b>
+      <span class="x">含已逾期，按期限升序</span></div>
+    ${body}
+  </section>`;
+}
+
+function actsCard() {
+  if (state === "loading") return `<section class="card"><div class="card-h"><b>最近动作</b></div>${Skel(4, true)}</section>`;
+  if (state === "fresh") return `<section class="card"><div class="card-h"><b>最近动作</b></div>
+    <div class="empty"><b>还没有活动记录</b><p>建案、改状态、加评论都会记在这里。</p></div></section>`;
+  const cap = variant === "A" ? CAP_A : CAP_C; // B 整宽排两列，10 条只占 5 行
+  const shown = ACTS.slice(0, cap);
+  const chip = cap < ACTS.length ? `${shown.length} / ${ACTS.length}` : `${shown.length}`;
+  const rows = shown.map((a) => `<div class="act">
+      <div class="l1"><span class="tag">${esc(a[0])}</span><a class="code" href="#">${esc(a[1])}</a></div>
+      <div class="l2">系统管理员 · ${esc(a[2])}</div></div>`).join("");
+  const body = variant === "A" ? `<div class="grow">${rows}</div>`
+    : variant === "B" ? `<div class="acts2">${rows}</div>` : rows;
+  return `<section class="card">
+    <div class="card-h"><b>最近动作</b><span class="cnt">${chip}</span></div>${body}</section>`;
+}
+
+function render() {
+  document.body.dataset.variant = variant;
+  const col2 = variant === "C"
+    ? `${readoutCardC()}${actsCard()}`
+    : actsCard();
+  document.getElementById("content").innerHTML = `
+    <div class="pagehead"><h1>今天该动手的</h1><button class="btn">↻ 刷新</button></div>
+    ${variant === "C" ? "" : kpiBand()}
+    <div class="wb">${mattersCard()}<div class="col">${col2}</div></div>`;
+}
+
+/* 变体 C 的"范围读数"卡：搬现状那一张（2×2 读数、**无状态条**），只为对照 */
+function readoutCardC() {
+  if (state === "loading") return `<section class="card"><div class="card-h"><b>范围读数</b></div>${Skel(4, true)}</section>`;
+  return `<section class="card">
+    <div class="card-h"><b>范围读数</b></div>
+    <div style="padding:14px 16px 16px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 8px">
+        ${metricsOf(state).slice(0, 4).map((m) => `<div><div style="font-size:14px;color:var(--ink-2)">${m.k}</div>
+          <div style="font-size:20px;font-weight:600${m.bad ? ";color:var(--overdue)" : ""}">${m.v}${
+            m.sub ? `<small style="font-size:11.5px;font-weight:400;color:var(--ink-3);margin-left:4px">${m.sub}</small>` : ""}</div></div>`).join("")}
+      </div>
+    </div>
+  </section>`;
+}
+
+function sync() {
+  for (const b of document.querySelectorAll("#switcher button")) {
+    const k = Object.keys(b.dataset)[0];
+    b.classList.toggle("on", b.dataset[k] === document.body.dataset[k]);
+  }
+  for (const b of document.querySelectorAll("#playbar button")) b.classList.toggle("on", b.dataset.state === state);
+}
+
+document.getElementById("switcher").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const k = Object.keys(b.dataset)[0];
+  if (k === "variant") variant = b.dataset.variant;
+  else document.body.dataset[k] = b.dataset[k];
+  const p = new URLSearchParams(location.search);
+  if (k === "variant") p.set("variant", variant);
+  history.replaceState(null, "", "?" + p.toString());
+  render(); sync();
+});
+document.getElementById("playbar").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-state]"); if (!b) return;
+  state = b.dataset.state;
+  history.replaceState(null, "", "?variant=" + variant + "&state=" + state);
+  render(); sync();
+});
+
+render(); sync();
+</script>
+</body>
+</html>
