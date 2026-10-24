@@ -7,6 +7,35 @@
 
 ---
 
+## [未发布] — 2026-10-24 · 报表两卡删除：一期不做报表（ADR-0008）
+
+原 P0-2「一期只做 2 张、形态为列表页顶部统计卡」被推翻。两卡上线一天后判定不符合预期：
+它们占着列表首屏最大的一块位置，却不回答列表页要回答的问题。
+
+### Removed
+
+- `components/report-cards.tsx`、`lib/client/api-reports.ts`、`services/reports.ts`（含
+  `listFilterOf` / `nodeScan`）与 `api/reports/route.ts` 整体删除
+- `use-list-state.ts` 的 `toReportQuery`；`shared/schema/list-query.ts` 的
+  `REPORT_FILTER_KEYS` / `REPORT_OMITTED_KEYS`（筛选分类表随报表一起作废）
+- 工作台「案件报表 / 事项报表」两个锚点入口（它们指向的 `#reports` 已不存在）
+- `agent-work/smoke-reports.mjs`、`verify-report-filters.mjs`、`revred-reports.mjs`
+
+### Changed
+
+- 列表页回到「指标带 → 筛选区 → 表格」，与全站其余列表页同一顺序
+- 四处注释里指向 `/api/reports` 或 `reports.ts` 的说法同步订正
+
+### Docs
+
+- 新增 `docs/adr/0008-drop-report-cards.md`：为什么推翻，以及**不要把实现从历史里捡回来**
+- PRD §4.1 M8 / §4.2 M8（F8-1、F8-2）/ §4.3 P4、P7 / §4.7 / P0-2 两处 / 页面结构互查
+  同步改判；设计修订 §9 #22 同步改判
+
+---
+
+---
+
 ## [未发布] — 2026-10-24 · 宿主状态迁移收成一处：判定顺序、三档动作、端点都只写一次
 
 案件与事项各有一份 `changeStatus` / `changeRiskStatus`，骨架相同、差异四处（冻结 / 经办人可空 /

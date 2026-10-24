@@ -210,24 +210,3 @@ export function toExportQuery(s: ListState): string {
   if (s.reportBucket) p.set("reportBucket", s.reportBucket);
   return p.toString();
 }
-
-/* ─────────────────── 列表筛选 → 报表卡（F8-1「随筛选联动」） ─────────────────── */
-
-/**
- * 报表请求串：只带 `REPORT_FILTER_KEYS` 那三个筛选，其余一律不发。
- *
- * 分类表（哪几个进、为什么其余的不进）住在 `shared/schema/list-query.ts`——客户端与服务端
- * schema 引的是同一份，所以"客户端多发一个"与"服务端少收一个"各有一条结构性断言盯着
- * （`use-list-state.spec.ts` / `services/reports.spec.ts`）。
- *
- * 为什么不是复用 `toQuery` 再删几个键：`/api/reports` 的 schema 是 `.strict()` 的，
- * 多发一个就 400 —— "报表不接受什么"这条口径由服务端守着，这里只负责别发。
- */
-export function toReportQuery(s: ListState): string {
-  const p = new URLSearchParams();
-  if (s.status) p.set("status", s.status);
-  // 两个开关在 URL 上的写法与列表一致（`1` 表示开，不出现表示不限），见 `archivedOnlyField`
-  if (s.ownerEmpty) p.set("ownerEmpty", "1");
-  if (s.archivedOnly) p.set("archivedOnly", "1");
-  return p.toString();
-}

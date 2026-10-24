@@ -1,7 +1,6 @@
 ﻿import { describe, expect, it } from "vitest";
 
-import { REPORT_FILTER_KEYS, REPORT_OMITTED_KEYS } from "@/shared/schema/list-query";
-import { toExportQuery, toQuery, toReportQuery, type ListState } from "./use-list-state";
+import { toExportQuery, toQuery, type ListState } from "./use-list-state";
 
 /**
  * `toQuery` 的守卫（MATT-42 期间补）。
@@ -123,58 +122,6 @@ describe("toQuery：筛选开关不许被静默丢掉", () => {
     expect(off.has("ownerEmpty")).toBe(false);
     const on = new URLSearchParams(toQuery({ ...ALL_ON, ownerEmpty: "1" }));
     expect(on.get("ownerEmpty")).toBe("1");
-  });
-});
-
-/* ───────────────────── 报表卡吃哪几个筛选（F8-1 随筛选联动） ───────────────────── */
-
-/**
- * `REPORT_FILTER_KEYS` / `REPORT_OMITTED_KEYS` 必须**恰好划分** `ListState` 的筛选类键。
- *
- * 两条编译期约束，而不是运行时断言：新增一个筛选键（比如哪天加个"只看我关注"）却忘了
- * 分类，`_partition` 那一行直接编译红。运行时断言做不到这件事——它只能检查"我想到的键"
- * （`ownerEmpty` 漏进 `toQuery` 时 12 条运行时断言全绿，正是这个原因，见文件头注）。
- */
-type ReportKey = (typeof REPORT_FILTER_KEYS)[number];
-type OmittedKey = (typeof REPORT_OMITTED_KEYS)[number];
-/** 既没进报表、也没被明确排除的键 ⇒ 分类漏了一个 */
-type Unclassified = Exclude<FilterKeyOf<ListState>, ReportKey | OmittedKey>;
-const _partition: Unclassified extends never ? true : never = true;
-/** 同一个键不能既进又出（`Extract` 非 never 就是两边都写了） */
-type Overlap = Extract<ReportKey, OmittedKey>;
-const _noOverlap: Overlap extends never ? true : never = true;
-void _partition;
-void _noOverlap;
-
-describe("toReportQuery：报表只吃那三个筛选", () => {
-  it("筛选开启时逐个出现（键名与列表逐字相同）", () => {
-    const q = new URLSearchParams(toReportQuery(ALL_ON));
-    for (const key of REPORT_FILTER_KEYS) {
-      expect(q.get(key), `${key} 没进报表请求串`).toBeTruthy();
-    }
-  });
-
-  it("全部关闭时一个都不发（不发空参数）", () => {
-    const off: ListState = {
-      ...ALL_ON,
-      status: "",
-      archivedOnly: false,
-      ownerEmpty: undefined,
-    };
-    expect(toReportQuery(off)).toBe("");
-  });
-
-  it.each(REPORT_OMITTED_KEYS)(
-    "`%s` 一律不进报表请求串（关键词/分页/排序不是筛选，理由见 shared 的分类表）",
-    (key) => {
-      // ALL_ON 里这些键全都是"开着"的值，所以这条断言真的在拦东西
-      expect(new URLSearchParams(toReportQuery(ALL_ON)).has(key)).toBe(false);
-    },
-  );
-
-  it("请求串的键集合 == 开着的那些 REPORT_FILTER_KEYS（不许多、不许少）", () => {
-    const keys = [...new URLSearchParams(toReportQuery(ALL_ON)).keys()].sort();
-    expect(keys).toEqual([...REPORT_FILTER_KEYS].sort());
   });
 });
 

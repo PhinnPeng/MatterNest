@@ -236,20 +236,12 @@ export function Workbench() {
 
       {/* ② 近期活动：有最近进展的案件/事项，按 last_progress_at 倒序（2026-10-24 用户裁定）。
           原「待办节点」把"今天会过期什么"摊成 10 行；现在期限仍在指标带里给数，
-          这一块回答"最近在推进什么"。报表入口也放这里：两页的报表卡在列表页顶部，
-          用 `#reports` 锚点落过去。 */}
+          这一块回答"最近在推进什么"。
+          （2026-10-24 二次裁定：报表两卡整体删除，这里原有的「案件报表 / 事项报表」两个
+           锚点入口随卡片一并撤掉 —— 见 ADR-0008。） */}
       <div className="card">
         <div className="card-h">
           <h2>近期活动</h2>
-          <span className="sp" />
-          <span style={{ display: "flex", gap: 8, marginLeft: 12 }}>
-            <Link href="/matters#reports" className="btn sm" title="打开全量报表">
-              案件报表
-            </Link>
-            <Link href="/risk-matters#reports" className="btn sm" title="打开全量报表">
-              事项报表
-            </Link>
-          </span>
         </div>
         <div style={{ padding: progress.length ? 0 : 24 }}>
           {isPending ? <div className="empty">…</div> : null}

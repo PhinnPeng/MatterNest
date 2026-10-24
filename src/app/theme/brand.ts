@@ -250,7 +250,7 @@ export const INK = {
  * canon 里没有第二个深色壳（导航改由 `nav-*` 令牌承担），所以它现在指向导航令牌。
  *
  * ⚠ `overdue` / `soon` / `success` 同时也是 `DEADLINE_TONE` 的来源，而那一组会流进
- * `DeadlineMark`、`ReportCards`、工作台的指标带 —— 一处改成令牌引用，三处一起随外观走。
+ * `DeadlineMark`、工作台的指标带 —— 一处改成令牌引用，两处一起随外观走。
  * 语义色**不给整块底色**（词保持中性可读）这条不变：变的只是取哪一台的值。
  */
 export const BRAND = {

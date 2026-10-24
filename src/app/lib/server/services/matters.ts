@@ -141,7 +141,7 @@ function mattersListWhere(
  * 本筛选答"这条案卷有没有一个未决节点落在这一档"。差别在有两个以上节点时显形——
  * 一个逾期、一个更远，两列的读数会给出不同结论，而它们回答的确实是两个问题。
  *
- * 未决节点的判据与报表的 `nodeScan` 同一套（`NOT is_deleted` + `is_time_confirmed`
+ * 未决节点的判据与工作台指标带里那张期限卡同一套（`NOT is_deleted` + `is_time_confirmed`
  * + `NODE_OPEN_STATUSES` + `deadline_time IS NOT NULL`）：时间没确认的节点算不出"还剩几天"，
  * 归进任何一档都是编的。`none` 就是"连一个这样的节点都没有"。
  */
@@ -368,7 +368,7 @@ export type MatterMetrics = {
  * join 会让一个有三个逾期节点的案卷在三格里各数一次（指标带要数的是**案卷**，
  * 不是节点），而 `EXISTS` 天然是"最多数一次"。
  *
- * 未决节点的判据与报表的 `nodeScan` 同一套（`reports.ts`）：未软删、时间已确认、
+ * 未决节点的判据与工作台指标带里那张期限卡同一套：未软删、时间已确认、
  * 状态是未开始/进行中、期限非空。时间没确认的节点算不出"还剩几天"，
  * 归进任何一档都是编的——它自己单独占一格（`timeUnconfirmed`）。
  *
