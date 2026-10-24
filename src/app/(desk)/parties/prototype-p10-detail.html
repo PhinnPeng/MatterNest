@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · P10 对手方详情</title>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  PROTOTYPE — 一次性产物，不进主干（prototype/p9-p18-2026-10-17 分支）。
+  回答的问题是：「对手方档案详情这一页长什么样？」
+
+  【对照的已交付实现】主仓 main 的 `src/app/(desk)/parties/[id]/party-detail.tsx`（MATT-40 / T3）。
+  第一屏顺序照它摆：
+    1. **本体**：名称 + 类型 + 证件号/手机号（**明文**，IQ-12：展示层全明文，
+       没有「显示明文」按钮、也没有逐次审计）；
+    2. **卷入的全部事项与案件及其中的地位**：两列并排给「我方地位 / 对方地位」——
+       这才是「相对我方视角」；只给对方的地位，读者还得回头翻案件才知道我方是谁；
+    3. **合并**（F3-9）：主记录显示「并入了哪几份」，被并方软删后接口给 404（名字不链过去）。
+  内嵌两张表用平表（不是列表页那张 DataTable 壳）：一屏里不能再出第二个 h1。
+
+  【本页承载的 F】F3-4 涉及案件/事项（总数按可见计；party_roles=对方在该案中的地位，
+  相对我方视角）；F3-5 证件号/手机号展示层全明文（明文**导出**才需 can_read_plain）；
+  F3-6 对手方标签；F3-7 删除（软删无回收站）；F3-8 加密存储；**F3-9 合并**。
+
+  【变体】?variant= 或右下角浮条：
+    A 默认详情      —— 有登记信息、两张关联表、无合并痕迹
+    B 主记录（已合并） —— 页头带「并入了 N 份」；底部多一张「已并入本档案」卡
+    C 合并弹窗 · 别的并进本档案（多选，F3-9 默认方向）
+    D 合并弹窗 · 本档案并进别处（单选）+「合并不可撤销」紧挨提交键
+    E 空关联        —— 两张表都空（落点①：各说下一步怎么挂上）
+
+  ⚠ 文案纪律（`.trellis/spec/frontend/component-guidelines.md`「副标题纪律」+ AGENTS.md）：
+    本文件不在 src/ 下，lint-guard 的源码断言扫不到它 —— 只剩立场能拦：
+    · 标题下**没有**第二行说明；类型/证件号/时间回到「登记信息」字段表（落点④）；
+    · 权限与"看不见的条数"落进 Alert / tooltip（落点①③），不在页头讲规则；
+    · 合并的两条方向说明落进弹窗内（动作发生处），不在详情页首页讲。
+
+  数据为内存假数据。色板抄自 src/app/theme/brand.ts，外壳照抄 AppShell。
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --brand:#2f5fe0; --brand-hover:#4473f0;
+    --success:#1a9c6b; --overdue:#c2363b; --soon:#9a5a00;
+    --sider-bg:#1d2433; --sider-item:#c3ccdd;
+    --paper:#f7f8fa;
+    --ink:#1d2433; --ink-2:#4f5a6f; --ink-3:#616a79; --ink-4:#a4abb8;
+    --line:#eceef3; --line-2:#dfe3ec; --rail:#c8ccd4;
+    --r:8px; --shadow:0 1px 2px rgba(29,36,51,.06),0 1px 3px rgba(29,36,51,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer}
+  .num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  .shell{display:flex;min-height:100vh}
+  .sider{width:216px;flex:none;background:var(--sider-bg);color:var(--sider-item);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .sider-brand{padding:14px 16px 10px}
+  .sider-brand b{display:block;color:#fff;font-size:15px}
+  .nav{padding:4px 8px;flex:1;overflow:auto}
+  .nav-group{font-size:11px;color:#6f7a90;padding:12px 8px 5px;letter-spacing:.5px}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+    color:var(--sider-item);font-size:13.5px;margin:1px 0}
+  .nav-item.on{background:var(--brand);color:#fff;font-weight:500}
+  .nav-item .ic{width:16px;text-align:center;opacity:.88}
+  .sider-foot{padding:10px 16px;border-top:1px solid rgba(255,255,255,.08);
+    display:flex;align-items:center;gap:9px;justify-content:center}
+  .sider-foot b{display:block;color:#fff;font-size:13px}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;padding:0 24px;position:sticky;top:0;z-index:20}
+  .topbar h1{font-size:15px;margin:0;font-weight:500}
+  .crumb{font-size:12px;color:var(--ink-3);margin-left:10px}
+  .content{padding:16px 24px 96px;flex:1;max-width:1180px;margin:0 auto;width:100%}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+    margin-bottom:12px}
+  .pad{padding:16px 20px}
+  .row{display:flex;gap:10px;align-items:center}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .lbl{font-size:12px;color:var(--ink-3)} .muted{color:var(--ink-3)} .faint{color:var(--ink-4)}
+
+  /* 页头（照抄 PageHeader：title + flags + actions，无第二行说明） */
+  .ph{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;flex-wrap:wrap}
+  .ph h1{font-size:16px;margin:0;font-weight:600;line-height:28px}
+  .ph .flags{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .flag{font-size:11px;line-height:18px;padding:0 7px;border-radius:3px;border:1px solid #cfdcfb;
+    background:#f0f5ff;color:var(--brand);white-space:nowrap}
+  .btn{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:6px 13px;color:var(--ink-2);font-size:13px}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+  .btn.p:hover{background:var(--brand-hover);color:#fff}
+  .btn.sm{padding:3px 10px;font-size:12px}
+  .btn.danger{color:var(--overdue);border-color:#ecc9cb}
+  .btn.danger:hover{background:#fdeeee}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;border-color:var(--rail)}
+
+  /* 登记信息：字段表（落点④） */
+  dl.kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 24px;margin:0}
+  dl.kv .k{font-size:12px;color:var(--ink-3);margin-bottom:2px}
+  dl.kv .v{font-size:13px}
+
+  .sec-t{font-size:13.5px;font-weight:600;margin:0;display:flex;align-items:center;gap:8px}
+  .sec-t .n{font-size:11.5px;color:var(--ink-3);font-weight:400}
+  .sec-h{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}
+
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th{background:#f7f8fa;color:var(--ink-2);font-weight:500;font-size:12px;text-align:left;
+    padding:8px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  tr:last-child td{border-bottom:0}
+  tr.body:hover{background:#fbfcfe;cursor:pointer}
+  .lnk{color:var(--brand)}
+  .st{display:inline-flex;align-items:center;gap:5px;font-size:12.5px}
+  .st::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--rail)}
+  .st.open::before{background:var(--rail)}
+  .st.prog::before{background:var(--brand)}
+  .st.ok::before{background:var(--success)}
+
+  .alert{display:flex;gap:9px;padding:9px 12px;border-radius:6px;font-size:12.5px;line-height:1.7;margin-bottom:8px}
+  .alert.info{background:#f0f5ff;color:#2a4a9c;border:1px solid #cfdcfb}
+  .alert.warn{background:#fff8ec;color:#7a4a00;border:1px solid #f2ddb5}
+  .alert.bad{background:#fdecec;color:#8f2a2e;border:1px solid #f5cdcd}
+
+  .emptyT{padding:22px 12px;text-align:center;color:var(--ink-3);font-size:12.5px;line-height:1.8}
+  .merged-row{font-size:13px;padding:5px 0;display:flex;gap:10px;align-items:baseline}
+  .merged-row .t{font-size:12px;color:var(--ink-3)}
+
+  /* 弹窗 */
+  .mask{position:fixed;inset:0;background:rgba(29,36,51,.38);display:none;align-items:flex-start;
+    justify-content:center;z-index:80;padding:64px 20px;overflow:auto}
+  .mask.on{display:flex}
+  .modal{width:560px;max-width:100%;background:#fff;border-radius:10px;box-shadow:0 16px 48px rgba(29,36,51,.24)}
+  .modal-h{padding:16px 20px;border-bottom:1px solid var(--line);font-size:15px;font-weight:600}
+  .modal-b{padding:16px 20px}
+  .modal-f{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+  .seg{display:inline-flex;border:1px solid var(--rail);border-radius:6px;overflow:hidden;margin-bottom:12px}
+  .seg button{border:0;background:#fff;padding:6px 14px;font-size:12.5px;color:var(--ink-2);border-right:1px solid var(--rail)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:#eaf0fd;color:var(--brand);font-weight:600}
+  .fi{margin-bottom:10px}
+  .fi input,.fi textarea{width:100%;border:1px solid var(--rail);border-radius:6px;padding:7px 11px;
+    font:inherit;font-size:13.5px;color:var(--ink);background:#fff}
+  .fi textarea{resize:vertical;line-height:1.6}
+  .fi input:focus,.fi textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(47,95,224,.12)}
+  .sel{border:1px solid var(--rail);border-radius:6px;min-height:38px;padding:6px 9px;
+    display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .chipline{display:flex;gap:6px;align-items:center;background:#f0f5ff;border:1px solid #cfdcfb;
+    color:var(--brand);border-radius:5px;padding:2px 8px;font-size:12.5px}
+  .chipline .x{border:0;background:none;color:inherit;padding:0 0 0 2px;font-size:13px;line-height:1}
+  .ph2{color:var(--ink-4);font-size:13px}
+
+  .sw{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;
+    display:flex;align-items:center;gap:4px;background:var(--ink);color:#fff;
+    border-radius:22px;padding:5px 8px;box-shadow:0 6px 22px rgba(29,36,51,.28);max-width:92vw;flex-wrap:wrap}
+  .sw button{background:none;border:0;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;line-height:1}
+  .sw button:hover{background:rgba(255,255,255,.16)}
+  .sw .lb{font-size:12.5px;padding:0 10px;white-space:nowrap}
+  .sw .lb b{font-weight:600}
+  .sw .lb i{font-style:normal;color:#aeb6c6;margin-left:6px}
+  .sw .warn{font-size:11px;color:#ffb4b4;padding:0 8px;border-left:1px solid rgba(255,255,255,.2);margin-left:4px}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="sider">
+    <div class="sider-brand"><b>MatterNest</b></div>
+    <nav class="nav">
+      <div class="nav-group">概要</div>
+      <div class="nav-item"><span class="ic">◷</span>工作台</div>
+      <div class="nav-item"><span class="ic">◔</span>通知</div>
+      <div class="nav-group">业务</div>
+      <div class="nav-item"><span class="ic">▤</span>案件</div>
+      <div class="nav-item"><span class="ic">◇</span>事项</div>
+      <div class="nav-item on"><span class="ic">▣</span>当事人</div>
+      <div class="nav-item"><span class="ic">◫</span>已归档</div>
+      <div class="nav-group">系统</div>
+      <div class="nav-item"><span class="ic">⚙</span>配置字典</div>
+      <div class="nav-item"><span class="ic">◈</span>用户与角色</div>
+    </nav>
+    <div class="sider-foot"><div class="avatar">沈</div><b>沈亦</b></div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar"><h1>当事人<span class="crumb">/ 当事人列表 / 档案详情</span></h1></header>
+    <div class="content" id="root"></div>
+  </div>
+</div>
+
+<div class="sw">
+  <button id="prev" title="上一个（←）">‹</button>
+  <div class="lb" id="lb"></div>
+  <button id="next" title="下一个（→）">›</button>
+  <span class="warn">原型</span>
+</div>
+
+<script>
+/* ══════════════ 假数据 ══════════════ */
+const P = {
+  name:'恒基建设集团有限公司', type:'企业法人', idType:'统一社会信用代码',
+  idn:'91320100MA1KC41J2B', contact:'025-8663 1200',
+  createdBy:'赵凌', createdAt:'2026-08-12 09:41', updatedAt:'2026-10-15 16:20',
+  remark:'施工总承包方，涉厂房项目一期。', mergedCount:0,
+};
+const MATTERS = [
+  {code:'AJ-20260920-003', name:'恒基建设诉我方建设工程施工合同纠纷', our:'被告', party:'原告', status:'进行中', st:'prog', arch:false, up:'3 小时前'},
+  {code:'AJ-20260612-011', name:'厂房二期工程款结算争议',            our:'原告', party:'被告', status:'已结案', st:'ok',   arch:false, up:'2026-09-30'},
+];
+const RISKS = [
+  {code:'FX-20260928-014', name:'恒基建设承建厂房 · 供应商延迟交付与现场停工', party:'第三人', status:'进行中', st:'prog', arch:false, up:'2 天前'},
+  {code:'FX-20260502-007', name:'欧朗精密供货合同履约争议',                     party:'被告',   status:'已归档', st:'open', arch:true,  up:'2026-08-11'},
+];
+const MERGED_IN = [
+  {name:'恒基建设集团（南京）有限公司', at:'2026-10-15 16:20'},
+  {name:'江苏恒基建设工程有限公司',     at:'2026-10-15 16:20'},
+];
+const MERGE_OPTIONS = [
+  {id:'9002', name:'恒基建设集团有限公司南京分公司', tail:'尾号 8K9C'},
+  {id:'9004', name:'江苏恒基建设工程有限公司',       tail:'尾号 4L7P'},
+  {id:'9006', name:'恒基建设（集团）有限公司',       tail:'尾号 2N5Q'},
+];
+
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const stLabel = s => `<span class="st ${s.st}">${esc(s.status)}</span>`;
+const archFlag = a => a ? `<span style="color:var(--ink-3);font-size:12px">已归档</span>` : '';
+
+/* ══════════════ 片段 ══════════════ */
+function pageHead(){
+  return `<div class="ph">
+    <div style="min-width:0">
+      <div class="row" style="gap:10px">
+        <h1>${esc(P.name)}</h1>
+        ${P.mergedCount>0?`<span class="flag" title="它并入了哪几份重复档案见页面底部">并入了 ${P.mergedCount} 份</span>`:''}
+      </div>
+    </div>
+    <div class="row" style="flex:none">
+      <button class="btn">编辑</button>
+      <button class="btn" id="mergeBtn">合并重复档案</button>
+    </div>
+  </div>`;
+}
+
+function regCard(){
+  return `<div class="card">
+    <div class="pad">
+      <div class="sec-h" style="margin-bottom:14px"><h2 class="sec-t">登记信息</h2></div>
+      <dl class="kv">
+        <div><div class="k">类型</div><div class="v">${esc(P.type)}</div></div>
+        <div><div class="k">证件类型</div><div class="v">${esc(P.idType)}</div></div>
+        <div><div class="k">证件号</div><div class="v"><span class="num">${esc(P.idn)}</span></div></div>
+        <div><div class="k">联系方式</div><div class="v"><span class="num">${esc(P.contact)}</span></div></div>
+        <div><div class="k">登记人</div><div class="v">${esc(P.createdBy)}</div></div>
+        <div><div class="k">登记时间</div><div class="v">${esc(P.createdAt)}</div></div>
+        <div><div class="k">更新时间</div><div class="v">${esc(P.updatedAt)}</div></div>
+        <div style="grid-column:1 / -1"><div class="k">备注</div><div class="v">${esc(P.remark)}</div></div>
+      </dl>
+    </div>
+  </div>`;
+}
+
+function mattersCard(){
+  return `<div class="card">
+    <div class="pad">
+      <div class="sec-h"><h2 class="sec-t">涉及案件 <span class="n">${MATTERS.length}</span></h2></div>
+      <div class="alert info"><span>ⓘ</span><div>部分结果因权限未显示：另有 1 个案件不在你的数据范围内</div></div>
+      ${MATTERS.length?`<table>
+        <thead><tr>
+          <th style="width:132px">编号</th><th>案件名称</th>
+          <th style="width:96px">我方地位</th><th style="width:96px">对方地位</th>
+          <th style="width:88px">状态</th><th style="width:76px">归档</th><th style="width:76px">更新</th>
+        </tr></thead>
+        <tbody>${MATTERS.map(m=>`<tr class="body">
+          <td><span class="lnk num" style="font-size:12px">${esc(m.code)}</span></td>
+          <td title="${esc(m.name)}"><span class="lnk">${esc(m.name)}</span></td>
+          <td>${esc(m.our)}</td><td>${esc(m.party)}</td>
+          <td>${stLabel(m)}</td><td>${archFlag(m.arch)}</td>
+          <td><span style="font-size:12px;color:var(--ink-3)">${esc(m.up)}</span></td>
+        </tr>`).join('')}</tbody>
+      </table>`:`<div class="emptyT">这份档案还没有关联任何案件。建案时在「当事人」一栏选它即可挂上。</div>`}
+    </div>
+  </div>`;
+}
+
+function risksCard(){
+  return `<div class="card">
+    <div class="pad">
+      <div class="sec-h"><h2 class="sec-t">涉及事项 <span class="n">${RISKS.length}</span></h2></div>
+      ${RISKS.length?`<table>
+        <thead><tr>
+          <th style="width:132px">编号</th><th>事项名称</th>
+          <th style="width:96px">对方地位</th>
+          <th style="width:88px">状态</th><th style="width:76px">归档</th><th style="width:76px">更新</th>
+        </tr></thead>
+        <tbody>${RISKS.map(r=>`<tr class="body">
+          <td><span class="lnk num" style="font-size:12px">${esc(r.code)}</span></td>
+          <td title="${esc(r.name)}"><span class="lnk">${esc(r.name)}</span></td>
+          <td>${esc(r.party)}</td>
+          <td>${stLabel(r)}</td><td>${archFlag(r.arch)}</td>
+          <td><span style="font-size:12px;color:var(--ink-3)">${esc(r.up)}</span></td>
+        </tr>`).join('')}</tbody>
+      </table>`:`<div class="emptyT">这份档案还没有关联任何事项。建事项或转案件时选它即可挂上。</div>`}
+    </div>
+  </div>`;
+}
+
+function mergedCard(){
+  return `<div class="card">
+    <div class="pad">
+      <div class="sec-h"><h2 class="sec-t">已并入本档案 <span class="n">${MERGED_IN.length}</span></h2></div>
+      ${MERGED_IN.map(m=>`<div class="merged-row"><span>${esc(m.name)}</span><span class="t">${esc(m.at)}</span></div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function emptyMatters(){
+  return `<div class="card"><div class="pad">
+    <div class="sec-h"><h2 class="sec-t">涉及案件 <span class="n">0</span></h2></div>
+    <div class="emptyT">这份档案还没有关联任何案件。建案时在「当事人」一栏选它即可挂上。</div>
+  </div></div>`;
+}
+function emptyRisks(){
+  return `<div class="card"><div class="pad">
+    <div class="sec-h"><h2 class="sec-t">涉及事项 <span class="n">0</span></h2></div>
+    <div class="emptyT">这份档案还没有关联任何事项。建事项或转案件时选它即可挂上。</div>
+  </div></div>`;
+}
+
+/* 合并弹窗（F3-9） */
+function mergeModal(dir){
+  const into = dir==='into';
+  const picked = into
+    ? [{id:'9002',name:'恒基建设集团有限公司南京分公司'},{id:'9006',name:'恒基建设（集团）有限公司'}]
+    : [{id:'9004',name:'江苏恒基建设工程有限公司'}];
+  const opts = MERGE_OPTIONS.filter(o=>!picked.find(p=>p.id===o.id));
+  return `<div class="mask on">
+    <div class="modal">
+      <div class="modal-h">合并重复档案</div>
+      <div class="modal-b">
+        <div class="seg">
+          <button class="${into?'on':''}">别的档案并进本档案</button>
+          <button class="${into?'':'on'}">本档案并进别的档案</button>
+        </div>
+        <div class="fi">
+          <input placeholder="按名称或完整证件号检索目标档案">
+        </div>
+        <div class="fi">
+          <div class="sel">
+            ${picked.length?picked.map(p=>`<span class="chipline">${esc(p.name)}<button class="x">×</button></span>`).join('')
+              :`<span class="ph2">${into?'选择要并入的档案（可多选）':'选择要并入到哪一份档案'}</span>`}
+          </div>
+        </div>
+        <div class="fi" style="margin-bottom:0">
+          <textarea rows="2" maxlength="500" placeholder="说明（可选，记进审计）"></textarea>
+        </div>
+        <div class="alert warn" style="margin:12px 0 0">
+          <span>⚠</span><div><b>合并不可撤销</b><br>
+            被并方会被软删，它名下的案件与事项全部改挂到主记录；同一案卷上重复的那条关联会被丢掉。
+            ${into?'主记录：恒基建设集团有限公司':'主记录：上面选中的那一份'}</div>
+        </div>
+      </div>
+      <div class="modal-f">
+        <button class="btn">取消</button>
+        <button class="btn danger">合并</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* 检索命中提示（两个方向共用的那条"按名称/证件号找"的下一步） */
+function mergeSearchNote(){
+  return `<div class="card"><div class="pad" style="font-size:12.5px;color:var(--ink-3);line-height:1.8">
+    目标是靠名称/完整证件号检索出来的，与列表、建案下拉同一个接口：一份下拉列不出全部档案，
+    而"我要并的是哪一份"恰恰需要按证件号精确找。
+  </div></div>`;
+}
+
+/* ══════════════ 变体 ══════════════ */
+const V = {
+  A:{n:'默认详情（有登记信息 + 两张关联表）',
+     f:()=> pageHead()+regCard()+mattersCard()+risksCard()},
+  B:{n:'主记录 · 已合并（页头 flag + 底部「已并入本档案」卡）',
+     f:()=>{ P.mergedCount=2; const h=pageHead()+regCard()+mattersCard()+risksCard()+mergedCard(); P.mergedCount=0; return h; }},
+  C:{n:'合并弹窗 · 别的并进本档案（多选，默认方向）',
+     f:()=> pageHead()+regCard()+mattersCard()+risksCard()+mergeModal('into')+mergeSearchNote()},
+  D:{n:'合并弹窗 · 本档案并进别处（单选）+ 不可撤销警告',
+     f:()=> pageHead()+regCard()+mattersCard()+risksCard()+mergeModal('out')+mergeSearchNote()},
+  E:{n:'空关联（两张表都空）',
+     f:()=> pageHead()+regCard()+emptyMatters()+emptyRisks()},
+};
+const keys = Object.keys(V);
+let cur = (new URLSearchParams(location.search).get('variant')||'').toUpperCase();
+if (!V[cur]) cur = 'A';
+
+function render(){
+  document.getElementById('root').innerHTML = V[cur].f();
+  document.getElementById('lb').innerHTML = `<b>${cur}</b> <i>${V[cur].n}</i>`;
+  const u = new URL(location.href); u.searchParams.set('variant', cur);
+  history.replaceState(null,'',u);
+}
+function go(d){ const i=keys.indexOf(cur); cur=keys[(i+d+keys.length)%keys.length]; render(); }
+document.getElementById('prev').onclick=()=>go(-1);
+document.getElementById('next').onclick=()=>go(1);
+addEventListener('keydown', e=>{
+  const t=e.target, tag=t.tagName;
+  if (tag==='INPUT'||tag==='TEXTAREA'||t.isContentEditable) return;
+  if (e.key==='ArrowLeft'){e.preventDefault();go(-1);}
+  if (e.key==='ArrowRight'){e.preventDefault();go(1);}
+});
+render();
+</script>
+</body>
+</html>

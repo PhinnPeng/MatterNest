@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · P13 用户与角色</title>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  PROTOTYPE — 一次性产物，不进主干（prototype/p9-p18-2026-10-17 分支）。
+  回答的问题是：「用户与角色这一页长什么样？」
+
+  【页面编号 / 路由】PRD §4.4 的 **P13**，路由 `/settings/users-and-roles`，
+  菜单「系统设置 > 用户与角色」。本页承载 F6-1…F6-5、F6-7、F6-9、F6-11（§4.5）。
+
+  ⚠⚠ **核实结论：P13 在 main 上已部分交付**（`src/app/(desk)/users/users-view.tsx`，MATT-10）。
+  已交付的部分（本原型**照抄**其形态，不重画）：
+    F6-1 用户列表与启停 · F6-3 授予/回收角色（RoleDialog，整体替换语义）·
+    F6-5 角色变更审计 · F6-7 可选用户查询 · F6-9 本地凭据（仅系统所有者可设）·
+    F6-11 待开通队列（批准即当场指定角色）。另外还有系统所有者移交（MATT-53）。
+  **未交付、也正是本原型要补的形态**：
+    F6-2 角色管理（5 内置 + 自建角色、数据范围三档 L1/L2/L3）；
+    F6-4 4 个特权开关挂在角色上（can_unarchive / can_manage_config / can_manage_user / can_read_plain，
+         后者语义收窄为**仅明文导出**）。
+  ⇒ 已交付页是"用户"一个面；缺的是"角色"这个面。本原型把两个面摆齐，并**明确标出哪一半已在 main**。
+
+  【形态依据】权限草案 v5 §1（三档范围）、§2（5 内置角色表）、§2.1（4 开关）、§2.2（两条护栏）。
+  三档的显示名照 `shared/enums` 的 DATA_SCOPE_LABELS：全部记录 / 我参与 / 仅自己相关。
+
+  【变体】?variant= 或右下角浮条：
+    A 用户面（照抄已交付的 users-view：待开通队列 + 用户表）—— 这一半在 main
+    B 角色面（**本原型的新内容**：5 内置角色 + 数据范围 + 4 开关，只读矩阵式）
+    C 新建自定义角色（选 数据范围 + 勾 特权开关）
+    D 改角色（对某个账号授权，照抄已交付 RoleDialog 的形态）
+    E 禁自助提权（改自己 → 按钮禁用 + tooltip 说明；服务端才是防线）
+
+  ⚠ 文案纪律（`.trellis/spec/frontend/component-guidelines.md`「副标题纪律」+ AGENTS.md）：
+    本文件不在 src/ 下，lint-guard 的源码断言扫不到它 —— 只剩立场能拦：
+    · 标题下**没有**第二行说明（"permission 模型 = 数据范围 + 4 开关"这种就是讲规则）；
+    · 三档范围的含义落进**角色行的字段表**与 tooltip（落点③④），不在页头讲；
+    · "为什么 sys_admin 范围是 L3"落进开关旁的 tooltip（动作发生处）；
+    · 禁自助提权的理由落进禁用按钮的 tooltip（落点③），不在页面写一段散文。
+
+  数据为内存假数据。色板抄自 src/app/theme/brand.ts，外壳照抄 AppShell。
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --brand:#2f5fe0; --brand-hover:#4473f0;
+    --success:#1a9c6b; --overdue:#c2363b; --soon:#9a5a00;
+    --sider-bg:#1d2433; --sider-item:#c3ccdd;
+    --paper:#f7f8fa;
+    --ink:#1d2433; --ink-2:#4f5a6f; --ink-3:#616a79; --ink-4:#a4abb8;
+    --line:#eceef3; --line-2:#dfe3ec; --rail:#c8ccd4;
+    --r:8px; --shadow:0 1px 2px rgba(29,36,51,.06),0 1px 3px rgba(29,36,51,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer}
+  .num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .shell{display:flex;min-height:100vh}
+  .sider{width:216px;flex:none;background:var(--sider-bg);color:var(--sider-item);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .sider-brand{padding:14px 16px 10px}
+  .sider-brand b{display:block;color:#fff;font-size:15px}
+  .nav{padding:4px 8px;flex:1;overflow:auto}
+  .nav-group{font-size:11px;color:#6f7a90;padding:12px 8px 5px;letter-spacing:.5px}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+    color:var(--sider-item);font-size:13.5px;margin:1px 0}
+  .nav-item.on{background:var(--brand);color:#fff;font-weight:500}
+  .nav-item .ic{width:16px;text-align:center;opacity:.88}
+  .sider-foot{padding:10px 16px;border-top:1px solid rgba(255,255,255,.08);
+    display:flex;align-items:center;gap:9px;justify-content:center}
+  .sider-foot b{display:block;color:#fff;font-size:13px}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;padding:0 24px;position:sticky;top:0;z-index:20}
+  .topbar h1{font-size:15px;margin:0;font-weight:500}
+  .content{padding:16px 24px 96px;flex:1;max-width:1180px;margin:0 auto;width:100%}
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:12px}
+  .pad{padding:16px 20px}
+  .row{display:flex;gap:10px;align-items:center}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .lbl{font-size:12px;color:var(--ink-3)} .muted{color:var(--ink-3)} .faint{color:var(--ink-4)}
+  .tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 9px;border-radius:20px;
+    background:#eef1f6;color:var(--ink-2);white-space:nowrap}
+  .tag.ok{background:#e9f7f1;color:var(--success)}
+  .tag.warn{background:#fff4e6;color:var(--soon)}
+  .tag.bad{background:#fdecec;color:var(--overdue)}
+  .tag.info{background:#f0f5ff;color:var(--brand)}
+  .btn{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:6px 13px;color:var(--ink-2);font-size:13px}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+  .btn.p:hover{background:var(--brand-hover);color:#fff}
+  .btn.sm{padding:3px 9px;font-size:12px}
+  .btn.danger{color:var(--overdue)}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;border-color:var(--rail);color:var(--ink-3)}
+  .flag{font-size:11px;line-height:18px;padding:0 7px;border-radius:3px;border:1px solid var(--line-2);
+    color:var(--ink-2);background:#f7f8fa;white-space:nowrap}
+  .flag.warn{border-color:#f2ddb5;background:#fff8ec;color:var(--soon)}
+  .flag.info{border-color:#cfdcfb;background:#f0f5ff;color:var(--brand)}
+
+  .ph{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;flex-wrap:wrap}
+  .ph h1{font-size:16px;margin:0;font-weight:600;line-height:28px}
+  .facet{display:inline-flex;border:1px solid var(--rail);border-radius:6px;overflow:hidden;margin-bottom:12px}
+  .facet button{border:0;background:#fff;padding:7px 16px;font-size:13px;color:var(--ink-2);border-right:1px solid var(--rail)}
+  .facet button:last-child{border-right:0}
+  .facet button.on{background:#eaf0fd;color:var(--brand);font-weight:600}
+
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th{background:#f7f8fa;color:var(--ink-2);font-weight:500;font-size:12px;text-align:left;
+    padding:9px 12px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+  th.c{text-align:center}
+  td{padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+  td.c{text-align:center}
+  tr:last-child td{border-bottom:0}
+  tr.body:hover{background:#fbfcfe}
+  .tgl{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:5px;
+    border:1.5px solid var(--rail);font-size:12px;line-height:1;color:transparent}
+  .tgl.on{background:#eaf0fd;border-color:#cfdcfb;color:var(--brand)}
+  .acts{display:flex;gap:12px;color:var(--ink-3);font-size:12px}
+  .acts span:hover{color:var(--brand);cursor:pointer}
+
+  .alert{display:flex;gap:9px;padding:10px 13px;border-radius:6px;font-size:12.5px;line-height:1.7;margin-bottom:12px}
+  .alert.info{background:#f0f5ff;color:#2a4a9c;border:1px solid #cfdcfb}
+  .alert.warn{background:#fff8ec;color:#7a4a00;border:1px solid #f2ddb5}
+  .alert b{font-weight:600}
+
+  details.fld{border:1px solid var(--line);border-radius:8px;background:#fbfcfe;margin-top:6px}
+  details.fld summary{cursor:pointer;font-size:12.5px;color:var(--brand);padding:10px 14px;list-style:none;user-select:none}
+  details.fld summary::before{content:"▸ ";display:inline-block;transition:transform .15s}
+  details.fld[open] summary::before{content:"▾ "}
+  details.fld .body{padding:2px 14px 14px;font-size:12.5px;color:var(--ink-2);line-height:1.85}
+  details.fld .body b{color:var(--ink)}
+  details.fld .code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--ink-3)}
+
+  .mask{position:fixed;inset:0;background:rgba(29,36,51,.38);display:none;align-items:flex-start;
+    justify-content:center;z-index:80;padding:56px 20px;overflow:auto}
+  .mask.on{display:flex}
+  .modal{width:520px;max-width:100%;background:#fff;border-radius:10px;box-shadow:0 16px 48px rgba(29,36,51,.24)}
+  .modal-h{padding:16px 20px;border-bottom:1px solid var(--line);font-size:15px;font-weight:600}
+  .modal-b{padding:16px 20px}
+  .modal-f{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+  .fi{margin-bottom:14px}
+  .fi-l{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:6px;font-weight:500}
+  .fi-l .req{color:var(--overdue);margin-right:3px;font-weight:700}
+  .fi input,.fi select{width:100%;border:1px solid var(--rail);border-radius:6px;padding:7px 11px;
+    font:inherit;font-size:13.5px;color:var(--ink);background:#fff;height:36px}
+  .fi input:focus,.fi select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(47,95,224,.12)}
+  .fi-x{font-size:11.5px;color:var(--ink-3);margin-top:5px;line-height:1.6}
+  .radios{display:flex;flex-direction:column;gap:8px}
+  .radios label{display:flex;gap:8px;align-items:flex-start;font-size:13px}
+  .radios label .d{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+  .chk{display:flex;flex-direction:column;gap:8px}
+  .chk label{display:flex;gap:8px;align-items:flex-start;font-size:13px}
+  .chk label .d{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+  .hint{font-size:12px;color:var(--soon);margin-top:10px}
+
+  .sw{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;
+    display:flex;align-items:center;gap:4px;background:var(--ink);color:#fff;
+    border-radius:22px;padding:5px 8px;box-shadow:0 6px 22px rgba(29,36,51,.28);max-width:92vw;flex-wrap:wrap}
+  .sw button{background:none;border:0;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;line-height:1}
+  .sw button:hover{background:rgba(255,255,255,.16)}
+  .sw .lb{font-size:12.5px;padding:0 10px;white-space:nowrap}
+  .sw .lb b{font-weight:600}
+  .sw .lb i{font-style:normal;color:#aeb6c6;margin-left:6px}
+  .sw .warn{font-size:11px;color:#ffb4b4;padding:0 8px;border-left:1px solid rgba(255,255,255,.2);margin-left:4px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sider">
+    <div class="sider-brand"><b>MatterNest</b></div>
+    <nav class="nav">
+      <div class="nav-group">概要</div>
+      <div class="nav-item"><span class="ic">◷</span>工作台</div>
+      <div class="nav-item"><span class="ic">◔</span>通知</div>
+      <div class="nav-group">业务</div>
+      <div class="nav-item"><span class="ic">▤</span>案件</div>
+      <div class="nav-item"><span class="ic">◇</span>事项</div>
+      <div class="nav-item"><span class="ic">▣</span>当事人</div>
+      <div class="nav-item"><span class="ic">◫</span>已归档</div>
+      <div class="nav-group">系统</div>
+      <div class="nav-item"><span class="ic">⚙</span>配置字典</div>
+      <div class="nav-item on"><span class="ic">◈</span>用户与角色</div>
+    </nav>
+    <div class="sider-foot"><div class="avatar">沈</div><b>沈亦</b></div>
+  </aside>
+  <div class="main">
+    <header class="topbar"><h1>用户与角色</h1></header>
+    <div class="content" id="root"></div>
+  </div>
+</div>
+<div class="sw">
+  <button id="prev" title="上一个（←）">‹</button>
+  <div class="lb" id="lb"></div>
+  <button id="next" title="下一个（→）">›</button>
+  <span class="warn">原型</span>
+</div>
+<script>
+/* ══════════════ 假数据 ══════════════ */
+const SCOPE = {
+  all:          {n:'全部记录', d:'整个企业范围的记录'},
+  participating:{n:'我参与',   d:'我经办 ∪ 我协办 ∪ 我关注 ∪ 我创建'},
+  owned:        {n:'仅自己相关',d:'我经办 ∪ 我创建（不含他人加给我的协办/关注）'},
+};
+const ROLES = [
+  {code:'sys_admin',      name:'系统管理', scope:'owned',         unarchive:false,manageConfig:true, manageUser:true, readPlain:false, sys:true,  on:true, users:1},
+  {code:'full_admin',     name:'全局管理', scope:'all',           unarchive:true, manageConfig:false,manageUser:false,readPlain:true,  sys:true,  on:true, users:2},
+  {code:'full_operator',  name:'全局经办', scope:'all',           unarchive:false,manageConfig:false,manageUser:false,readPlain:false, sys:true,  on:true, users:3},
+  {code:'joined_operator',name:'参与经办', scope:'participating', unarchive:false,manageConfig:false,manageUser:false,readPlain:false, sys:true,  on:true, users:5},
+  {code:'self_operator',  name:'承办经办', scope:'owned',         unarchive:false,manageConfig:false,manageUser:false,readPlain:false, sys:true,  on:true, users:4},
+  {code:'risk_lead',      name:'风险负责人', scope:'all',         unarchive:false,manageConfig:true, manageUser:false,readPlain:false, sys:false, on:true, users:2},
+];
+const USERS = [
+  {user:'shenyi',    name:'沈亦',  enabled:true,  activation:'active',  owner:true,  admin:false, roles:['sys_admin','full_admin'], hasCred:true,  last:'3 小时前'},
+  {user:'wangkf',    name:'王凯锋',enabled:true,  activation:'active',  owner:false, admin:false, roles:['full_admin'],               hasCred:false, last:'昨天'},
+  {user:'zhaoling',  name:'赵凌',  enabled:true,  activation:'active',  owner:false, admin:false, roles:['full_operator'],            hasCred:false, last:'5 小时前'},
+  {user:'lichen',    name:'李晨',  enabled:true,  activation:'active',  owner:false, admin:false, roles:['joined_operator'],          hasCred:false, last:'2 天前'},
+  {user:'sunmin',    name:'孙敏',  enabled:true,  activation:'active',  owner:false, admin:false, roles:['self_operator'],            hasCred:false, last:'昨天'},
+  {user:'zhouhe',    name:'周鹤',  enabled:false, activation:'active',  owner:false, admin:false, roles:[],                            hasCred:false, last:'2026-09-30'},
+  {user:'linshu',    name:'林姝',  enabled:true,  activation:'pending', owner:false, admin:false, roles:[],                            hasCred:false, last:'从未'},
+  {user:'caoyu',     name:'曹宇',  enabled:true,  activation:'pending', owner:false, admin:false, roles:[],                            hasCred:false, last:'从未'},
+];
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const tgl = on => `<span class="tgl ${on?'on':''}">✓</span>`;
+
+/* ══════════════ 用户面（照抄已交付 users-view 的形态） ══════════════ */
+function pendingCard(){
+  const p = USERS.filter(u=>u.activation==='pending');
+  if (!p.length) return '';
+  return `<div class="card"><div class="pad">
+    <div class="row" style="gap:8px;margin-bottom:12px"><b style="font-size:14px">待开通</b><span class="tag warn">${p.length}</span></div>
+    ${p.map(u=>`<div class="between" style="padding:6px 0">
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <span class="num">${esc(u.user)}</span><span>${esc(u.name)}</span>
+        <span class="lbl">批准时要当场指定角色——不指定的话他登进来什么都看不到。</span>
+      </div>
+      <button class="btn p sm">批准并指定角色</button>
+    </div>`).join('')}
+  </div></div>`;
+}
+function usersTable(){
+  return `<div class="card">
+    <div class="pad between" style="border-bottom:1px solid var(--line)">
+      <b style="font-size:16px">用户与角色</b>
+      <button class="btn sm">刷新</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th style="width:210px">账号</th>
+        <th style="width:120px">显示名</th>
+        <th style="width:230px">角色</th>
+        <th style="width:170px">状态</th>
+        <th style="width:80px">凭据</th>
+        <th style="width:100px">最后登录</th>
+        <th style="width:250px">操作</th>
+      </tr></thead>
+      <tbody>${USERS.map(u=>`<tr class="body">
+        <td><span class="row" style="gap:6px;flex-wrap:wrap">
+          <span class="num">${esc(u.user)}</span>
+          ${u.owner?'<span class="flag info">系统所有者</span>':''}
+        </span></td>
+        <td>${esc(u.name)}</td>
+        <td>${u.roles.length ? u.roles.map(c=>`<span class="tag">${esc((ROLES.find(r=>r.code===c)||{}).name||c)}</span>`).join(' ')
+          : '<span class="flag warn">无角色</span>'}</td>
+        <td><span class="tag ${u.enabled?'ok':'bad'}">${u.enabled?'启用':'停用'}</span>
+          <span class="lbl" style="margin-left:6px">${u.activation==='active'?'已开通':'待开通'}</span></td>
+        <td>${u.hasCred?'<span style="font-size:12px">已设</span>':'<span style="font-size:12px;color:var(--soon)">未设</span>'}</td>
+        <td><span style="font-size:12px">${esc(u.last)}</span></td>
+        <td><div class="row" style="gap:6px;flex-wrap:wrap">
+          <button class="btn sm" id="roleBtn">改角色</button>
+          <button class="btn sm ${u.enabled?'danger':''}">${u.enabled?'停用':'启用'}</button>
+          <button class="btn sm">${u.hasCred?'重置口令':'设口令'}</button>
+        </div></td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>`;
+}
+
+/* ══════════════ 角色面（**本原型的新内容**：F6-2 + F6-4） ══════════════ */
+function rolesTable(note){
+  return `<div class="card">
+    <div class="pad between" style="border-bottom:1px solid var(--line)">
+      <div class="row" style="gap:12px"><b style="font-size:16px">角色</b>
+        <span class="lbl">${ROLES.length} 个 · 内置 ${ROLES.filter(r=>r.sys).length}</span></div>
+      <button class="btn p sm">＋ 新建角色</button>
+    </div>
+    ${note?`<div style="padding:12px 16px 0"><div class="alert info"><span>ⓘ</span><div>${note}</div></div></div>`:''}
+    <table>
+      <thead><tr>
+        <th style="width:170px">角色</th>
+        <th style="width:140px">数据范围</th>
+        <th class="c" style="width:80px" title="撤销归档（修订稿 §3.3 归档终态的唯一出口）">撤销归档</th>
+        <th class="c" style="width:80px" title="5 类配置表增删改">管配置</th>
+        <th class="c" style="width:80px" title="用户、角色、数据范围调整">管账号</th>
+        <th class="c" style="width:90px" title="仅 gate 明文导出（IQ-12：展示层全明文，查看半边取消）">明文导出</th>
+        <th style="width:80px">账号数</th>
+        <th style="width:130px">操作</th>
+      </tr></thead>
+      <tbody>${ROLES.map(r=>`<tr class="body">
+        <td><b style="font-weight:500">${esc(r.name)}</b>
+          <div class="lbl" style="margin-top:2px">${r.sys?'<span class="flag">内置</span>':'<span class="flag">自建</span>'}</div></td>
+        <td title="${esc(SCOPE[r.scope].d)}">${esc(SCOPE[r.scope].n)}</td>
+        <td class="c">${tgl(r.unarchive)}</td>
+        <td class="c">${tgl(r.manageConfig)}</td>
+        <td class="c">${tgl(r.manageUser)}</td>
+        <td class="c">${tgl(r.readPlain)}</td>
+        <td><span class="num">${r.users}</span></td>
+        <td><div class="acts"><span>编辑</span><span>${r.sys?'':''}</span><span style="color:var(--ink-4);cursor:not-allowed" title="${r.sys?'内置角色不可删——可改范围与开关':'删除后持有它的账号会变成无角色（登不进）'}">删除</span></div></td>
+      </tr>`).join('')}</tbody>
+    </table>
+    <div class="pad" style="padding-top:12px;border-top:1px solid var(--line)">
+      <details class="fld">
+        <summary>三档数据范围与 4 个特权开关的含义</summary>
+        <div class="body">
+          ${Object.entries(SCOPE).map(([k,v])=>`<div><b>${v.n}</b>（<span class="code">${k}</span>）　${v.d}</div>`).join('')}
+          <div style="margin-top:8px">
+            <b>撤销归档</b> <span class="code">can_unarchive</span>　归档终态的唯一出口；
+            <b>管配置</b> <span class="code">can_manage_config</span>　五类配置表增删改；
+            <b>管账号</b> <span class="code">can_manage_user</span>　用户、角色、范围调整；
+            <b>明文导出</b> <span class="code">can_read_plain</span>　只 gate 导出，展示层一律明文。
+          </div>
+          <div style="margin-top:8px">
+            多角色取<b>最宽并集</b>：既要管系统又要撤销归档的人，给两个角色即可，不新增第 6 个。
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>`;
+}
+
+/* 角色行里的一处刻意的形态：sys_admin 的 L3 是设计，不是错配——用 tooltip 解释 */
+const SYS_ADMIN_NOTE = `角色按功能命名、不按岗位；取舍在"管系统但不看案卷"这一条上，
+所以「系统管理」的数据范围是「仅自己相关」——范围与特权是两条正交的轴，
+组合场景靠多角色并集承担。`;
+
+function newRoleModal(){
+  return `<div class="mask on"><div class="modal">
+    <div class="modal-h">新建角色</div>
+    <div class="modal-b">
+      <div class="fi"><label class="fi-l"><span class="req">*</span>角色名</label>
+        <input placeholder="按它在系统里做什么命名，例：规则运维、只读审计">
+        <div class="fi-x">角色名描述功能，不描述岗位——岗位到角色的映射属于部署时配置。</div></div>
+      <div class="fi"><label class="fi-l"><span class="req">*</span>数据范围</label>
+        <div class="radios">
+          <label><input type="radio" name="sc"> <div>全部记录<div class="d">${SCOPE.all.d}</div></div></label>
+          <label><input type="radio" name="sc" checked> <div>我参与<div class="d">${SCOPE.participating.d}</div></div></label>
+          <label><input type="radio" name="sc"> <div>仅自己相关<div class="d">${SCOPE.owned.d}</div></div></label>
+        </div></div>
+      <div class="fi"><label class="fi-l">特权开关</label>
+        <div class="chk">
+          <label><input type="checkbox"> <div>撤销归档<div class="d">撤销归档；仅"全局管理"建议持有</div></div></label>
+          <label><input type="checkbox" checked> <div>管配置<div class="d">五类配置表增删改</div></div></label>
+          <label><input type="checkbox"> <div>管账号<div class="d">用户、角色、数据范围调整</div></div></label>
+          <label><input type="checkbox"> <div>明文导出<div class="d">导出含明文证件号；展示层本来就是明文</div></div></label>
+        </div>
+        <div class="fi-x" style="margin-top:8px">这四项是"影响别人或不可逆"的动作，所以从业务动作里单拎出来可配；其余动作都属于"我在范围内就能做"。</div>
+      </div>
+    </div>
+    <div class="modal-f"><button class="btn">取消</button><button class="btn p">创建</button></div>
+  </div></div>`;
+}
+
+/* 改角色弹窗：照抄已交付 RoleDialog（整体替换语义） */
+function roleDialog(picked, note){
+  return `<div class="mask on"><div class="modal" style="width:480px">
+    <div class="modal-h">改角色 · 李晨</div>
+    <div class="modal-b">
+      <div class="chk">${ROLES.map(r=>`<label><input type="checkbox" ${picked.includes(r.code)?'checked':''}>
+        <div>${esc(r.name)}
+          <div class="d">${esc(r.code)} · 范围 ${esc(SCOPE[r.scope].n)}${
+            [r.manageUser&&'可管账号',r.manageConfig&&'可管配置',r.unarchive&&'可撤销归档',r.readPlain&&'可明文导出'].filter(Boolean).length
+              ? ' · '+[r.manageUser&&'可管账号',r.manageConfig&&'可管配置',r.unarchive&&'可撤销归档',r.readPlain&&'可明文导出'].filter(Boolean).join(' · ')
+              : ''}</div>
+        </div></label>`).join('')}</div>
+      ${picked.length===0?`<div class="hint">一个角色都不给的话，他下次请求会拿到 401——不是"只读"，是登不进。</div>`:''}
+    </div>
+    <div class="modal-f"><button class="btn">取消</button><button class="btn p">保存</button></div>
+  </div></div>`;
+}
+
+/* 禁自助提权：改自己，按钮禁用 + tooltip */
+function selfEscalation(){
+  return `<div class="card"><div class="pad">
+    <div class="between">
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <span class="num">shenyi</span><span>沈亦</span><span class="flag info">系统所有者</span>
+        <span class="tag">系统管理</span><span class="tag">全局管理</span>
+      </div>
+      <div style="position:relative">
+        <button class="btn sm" disabled title="不能改自己的角色：请让另一位管理员来改">改角色</button>
+      </div>
+    </div>
+    <div class="alert warn" style="margin:12px 0 0">
+      <span>⚠</span><div><b>不能改自己的角色</b><br>
+        这是权限模型里唯一"自己给自己开门"的路径；服务端拒绝，界面只是不把必然被拒的按钮摆出来。
+        需要提权时请让另一位持「管账号」的同事改。</div>
+    </div>
+  </div></div>`;
+}
+
+/* ══════════════ 变体 ══════════════ */
+const V = {
+  A:{n:'用户面（照抄已交付 users-view；这一半在 main）',
+     f:()=> pendingCard()+usersTable()},
+  B:{n:'角色面（**本原型新内容**：F6-2 范围 + F6-4 四开关）',
+     f:()=> rolesTable(SYS_ADMIN_NOTE)},
+  C:{n:'新建自定义角色（范围 + 特权开关）',
+     f:()=> rolesTable('')+newRoleModal()},
+  D:{n:'改角色 · 对某账号授权（照抄已交付 RoleDialog）',
+     f:()=> rolesTable('')+roleDialog(['joined_operator'])},
+  E:{n:'改自己的角色 → 禁用 + 说明（禁自助提权）',
+     f:()=> selfEscalation()+usersTable()},
+};
+const keys=Object.keys(V);
+let cur=(new URLSearchParams(location.search).get('variant')||'').toUpperCase();
+if(!V[cur]) cur='A';
+function render(){
+  document.getElementById('root').innerHTML=V[cur].f();
+  document.getElementById('lb').innerHTML=`<b>${cur}</b> <i>${V[cur].n}</i>`;
+  const u=new URL(location.href);u.searchParams.set('variant',cur);history.replaceState(null,'',u);
+}
+function go(d){const i=keys.indexOf(cur);cur=keys[(i+d+keys.length)%keys.length];render();}
+document.getElementById('prev').onclick=()=>go(-1);
+document.getElementById('next').onclick=()=>go(1);
+addEventListener('keydown',e=>{const t=e.target,tag=t.tagName;
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||t.isContentEditable)return;
+  if(e.key==='ArrowLeft'){e.preventDefault();go(-1);} if(e.key==='ArrowRight'){e.preventDefault();go(1);}});
+render();
+</script>
+</body>
+</html>

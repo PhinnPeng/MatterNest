@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · P9 对手方列表</title>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  PROTOTYPE — 一次性产物，不进主干（prototype/p9-p18-2026-10-17 分支）。
+  回答的问题是：「对手方列表这一页长什么样？」
+
+  【对照的已交付实现】主仓 main 的 `src/app/(desk)/parties/parties-view.tsx`（MATT-40 / T3）。
+  形态逐项照它做，不发明新控件：
+    · 页面 = 查询区卡（关键词，提交式）+ 一张 DataTable 卡（标题「当事人档案」）；
+    · 列：名称 / 类型 / 证件号 / 联系方式 / 涉及案件 / 涉及事项 / 更新；
+      **证件号与手机号是明文**（IQ-12：展示层全明文，没有「显示明文」按钮，也不逐次审计）；
+    · 排序只有名称与更新时间两列（服务端把 sortBy 收窄成两个字面量）；
+    · 工具栏：刷新 / 导出（脱敏｜含明文证件号，后者要 can_read_plain）/ 新建当事人；
+    · 行的旗舰动作是**打开档案**——列表这层不做合并（合并要看清两边卷入了什么，
+      那需要详情页那两张表）。
+
+  【本页承载的 F】F3-1 列表/搜索（"部分结果因权限未显示"）；F3-2 新建/编辑
+  （仅名称必填；输入本企业名提示而非建档）；F3-3 查重（名称模糊 + id_number_hash 精确）。
+
+  【变体 = 这一页真会遇到的几种态】右下角浮条或 ?variant= 切换：
+    A 默认列表      —— 有数据、有权限（导出两项都可点）
+    B 新建 · 本企业名 —— 输入本企业名，当场说清我方不入表（F3-2 防呆）
+    C 新建 · 同名     —— 库里已有同名，说明会另建一行并给「去合并」的下一步（F3-3）
+    D 新建 · 证件号命中 —— 粘完整证件号精确命中（id_number_hash）+ 409 撞号提示（F3-3）
+    E 空态           —— 零档案（落点①：说清下一步怎么建档）
+    F 筛选空         —— 关键词命中 0 条（落点①：说清是筛选造成的）
+    G 只读（无 can_read_plain） —— 导出菜单里「含明文证件号」不可点（界面不摆必被拒的动作）
+
+  ⚠ 文案纪律（`.trellis/spec/frontend/component-guidelines.md`「副标题纪律」+ AGENTS.md）：
+    本文件不在 src/ 下，lint-guard 的源码断言扫不到它 —— 只剩立场能拦，所以逐句过了：
+    · 标题下**没有**第二行说明（"对手方是仅对方/第三人的档案"这种就是复述 + 讲规则）；
+    · 取值/权限/排序规则落进 tooltip（落点③）与空态（落点①）；
+    · 表单的说明走控件下方 extra（落点②），不在页头讲。
+
+  数据为内存假数据（真实库不可达）。色板抄自 src/app/theme/brand.ts，外壳照抄 AppShell。
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --brand:#2f5fe0; --brand-hover:#4473f0; --brand-active:#234ac2;
+    --success:#1a9c6b; --overdue:#c2363b; --soon:#9a5a00;
+    --sider-bg:#1d2433; --sider-item:#c3ccdd;
+    --paper:#f7f8fa;
+    --ink:#1d2433; --ink-2:#4f5a6f; --ink-3:#616a79; --ink-4:#a4abb8;
+    --line:#eceef3; --line-2:#dfe3ec; --rail:#c8ccd4;
+    --r:8px; --shadow:0 1px 2px rgba(29,36,51,.06),0 1px 3px rgba(29,36,51,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer}
+  .num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  /* ── 外壳：照抄 AppShell（深色左栏 + 只有标题的顶栏）── */
+  .shell{display:flex;min-height:100vh}
+  .sider{width:216px;flex:none;background:var(--sider-bg);color:var(--sider-item);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .sider-brand{padding:14px 16px 10px}
+  .sider-brand b{display:block;color:#fff;font-size:15px;letter-spacing:.2px}
+  .nav{padding:4px 8px;flex:1;overflow:auto}
+  .nav-group{font-size:11px;color:#6f7a90;padding:12px 8px 5px;letter-spacing:.5px}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+    color:var(--sider-item);font-size:13.5px;margin:1px 0}
+  .nav-item.on{background:var(--brand);color:#fff;font-weight:500}
+  .nav-item .ic{width:16px;text-align:center;opacity:.88}
+  .sider-foot{padding:10px 16px;border-top:1px solid rgba(255,255,255,.08);
+    display:flex;align-items:center;gap:9px;justify-content:center}
+  .sider-foot b{display:block;color:#fff;font-size:13px}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;padding:0 24px;position:sticky;top:0;z-index:20}
+  .topbar h1{font-size:15px;margin:0;font-weight:500}
+  .content{padding:16px 24px 96px;flex:1;max-width:1400px;margin:0 auto;width:100%}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .pad{padding:16px}
+  .row{display:flex;gap:10px;align-items:center}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .lbl{font-size:12px;color:var(--ink-3)}
+  .muted{color:var(--ink-3)} .faint{color:var(--ink-4)}
+  .tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 9px;border-radius:20px;
+    background:#eef1f6;color:var(--ink-2);white-space:nowrap}
+  .tag.brand{background:#eaf0fd;color:var(--brand)}
+  .tag.warn{background:#fff4e6;color:var(--soon)}
+  .tag.ok{background:#e9f7f1;color:var(--success)}
+
+  .btn{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:6px 13px;color:var(--ink-2);font-size:13px}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+  .btn.p:hover{background:var(--brand-hover);color:#fff}
+  .btn.sm{padding:3px 9px;font-size:12px}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;border-color:var(--rail);color:var(--ink-3)}
+
+  /* 查询区：条件与动作同一行、动作靠右（照抄 QueryFilter） */
+  .qf .fl{display:flex;flex-direction:column;gap:4px;min-width:300px}
+  .qf label{font-size:12px;color:var(--ink-3)}
+  .qf input{width:300px;border:1px solid var(--rail);border-radius:6px;padding:7px 11px;
+    font:inherit;font-size:13.5px;height:34px;color:var(--ink)}
+  .qf input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(47,95,224,.12)}
+
+  /* 表格卡 */
+  .tb-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .tb-head h1{font-size:16px;margin:0;font-weight:600}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th{background:#f7f8fa;color:var(--ink-2);font-weight:500;font-size:12px;text-align:left;
+    padding:9px 12px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+  th.r{text-align:right}
+  td{padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  td.r{text-align:right}
+  tr.body:hover{background:#fbfcfe;cursor:pointer}
+  td .nm{font-weight:500;color:var(--brand)}
+  .sortable th:hover{color:var(--brand);cursor:pointer}
+  .caret{color:var(--ink-4);font-size:10px;margin-left:3px}
+  tfoot.pager td{border-bottom:0;padding:12px 16px;color:var(--ink-3);font-size:12.5px}
+  tfoot.pager .pages{display:flex;gap:6px;align-items:center}
+  tfoot.pager .pages b{display:inline-grid;place-items:center;min-width:26px;height:26px;border-radius:5px;
+    background:var(--brand);color:#fff;font-weight:600;font-size:12.5px}
+  tfoot.pager .pages span{display:inline-grid;place-items:center;min-width:26px;height:26px;border-radius:5px;
+    border:1px solid var(--rail);font-size:12.5px}
+
+  .empty{padding:40px 24px;text-align:center;color:var(--ink-3)}
+  .empty .ic{font-size:26px;opacity:.35;margin-bottom:6px}
+  .empty p{margin:6px 0 12px;font-size:13px;line-height:1.75;max-width:62ch;margin-left:auto;margin-right:auto}
+
+  /* 弹窗（新建/编辑/查重） */
+  .mask{position:fixed;inset:0;background:rgba(29,36,51,.38);display:none;align-items:flex-start;
+    justify-content:center;z-index:80;padding:64px 20px;overflow:auto}
+  .mask.on{display:flex}
+  .modal{width:520px;max-width:100%;background:#fff;border-radius:10px;box-shadow:0 16px 48px rgba(29,36,51,.24)}
+  .modal-h{padding:16px 20px;border-bottom:1px solid var(--line);font-size:15px;font-weight:600}
+  .modal-b{padding:16px 20px}
+  .modal-f{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+  .fi{margin-bottom:14px}
+  .fi-l{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:5px;font-weight:500}
+  .fi-l .req{color:var(--overdue);margin-right:3px;font-weight:700}
+  .fi input,.fi select,.fi textarea{width:100%;border:1px solid var(--rail);border-radius:6px;
+    padding:7px 11px;font:inherit;font-size:13.5px;background:#fff;color:var(--ink)}
+  .fi textarea{resize:vertical;line-height:1.6}
+  .fi input:focus,.fi select:focus,.fi textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(47,95,224,.12)}
+  .fi-x{font-size:11.5px;color:var(--ink-3);margin-top:5px;line-height:1.6}
+  .note{display:flex;gap:9px;padding:10px 13px;border-radius:6px;font-size:12.5px;line-height:1.7;margin-bottom:14px}
+  .note.warn{background:#fff8ec;color:#7a4a00;border:1px solid #f2ddb5}
+  .note.info{background:#f0f5ff;color:#2a4a9c;border:1px solid #cfdcfb}
+  .note.bad{background:#fdecec;color:#8f2a2e;border:1px solid #f5cdcd}
+  .note b{font-weight:600}
+  .hits{margin-top:8px;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .hit{display:flex;align-items:center;gap:10px;padding:8px 11px;font-size:12.5px;border-bottom:1px solid var(--line)}
+  .hit:last-child{border-bottom:0}
+  .hit .g{margin-left:auto}
+
+  /* 变体/状态浮条 */
+  .sw{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;
+    display:flex;align-items:center;gap:4px;background:var(--ink);color:#fff;
+    border-radius:22px;padding:5px 8px;box-shadow:0 6px 22px rgba(29,36,51,.28);max-width:92vw;flex-wrap:wrap}
+  .sw button{background:none;border:0;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;line-height:1}
+  .sw button:hover{background:rgba(255,255,255,.16)}
+  .sw .lb{font-size:12.5px;padding:0 10px;white-space:nowrap}
+  .sw .lb b{font-weight:600}
+  .sw .lb i{font-style:normal;color:#aeb6c6;margin-left:6px}
+  .sw .warn{font-size:11px;color:#ffb4b4;padding:0 8px;border-left:1px solid rgba(255,255,255,.2);margin-left:4px}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="sider">
+    <div class="sider-brand"><b>MatterNest</b></div>
+    <nav class="nav">
+      <div class="nav-group">概要</div>
+      <div class="nav-item"><span class="ic">◷</span>工作台</div>
+      <div class="nav-item"><span class="ic">◔</span>通知</div>
+      <div class="nav-group">业务</div>
+      <div class="nav-item"><span class="ic">▤</span>案件</div>
+      <div class="nav-item"><span class="ic">◇</span>事项</div>
+      <div class="nav-item on"><span class="ic">▣</span>当事人</div>
+      <div class="nav-item"><span class="ic">◫</span>已归档</div>
+      <div class="nav-group">系统</div>
+      <div class="nav-item"><span class="ic">⚙</span>配置字典</div>
+      <div class="nav-item"><span class="ic">◈</span>用户与角色</div>
+    </nav>
+    <div class="sider-foot">
+      <div class="avatar">沈</div>
+      <b>沈亦</b>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar"><h1>当事人</h1></header>
+    <div class="content" id="root"></div>
+  </div>
+</div>
+
+<div class="sw">
+  <button id="prev" title="上一个（←）">‹</button>
+  <div class="lb" id="lb"></div>
+  <button id="next" title="下一个（→）">›</button>
+  <span class="warn">原型</span>
+</div>
+
+<script>
+/* ══════════════ 假数据（内存，刷新即丢） ══════════════ */
+const CAN_PLAIN = true;   // 变体 G 里翻成 false：导出菜单的明文档不可点
+
+const ROWS = [
+  {id:'9001', name:'南京鼎泰房地产开发有限公司', type:'企业法人', idn:'91320100MA1XXXXX7A', contact:'13905190011', m:3, r:1, up:'2 天前'},
+  {id:'9002', name:'恒基建设集团有限公司',      type:'企业法人', idn:'91320100MA1KC41J2B', contact:'025-8663 1200', m:2, r:2, up:'今天'},
+  {id:'9003', name:'赵启明',                    type:'自然人',   idn:'320102197804123318', contact:'13851801122', m:1, r:0, up:'6 小时前'},
+  {id:'9004', name:'苏州工业园区欧朗精密制造有限公司', type:'企业法人', idn:'91320594MA1W7Q8K9C', contact:'0512-6288 4477', m:4, r:1, up:'5 天前'},
+  {id:'9005', name:'王丽萍',                    type:'自然人',   idn:'',                    contact:'',           m:1, r:3, up:'2026-09-24'},
+  {id:'9006', name:'中远海运物流供应链有限公司', type:'企业法人', idn:'91310115MA1H8T6R3F', contact:'021-6596 8800', m:1, r:0, up:'2026-09-20'},
+  {id:'9007', name:'李国栋',                    type:'自然人',   idn:'320104196512208819', contact:'13951182233', m:2, r:0, up:'2026-09-18'},
+  {id:'9008', name:'杭州云启数据科技有限公司',   type:'企业法人', idn:'91330106MA2XXXXX6D', contact:'0571-8899 0011', m:1, r:2, up:'2026-09-11'},
+];
+
+const HITS_NAME = [
+  {name:'恒基建设集团有限公司', tail:'尾号 1J2B', m:2, r:2},
+  {name:'恒基建设集团有限公司南京分公司', tail:'尾号 8K9C', m:0, r:1},
+];
+const HITS_IDN = [
+  {name:'恒基建设集团有限公司', tail:'91320100MA1KC41J2B', m:2, r:2},
+];
+const SELF_NAME = 'MatterNest 科技有限公司';
+
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const TIP_M = '只计你有权看到的案件；详情页会把看不见的那部分条数说出来';
+const TIP_R = '只计你有权看到的事项；详情页会把看不见的那部分条数说出来';
+
+/* ══════════════ 片段 ══════════════ */
+function queryFilter(){
+  return `<div class="card pad qf" style="margin-bottom:12px">
+    <div class="between">
+      <div class="row" style="gap:16px;align-items:flex-end">
+        <div class="fl">
+          <label for="kw">关键词</label>
+          <input id="kw" value="" placeholder="名称，或完整证件号">
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn">重置</button>
+        <button class="btn p">查询</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function tableHead(){
+  const caret = '▾';
+  return `<thead class="sortable"><tr>
+    <th style="width:208px">名称<span class="caret">${caret}</span></th>
+    <th style="width:84px">类型</th>
+    <th style="width:190px">证件号</th>
+    <th style="width:132px">联系方式</th>
+    <th class="r" style="width:84px" title="${TIP_M}">涉及案件<span class="caret">${caret}</span></th>
+    <th class="r" style="width:84px" title="${TIP_R}">涉及事项</th>
+    <th style="width:96px" title="名称与更新时间两列可排序；当事人表没有编号/状态/等级/金额这些维度">更新<span class="caret">${caret}</span></th>
+  </tr></thead>`;
+}
+
+const cellIdn = v => v ? `<span class="num" title="${esc(v)}" style="font-size:12px">${esc(v)}</span>`
+                       : `<span class="faint" style="font-size:12px">未登记</span>`;
+
+function dataTable(bodyHtml, pager){
+  return `<div class="card">
+    <div class="tb-head">
+      <h1>当事人档案</h1>
+      <div class="row">
+        <button class="btn" title="刷新">⟳</button>
+        <div style="position:relative" id="expWrap">
+          <button class="btn" id="expBtn">导出 ▾</button>
+          <div id="expMenu" style="position:absolute;right:0;top:calc(100% + 6px);min-width:210px;background:#fff;
+            border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 26px rgba(29,36,51,.16);padding:5px;display:none;z-index:60">
+            <button class="mi" style="display:block;width:100%;text-align:left;background:none;border:0;padding:7px 10px;border-radius:6px;font-size:13px">导出（脱敏）</button>
+            <button class="mi" id="expPlain" style="display:block;width:100%;text-align:left;background:none;border:0;padding:7px 10px;border-radius:6px;font-size:13px;color:var(--ink)"
+              title="明文档导出需 can_read_plain 权限，且整批记 EXPORT 审计">导出（含明文证件号）</button>
+          </div>
+        </div>
+        <button class="btn p" id="newBtn">＋ 新建当事人</button>
+      </div>
+    </div>
+    <table>${tableHead()}<tbody>${bodyHtml}</tbody></table>
+    ${pager}
+  </div>`;
+}
+
+const PAGER = `<tfoot class="pager"><tr><td colspan="7"><div class="between">
+  <span>共 132 条 · 每页 50</span>
+  <span class="pages">‹ <b>1</b> <span>2</span> <span>3</span> ›</span>
+</div></td></tr></tfoot>`;
+
+function rowsHtml(rows){
+  return rows.map(r=>`<tr class="body">
+    <td title="${esc(r.name)}"><span class="nm">${esc(r.name)}</span></td>
+    <td>${esc(r.type)}</td>
+    <td>${cellIdn(r.idn)}</td>
+    <td>${r.contact?`<span class="num" title="${esc(r.contact)}" style="font-size:12px">${esc(r.contact)}</span>`:'<span class="faint">—</span>'}</td>
+    <td class="r"><span class="num">${r.m}</span></td>
+    <td class="r"><span class="num">${r.r}</span></td>
+    <td><span style="font-size:12px;color:var(--ink-3)">${r.up}</span></td>
+  </tr>`).join('');
+}
+
+const EMPTY_NONE = `<tr><td colspan="7"><div class="empty">
+  <div class="ic">▣</div>
+  <p>还没有对手方档案。建案或建事项时在当事人一栏输入名称即可建档，也可以点右上「新建当事人」。</p>
+  <button class="btn p sm">＋ 新建当事人</button>
+</div></td></tr>`;
+
+const EMPTY_FILTER = `<tr><td colspan="7"><div class="empty">
+  <div class="ic">⌕</div>
+  <p>当前筛选下没有可见档案。清掉关键词再看一次；数据范围不同，看到的条数就不同。</p>
+  <button class="btn sm">清掉关键词</button>
+</div></td></tr>`;
+
+/* 新建弹窗：三种状态共用同一壳，只换提示区与命中列表 */
+function createModal(kind){
+  const hints = {
+    self: `<div class="note warn"><span>⚠</span><div><b>这是本企业名称，我方不入当事人表</b><br>
+      本企业在案件中的地位由该案的「我方诉讼地位」表达。这一栏请填对方当事人或第三人。</div></div>`,
+    same: `<div class="note info"><span>ⓘ</span><div><b>库里已有同名档案：恒基建设集团有限公司</b><br>
+      同名可能是两家，所以这里会新建一行而不是自动合并；确认是同一家，建档后到详情页把它们合并。</div>
+      <div class="hits" style="margin:8px 0 0">${HITS_NAME.map(h=>`<div class="hit">
+        <span>${esc(h.name)}</span><span class="faint num">${esc(h.tail)}</span>
+        <span class="lbl g">案件 ${h.m} · 事项 ${h.r}</span>
+      </div>`).join('')}</div></div>`,
+    idn: `<div class="note info"><span>ⓘ</span><div><b>证件号已命中一份档案</b><br>
+      同证件号在库里唯一，继续建档会被拒；这份大概率就是你要挂的那一家。</div>
+      <div class="hits" style="margin:8px 0 0">${HITS_IDN.map(h=>`<div class="hit">
+        <span>${esc(h.name)}</span><span class="faint num">${esc(h.tail)}</span>
+        <span class="lbl g">案件 ${h.m} · 事项 ${h.r}</span>
+      </div>`).join('')}</div></div>`,
+    err409: `<div class="note bad"><span>⚠</span><div><b>该证件号已在库，不能再建一份</b><br>
+      在列表的关键词框里粘一次完整证件号就能搜到它。</div></div>`,
+  }[kind] || '';
+  const nameVal = kind==='self' ? SELF_NAME : kind==='same' ? '恒基建设集团有限公司' : kind==='idn'||kind==='err409' ? '恒基建设集团有限公司' : '';
+  const idnVal = kind==='idn'||kind==='err409' ? '91320100MA1KC41J2B' : '';
+  return `<div class="mask on" id="createMask">
+    <div class="modal">
+      <div class="modal-h">新建对手方档案</div>
+      <div class="modal-b">
+        ${hints}
+        <div class="fi">
+          <label class="fi-l"><span class="req">*</span>名称</label>
+          <input value="${esc(nameVal)}" placeholder="例：南京鼎泰房地产开发有限公司">
+        </div>
+        <div class="fi">
+          <label class="fi-l">类型</label>
+          <select><option>企业法人</option><option>自然人</option><option>非法人组织</option><option>其他</option></select>
+        </div>
+        <div class="fi">
+          <label class="fi-l">证件类型</label>
+          <select><option>选填</option><option>统一社会信用代码</option><option>居民身份证</option><option>组织机构代码</option></select>
+        </div>
+        <div class="fi">
+          <label class="fi-l">证件号</label>
+          <input value="${esc(idnVal)}" placeholder="统一社会信用代码 / 身份证号">
+          <div class="fi-x">加密存储；列表与详情页按明文显示。同名不拦、同证件号拦——证件号是查重的精确那一半。</div>
+        </div>
+        <div class="fi">
+          <label class="fi-l">联系方式</label>
+          <input placeholder="手机号等">
+          <div class="fi-x">加密存储。</div>
+        </div>
+        <div class="fi" style="margin-bottom:0">
+          <label class="fi-l">备注</label>
+          <textarea rows="2" maxlength="2000"></textarea>
+        </div>
+      </div>
+      <div class="modal-f">
+        <button class="btn">取消</button>
+        <button class="btn p">建档</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════ 变体 ══════════════ */
+const V = {
+  A:{n:'默认列表（有数据/有权限）', f:()=> queryFilter()+dataTable(rowsHtml(ROWS), PAGER)},
+  B:{n:'新建 · 输入本企业名（F3-2 防呆）', f:()=> queryFilter()+dataTable(rowsHtml(ROWS), PAGER)+createModal('self')},
+  C:{n:'新建 · 库里已有同名（F3-3 名称模糊）', f:()=> queryFilter()+dataTable(rowsHtml(ROWS), PAGER)+createModal('same')},
+  D:{n:'新建 · 完整证件号命中，建档被拒（F3-3 精确）', f:()=> queryFilter()+dataTable(rowsHtml(ROWS), PAGER)+createModal('err409')},
+  E:{n:'空态 · 零档案', f:()=> queryFilter()+dataTable(EMPTY_NONE,'')},
+  F:{n:'空态 · 筛选命中 0 条', f:()=> queryFilter()+dataTable(EMPTY_FILTER,'')},
+  G:{n:'只读 · 无 can_read_plain', f:()=> queryFilter()+dataTable(rowsHtml(ROWS), PAGER)},
+};
+const keys = Object.keys(V);
+let cur = (new URLSearchParams(location.search).get('variant')||'').toUpperCase();
+if (!V[cur]) cur = 'A';
+
+function applyState(){
+  // 变体 G：无 can_read_plain —— 明文档不可点（界面不摆必被拒的动作；服务端才是防线）
+  const p = document.getElementById('expPlain');
+  if (p) {
+    p.disabled = cur === 'G';
+    p.title = cur === 'G'
+      ? '需要 can_read_plain 权限（仅全局管理持有）'
+      : '明文档导出需 can_read_plain 权限，且整批记 EXPORT 审计';
+  }
+  // 变体 E/F：空态下工具栏的导出无意义，关掉（新建仍有意义，不关）
+  const eb = document.getElementById('expBtn');
+  if (eb) eb.disabled = (cur === 'E' || cur === 'F');
+}
+
+function render(){
+  document.getElementById('root').innerHTML = V[cur].f();
+  document.getElementById('lb').innerHTML = `<b>${cur}</b> <i>${V[cur].n}</i>`;
+  const u = new URL(location.href); u.searchParams.set('variant', cur);
+  history.replaceState(null,'',u);
+  applyState();
+}
+function go(d){ const i = keys.indexOf(cur); cur = keys[(i+d+keys.length)%keys.length]; render(); }
+document.getElementById('prev').onclick = () => go(-1);
+document.getElementById('next').onclick = () => go(1);
+addEventListener('keydown', e=>{
+  const t=e.target, tag=t.tagName;
+  if (tag==='INPUT'||tag==='TEXTAREA'||t.isContentEditable) return;
+  if (e.key==='ArrowLeft'){e.preventDefault();go(-1);}
+  if (e.key==='ArrowRight'){e.preventDefault();go(1);}
+});
+/* 导出菜单开关（原型只做开关，不接真实动作） */
+document.addEventListener('click', e=>{
+  const btn=e.target.closest('#expBtn'), m=document.getElementById('expMenu');
+  if(!m) return;
+  if(btn){ m.style.display = m.style.display==='block' ? 'none' : 'block'; return; }
+  if(!e.target.closest('#expWrap')) m.style.display='none';
+});
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · P15 节点类型配置</title>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  PROTOTYPE — 一次性产物，不进主干（prototype/p9-p18-2026-10-17 分支）。
+  回答的问题是：「节点类型配置这一页长什么样？」
+
+  【页面编号 / 路由】PRD §4.4 的 **P15**，路由 `/settings/node-types`，
+  菜单「系统设置 > 配置页组 > 节点类型」。IQ-9：配置页组由原「业务配置」单页拆成 5 页，
+  P15 是其中一页，**不合并字典页**。
+
+  【本页承载的 F】PRD §4.2 **F5-3 节点类型配置**
+  （`host_type` / `preset_on_create` / `template_code`；**事项类全部 preset=false**，IQ-5）。
+  形态依据：`schema/config.ts` 的 `mn_node_type_config` 与 seed `0002_config.sql` 七行。
+
+  【这一页最容易被画错的一处】事项侧的 `preset_on_create` **全是 false**——这不是笔误，
+  是「事项是台账，案件是战场」这条刻意非对称的落点（IQ-5/Q14：事项无预设节点、节点手动加、
+  仅时间点）。所以本原型把宿主切换与「预设」列并排画，让「事项那侧一个都不勾」一眼可见。
+  保留这 3 个事项类型行是对的：类型是「可以选什么」，preset 是「建号时塞几个」——
+  裁定否掉的是后者。
+
+  【变体】?variant= 或右下角浮条：
+    A 案件宿主（预设：立案/举证/开庭 三个勾上，判决不勾）
+    B 事项宿主（预设全不勾 —— IQ-5 的形态；时间点一律 point）
+    C 新建类型（仅时间点 vs 时间段 的差别；事项侧不含时间段选项）
+    D 编辑内置类型（code 只读，preset 可改）
+
+  ⚠ 文案纪律（`.trellis/spec/frontend/component-guidelines.md`「副标题纪律」+ AGENTS.md）：
+    本文件不在 src/ 下，lint-guard 的源码断言扫不到它 —— 只剩立场能拦：
+    · 标题下**没有**第二行说明（"节点类型决定建号时可选的节点"这种就是复述 + 讲规则）；
+    · 各列的取值与"预设是什么意思"落进**折叠字段表**（落点④）与 tooltip（落点③）；
+    · 事项侧 preset=false 的理由落进该宿主下的一条 Alert（落点①，只在切到事项时才出现）。
+
+  数据为内存假数据。色板抄自 src/app/theme/brand.ts，外壳照抄 AppShell。
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --brand:#2f5fe0; --brand-hover:#4473f0;
+    --success:#1a9c6b; --overdue:#c2363b; --soon:#9a5a00;
+    --sider-bg:#1d2433; --sider-item:#c3ccdd;
+    --paper:#f7f8fa;
+    --ink:#1d2433; --ink-2:#4f5a6f; --ink-3:#616a79; --ink-4:#a4abb8;
+    --line:#eceef3; --line-2:#dfe3ec; --rail:#c8ccd4;
+    --r:8px; --shadow:0 1px 2px rgba(29,36,51,.06),0 1px 3px rgba(29,36,51,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer}
+  .num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  .shell{display:flex;min-height:100vh}
+  .sider{width:216px;flex:none;background:var(--sider-bg);color:var(--sider-item);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .sider-brand{padding:14px 16px 10px}
+  .sider-brand b{display:block;color:#fff;font-size:15px}
+  .nav{padding:4px 8px;flex:1;overflow:auto}
+  .nav-group{font-size:11px;color:#6f7a90;padding:12px 8px 5px;letter-spacing:.5px}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+    color:var(--sider-item);font-size:13.5px;margin:1px 0}
+  .nav-item.on{background:var(--brand);color:#fff;font-weight:500}
+  .nav-item.sub{padding-left:30px;font-size:13px}
+  .nav-item .ic{width:16px;text-align:center;opacity:.88}
+  .sider-foot{padding:10px 16px;border-top:1px solid rgba(255,255,255,.08);
+    display:flex;align-items:center;gap:9px;justify-content:center}
+  .sider-foot b{display:block;color:#fff;font-size:13px}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;padding:0 24px;position:sticky;top:0;z-index:20}
+  .topbar h1{font-size:15px;margin:0;font-weight:500}
+  .crumb{font-size:12px;color:var(--ink-3);margin-left:10px}
+  .content{padding:16px 24px 96px;flex:1;max-width:1180px;margin:0 auto;width:100%}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .pad{padding:16px 20px}
+  .row{display:flex;gap:10px;align-items:center}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .lbl{font-size:12px;color:var(--ink-3)} .muted{color:var(--ink-3)} .faint{color:var(--ink-4)}
+  .tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 9px;border-radius:20px;
+    background:#eef1f6;color:var(--ink-2);white-space:nowrap}
+  .tag.ok{background:#e9f7f1;color:var(--success)}
+  .tag.warn{background:#fff4e6;color:var(--soon)}
+  .tag.pt{background:#eaf0fd;color:var(--brand)}
+  .btn{border:1px solid var(--rail);background:#fff;border-radius:6px;padding:6px 13px;color:var(--ink-2);font-size:13px}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+  .btn.p:hover{background:var(--brand-hover);color:#fff}
+  .btn.sm{padding:3px 9px;font-size:12px}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;border-color:var(--rail);color:var(--ink-3)}
+
+  .ph{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;flex-wrap:wrap}
+  .ph h1{font-size:16px;margin:0;font-weight:600;line-height:28px}
+
+  .seg{display:inline-flex;border:1px solid var(--rail);border-radius:6px;overflow:hidden}
+  .seg button{border:0;background:#fff;padding:5px 13px;font-size:12.5px;color:var(--ink-2);border-right:1px solid var(--rail)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:#eaf0fd;color:var(--brand);font-weight:600}
+
+  .tb-head{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;
+    align-items:center;gap:12px;flex-wrap:wrap}
+  .tb-head h1{font-size:15px;margin:0;font-weight:600}
+
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th{background:#f7f8fa;color:var(--ink-2);font-weight:500;font-size:12px;text-align:left;
+    padding:9px 12px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+  td{padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  tr.body:hover{background:#fbfcfe}
+  td.code{font-size:12.5px;color:var(--ink-2)}
+  td.code .lock{color:var(--ink-4);font-size:11px;margin-left:5px}
+  .chk{width:15px;height:15px;border-radius:3px;border:1.5px solid var(--rail);display:inline-block;vertical-align:-2px;position:relative}
+  .chk.on{background:var(--brand);border-color:var(--brand)}
+  .chk.on::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+    border:solid #fff;border-width:0 2px 2px 0;transform:rotate(43deg)}
+  .chk.no{background:#f1f2f5;border-color:var(--line-2)}
+  .acts{display:flex;gap:12px;color:var(--ink-3);font-size:12px}
+  .acts span:hover{color:var(--brand);cursor:pointer}
+  .acts span[aria-disabled=muted]{color:var(--ink-4)}
+  .acts span[aria-disabled=muted]:hover{color:var(--ink-4);cursor:not-allowed}
+
+  .alert{display:flex;gap:9px;padding:10px 13px;border-radius:6px;font-size:12.5px;line-height:1.7;margin-bottom:12px}
+  .alert.info{background:#f0f5ff;color:#2a4a9c;border:1px solid #cfdcfb}
+  .alert b{font-weight:600}
+
+  details.fld{border:1px solid var(--line);border-radius:8px;background:#fbfcfe;margin-top:14px}
+  details.fld summary{cursor:pointer;font-size:12.5px;color:var(--brand);padding:10px 14px;list-style:none;user-select:none}
+  details.fld summary::before{content:"▸ ";display:inline-block;transition:transform .15s}
+  details.fld[open] summary::before{content:"▾ "}
+  details.fld .body{padding:2px 14px 14px;font-size:12.5px;color:var(--ink-2);line-height:1.85}
+  details.fld .body b{color:var(--ink)}
+  details.fld .code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--ink-3)}
+
+  .mask{position:fixed;inset:0;background:rgba(29,36,51,.38);display:none;align-items:flex-start;
+    justify-content:center;z-index:80;padding:56px 20px;overflow:auto}
+  .mask.on{display:flex}
+  .modal{width:520px;max-width:100%;background:#fff;border-radius:10px;box-shadow:0 16px 48px rgba(29,36,51,.24)}
+  .modal-h{padding:16px 20px;border-bottom:1px solid var(--line);font-size:15px;font-weight:600}
+  .modal-b{padding:16px 20px}
+  .modal-f{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+  .fi{margin-bottom:14px}
+  .fi-l{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:5px;font-weight:500}
+  .fi-l .req{color:var(--overdue);margin-right:3px;font-weight:700}
+  .fi input,.fi select{width:100%;border:1px solid var(--rail);border-radius:6px;padding:7px 11px;
+    font:inherit;font-size:13.5px;color:var(--ink);background:#fff;height:36px}
+  .fi input[readonly]{background:#f6f7f9;color:var(--ink-2);cursor:default}
+  .fi input:focus,.fi select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(47,95,224,.12)}
+  .fi-x{font-size:11.5px;color:var(--ink-3);margin-top:5px;line-height:1.6}
+
+  .sw{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;
+    display:flex;align-items:center;gap:4px;background:var(--ink);color:#fff;
+    border-radius:22px;padding:5px 8px;box-shadow:0 6px 22px rgba(29,36,51,.28);max-width:92vw;flex-wrap:wrap}
+  .sw button{background:none;border:0;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;line-height:1}
+  .sw button:hover{background:rgba(255,255,255,.16)}
+  .sw .lb{font-size:12.5px;padding:0 10px;white-space:nowrap}
+  .sw .lb b{font-weight:600}
+  .sw .lb i{font-style:normal;color:#aeb6c6;margin-left:6px}
+  .sw .warn{font-size:11px;color:#ffb4b4;padding:0 8px;border-left:1px solid rgba(255,255,255,.2);margin-left:4px}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="sider">
+    <div class="sider-brand"><b>MatterNest</b></div>
+    <nav class="nav">
+      <div class="nav-group">概要</div>
+      <div class="nav-item"><span class="ic">◷</span>工作台</div>
+      <div class="nav-item"><span class="ic">◔</span>通知</div>
+      <div class="nav-group">业务</div>
+      <div class="nav-item"><span class="ic">▤</span>案件</div>
+      <div class="nav-item"><span class="ic">◇</span>事项</div>
+      <div class="nav-item"><span class="ic">▣</span>当事人</div>
+      <div class="nav-item"><span class="ic">◫</span>已归档</div>
+      <div class="nav-group">系统</div>
+      <div class="nav-item"><span class="ic">⚙</span>配置</div>
+      <div class="nav-item sub">状态配置</div>
+      <div class="nav-item sub on">节点类型配置</div>
+      <div class="nav-item sub">费用项目配置</div>
+      <div class="nav-item sub">风险等级配置</div>
+      <div class="nav-item sub">标签配置</div>
+      <div class="nav-item"><span class="ic">◈</span>用户与角色</div>
+    </nav>
+    <div class="sider-foot"><div class="avatar">沈</div><b>沈亦</b></div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar"><h1>节点类型配置<span class="crumb">系统设置 / 配置 / 节点类型</span></h1></header>
+    <div class="content" id="root"></div>
+  </div>
+</div>
+
+<div class="sw">
+  <button id="prev" title="上一个（←）">‹</button>
+  <div class="lb" id="lb"></div>
+  <button id="next" title="下一个（→）">›</button>
+  <span class="warn">原型</span>
+</div>
+
+<script>
+/* ══════════════ 假数据（照 seed 七行） ══════════════ */
+const DATA = {
+  matter:{
+    label:'案件',
+    rows:[
+      {code:'filing',   name:'立案',     time:'point', offset:0,  preset:true,  sort:1, on:true, sys:true, tmpl:''},
+      {code:'evidence', name:'举证',     time:'range', offset:7,  preset:true,  sort:2, on:true, sys:true, tmpl:''},
+      {code:'hearing',  name:'开庭',     time:'point', offset:21, preset:true,  sort:3, on:true, sys:true, tmpl:''},
+      {code:'judgment', name:'判决',     time:'point', offset:30, preset:false, sort:4, on:true, sys:true, tmpl:''},
+      {code:'mediation',name:'调解',     time:'point', offset:0,  preset:false, sort:5, on:true, sys:false,tmpl:'in_progress_set'},
+    ],
+  },
+  risk_matter:{
+    label:'事项',
+    rows:[
+      {code:'assess',  name:'风险评估', time:'point', offset:0,  preset:false, sort:1, on:true, sys:true, tmpl:''},
+      {code:'handle',  name:'处置执行', time:'point', offset:3,  preset:false, sort:2, on:true, sys:true, tmpl:''},
+      {code:'confirm', name:'化解确认', time:'point', offset:14, preset:false, sort:3, on:true, sys:true, tmpl:''},
+    ],
+    note:'事项侧 <b>preset_on_create 全部为 false</b>：事项不预设节点，由经办人手动添加，且只支持时间点。',
+  },
+};
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const timeTag = t => t==='range' ? `<span class="tag">时间段</span>` : `<span class="tag pt">时间点</span>`;
+
+function pageHead(){
+  return `<div class="ph">
+    <h1>节点类型配置</h1>
+    <div class="row" style="flex:none"><button class="btn p">＋ 新建类型</button></div>
+  </div>`;
+}
+
+function hostTable(host){
+  const d = DATA[host];
+  return `<div class="card">
+    <div class="tb-head">
+      <div class="row" style="gap:12px">
+        <div class="seg">
+          <button class="${host==='matter'?'on':''}">案件</button>
+          <button class="${host==='risk_matter'?'on':''}">事项</button>
+        </div>
+        <span class="lbl">${d.rows.length} 个类型</span>
+      </div>
+      <button class="btn sm">刷新</button>
+    </div>
+    ${d.note?`<div style="padding:12px 16px 0"><div class="alert info"><span>ⓘ</span><div>${d.note}</div></div></div>`:''}
+    <table>
+      <thead><tr>
+        <th style="width:96px">排序</th>
+        <th style="width:150px">编码</th>
+        <th style="width:130px">名称</th>
+        <th style="width:120px">时间类型</th>
+        <th style="width:110px" title="距基准日的偏移天数；勾了预设的按它排序实例化">偏移天数</th>
+        <th style="width:110px" title="宿主建号时是否自动实例化这个节点">建号时预设</th>
+        <th style="width:90px">启用</th>
+        <th style="width:130px">操作</th>
+      </tr></thead>
+      <tbody>${d.rows.map(r=>`<tr class="body">
+        <td><span class="num">${r.sort}</span></td>
+        <td class="code" title="code 供模板与规则引用，同宿主内唯一、创建后不可改">
+          <span class="num">${esc(r.code)}</span><span class="lock">🔒</span></td>
+        <td>${esc(r.name)}${r.sys?' <span class="faint" style="font-size:11px">内置</span>':''}</td>
+        <td>${timeTag(r.time)}</td>
+        <td><span class="num">${r.offset}</span> 天</td>
+        <td><span class="chk ${r.preset?'on':'no'}"></span>${r.preset?'<span style="margin-left:6px;font-size:12px;color:var(--brand)">预设</span>':''}</td>
+        <td>${r.on?'<span class="tag ok">启用</span>':'<span class="tag">停用</span>'}</td>
+        <td><div class="acts">
+          <span>编辑</span>
+          <span ${r.sys?'aria-disabled="muted" title="内置类型不可删；可改名称/预设/排序"':''}>删除</span>
+        </div></td>
+      </tr>`).join('')}</tbody>
+    </table>
+    <div class="pad" style="padding-top:14px;border-top:1px solid var(--line)">${fold(host)}</div>
+  </div>`;
+}
+
+function fold(host){
+  return `<details class="fld">
+    <summary>这一页的四列分别管什么（含"预设"与"模板"的区别）</summary>
+    <div class="body">
+      <div><b>时间类型</b>　<span class="code">point</span> 时间点 / <span class="code">range</span> 时间段。
+        时间段才要求填结束时间；事项侧不开放时间段。</div>
+      <div><b>偏移天数</b>　距宿主基准日的偏移，预设实例化时用来算默认日期。</div>
+      <div><b>建号时预设</b>（<span class="code">preset_on_create</span>）　新建宿主时是否自动塞这个节点。
+        这是"塞不塞"的开关，不是"能不能选"——不勾的类型仍可手动添加。</div>
+      <div><b>模板归组</b>（<span class="code">template_code</span>）　规则按它批量取节点；
+        一期只有案件的「进入进行中」这条规则用它。</div>
+      <div style="margin-top:8px">
+        节点类型配置表<b>不按宿主拆</b>（后台在同一页统一维护）；被拆的是运行时节点表。
+      </div>
+    </div>
+  </details>`;
+}
+
+function newModal(host){
+  const isRisk = host==='risk_matter';
+  return `<div class="mask on">
+    <div class="modal">
+      <div class="modal-h">新建节点类型 · ${DATA[host].label}</div>
+      <div class="modal-b">
+        <div class="fi">
+          <label class="fi-l"><span class="req">*</span>名称</label>
+          <input placeholder="例：调解">
+        </div>
+        <div class="fi">
+          <label class="fi-l"><span class="req">*</span>编码</label>
+          <input placeholder="例：mediation">
+          <div class="fi-x">同宿主内唯一、创建后不可改；模板与规则引用它。</div>
+        </div>
+        <div class="fi">
+          <label class="fi-l"><span class="req">*</span>时间类型</label>
+          ${isRisk
+            ? `<select><option>时间点</option></select>
+               <div class="fi-x">事项侧只支持时间点，所以这里没有时间段选项。</div>`
+            : `<select><option>时间点</option><option>时间段</option></select>
+               <div class="fi-x">时间段才要求填结束时间。</div>`}
+        </div>
+        <div class="fi">
+          <label class="fi-l">偏移天数</label>
+          <input value="0" style="width:120px">
+        </div>
+        <div class="fi">
+          <label class="fi-l">建号时预设</label>
+          ${isRisk
+            ? `<select><option>不预设（事项不开放预设）</option></select>
+               <div class="fi-x">事项侧没有预设节点，这个开关在事项宿主下固定为关。</div>`
+            : `<select><option>不预设（可手动添加）</option><option>预设</option></select>`}
+        </div>
+        <div class="fi" style="margin-bottom:0">
+          <label class="fi-l">模板归组（选填）</label>
+          <input placeholder="例：in_progress_set">
+        </div>
+      </div>
+      <div class="modal-f">
+        <button class="btn">取消</button>
+        <button class="btn p">创建</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function editModal(){
+  return `<div class="mask on">
+    <div class="modal">
+      <div class="modal-h">编辑节点类型 · 举证（内置）</div>
+      <div class="modal-b">
+        <div class="fi">
+          <label class="fi-l">编码</label>
+          <input value="evidence" readonly>
+          <div class="fi-x">内置类型的 code 被 seed 与规则引用，创建后不可改。</div>
+        </div>
+        <div class="fi">
+          <label class="fi-l">名称</label>
+          <input value="举证">
+        </div>
+        <div class="fi">
+          <label class="fi-l">时间类型</label>
+          <select><option>时间段</option><option>时间点</option></select>
+        </div>
+        <div class="fi">
+          <label class="fi-l">偏移天数</label>
+          <input value="7" style="width:120px">
+        </div>
+        <div class="fi" style="margin-bottom:0">
+          <label class="fi-l">建号时预设</label>
+          <select><option>预设</option><option>不预设</option></select>
+        </div>
+      </div>
+      <div class="modal-f">
+        <button class="btn">取消</button>
+        <button class="btn p">保存</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+const V = {
+  A:{n:'案件宿主（预设：立案/举证/开庭 勾上）', f:()=> pageHead()+hostTable('matter')},
+  B:{n:'事项宿主（预设全不勾 —— IQ-5 的形态）', f:()=> pageHead()+hostTable('risk_matter')},
+  C:{n:'新建类型（时间点 / 时间段；事项侧不含时间段）', f:()=> pageHead()+hostTable('matter')+newModal('matter')},
+  D:{n:'编辑内置类型（code 只读，preset 可改）', f:()=> pageHead()+hostTable('matter')+editModal()},
+};
+const keys = Object.keys(V);
+let cur = (new URLSearchParams(location.search).get('variant')||'').toUpperCase();
+if (!V[cur]) cur='A';
+function render(){
+  document.getElementById('root').innerHTML = V[cur].f();
+  document.getElementById('lb').innerHTML = `<b>${cur}</b> <i>${V[cur].n}</i>`;
+  const u = new URL(location.href); u.searchParams.set('variant', cur);
+  history.replaceState(null,'',u);
+}
+function go(d){ const i=keys.indexOf(cur); cur=keys[(i+d+keys.length)%keys.length]; render(); }
+document.getElementById('prev').onclick=()=>go(-1);
+document.getElementById('next').onclick=()=>go(1);
+addEventListener('keydown', e=>{
+  const t=e.target, tag=t.tagName;
+  if (tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||t.isContentEditable) return;
+  if (e.key==='ArrowLeft'){e.preventDefault();go(-1);}
+  if (e.key==='ArrowRight'){e.preventDefault();go(1);}
+});
+render();
+</script>
+</body>
+</html>
