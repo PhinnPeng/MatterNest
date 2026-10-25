@@ -15,6 +15,15 @@
  *
  * 已装过的机器：`pnpm prepare` 重跑一次即可（幂等）。
  *
+ * ## linked worktree（2026-10-25）
+ *
+ * worktree 里的 `.git` 是**文件**（内容是 `gitdir: …`），不是目录 —— 直接拼
+ * `root/.git/hooks` 会 `ENOTDIR` 失败，`pnpm install` 整个挂掉（实测于主树
+ * `mn-wt/main-merge`）。hook 属于**共享**的 git 目录，所以目标路径一律由
+ * `git rev-parse --git-common-dir` 求出：主仓是 `.git/`，worktree 里指回主仓的
+ * `.git/`。装在共享目录也意味着从任何一棵树提交都跑同一个 hook —— 这正是
+ * `.githooks/pre-commit:25-28` 记录的已知代价（从 worktree 提交，verify 跑在主树）。
+ *
  * ## 幂等与失败语义
  *
  * 已存在且内容相同 ⇒ 不动（不产生无意义的 mtime 变化）。
@@ -23,13 +32,24 @@
  * 不该静默成功然后让人以为有门禁。
  */
 
+import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, ".githooks");
-const dstDir = join(root, ".git", "hooks");
+
+/**
+ * hook 装在**共享**的 git 目录里，不是 `root/.git`：worktree 的 `.git` 是文件。
+ * `--git-common-dir` 在主仓返回 `.git`（相对），在 worktree 返回主仓 `.git` 的绝对路径。
+ */
+function hooksDir() {
+  const commonDir = execFileSync("git", ["-C", root, "rev-parse", "--git-common-dir"], {
+    encoding: "utf8",
+  }).trim();
+  return join(resolve(root, commonDir), "hooks");
+}
 
 let installed = 0;
 let skipped = 0;
@@ -42,6 +62,7 @@ try {
     process.exit(1);
   }
 
+  const dstDir = hooksDir();
   await mkdir(dstDir, { recursive: true });
 
   for (const name of hooks) {
@@ -60,7 +81,7 @@ try {
     // hook 必须可执行，否则 git 静默跳过它（不报错，只是不跑）
     await copyFile(src, dst).catch(() => {});
     installed++;
-    console.log(`githooks: 已安装 .githooks/${name} → .git/hooks/${name}`);
+    console.log(`githooks: 已安装 .githooks/${name} → ${dst}`);
   }
 
   // 兜底：确认真的可执行。Windows 上 copyFile 不保证 mode，
