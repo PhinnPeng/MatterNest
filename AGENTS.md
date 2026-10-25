@@ -64,6 +64,18 @@ Windows 下不要用 PowerShell 的 `>` / `Out-File` 写中文文件：5.1 默�
 
 `pnpm dev` 用独立进程启动（`Start-Process cmd /c "pnpm dev > %TEMP%\mn-dev.log 2>&1"`），再轮询 `/login`。后台 shell 被判定结束时 Next 子进程可能残留并占住 3777：表现为页面 502、重跑 `EADDRINUSE`；先 `Get-NetTCPConnection -LocalPort 3777` 找到属主，再决定是否结束进程。
 
+### 分支与工作树
+
+开工前跑 `git worktree list`：一个分支只允许一个会话写，发现第二个写者立刻停手问人。
+
+开分支、合并、删分支、开树收树之前读 `docs/agents/branching.md`：命名空间合同、落地四问、工作树回收四条。
+
+### 开发期内存
+
+`pnpm dev` 默认不挂 xray（点击跳源码的浮层），实测约 0.7 GB。开启用 `pnpm dev:xray`：loader 已用官方 `turbopack.rules.condition` 的 `{ not: 'foreign' }` 限定在本仓源码，实测约 1.0 GB；不加这个条件会按 CPU 数拉起 20+ 个 worker，到 7.5 GB。
+
+`.next` 是纯缓存，长期 HMR 会涨到数 GB，`pnpm clean` 清掉。项目根不要留未入库的大目录（备份、导出、日志）：Tailwind v4 会扫描所有未被 `.gitignore` 忽略的文件，5 GB 的目录能让首次编译多占 6 GB。
+
 ### 改页面前
 
 先读 `.trellis/spec/frontend/index.md`。DataTable、`useListState`、`rulesFor` 这些硬约定写在分册里，不读就会在 review 被抓。
